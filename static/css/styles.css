@@ -42,6 +42,22 @@ body {
     color: var(--text-primary) !important;
 }
 
+/* Stage quick links in navbar */
+.stage-link {
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+.stage-link:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.stage-link .badge {
+    font-size: 0.75rem;
+    min-width: 22px;
+}
+
 /* Cards */
 .card {
     background-color: var(--bg-card);

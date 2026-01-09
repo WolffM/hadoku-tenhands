@@ -11,6 +11,7 @@ let stage3AllIssues = [];
 let stage3ReposWithCopilotPRs = [];
 let stage4Data = [];
 let currentPR = null;
+let currentPRIndex = 0;
 
 // Owner is set from template
 let owner = '';
@@ -801,7 +802,6 @@ async function quickApprovePR(repo, prNumber) {
 }
 
 async function quickMergePR(repo, prNumber) {
-    if (!confirm(`Merge ${repo} PR #${prNumber}?`)) return;
     removePRFromList(repo, prNumber);
     
     const result = await mergePR(owner, repo, prNumber);
@@ -812,14 +812,27 @@ async function quickMergePR(repo, prNumber) {
 
 async function showPRDetails(repo, prNumber) {
     currentPR = { repo, number: prNumber };
-    
-    const modal = new bootstrap.Modal(document.getElementById('prModal'));
+
+    // Find current index in the ready PRs list
+    const readyPrs = stage4Data.filter(pr => isPRReady(pr));
+    currentPRIndex = readyPrs.findIndex(pr => pr.repo === repo && pr.number === prNumber);
+    if (currentPRIndex === -1) currentPRIndex = 0;
+
+    // Update navigation counter and button states
+    updatePRNav();
+
+    const modalEl = document.getElementById('prModal');
+    let modal = bootstrap.Modal.getInstance(modalEl);
+    if (!modal) {
+        modal = new bootstrap.Modal(modalEl);
+    }
+
     document.getElementById('prModalTitle').textContent = `${repo} #${prNumber}`;
     document.getElementById('prModalSubtitle').textContent = 'Loading...';
     document.getElementById('prModalInfo').innerHTML = loadingSpinner();
     document.getElementById('prModalDiff').innerHTML = '<div class="text-center py-4 text-secondary">Loading diff...</div>';
     document.getElementById('prStats').textContent = '';
-    
+
     modal.show();
     
     const result = await apiCall('/api/pr-details', { owner, repo, pr_number: prNumber });
@@ -916,15 +929,19 @@ async function approveCurrentPR() {
 
 async function mergeCurrentPR() {
     if (!currentPR) return;
-    if (!confirm(`Merge PR #${currentPR.number}?`)) return;
-    
-    bootstrap.Modal.getInstance(document.getElementById('prModal')).hide();
-    removePRFromList(currentPR.repo, currentPR.number);
-    
-    const result = await mergePR(owner, currentPR.repo, currentPR.number);
-    if (!result.success) {
-        loadStage4(); // Reload on failure
-    }
+
+    const prToMerge = { ...currentPR };
+    removePRFromList(prToMerge.repo, prToMerge.number);
+
+    // Show next PR immediately (don't wait for merge)
+    showNextPR();
+
+    // Fire off merge in background
+    mergePR(owner, prToMerge.repo, prToMerge.number).then(result => {
+        if (!result.success) {
+            loadStage4(); // Reload on failure
+        }
+    });
 }
 
 function removePRFromList(repo, prNumber) {
@@ -932,4 +949,38 @@ function removePRFromList(repo, prNumber) {
     const readyPrs = stage4Data.filter(pr => isPRReady(pr));
     document.getElementById('stage4-count').textContent = readyPrs.length;
     renderStage4(stage4Data);
+}
+
+// ============ PR Navigation ============
+function updatePRNav() {
+    const readyPrs = stage4Data.filter(pr => isPRReady(pr));
+    const total = readyPrs.length;
+
+    document.getElementById('prCounter').textContent = total > 0 ? `${currentPRIndex + 1}/${total}` : '0/0';
+    document.getElementById('prevPRBtn').disabled = currentPRIndex <= 0;
+    document.getElementById('nextPRBtn').disabled = currentPRIndex >= total - 1;
+}
+
+function showNextPR() {
+    const readyPrs = stage4Data.filter(pr => isPRReady(pr));
+    if (readyPrs.length === 0) {
+        bootstrap.Modal.getInstance(document.getElementById('prModal'))?.hide();
+        log('✓ All PRs reviewed!', 'success');
+        return;
+    }
+
+    // Clamp index to valid range
+    if (currentPRIndex >= readyPrs.length) currentPRIndex = readyPrs.length - 1;
+
+    const pr = readyPrs[currentPRIndex];
+    showPRDetails(pr.repo, pr.number);
+}
+
+function showPrevPR() {
+    const readyPrs = stage4Data.filter(pr => isPRReady(pr));
+    if (currentPRIndex > 0) {
+        currentPRIndex--;
+        const pr = readyPrs[currentPRIndex];
+        showPRDetails(pr.repo, pr.number);
+    }
 }
