@@ -7,6 +7,7 @@ import subprocess
 import json
 import time
 import base64
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import from services
@@ -626,4 +627,7 @@ def api_pr_details():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # Use environment variable to control debug mode (defaults to False for security)
+    # Set FLASK_ENV=development to enable debug mode in local development
+    debug_mode = os.environ.get("FLASK_ENV") == "development"
+    app.run(debug=debug_mode, port=5000)
