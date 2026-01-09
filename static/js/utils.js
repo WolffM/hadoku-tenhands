@@ -58,10 +58,17 @@ function showToast(title, message, type = 'success') {
 }
 
 /**
- * Get admin key from URL query parameters
+ * Get admin key from sessionStorage (stored on initial page load, then URL is cleaned)
+ * Falls back to URL param for initial load before cleanup runs
  * @returns {string|null} Admin key if present
  */
 function getAdminKey() {
+    // First check sessionStorage (where key is stored after URL cleanup)
+    const storedKey = sessionStorage.getItem('dispatch_key');
+    if (storedKey) {
+        return storedKey;
+    }
+    // Fallback to URL param (for initial load before cleanup)
     const params = new URLSearchParams(window.location.search);
     return params.get('key');
 }

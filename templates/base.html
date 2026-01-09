@@ -75,20 +75,26 @@
         // URL prefix for API calls (set by Flask template)
         window.URL_PREFIX = "{{ url_prefix }}";
 
-        // Preserve ?key= parameter in all internal navigation links
-        document.addEventListener('DOMContentLoaded', () => {
+        // Store admin key in memory and clean URL for security
+        (function() {
             const params = new URLSearchParams(window.location.search);
             const key = params.get('key');
             if (key) {
-                // Add key to all internal links
-                document.querySelectorAll('a[href^="{{ url_prefix }}"]').forEach(link => {
-                    const url = new URL(link.href, window.location.origin);
-                    if (!url.searchParams.has('key')) {
-                        url.searchParams.set('key', key);
-                        link.href = url.pathname + url.search + url.hash;
-                    }
-                });
+                // Store key in sessionStorage (survives page navigation, cleared on tab close)
+                sessionStorage.setItem('dispatch_key', key);
+
+                // Remove key from URL to prevent exposure in browser history/referrer
+                params.delete('key');
+                const cleanUrl = window.location.pathname +
+                    (params.toString() ? '?' + params.toString() : '') +
+                    window.location.hash;
+                window.history.replaceState({}, '', cleanUrl);
             }
+        })();
+
+        // Update internal links to NOT include key (API calls use header instead)
+        document.addEventListener('DOMContentLoaded', () => {
+            // Links don't need key - navigation works via sessionStorage
         });
     </script>
     <script src="{{ url_prefix }}/static/js/utils.js"></script>
