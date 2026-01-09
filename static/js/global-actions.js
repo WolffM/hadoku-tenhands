@@ -3,6 +3,21 @@
  * This file contains all the JavaScript logic for the Global Actions pipeline page.
  */
 
+/**
+ * Make authenticated fetch request with admin key
+ * @param {string} url - URL to fetch
+ * @param {object} options - Fetch options (optional)
+ * @returns {Promise<Response>} Fetch response
+ */
+async function authFetch(url, options = {}) {
+    const adminKey = getAdminKey();
+    const headers = options.headers || {};
+    if (adminKey) {
+        headers['X-User-Key'] = adminKey;
+    }
+    return fetch(url, { ...options, headers });
+}
+
 // ============ State Variables ============
 let stage1Data = [];
 let stage2Data = [];
@@ -36,7 +51,7 @@ async function loadStage1() {
     container.innerHTML = loadingSpinner();
     
     try {
-        const response = await fetch('/api/stage1-repos');
+        const response = await authFetch((window.URL_PREFIX || '') + '/api/stage1-repos');
         const data = await response.json();
         
         if (data.success) {
@@ -110,7 +125,7 @@ async function loadStage2() {
     container.innerHTML = loadingSpinner('Loading repos with commit info...');
     
     try {
-        const response = await fetch('/api/stage2-repos');
+        const response = await authFetch((window.URL_PREFIX || '') + '/api/stage2-repos');
         const data = await response.json();
         
         if (data.success) {
@@ -356,7 +371,7 @@ async function loadStage3() {
     container.innerHTML = loadingSpinner();
     
     try {
-        const response = await fetch('/api/stage3-issues');
+        const response = await authFetch((window.URL_PREFIX || '') + '/api/stage3-issues');
         const data = await response.json();
         
         if (data.success) {
@@ -608,7 +623,7 @@ async function loadStage4() {
     container.innerHTML = loadingSpinner();
     
     try {
-        const response = await fetch('/api/stage4-prs');
+        const response = await authFetch((window.URL_PREFIX || '') + '/api/stage4-prs');
         const data = await response.json();
         
         if (data.success) {

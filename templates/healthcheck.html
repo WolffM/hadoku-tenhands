@@ -112,11 +112,21 @@
 <script>
     const owner = '{{ owner }}';
     let allWorkflowRuns = [];
-    
+
+    // Helper for authenticated fetch (uses getAdminKey from utils.js)
+    async function authFetch(url, options = {}) {
+        const adminKey = getAdminKey();
+        const headers = options.headers || {};
+        if (adminKey) {
+            headers['X-User-Key'] = adminKey;
+        }
+        return fetch(url, { ...options, headers });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         loadWorkflowRuns();
     });
-    
+
     async function loadWorkflowRuns() {
         const container = document.getElementById('workflow-runs-container');
         container.innerHTML = `
@@ -125,9 +135,9 @@
                 <p class="text-secondary mt-2">Loading workflow runs from all repos...</p>
             </div>
         `;
-        
+
         try {
-            const response = await fetch('/api/global-workflow-runs');
+            const response = await authFetch((window.URL_PREFIX || '') + '/api/global-workflow-runs');
             const data = await response.json();
             
             if (data.success) {
@@ -230,7 +240,7 @@
             html += `
                 <tr class="${rowClass}">
                     <td>
-                        <a href="/repo/${owner}/${run.repo}" class="text-decoration-none">
+                        <a href="${window.URL_PREFIX || ''}/repo/${owner}/${run.repo}" class="text-decoration-none">
                             ${run.repo}
                         </a>
                     </td>

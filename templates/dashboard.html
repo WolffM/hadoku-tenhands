@@ -8,7 +8,7 @@
         <h1 class="mb-1">Repository Dashboard</h1>
         <p class="text-secondary mb-0">Manage all your repositories in one place</p>
     </div>
-    <a href="/global-actions" class="btn btn-primary">
+    <a href="{{ url_prefix }}/global-actions" class="btn btn-primary">
         <i class="bi bi-lightning-fill"></i> Run Pipeline
     </a>
 </div>
@@ -85,7 +85,7 @@
                 {% endif %}
                 
                 <div class="d-flex gap-2">
-                    <a href="/repo/{{ owner }}/{{ repo.name }}" class="btn btn-outline-primary btn-sm flex-grow-1">
+                    <a href="{{ url_prefix }}/repo/{{ owner }}/{{ repo.name }}" class="btn btn-outline-primary btn-sm flex-grow-1">
                         <i class="bi bi-eye"></i> View
                     </a>
                     {% if not repo.vibecheck_installed %}

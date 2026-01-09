@@ -2,7 +2,7 @@
 VibeDispatch - Central Dashboard for GitHub Repository Management
 """
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, Blueprint, render_template, request, jsonify
 import subprocess
 import json
 import time
@@ -28,10 +28,17 @@ from config import VIBECHECK_WORKFLOW
 
 app = Flask(__name__)
 
+# URL prefix for deployment behind edge-router at hadoku.me/dispatch/*
+# Set URL_PREFIX="" for local development without prefix
+URL_PREFIX = os.environ.get("URL_PREFIX", "/dispatch")
+
+# Create blueprint for all routes
+bp = Blueprint('dispatch', __name__)
+
 
 # ============ Page Routes ============
 
-@app.route("/")
+@bp.route("/")
 def dashboard():
     """Main dashboard showing all repositories."""
     start = time.time()
@@ -51,7 +58,7 @@ def dashboard():
     return render_template("dashboard.html", repos=repos, owner=owner)
 
 
-@app.route("/repo/<owner>/<repo>")
+@bp.route("/repo/<owner>/<repo>")
 def repo_detail(owner, repo):
     """Detailed view of a single repository."""
     details = get_repo_details(owner, repo)
@@ -83,7 +90,7 @@ def repo_detail(owner, repo):
                          repo=repo)
 
 
-@app.route("/global-actions")
+@bp.route("/global-actions")
 def global_actions():
     """Page for running actions across multiple repos."""
     start = time.time()
@@ -103,7 +110,7 @@ def global_actions():
     return render_template("global_actions.html", repos=repos, owner=owner)
 
 
-@app.route("/healthcheck")
+@bp.route("/healthcheck")
 def healthcheck():
     """Health check page for monitoring workflow runs."""
     owner = get_authenticated_user()
@@ -112,7 +119,7 @@ def healthcheck():
 
 # ============ API Routes ============
 
-@app.route("/api/install-vibecheck", methods=["POST"])
+@bp.route("/api/install-vibecheck", methods=["POST"])
 def api_install_vibecheck():
     """Install vibecheck workflow to a repository."""
     data = request.json
@@ -139,7 +146,7 @@ def api_install_vibecheck():
     return jsonify({"success": False, "error": result.stderr})
 
 
-@app.route("/api/run-vibecheck", methods=["POST"])
+@bp.route("/api/run-vibecheck", methods=["POST"])
 def api_run_vibecheck():
     """Trigger the vibecheck workflow."""
     data = request.json
@@ -156,7 +163,7 @@ def api_run_vibecheck():
     return jsonify({"success": False, "error": result.get("error", "Unknown error")})
 
 
-@app.route("/api/assign-copilot", methods=["POST"])
+@bp.route("/api/assign-copilot", methods=["POST"])
 def api_assign_copilot():
     """Assign GitHub Copilot to an issue."""
     data = request.json
@@ -178,7 +185,7 @@ def api_assign_copilot():
     return jsonify({"success": False, "error": result.get("error", "Failed to assign Copilot")})
 
 
-@app.route("/api/get-high-severity-issues", methods=["POST"])
+@bp.route("/api/get-high-severity-issues", methods=["POST"])
 def api_get_high_severity_issues():
     """Get high severity vibecheck issues for a repo."""
     data = request.json
@@ -197,7 +204,7 @@ def api_get_high_severity_issues():
     return jsonify({"success": True, "issues": high_severity})
 
 
-@app.route("/api/approve-pr", methods=["POST"])
+@bp.route("/api/approve-pr", methods=["POST"])
 def api_approve_pr():
     """Approve a pull request."""
     data = request.json
@@ -220,7 +227,7 @@ def api_approve_pr():
     return jsonify({"success": False, "error": result.get("error", "Unknown error")})
 
 
-@app.route("/api/mark-pr-ready", methods=["POST"])
+@bp.route("/api/mark-pr-ready", methods=["POST"])
 def api_mark_pr_ready():
     """Mark a draft PR as ready for review."""
     data = request.json
@@ -241,7 +248,7 @@ def api_mark_pr_ready():
     return jsonify({"success": False, "error": result.get("error", "Failed to mark PR as ready")})
 
 
-@app.route("/api/merge-pr", methods=["POST"])
+@bp.route("/api/merge-pr", methods=["POST"])
 def api_merge_pr():
     """Merge a pull request."""
     data = request.json
@@ -284,7 +291,7 @@ def api_merge_pr():
     return jsonify({"success": False, "error": result.get("error", "Unknown error")})
 
 
-@app.route("/api/run-full-pipeline", methods=["POST"])
+@bp.route("/api/run-full-pipeline", methods=["POST"])
 def api_run_full_pipeline():
     """Run the full vibecheck pipeline."""
     data = request.json
@@ -322,7 +329,7 @@ def api_run_full_pipeline():
     })
 
 
-@app.route("/api/workflow-status", methods=["POST"])
+@bp.route("/api/workflow-status", methods=["POST"])
 def api_workflow_status():
     """Get the status of the latest vibecheck workflow run."""
     data = request.json
@@ -335,7 +342,7 @@ def api_workflow_status():
     return jsonify({"success": False, "error": "No workflow runs found"})
 
 
-@app.route("/api/global-workflow-runs", methods=["GET"])
+@bp.route("/api/global-workflow-runs", methods=["GET"])
 def api_global_workflow_runs():
     """Get recent workflow runs across all repositories."""
     start_total = time.time()
@@ -381,7 +388,7 @@ def api_global_workflow_runs():
     return jsonify({"success": True, "runs": all_runs[:50], "owner": owner})
 
 
-@app.route("/api/clear-cache", methods=["POST"])
+@bp.route("/api/clear-cache", methods=["POST"])
 def api_clear_cache():
     """Clear the vibecheck cache."""
     clear_vibecheck_cache()
@@ -390,7 +397,7 @@ def api_clear_cache():
 
 # ============ Stage-based APIs ============
 
-@app.route("/api/stage1-repos", methods=["GET"])
+@bp.route("/api/stage1-repos", methods=["GET"])
 def api_stage1_repos():
     """Get repos that need vibecheck installed."""
     owner = get_authenticated_user()
@@ -405,7 +412,7 @@ def api_stage1_repos():
     return jsonify({"success": True, "repos": needs_install, "owner": owner})
 
 
-@app.route("/api/stage2-repos", methods=["GET"])
+@bp.route("/api/stage2-repos", methods=["GET"])
 def api_stage2_repos():
     """Get repos that have vibecheck installed with run info."""
     start = time.time()
@@ -455,7 +462,7 @@ def api_stage2_repos():
     return jsonify({"success": True, "repos": result, "owner": owner})
 
 
-@app.route("/api/stage3-issues", methods=["GET"])
+@bp.route("/api/stage3-issues", methods=["GET"])
 def api_stage3_issues():
     """Get vibecheck issues across repos for Copilot assignment."""
     start = time.time()
@@ -534,7 +541,7 @@ def api_stage3_issues():
     })
 
 
-@app.route("/api/stage4-prs", methods=["GET"])
+@bp.route("/api/stage4-prs", methods=["GET"])
 def api_stage4_prs():
     """Get open PRs across repos for review."""
     start = time.time()
@@ -596,7 +603,7 @@ def api_stage4_prs():
     return jsonify({"success": True, "prs": all_prs, "owner": owner})
 
 
-@app.route("/api/pr-details", methods=["POST"])
+@bp.route("/api/pr-details", methods=["POST"])
 def api_pr_details():
     """Get detailed info about a specific PR."""
     data = request.json
@@ -624,6 +631,16 @@ def api_pr_details():
         return jsonify({"success": True, "pr": pr_data})
     
     return jsonify({"success": False, "error": result.get("error", "Failed to fetch PR")})
+
+
+# Register blueprint with URL prefix
+app.register_blueprint(bp, url_prefix=URL_PREFIX)
+
+
+@app.context_processor
+def inject_url_prefix():
+    """Make URL_PREFIX available in all templates."""
+    return dict(url_prefix=URL_PREFIX)
 
 
 if __name__ == "__main__":

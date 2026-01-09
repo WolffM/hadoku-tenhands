@@ -58,8 +58,17 @@ function showToast(title, message, type = 'success') {
 }
 
 /**
+ * Get admin key from URL query parameters
+ * @returns {string|null} Admin key if present
+ */
+function getAdminKey() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('key');
+}
+
+/**
  * Make an API call with loading state and toast notifications
- * @param {string} endpoint - API endpoint URL
+ * @param {string} endpoint - API endpoint URL (will be prefixed with URL_PREFIX)
  * @param {object} data - Request body data
  * @param {HTMLElement} button - Optional button to show loading state
  * @returns {Promise<object>} API response
@@ -69,13 +78,23 @@ async function apiCall(endpoint, data, button = null) {
         button.classList.add('loading');
         button.disabled = true;
     }
-    
+
+    // Prepend URL prefix for deployment behind edge-router
+    const url = (window.URL_PREFIX || '') + endpoint;
+
+    // Include admin key in headers for edge-router authentication
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    const adminKey = getAdminKey();
+    if (adminKey) {
+        headers['X-User-Key'] = adminKey;
+    }
+
     try {
-        const response = await fetch(endpoint, {
+        const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers,
             body: JSON.stringify(data)
         });
         
