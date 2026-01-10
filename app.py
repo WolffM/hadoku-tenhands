@@ -278,7 +278,7 @@ def api_merge_pr():
                 ])
                 if not ready_result["success"]:
                     return jsonify({"success": False, "error": f"Failed to mark PR as ready: {ready_result.get('error')}"})
-        except:
+        except (json.JSONDecodeError, KeyError, TypeError):
             pass
     
     result = run_gh_command([
@@ -442,7 +442,7 @@ def api_stage2_repos():
                 if commit_result["success"]:
                     try:
                         commits_since = int(commit_result["output"].strip())
-                    except:
+                    except (ValueError, AttributeError, TypeError):
                         commits_since = 0
         
         return {
@@ -575,7 +575,7 @@ def api_stage4_prs():
                     body = (comment.get("body") or "").lower()
                     if "completed task" in body or "completed work" in body:
                         return True
-            except:
+            except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
                 pass
         return False
     
