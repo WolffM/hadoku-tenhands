@@ -75,8 +75,8 @@ def repo_detail(owner, repo):
     
     # Filter high severity issues
     high_severity_issues = [i for i in vibecheck_issues if any(
-        "severity:high" in l.get("name", "").lower() or "severity:critical" in l.get("name", "").lower() 
-        for l in i.get("labels", [])
+        "severity:high" in label.get("name", "").lower() or "severity:critical" in label.get("name", "").lower() 
+        for label in i.get("labels", [])
     )]
     
     return render_template("repo_detail.html", 
@@ -198,8 +198,8 @@ def api_get_high_severity_issues():
     
     issues = get_repo_issues(owner, repo, labels="vibeCheck")
     high_severity = [i for i in issues if any(
-        "severity:high" in l.get("name", "").lower() or "severity:critical" in l.get("name", "").lower()
-        for l in i.get("labels", [])
+        "severity:high" in label.get("name", "").lower() or "severity:critical" in label.get("name", "").lower()
+        for label in i.get("labels", [])
     )]
     
     return jsonify({"success": True, "issues": high_severity})
@@ -521,12 +521,12 @@ def api_stage3_issues():
     
     # Sort by severity
     def get_severity_score(issue):
-        labels = [l.get("name", "").lower() for l in issue.get("labels", [])]
-        if any("severity:critical" in l for l in labels):
+        labels = [label.get("name", "").lower() for label in issue.get("labels", [])]
+        if any("severity:critical" in label for label in labels):
             return 0
-        if any("severity:high" in l for l in labels):
+        if any("severity:high" in label for label in labels):
             return 1
-        if any("severity:medium" in l for l in labels):
+        if any("severity:medium" in label for label in labels):
             return 2
         return 3
     
