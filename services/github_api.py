@@ -16,7 +16,6 @@ def run_gh_command(args, capture_output=True):
             ["gh"] + args,
             capture_output=capture_output,
             text=True,
-            shell=True,
             encoding='utf-8',
             errors='replace'
         )

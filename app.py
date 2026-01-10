@@ -138,8 +138,7 @@ def api_install_vibecheck():
          "-f", "message=Add vibeCheck workflow",
          "-f", f"content={content_b64}"],
         capture_output=True,
-        text=True,
-        shell=True
+        text=True
     )
     
     if result.returncode == 0:
@@ -309,7 +308,7 @@ def api_run_full_pipeline():
             ["gh", "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml",
              "-f", "message=Add vibeCheck workflow",
              "-f", f"content={content_b64}"],
-            capture_output=True, text=True, shell=True
+            capture_output=True, text=True
         )
         if result.returncode != 0:
             return jsonify({"success": False, "error": f"Failed to install: {result.stderr}", "steps_completed": steps_completed})
