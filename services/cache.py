@@ -5,7 +5,7 @@ VibeDispatch Caching Service
 import time
 
 # Module-level cache storage
-_vibecheck_cache = {}
+_vibecheck_cache: dict[str, bool] = {}
 _cache_timestamp = 0
 CACHE_TTL = 300  # 5 minutes
 
