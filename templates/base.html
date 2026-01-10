@@ -6,7 +6,7 @@
     <title>{% block title %}VibeDispatch{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="{{ url_prefix }}/static/css/styles.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark">
@@ -97,8 +97,8 @@
             // Links don't need key - navigation works via sessionStorage
         });
     </script>
-    <script src="{{ url_prefix }}/static/js/utils.js"></script>
-    <script src="{{ url_prefix }}/static/js/actions.js"></script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/actions.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

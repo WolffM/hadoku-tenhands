@@ -26,11 +26,13 @@ from services import (
 )
 from config import VIBECHECK_WORKFLOW
 
-app = Flask(__name__)
-
 # URL prefix for deployment behind edge-router at hadoku.me/dispatch/*
 # Set URL_PREFIX="" for local development without prefix
 URL_PREFIX = os.environ.get("URL_PREFIX", "/dispatch")
+
+# Configure static URL path to include the prefix for proper static file serving
+static_url_path = f"{URL_PREFIX}/static" if URL_PREFIX else "/static"
+app = Flask(__name__, static_url_path=static_url_path)
 
 # Create blueprint for all routes
 bp = Blueprint('dispatch', __name__)
