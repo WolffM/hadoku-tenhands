@@ -487,6 +487,10 @@ def api_stage3_issues():
         repo_name = repo["name"]
         prs = get_repo_prs(owner, repo_name)
         for pr in prs:
+            # Skip PRs tagged with 'demo'
+            pr_labels = [label.get("name", "").lower() for label in pr.get("labels", [])]
+            if "demo" in pr_labels:
+                continue
             author = pr.get("author", {})
             if author and "copilot" in author.get("login", "").lower():
                 return repo_name

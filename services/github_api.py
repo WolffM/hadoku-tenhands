@@ -63,7 +63,7 @@ def get_repo_issues(owner, repo, labels=None):
 
 def get_repo_prs(owner, repo):
     """Get pull requests for a repository."""
-    result = run_gh_command(["pr", "list", "-R", f"{owner}/{repo}", "--json", "number,title,state,createdAt,author,url,headRefName,isDraft,reviewDecision"])
+    result = run_gh_command(["pr", "list", "-R", f"{owner}/{repo}", "--json", "number,title,state,createdAt,author,url,headRefName,isDraft,reviewDecision,labels"])
     if result["success"]:
         return json.loads(result["output"])
     return []
