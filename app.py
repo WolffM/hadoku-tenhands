@@ -648,7 +648,7 @@ def inject_url_prefix():
     return dict(url_prefix=URL_PREFIX)
 
 
-# Test deploy Sat, Jan 10, 2026  4:30:00 PM - cloudflare rule first
+# Test deploy Sat, Jan 10, 2026  4:35:00 PM - repository_dispatch
 
 if __name__ == "__main__":
     # Use environment variable to control debug mode (defaults to False for security)
