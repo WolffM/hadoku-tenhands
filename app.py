@@ -654,7 +654,7 @@ def inject_url_prefix():
     return dict(url_prefix=URL_PREFIX)
 
 
-# Test deploy Sat, Jan 10, 2026  5:00:00 PM - FINAL WORKING TEST
+# Test deploy Sat, Jan 10, 2026  5:05:00 PM - with correct admin key
 
 if __name__ == "__main__":
     # Use environment variable to control debug mode (defaults to False for security)
