@@ -8,7 +8,11 @@ import json
 import time
 import base64
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# On Windows, prevent subprocess from opening console windows
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
 
 # Import from services
 from services import (
@@ -138,7 +142,8 @@ def api_install_vibecheck():
          "-f", "message=Add vibeCheck workflow",
          "-f", f"content={content_b64}"],
         capture_output=True,
-        text=True
+        text=True,
+        creationflags=_SUBPROCESS_FLAGS
     )
     
     if result.returncode == 0:
@@ -308,7 +313,8 @@ def api_run_full_pipeline():
             ["gh", "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml",
              "-f", "message=Add vibeCheck workflow",
              "-f", f"content={content_b64}"],
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            creationflags=_SUBPROCESS_FLAGS
         )
         if result.returncode != 0:
             return jsonify({"success": False, "error": f"Failed to install: {result.stderr}", "steps_completed": steps_completed})
@@ -648,7 +654,7 @@ def inject_url_prefix():
     return dict(url_prefix=URL_PREFIX)
 
 
-# Test deploy Sat, Jan 10, 2026  4:50:00 PM - simple admin key redeploy
+# Test deploy Sat, Jan 10, 2026  4:55:00 PM - FINAL TEST
 
 if __name__ == "__main__":
     # Use environment variable to control debug mode (defaults to False for security)

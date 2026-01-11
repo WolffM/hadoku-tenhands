@@ -5,8 +5,12 @@ GitHub API Service - Wrapper functions for GitHub CLI commands
 import subprocess
 import json
 import time
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .cache import get_cached_vibecheck_status, set_cached_vibecheck_status
+
+# On Windows, prevent subprocess from opening console windows
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
 
 
 def run_gh_command(args, capture_output=True):
@@ -17,7 +21,8 @@ def run_gh_command(args, capture_output=True):
             capture_output=capture_output,
             text=True,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            creationflags=_SUBPROCESS_FLAGS
         )
         if result.returncode != 0:
             return {"success": False, "error": result.stderr}
