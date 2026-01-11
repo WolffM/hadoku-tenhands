@@ -1,0 +1,52 @@
+name: Deploy Notification
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify deployment webhook
+        env:
+          WEBHOOK_SECRET: ${{ secrets.HADOKU_SITE_TOKEN }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          # Escape commit message for JSON (handle newlines and quotes)
+          ESCAPED_MESSAGE=$(echo "$COMMIT_MESSAGE" | head -1 | sed 's/"/\\"/g' | tr -d '\n\r')
+
+          # Build the payload
+          PAYLOAD=$(cat <<EOF
+          {"ref":"refs/heads/${{ github.ref_name }}","repository":{"full_name":"${{ github.repository }}"},"commits":[{"id":"${{ github.sha }}","message":"${ESCAPED_MESSAGE}","added":[],"modified":["app.py"],"removed":[]}]}
+          EOF
+          )
+          # Remove any trailing whitespace/newlines from payload
+          PAYLOAD=$(echo -n "$PAYLOAD" | tr -d '\n')
+
+          # Compute HMAC-SHA256 signature
+          SIGNATURE="sha256=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | cut -d' ' -f2)"
+
+          echo "Sending webhook to hadoku.me..."
+
+          # Send webhook request
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST https://hadoku.me/mgmt/api/webhook/github \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: push" \
+            -H "X-Hub-Signature-256: $SIGNATURE" \
+            -d "$PAYLOAD")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Webhook sent successfully!"
+          else
+            echo "Webhook failed with status $HTTP_CODE"
+            exit 1
+          fi
