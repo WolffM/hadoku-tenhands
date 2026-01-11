@@ -648,7 +648,7 @@ def inject_url_prefix():
     return dict(url_prefix=URL_PREFIX)
 
 
-# Test deploy Sat, Jan 10, 2026  4:40:00 PM - monitoring API webhook
+# Test deploy Sat, Jan 10, 2026  4:42:00 PM - workers.dev direct
 
 if __name__ == "__main__":
     # Use environment variable to control debug mode (defaults to False for security)
