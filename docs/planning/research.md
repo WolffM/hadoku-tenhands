@@ -341,4 +341,4 @@ Answered above - key insights are session handoff, rules injection, and local-fi
 
 ---
 
-_Research compiled: January 2026_
+Research compiled: January 2026
