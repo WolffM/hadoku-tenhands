@@ -4,9 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -26,6 +24,22 @@ venv/
 ENV/
 env/
 
+# Flask
+instance/
+.webassets-cache
+
+# Node/JS Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
 # IDE
 .vscode/
 .idea/
@@ -33,17 +47,22 @@ env/
 *.swo
 *~
 
+# NPM config (contains auth token)
+.npmrc
+
 # OS
 .DS_Store
 Thumbs.db
 
-# Environment variables
-.env
-.env.local
-
-# Flask
-instance/
-.webassets-cache
-
 # Logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary
+.tmp/
+.cache/

@@ -1,8 +1,11 @@
 """
-VibeDispatch - Central Dashboard for GitHub Repository Management
+VibeDispatch - API Backend for GitHub Repository Management
+
+This Flask app serves as the API backend for the VibeDispatch React frontend.
+All page rendering has been moved to the React microfrontend.
 """
 
-from flask import Flask, Blueprint, render_template, request, jsonify
+from flask import Flask, Blueprint, request, jsonify
 import subprocess
 import json
 import time
@@ -34,93 +37,35 @@ from config import VIBECHECK_WORKFLOW
 # Set URL_PREFIX="" for local development without prefix
 URL_PREFIX = os.environ.get("URL_PREFIX", "/dispatch")
 
-# Configure static URL path to include the prefix for proper static file serving
-static_url_path = f"{URL_PREFIX}/static" if URL_PREFIX else "/static"
-app = Flask(__name__, static_url_path=static_url_path)
+app = Flask(__name__)
 
 # Create blueprint for all routes
 bp = Blueprint('dispatch', __name__)
 
 
-# ============ Page Routes ============
-
-@bp.route("/")
-def dashboard():
-    """Main dashboard showing all repositories."""
-    start = time.time()
-    repos = get_repos()
-    print(f"[PERF] get_repos: {time.time() - start:.2f}s")
-    
-    owner = get_authenticated_user()
-    
-    # Check vibecheck status in parallel
-    start = time.time()
-    status_dict = check_vibecheck_installed_batch(owner, repos)
-    print(f"[PERF] vibecheck batch check: {time.time() - start:.2f}s")
-    
-    for repo in repos:
-        repo["vibecheck_installed"] = status_dict.get(repo["name"], False)
-    
-    return render_template("dashboard.html", repos=repos, owner=owner)
+# ============ CORS Support ============
+@app.after_request
+def add_cors_headers(response):
+    """Add CORS headers for development with React frontend."""
+    # In production, the React app is served from the same origin
+    # In development, React runs on localhost:5173
+    origin = request.headers.get('Origin', '')
+    if origin in ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174']:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-User-Key'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
 
 
-@bp.route("/repo/<owner>/<repo>")
-def repo_detail(owner, repo):
-    """Detailed view of a single repository."""
-    details = get_repo_details(owner, repo)
-    issues = get_repo_issues(owner, repo)
-    prs = get_repo_prs(owner, repo)
-    workflows = get_workflows(owner, repo)
-    workflow_runs = get_workflow_runs(owner, repo)
-    vibecheck_installed = check_vibecheck_installed(owner, repo)
-    
-    # Get vibecheck-specific issues
-    vibecheck_issues = get_repo_issues(owner, repo, labels="vibeCheck")
-    
-    # Filter high severity issues
-    high_severity_issues = [i for i in vibecheck_issues if any(
-        "severity:high" in label.get("name", "").lower() or "severity:critical" in label.get("name", "").lower() 
-        for label in i.get("labels", [])
-    )]
-    
-    return render_template("repo_detail.html", 
-                         details=details, 
-                         issues=issues,
-                         prs=prs,
-                         workflows=workflows,
-                         workflow_runs=workflow_runs,
-                         vibecheck_installed=vibecheck_installed,
-                         vibecheck_issues=vibecheck_issues,
-                         high_severity_issues=high_severity_issues,
-                         owner=owner,
-                         repo=repo)
-
-
-@bp.route("/global-actions")
-def global_actions():
-    """Page for running actions across multiple repos."""
-    start = time.time()
-    repos = get_repos()
-    print(f"[PERF] global_actions get_repos: {time.time() - start:.2f}s")
-    
-    owner = get_authenticated_user()
-    
-    # Use parallel batch check with caching
-    start = time.time()
-    status_dict = check_vibecheck_installed_batch(owner, repos)
-    print(f"[PERF] global_actions vibecheck batch: {time.time() - start:.2f}s")
-    
-    for repo in repos:
-        repo["vibecheck_installed"] = status_dict.get(repo["name"], False)
-    
-    return render_template("global_actions.html", repos=repos, owner=owner)
-
-
-@bp.route("/healthcheck")
-def healthcheck():
-    """Health check page for monitoring workflow runs."""
-    owner = get_authenticated_user()
-    return render_template("healthcheck.html", owner=owner)
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def handle_options(path):
+    """Handle OPTIONS preflight requests for CORS."""
+    if request.method == 'OPTIONS':
+        return '', 204
+    # For non-API routes, return a simple message
+    return jsonify({"message": "VibeDispatch API", "docs": "/api/"})
 
 
 # ============ API Routes ============
@@ -644,17 +589,29 @@ def api_pr_details():
     return jsonify({"success": False, "error": result.get("error", "Failed to fetch PR")})
 
 
+# ============ Health Check API ============
+@bp.route("/api/healthcheck", methods=["GET"])
+def api_healthcheck():
+    """Health check endpoint for monitoring."""
+    owner = get_authenticated_user()
+    return jsonify({
+        "success": True,
+        "status": "healthy",
+        "owner": owner,
+        "api_version": "2.0.0"
+    })
+
+
+@bp.route("/api/owner", methods=["GET"])
+def api_owner():
+    """Get the authenticated GitHub owner/user."""
+    owner = get_authenticated_user()
+    return jsonify({"success": True, "owner": owner})
+
+
 # Register blueprint with URL prefix
 app.register_blueprint(bp, url_prefix=URL_PREFIX)
 
-
-@app.context_processor
-def inject_url_prefix():
-    """Make URL_PREFIX available in all templates."""
-    return dict(url_prefix=URL_PREFIX)
-
-
-# Test deploy Sat, Jan 10, 2026  5:05:00 PM - with correct admin key
 
 if __name__ == "__main__":
     # Use environment variable to control debug mode (defaults to False for security)
