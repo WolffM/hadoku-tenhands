@@ -13,11 +13,6 @@ import base64
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# On Windows, prevent subprocess from opening console windows
-_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-
-# Import from services
 from services import (
     run_gh_command,
     get_authenticated_user,
@@ -32,6 +27,9 @@ from services import (
     clear_vibecheck_cache
 )
 from config import VIBECHECK_WORKFLOW
+
+# On Windows, prevent subprocess from opening console windows
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
 
 # URL prefix for deployment behind edge-router at hadoku.me/dispatch/*
 # Set URL_PREFIX="" for local development without prefix
