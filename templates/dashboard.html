@@ -85,7 +85,7 @@
                 {% endif %}
                 
                 <div class="d-flex gap-2">
-                    <a href="{{ url_prefix }}/repo/{{ owner }}/{{ repo.name }}" class="btn btn-outline-primary btn-sm flex-grow-1">
+                    <a href="{{ (url_prefix ~ '/repo/' ~ owner ~ '/' ~ repo.name) | safe_url }}" class="btn btn-outline-primary btn-sm flex-grow-1">
                         <i class="bi bi-eye"></i> View
                     </a>
                     {% if not repo.vibecheck_installed %}

@@ -13,6 +13,7 @@ import base64
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 from services import (
     run_gh_command,
     get_authenticated_user,
@@ -39,6 +40,40 @@ app = Flask(__name__)
 
 # Create blueprint for all routes
 bp = Blueprint('dispatch', __name__)
+
+
+# ============ Template Filters ============
+@app.template_filter('safe_url')
+def safe_url_filter(url):
+    """
+    Sanitize URLs to prevent XSS attacks via javascript: or data: URIs.
+    Only allows http://, https://, and relative URLs (excluding protocol-relative URLs).
+    Returns '#' for invalid URLs.
+    """
+    if not url:
+        return '#'
+    
+    # Parse the URL
+    try:
+        url_str = str(url)
+        
+        # Check for protocol-relative URLs (e.g., //evil.com)
+        if url_str.startswith('//'):
+            return '#'
+        
+        parsed = urlparse(url_str)
+        
+        # Only allow http, https schemes, and relative URLs
+        if parsed.scheme in ('http', 'https', ''):
+            # Return as plain string - Jinja2's auto-escaping will handle
+            # HTML special characters appropriately for the href attribute context
+            return url_str
+        else:
+            # Reject javascript:, data:, and other dangerous schemes
+            return '#'
+    except (ValueError, AttributeError, TypeError):
+        # If URL parsing fails or url is not string-like, return safe default
+        return '#'
 
 
 # ============ CORS Support ============

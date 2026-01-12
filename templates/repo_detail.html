@@ -147,7 +147,7 @@
                             <tr>
                                 <td class="text-light">{{ issue.number }}</td>
                                 <td>
-                                    <a href="{{ issue.url }}" target="_blank" class="text-decoration-none">
+                                    <a href="{{ issue.url | safe_url }}" target="_blank" class="text-decoration-none">
                                         {{ issue.title[:40] }}{% if issue.title|length > 40 %}...{% endif %}
                                     </a>
                                 </td>
@@ -206,7 +206,7 @@
                     <tr>
                         <td>{{ pr.number }}</td>
                         <td>
-                            <a href="{{ pr.url }}" target="_blank" class="text-decoration-none">
+                            <a href="{{ pr.url | safe_url }}" target="_blank" class="text-decoration-none">
                                 {{ pr.title[:50] }}{% if pr.title|length > 50 %}...{% endif %}
                             </a>
                         </td>
@@ -257,7 +257,7 @@
                     <tr>
                         <td>{{ issue.number }}</td>
                         <td>
-                            <a href="{{ issue.url }}" target="_blank" class="text-decoration-none">
+                            <a href="{{ issue.url | safe_url }}" target="_blank" class="text-decoration-none">
                                 {{ issue.title[:50] }}{% if issue.title|length > 50 %}...{% endif %}
                             </a>
                         </td>
