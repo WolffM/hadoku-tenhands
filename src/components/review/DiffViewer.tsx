@@ -5,6 +5,7 @@
  */
 
 import { useMemo } from 'react'
+import DOMPurify from 'dompurify'
 import { renderDiffToHtml, getDiffStats } from '../../utils'
 
 interface DiffViewerProps {
@@ -14,6 +15,7 @@ interface DiffViewerProps {
 
 export function DiffViewer({ diff, showStats = true }: DiffViewerProps) {
   const diffHtml = useMemo(() => renderDiffToHtml(diff), [diff])
+  const sanitizedHtml = useMemo(() => DOMPurify.sanitize(diffHtml), [diffHtml])
   const stats = useMemo(() => (showStats ? getDiffStats(diff) : null), [diff, showStats])
 
   if (!diff || diff.trim() === '') {
@@ -33,7 +35,7 @@ export function DiffViewer({ diff, showStats = true }: DiffViewerProps) {
           <span className="stat-deletions">-{stats.deletions}</span>
         </div>
       )}
-      <div className="diff-viewer-content" dangerouslySetInnerHTML={{ __html: diffHtml }} />
+      <div className="diff-viewer-content" dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
     </div>
   )
 }
