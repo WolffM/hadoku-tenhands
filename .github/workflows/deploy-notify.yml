@@ -13,14 +13,17 @@ jobs:
       - name: Trigger deployment via repository_dispatch
         env:
           GH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          GIT_REF: ${{ github.ref }}
         run: |
           echo "Dispatching deploy event to hadoku_site..."
 
           gh api repos/WolffM/hadoku_site/dispatches \
             -X POST \
             -f event_type="deploy-vibedispatch" \
-            -f 'client_payload[sha]=${{ github.sha }}' \
-            -f 'client_payload[message]=${{ github.event.head_commit.message }}' \
-            -f 'client_payload[ref]=${{ github.ref }}'
+            -f "client_payload[sha]=$COMMIT_SHA" \
+            -f "client_payload[message]=$COMMIT_MESSAGE" \
+            -f "client_payload[ref]=$GIT_REF"
 
           echo "Deploy event dispatched successfully!"
