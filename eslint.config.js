@@ -17,6 +17,36 @@ export default [
   },
 
   // -------------------------------------------------------------
+  // E2E tests and Playwright config (Node.js environment)
+  // -------------------------------------------------------------
+  {
+    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        project: './tsconfig.json'
+      },
+      globals: {
+        ...globals.node
+      }
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      ...tsPlugin.configs['recommended'].rules,
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
+      ]
+    }
+  },
+
+  // -------------------------------------------------------------
   // Base TypeScript + React config
   // -------------------------------------------------------------
   {
