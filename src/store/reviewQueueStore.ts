@@ -156,14 +156,16 @@ export const useReviewQueueStore = create<ReviewQueueState>((set, get) => ({
 }))
 
 // ============ Selectors ============
+// NOTE: Selectors must return primitive values or stable references.
+// Returning new objects/arrays causes infinite re-renders in React 18+.
 
 export const selectCurrentItem = (state: ReviewQueueState) =>
   state.queue[state.currentIndex] || null
 
-export const selectQueuePosition = (state: ReviewQueueState) => ({
-  current: state.currentIndex + 1,
-  total: state.queue.length
-})
+// Split position into two primitive selectors to avoid creating new objects
+export const selectQueueCurrentIndex = (state: ReviewQueueState) => state.currentIndex + 1
+
+export const selectQueueTotal = (state: ReviewQueueState) => state.queue.length
 
 export const selectHasNext = (state: ReviewQueueState) =>
   state.currentIndex < state.queue.length - 1

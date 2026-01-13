@@ -84,7 +84,7 @@ def get_workflows(owner, repo):
 
 def get_workflow_runs(owner, repo, workflow_name=None, limit=10):
     """Get recent workflow runs."""
-    cmd = ["run", "list", "-R", f"{owner}/{repo}", "--json", "databaseId,displayTitle,status,conclusion,createdAt,workflowName", "--limit", str(limit)]
+    cmd = ["run", "list", "-R", f"{owner}/{repo}", "--json", "databaseId,displayTitle,status,conclusion,createdAt,workflowName,url", "--limit", str(limit)]
     if workflow_name:
         cmd.extend(["-w", workflow_name])
     result = run_gh_command(cmd)

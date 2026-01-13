@@ -5,40 +5,22 @@
  */
 
 interface ReviewActionsProps {
-  onApprove: () => void
   onMerge: () => void
   onSkip: () => void
-  onYolo: () => void
   loading?: boolean
-  canMerge?: boolean
 }
 
-export function ReviewActions({
-  onApprove,
-  onMerge,
-  onSkip,
-  onYolo,
-  loading = false,
-  canMerge = true
-}: ReviewActionsProps) {
+export function ReviewActions({ onMerge, onSkip, loading = false }: ReviewActionsProps) {
   return (
     <div className="review-actions">
       <div className="review-actions-primary">
         <button
-          className="action-btn action-btn-primary"
-          onClick={onApprove}
-          disabled={loading}
-          title="Approve and go to next item"
-        >
-          {loading ? 'Processing...' : 'Approve & Next'}
-        </button>
-        <button
           className="action-btn action-btn-success"
           onClick={onMerge}
-          disabled={loading || !canMerge}
-          title="Merge and go to next item"
+          disabled={loading}
+          title="Mark ready, approve, and merge"
         >
-          {loading ? 'Processing...' : 'Merge & Next'}
+          {loading ? 'Processing...' : 'Merge'}
         </button>
       </div>
       <div className="review-actions-secondary">
@@ -49,14 +31,6 @@ export function ReviewActions({
           title="Skip to next item without action"
         >
           Skip
-        </button>
-        <button
-          className="action-btn action-btn-warning"
-          onClick={onYolo}
-          disabled={loading}
-          title="Skip all remaining reviews"
-        >
-          Yolo All
         </button>
       </div>
     </div>

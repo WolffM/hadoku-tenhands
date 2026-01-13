@@ -5,7 +5,7 @@
  * Mirrors the original global_actions.html structure.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePipelineStore, selectIsLoading } from '../store'
 import { Stage1Install } from '../components/vibecheck/Stage1Install'
 import { Stage2Run } from '../components/vibecheck/Stage2Run'
@@ -30,8 +30,15 @@ const STAGES: StageConfig[] = [
 
 export function VibecheckView() {
   const [activeStage, setActiveStage] = useState<StageTab>('stage1')
-  const loadAllStages = usePipelineStore(state => state.loadAllStages)
   const isLoading = usePipelineStore(selectIsLoading)
+  const loadedStagesRef = useRef<Set<StageTab>>(new Set())
+
+  // Individual stage loaders
+  const loadStage1 = usePipelineStore(state => state.loadStage1)
+  const loadStage2 = usePipelineStore(state => state.loadStage2)
+  const loadStage3 = usePipelineStore(state => state.loadStage3)
+  const loadStage4 = usePipelineStore(state => state.loadStage4)
+  const loadAllStages = usePipelineStore(state => state.loadAllStages)
 
   // Stage counts
   const stage1 = usePipelineStore(state => state.stage1)
@@ -39,10 +46,41 @@ export function VibecheckView() {
   const stage3 = usePipelineStore(state => state.stage3)
   const stage4 = usePipelineStore(state => state.stage4)
 
-  // Load all stages on mount
+  // Load stage function based on stage ID
+  const loadStage = useCallback(
+    (stageId: StageTab) => {
+      if (loadedStagesRef.current.has(stageId)) return
+      loadedStagesRef.current.add(stageId)
+
+      switch (stageId) {
+        case 'stage1':
+          void loadStage1()
+          break
+        case 'stage2':
+          void loadStage2()
+          break
+        case 'stage3':
+          void loadStage3()
+          break
+        case 'stage4':
+          void loadStage4()
+          break
+      }
+    },
+    [loadStage1, loadStage2, loadStage3, loadStage4]
+  )
+
+  // Track if initial load has happened
+  const initialLoadDoneRef = useRef(false)
+
+  // Load all stages on mount (active stage loads first due to lazy loading in each component)
   useEffect(() => {
-    void loadAllStages()
-  }, [loadAllStages])
+    if (initialLoadDoneRef.current) return
+    initialLoadDoneRef.current = true
+
+    // Load all stages - they're tracked by loadedStagesRef to prevent duplicates
+    STAGES.forEach(stage => loadStage(stage.id))
+  }, [loadStage])
 
   const getStageCounts = (): Record<StageTab, number> => ({
     stage1: stage1.items.length,

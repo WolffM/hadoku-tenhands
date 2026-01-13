@@ -83,12 +83,15 @@ test.describe('Navigation', () => {
 
     // Review Queue button should show a badge with count
     // The badge appears as part of the button text like "Review Queue 4"
+    // Wait for the badge to appear (data loads asynchronously)
     const reviewQueueBtn = page.getByRole('button', { name: /Review Queue/i })
     await expect(reviewQueueBtn).toBeVisible()
 
-    // Check if the button text contains a number (the badge count)
-    const buttonText = await reviewQueueBtn.textContent()
-    expect(buttonText).toMatch(/Review Queue.*\d+/)
+    // Wait for the badge count to appear (stage 4 data needs to load)
+    await expect(async () => {
+      const buttonText = await reviewQueueBtn.textContent()
+      expect(buttonText).toMatch(/Review Queue.*\d+/)
+    }).toPass({ timeout: 5000 })
   })
 })
 

@@ -76,6 +76,7 @@ interface PipelineState {
   addLog: (message: string, type: LogEntry['type']) => void
   clearLogs: () => void
   refreshPipelineItems: () => void
+  removeStage3Issue: (repo: string, issueNumber: number) => void
 }
 
 // ============ Helpers ============
@@ -109,18 +110,35 @@ function getStatusFromIssue(issue: Issue, reposWithCopilotPRs: string[]): Pipeli
   if (hasCopilotAssigned) {
     return 'processing'
   }
-  // Otherwise waiting for assignment
-  return 'waiting_for_review'
+  // Otherwise pending assignment (not waiting_for_review - that's for PRs)
+  return 'pending'
+}
+
+function isPRReady(pr: PullRequest): boolean {
+  const author = pr.author?.login ?? ''
+  const isCopilot = author.toLowerCase().includes('copilot')
+
+  if (isCopilot) {
+    // Copilot PRs are only ready when copilotCompleted is true
+    return pr.copilotCompleted === true
+  }
+  // Non-Copilot PRs are ready if they're not drafts
+  return !pr.isDraft
 }
 
 function getStatusFromPR(pr: PullRequest): PipelineStatus {
-  if (pr.isDraft) {
-    return pr.copilotCompleted ? 'ready' : 'processing'
-  }
+  // Already approved - ready to merge
   if (pr.reviewDecision === 'APPROVED') {
     return 'ready'
   }
-  return 'waiting_for_review'
+
+  // Check if PR is ready for review using Stage4 logic
+  if (isPRReady(pr)) {
+    return 'waiting_for_review'
+  }
+
+  // Not ready yet - still in progress
+  return 'processing'
 }
 
 // ============ Store ============
@@ -328,6 +346,19 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   clearLogs: () => {
     set({ logs: [] })
+  },
+
+  removeStage3Issue: (repo: string, issueNumber: number) => {
+    set(state => ({
+      stage3: {
+        ...state.stage3,
+        items: state.stage3.items.filter(
+          issue => !(issue.repo === repo && issue.number === issueNumber)
+        )
+      }
+    }))
+    // Also refresh pipeline items to update the list view
+    get().refreshPipelineItems()
   },
 
   refreshPipelineItems: () => {

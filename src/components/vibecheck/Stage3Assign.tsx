@@ -14,8 +14,8 @@ import { getSeverity, getSeverityClass } from '../../utils'
 export function Stage3Assign() {
   const stage3 = usePipelineStore(state => state.stage3)
   const owner = usePipelineStore(state => state.owner)
-  const loadStage3 = usePipelineStore(state => state.loadStage3)
   const addLog = usePipelineStore(state => state.addLog)
+  const removeStage3Issue = usePipelineStore(state => state.removeStage3Issue)
 
   const [selectedIssues, setSelectedIssues] = useState<Set<string>>(new Set())
   const [selectedRecommended, setSelectedRecommended] = useState<Set<string>>(new Set())
@@ -113,6 +113,14 @@ export function Stage3Assign() {
       if (result.success) {
         successCount++
         addLog(`Assigned to ${result.repo}#${result.issueNumber}`, 'success')
+        // Immediately remove from UI
+        removeStage3Issue(result.repo, result.issueNumber)
+        // Also remove from selection
+        setSelectedRecommended(prev => {
+          const next = new Set(prev)
+          next.delete(`${result.repo}:${result.issueNumber}`)
+          return next
+        })
       } else {
         addLog(`Failed on ${result.repo}#${result.issueNumber}: ${result.error}`, 'error')
       }
@@ -124,11 +132,6 @@ export function Stage3Assign() {
     )
     setAssigning(false)
     setSelectedRecommended(new Set())
-
-    // Reload after a delay
-    setTimeout(() => {
-      void loadStage3()
-    }, 1000)
   }
 
   const assignSelected = async () => {
@@ -149,6 +152,20 @@ export function Stage3Assign() {
       if (result.success) {
         successCount++
         addLog(`Assigned to ${result.repo}#${result.issueNumber}`, 'success')
+        // Immediately remove from UI
+        removeStage3Issue(result.repo, result.issueNumber)
+        // Also remove from selections
+        const key = `${result.repo}:${result.issueNumber}`
+        setSelectedIssues(prev => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
+        setSelectedRecommended(prev => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
       } else {
         addLog(`Failed on ${result.repo}#${result.issueNumber}: ${result.error}`, 'error')
       }
@@ -161,11 +178,6 @@ export function Stage3Assign() {
     setAssigning(false)
     setSelectedIssues(new Set())
     setSelectedRecommended(new Set())
-
-    // Reload after a delay
-    setTimeout(() => {
-      void loadStage3()
-    }, 1000)
   }
 
   // Loading state

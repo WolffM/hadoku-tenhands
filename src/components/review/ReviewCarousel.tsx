@@ -4,22 +4,35 @@
  * Carousel for reviewing pipeline items that need human review.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import type { PullRequest } from '../../api/types'
+
+// Configure marked for GitHub-flavored markdown
+marked.setOptions({
+  gfm: true,
+  breaks: true
+})
 import {
   usePipelineStore,
   useReviewQueueStore,
   selectCurrentItem,
-  selectQueuePosition,
+  selectQueueCurrentIndex,
+  selectQueueTotal,
   selectHasNext,
   selectHasPrevious,
   selectIsQueueEmpty
 } from '../../store'
-import { approvePR, mergePR } from '../../api/endpoints'
+import { approvePR, mergePR, markPRReady } from '../../api/endpoints'
 import { DiffViewer } from './DiffViewer'
 import { ReviewActions } from './ReviewActions'
 
-export function ReviewCarousel() {
+interface ReviewCarouselProps {
+  isLoading?: boolean
+}
+
+export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
   const [actionLoading, setActionLoading] = useState(false)
 
   const owner = usePipelineStore(state => state.owner)
@@ -27,7 +40,8 @@ export function ReviewCarousel() {
   const loadStage4 = usePipelineStore(state => state.loadStage4)
 
   const currentItem = useReviewQueueStore(selectCurrentItem)
-  const position = useReviewQueueStore(selectQueuePosition)
+  const positionCurrent = useReviewQueueStore(selectQueueCurrentIndex)
+  const positionTotal = useReviewQueueStore(selectQueueTotal)
   const hasNext = useReviewQueueStore(selectHasNext)
   const hasPrevious = useReviewQueueStore(selectHasPrevious)
   const isEmpty = useReviewQueueStore(selectIsQueueEmpty)
@@ -41,12 +55,30 @@ export function ReviewCarousel() {
   const detailsLoading = useReviewQueueStore(state => state.detailsLoading)
   const detailsError = useReviewQueueStore(state => state.detailsError)
 
+  // Render markdown description with memoization
+  const renderedDescription = useMemo(() => {
+    if (!currentDetails?.body) return null
+    const rawHtml = marked.parse(currentDetails.body) as string
+    return DOMPurify.sanitize(rawHtml)
+  }, [currentDetails?.body])
+
   // Load details when current item changes
   useEffect(() => {
     if (currentItem && owner) {
       void loadCurrentDetails(owner)
     }
   }, [currentItem?.id, owner, loadCurrentDetails])
+
+  // Show loading state while data is being fetched
+  if (isLoading) {
+    return (
+      <div className="review-carousel review-carousel-loading">
+        <div className="loading-state">
+          <p>Loading review queue...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (isEmpty) {
     return (
@@ -65,40 +97,48 @@ export function ReviewCarousel() {
 
   const pr = currentItem.id.startsWith('pr-') ? (currentItem.data as PullRequest) : null
 
-  const handleApprove = async () => {
-    if (!owner || !pr) return
-    setActionLoading(true)
-    try {
-      const result = await approvePR(owner, currentItem.repo, pr.number)
-      if (result.success) {
-        addLog(`Approved PR ${currentItem.repo}#${pr.number}`, 'success')
-        removeCurrentFromQueue()
-        await loadStage4()
-      } else {
-        addLog(`Failed: ${result.error}`, 'error')
-      }
-    } catch (err) {
-      addLog(`Error: ${err instanceof Error ? err.message : 'Unknown'}`, 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
+  // Single merge handler that does: mark ready (if draft) -> approve -> merge
   const handleMerge = async () => {
     if (!owner || !pr) return
     setActionLoading(true)
+    const prRef = `${currentItem.repo}#${pr.number}`
+
     try {
-      const result = await mergePR(owner, currentItem.repo, pr.number)
-      if (result.success) {
-        addLog(`Merged PR ${currentItem.repo}#${pr.number}`, 'success')
+      // Step 1: Mark as ready if it's a draft
+      if (pr.isDraft) {
+        addLog(`Marking ${prRef} as ready...`, 'info')
+        const readyResult = await markPRReady(owner, currentItem.repo, pr.number)
+        if (!readyResult.success) {
+          addLog(`Failed to mark ready: ${readyResult.error}`, 'error')
+          return
+        }
+        addLog(`Marked ${prRef} as ready`, 'success')
+      }
+
+      // Step 2: Approve the PR
+      addLog(`Approving ${prRef}...`, 'info')
+      const approveResult = await approvePR(owner, currentItem.repo, pr.number)
+      if (!approveResult.success) {
+        addLog(`Failed to approve: ${approveResult.error}`, 'error')
+        return
+      }
+      addLog(`Approved ${prRef}`, 'success')
+
+      // Step 3: Merge the PR
+      addLog(`Merging ${prRef}...`, 'info')
+      const mergeResult = await mergePR(owner, currentItem.repo, pr.number)
+      if (mergeResult.success) {
+        addLog(`Merged ${prRef}`, 'success')
+        // Reset loading state BEFORE removing from queue to avoid stuck button on next item
+        setActionLoading(false)
         removeCurrentFromQueue()
         await loadStage4()
       } else {
-        addLog(`Failed: ${result.error}`, 'error')
+        addLog(`Failed to merge: ${mergeResult.error}`, 'error')
+        setActionLoading(false)
       }
     } catch (err) {
       addLog(`Error: ${err instanceof Error ? err.message : 'Unknown'}`, 'error')
-    } finally {
       setActionLoading(false)
     }
   }
@@ -107,10 +147,6 @@ export function ReviewCarousel() {
     if (hasNext) {
       goToNext()
     }
-  }
-
-  const handleYolo = () => {
-    addLog('Yolo mode not yet implemented', 'warning')
   }
 
   return (
@@ -127,7 +163,7 @@ export function ReviewCarousel() {
             ←
           </button>
           <span className="nav-position">
-            {position.current} / {position.total}
+            {positionCurrent} / {positionTotal}
           </span>
           <button
             className="nav-btn nav-btn-next"
@@ -171,6 +207,17 @@ export function ReviewCarousel() {
         </div>
       )}
 
+      {/* PR Description (Copilot response) */}
+      {renderedDescription && !detailsLoading && (
+        <div className="review-description">
+          <h4 className="review-description__title">Description</h4>
+          <div
+            className="review-description__content markdown-content"
+            dangerouslySetInnerHTML={{ __html: renderedDescription }}
+          />
+        </div>
+      )}
+
       {/* Diff content */}
       <div className="review-content">
         {detailsLoading && (
@@ -194,16 +241,11 @@ export function ReviewCarousel() {
       {/* Actions */}
       <div className="review-footer">
         <ReviewActions
-          onApprove={() => {
-            void handleApprove()
-          }}
           onMerge={() => {
             void handleMerge()
           }}
           onSkip={handleSkip}
-          onYolo={handleYolo}
           loading={actionLoading}
-          canMerge={pr !== null && !pr.isDraft}
         />
       </div>
     </div>

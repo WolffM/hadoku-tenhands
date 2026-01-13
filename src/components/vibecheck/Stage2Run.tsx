@@ -5,7 +5,7 @@
  * Shows recommended repos (needs run) and all repos.
  */
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { usePipelineStore } from '../../store'
 import { batchRunVibecheck, runVibecheck } from '../../api/endpoints'
 import type { Stage2Repo } from '../../api/types'
@@ -21,6 +21,9 @@ export function Stage2Run() {
   const [selectedRecommended, setSelectedRecommended] = useState<Set<string>>(new Set())
   const [running, setRunning] = useState(false)
 
+  // Track if we've initialized the selection
+  const initializedRef = useRef(false)
+
   const repos = stage2.items
 
   // Split repos into recommended (needs run) and others
@@ -34,10 +37,13 @@ export function Stage2Run() {
 
   const others = repos.filter(repo => !recommended.includes(repo))
 
-  // Initialize recommended selection
-  useState(() => {
-    setSelectedRecommended(new Set(recommended.map(r => r.name)))
-  })
+  // Initialize recommended selection - select all recommended by default
+  useEffect(() => {
+    if (recommended.length > 0 && !initializedRef.current) {
+      setSelectedRecommended(new Set(recommended.map(r => r.name)))
+      initializedRef.current = true
+    }
+  }, [recommended])
 
   const toggleRepo = (repoName: string, isRecommended: boolean) => {
     const setter = isRecommended ? setSelectedRecommended : setSelectedRepos
@@ -170,13 +176,13 @@ export function Stage2Run() {
               Recommended ({recommended.length} repos need VibeCheck)
             </h3>
             <button
-              className="btn btn--warning btn--sm"
+              className="btn btn--primary btn--sm"
               onClick={() => {
                 void runAllRecommended()
               }}
               disabled={running || selectedRecommended.size === 0}
             >
-              ▶️ Run All Recommended
+              ▶️ Run Selected ({selectedRecommended.size})
             </button>
           </div>
 
