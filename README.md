@@ -43,17 +43,20 @@ VibeDispatch organizes repository management into a 4-stage pipeline:
 ### Technology Stack
 
 **Backend:**
+
 - Flask 3.0.0 (Python web framework)
 - GitHub CLI (`gh`) for all GitHub operations
 - ThreadPoolExecutor for parallelization
 - In-memory caching with TTL
 
 **Frontend:**
+
 - Bootstrap 5.3.2 with dark theme
 - Vanilla JavaScript (ES6, no build tools)
 - Jinja2 templates
 
 **Integrations:**
+
 - [VibeCheck](https://github.com/WolffM/vibecheck) - GitHub Action for code quality analysis
 - GitHub Copilot - AI-powered issue fixing
 - GitHub API - Repository, issue, PR, and workflow management
@@ -96,12 +99,14 @@ vibedispatch/
 ## Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/WolffM/vibedispatch.git
    cd vibedispatch
    ```
 
 2. **Create virtual environment**
+
    ```bash
    python -m venv .venv
 
@@ -113,16 +118,19 @@ vibedispatch/
    ```
 
 3. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 4. **Authenticate with GitHub CLI**
+
    ```bash
    gh auth login
    ```
 
 5. **Run the application**
+
    ```bash
    python app.py
    ```
@@ -135,9 +143,11 @@ vibedispatch/
 ## Usage
 
 ### Dashboard (`/`)
+
 The main dashboard shows all your repositories with their VibeCheck installation status. Click any repo to view details including issues, PRs, workflows, and run history.
 
 ### Global Actions (`/global-actions`)
+
 The pipeline management interface with stage tabs:
 
 - **Stage 1**: Select repos and click "Install VibeCheck" to add the workflow
@@ -146,40 +156,45 @@ The pipeline management interface with stage tabs:
 - **Stage 4**: Review PRs created by Copilot, approve and merge them
 
 ### Health Check (`/healthcheck`)
+
 Monitor workflow runs across all repositories with status indicators.
 
 ## API Endpoints
 
 ### Stage Management
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/stage1-repos` | GET | Get repos needing VibeCheck |
-| `/api/stage2-repos` | GET | Get repos with run status |
-| `/api/stage3-issues` | GET | Get assignable issues (sorted by severity) |
-| `/api/stage4-prs` | GET | Get reviewable PRs |
+
+| Endpoint             | Method | Description                                |
+| -------------------- | ------ | ------------------------------------------ |
+| `/api/stage1-repos`  | GET    | Get repos needing VibeCheck                |
+| `/api/stage2-repos`  | GET    | Get repos with run status                  |
+| `/api/stage3-issues` | GET    | Get assignable issues (sorted by severity) |
+| `/api/stage4-prs`    | GET    | Get reviewable PRs                         |
 
 ### Workflow Control
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/install-vibecheck` | POST | Install VibeCheck workflow |
-| `/api/run-vibecheck` | POST | Trigger VibeCheck workflow |
-| `/api/run-full-pipeline` | POST | Install + trigger in sequence |
-| `/api/workflow-status` | POST | Check latest run status |
-| `/api/global-workflow-runs` | GET | Recent runs across all repos |
+
+| Endpoint                    | Method | Description                   |
+| --------------------------- | ------ | ----------------------------- |
+| `/api/install-vibecheck`    | POST   | Install VibeCheck workflow    |
+| `/api/run-vibecheck`        | POST   | Trigger VibeCheck workflow    |
+| `/api/run-full-pipeline`    | POST   | Install + trigger in sequence |
+| `/api/workflow-status`      | POST   | Check latest run status       |
+| `/api/global-workflow-runs` | GET    | Recent runs across all repos  |
 
 ### Issue & PR Management
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/assign-copilot` | POST | Assign Copilot to an issue |
-| `/api/approve-pr` | POST | Approve a pull request |
-| `/api/mark-pr-ready` | POST | Mark draft PR as ready |
-| `/api/merge-pr` | POST | Merge a pull request (squash) |
-| `/api/pr-details` | POST | Get full PR info + diff |
+
+| Endpoint              | Method | Description                   |
+| --------------------- | ------ | ----------------------------- |
+| `/api/assign-copilot` | POST   | Assign Copilot to an issue    |
+| `/api/approve-pr`     | POST   | Approve a pull request        |
+| `/api/mark-pr-ready`  | POST   | Mark draft PR as ready        |
+| `/api/merge-pr`       | POST   | Merge a pull request (squash) |
+| `/api/pr-details`     | POST   | Get full PR info + diff       |
 
 ### Utilities
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/clear-cache` | POST | Clear vibecheck status cache |
+
+| Endpoint           | Method | Description                  |
+| ------------------ | ------ | ---------------------------- |
+| `/api/clear-cache` | POST   | Clear vibecheck status cache |
 
 ## Configuration
 
@@ -194,10 +209,10 @@ MAX_REPOS_FOR_STAGE = 15           # Max repos shown per stage
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `URL_PREFIX` | URL prefix for proxied deployment | `/dispatch` |
-| `FLASK_ENV` | Set to `development` for debug mode | `production` |
+| Variable     | Description                         | Default      |
+| ------------ | ----------------------------------- | ------------ |
+| `URL_PREFIX` | URL prefix for proxied deployment   | `/dispatch`  |
+| `FLASK_ENV`  | Set to `development` for debug mode | `production` |
 
 ## What is VibeCheck?
 
@@ -220,4 +235,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-

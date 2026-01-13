@@ -24,6 +24,8 @@ venv/
 ENV/
 env/
 
+tmpclaude*
+
 # Flask
 instance/
 .webassets-cache
