@@ -4,73 +4,37 @@
  * Install VibeCheck on repos that don't have it.
  */
 
-import { useState } from 'react'
 import { usePipelineStore } from '../../store'
-import { batchInstallVibecheck } from '../../api/endpoints'
+import { installVibecheck } from '../../api/endpoints'
+import { useBatchAction } from '../../hooks'
 import type { Stage1Repo } from '../../api/types'
 
 export function Stage1Install() {
   const stage1 = usePipelineStore(state => state.stage1)
   const owner = usePipelineStore(state => state.owner)
-  const addLog = usePipelineStore(state => state.addLog)
   const removeStage1Repo = usePipelineStore(state => state.removeStage1Repo)
-
-  const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set())
-  const [installing, setInstalling] = useState(false)
 
   const repos = stage1.items
 
-  const toggleRepo = (repoName: string) => {
-    setSelectedRepos(prev => {
-      const next = new Set(prev)
-      if (next.has(repoName)) {
-        next.delete(repoName)
-      } else {
-        next.add(repoName)
-      }
-      return next
-    })
-  }
-
-  const selectAll = () => {
-    setSelectedRepos(new Set(repos.map(r => r.name)))
-  }
-
-  const selectNone = () => {
-    setSelectedRepos(new Set())
-  }
-
-  const installSelected = async () => {
-    if (!owner || selectedRepos.size === 0) return
-
-    setInstalling(true)
-    addLog(`Installing VibeCheck on ${selectedRepos.size} repos...`, 'info')
-
-    const repoList = Array.from(selectedRepos)
-    let successCount = 0
-
-    await batchInstallVibecheck(owner, repoList, (completed, total, result) => {
-      if (result.success) {
-        successCount++
-        addLog(`Installed on ${result.repo}`, 'success')
-        // Immediately update UI - remove repo from list
-        removeStage1Repo(result.repo)
-        setSelectedRepos(prev => {
-          const next = new Set(prev)
-          next.delete(result.repo)
-          return next
-        })
-      } else {
-        addLog(`Failed on ${result.repo}: ${result.error}`, 'error')
-      }
-    })
-
-    addLog(
-      `Done! Installed on ${successCount}/${repoList.length} repos`,
-      successCount > 0 ? 'success' : 'error'
-    )
-    setInstalling(false)
-  }
+  const {
+    processing,
+    selectedCount,
+    toggleItem,
+    selectAll,
+    selectNone,
+    isSelected,
+    processSelected
+  } = useBatchAction<Stage1Repo>({
+    processItem: async repo => {
+      if (!owner) return { success: false, error: 'No owner' }
+      const result = await installVibecheck(owner, repo.name)
+      return { success: result.success, error: result.error }
+    },
+    getItemId: repo => repo.name,
+    getItemName: repo => repo.name,
+    onItemSuccess: repo => removeStage1Repo(repo.name),
+    actionVerb: 'Installed'
+  })
 
   // Loading state
   if (stage1.loading && repos.length === 0) {
@@ -99,7 +63,7 @@ export function Stage1Install() {
     <div className="stage-panel">
       <div className="stage-panel__header">
         <div className="stage-panel__actions">
-          <button className="btn btn--secondary btn--sm" onClick={selectAll}>
+          <button className="btn btn--secondary btn--sm" onClick={() => selectAll(repos)}>
             Select All
           </button>
           <button className="btn btn--secondary btn--sm" onClick={selectNone}>
@@ -108,11 +72,11 @@ export function Stage1Install() {
           <button
             className="btn btn--primary btn--sm"
             onClick={() => {
-              void installSelected()
+              void processSelected(repos)
             }}
-            disabled={installing || selectedRepos.size === 0}
+            disabled={processing || selectedCount === 0}
           >
-            {installing ? 'Installing...' : `Install Selected (${selectedRepos.size})`}
+            {processing ? 'Installing...' : `Install Selected (${selectedCount})`}
           </button>
         </div>
       </div>
@@ -122,9 +86,9 @@ export function Stage1Install() {
           <RepoCheckbox
             key={repo.name}
             repo={repo}
-            checked={selectedRepos.has(repo.name)}
-            onChange={() => toggleRepo(repo.name)}
-            disabled={installing}
+            checked={isSelected(repo)}
+            onChange={() => toggleItem(repo)}
+            disabled={processing}
           />
         ))}
       </div>

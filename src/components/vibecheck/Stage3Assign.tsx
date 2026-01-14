@@ -7,19 +7,15 @@
 
 import { useState, useMemo } from 'react'
 import { usePipelineStore } from '../../store'
-import { batchAssignCopilot } from '../../api/endpoints'
+import { assignCopilot } from '../../api/endpoints'
+import { useBatchAction } from '../../hooks'
 import type { Issue } from '../../api/types'
 import { getSeverity, getSeverityClass } from '../../utils'
 
 export function Stage3Assign() {
   const stage3 = usePipelineStore(state => state.stage3)
   const owner = usePipelineStore(state => state.owner)
-  const addLog = usePipelineStore(state => state.addLog)
   const removeStage3Issue = usePipelineStore(state => state.removeStage3Issue)
-
-  const [selectedIssues, setSelectedIssues] = useState<Set<string>>(new Set())
-  const [selectedRecommended, setSelectedRecommended] = useState<Set<string>>(new Set())
-  const [assigning, setAssigning] = useState(false)
 
   // Filters
   const [severityFilter, setSeverityFilter] = useState('all')
@@ -68,117 +64,26 @@ export function Stage3Assign() {
       label !== 'vibeCheck'
   )
 
-  const makeIssueKey = (issue: Issue) => `${issue.repo}:${issue.number}`
-
-  const toggleIssue = (issue: Issue, isRecommended: boolean) => {
-    const key = makeIssueKey(issue)
-    const setter = isRecommended ? setSelectedRecommended : setSelectedIssues
-    setter(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
-      return next
-    })
-  }
-
-  const selectAll = () => {
-    setSelectedIssues(new Set(filteredIssues.map(makeIssueKey)))
-  }
-
-  const selectNone = () => {
-    setSelectedIssues(new Set())
-  }
-
-  const selectAllRecommended = () => {
-    setSelectedRecommended(new Set(recommended.map(makeIssueKey)))
-  }
-
-  const assignRecommended = async () => {
-    if (!owner || selectedRecommended.size === 0) return
-
-    setAssigning(true)
-    addLog(`Assigning Copilot to ${selectedRecommended.size} recommended issues...`, 'info')
-
-    const issues = Array.from(selectedRecommended).map(key => {
-      const [repo, issueNumber] = key.split(':')
-      return { repo, issueNumber: parseInt(issueNumber) }
-    })
-
-    let successCount = 0
-
-    await batchAssignCopilot(owner, issues, (completed, total, result) => {
-      if (result.success) {
-        successCount++
-        addLog(`Assigned to ${result.repo}#${result.issueNumber}`, 'success')
-        // Immediately remove from UI
-        removeStage3Issue(result.repo, result.issueNumber)
-        // Also remove from selection
-        setSelectedRecommended(prev => {
-          const next = new Set(prev)
-          next.delete(`${result.repo}:${result.issueNumber}`)
-          return next
-        })
-      } else {
-        addLog(`Failed on ${result.repo}#${result.issueNumber}: ${result.error}`, 'error')
-      }
-    })
-
-    addLog(
-      `Done! Assigned Copilot to ${successCount}/${issues.length} issues`,
-      successCount > 0 ? 'success' : 'error'
-    )
-    setAssigning(false)
-    setSelectedRecommended(new Set())
-  }
-
-  const assignSelected = async () => {
-    const allSelected = new Set([...selectedRecommended, ...selectedIssues])
-    if (!owner || allSelected.size === 0) return
-
-    setAssigning(true)
-    addLog(`Assigning Copilot to ${allSelected.size} issues...`, 'info')
-
-    const issues = Array.from(allSelected).map(key => {
-      const [repo, issueNumber] = key.split(':')
-      return { repo, issueNumber: parseInt(issueNumber) }
-    })
-
-    let successCount = 0
-
-    await batchAssignCopilot(owner, issues, (completed, total, result) => {
-      if (result.success) {
-        successCount++
-        addLog(`Assigned to ${result.repo}#${result.issueNumber}`, 'success')
-        // Immediately remove from UI
-        removeStage3Issue(result.repo, result.issueNumber)
-        // Also remove from selections
-        const key = `${result.repo}:${result.issueNumber}`
-        setSelectedIssues(prev => {
-          const next = new Set(prev)
-          next.delete(key)
-          return next
-        })
-        setSelectedRecommended(prev => {
-          const next = new Set(prev)
-          next.delete(key)
-          return next
-        })
-      } else {
-        addLog(`Failed on ${result.repo}#${result.issueNumber}: ${result.error}`, 'error')
-      }
-    })
-
-    addLog(
-      `Done! Assigned Copilot to ${successCount}/${issues.length} issues`,
-      successCount > 0 ? 'success' : 'error'
-    )
-    setAssigning(false)
-    setSelectedIssues(new Set())
-    setSelectedRecommended(new Set())
-  }
+  // Batch action for assigning Copilot
+  const {
+    processing: assigning,
+    selectedCount,
+    toggleItem,
+    selectAll,
+    selectNone,
+    isSelected,
+    processSelected
+  } = useBatchAction<Issue>({
+    processItem: async issue => {
+      if (!owner) return { success: false, error: 'No owner' }
+      const result = await assignCopilot(owner, issue.repo ?? '', issue.number)
+      return { success: result.success, error: result.error }
+    },
+    getItemId: issue => `${issue.repo}:${issue.number}`,
+    getItemName: issue => `${issue.repo}#${issue.number}`,
+    onItemSuccess: issue => removeStage3Issue(issue.repo ?? '', issue.number),
+    actionVerb: 'Assigned'
+  })
 
   // Loading state
   if (stage3.loading && allIssues.length === 0) {
@@ -247,17 +152,17 @@ export function Stage3Assign() {
               Recommended (1 per repo, no active Copilot PRs)
             </h3>
             <div className="stage-section__actions">
-              <button className="btn btn--secondary btn--sm" onClick={selectAllRecommended}>
+              <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
                 Select All
               </button>
               <button
                 className="btn btn--warning btn--sm"
                 onClick={() => {
-                  void assignRecommended()
+                  void processSelected(recommended)
                 }}
-                disabled={assigning || selectedRecommended.size === 0}
+                disabled={assigning || selectedCount === 0}
               >
-                Assign Recommended ({selectedRecommended.size})
+                Assign Recommended ({selectedCount})
               </button>
             </div>
           </div>
@@ -276,10 +181,10 @@ export function Stage3Assign() {
               <tbody>
                 {recommended.map(issue => (
                   <IssueRow
-                    key={makeIssueKey(issue)}
+                    key={`${issue.repo}:${issue.number}`}
                     issue={issue}
-                    checked={selectedRecommended.has(makeIssueKey(issue))}
-                    onChange={() => toggleIssue(issue, true)}
+                    checked={isSelected(issue)}
+                    onChange={() => toggleItem(issue)}
                     disabled={assigning}
                     showLabels={false}
                   />
@@ -298,7 +203,10 @@ export function Stage3Assign() {
         <div className="stage-section__header">
           <h3 className="stage-section__title">All Issues</h3>
           <div className="stage-section__actions">
-            <button className="btn btn--secondary btn--sm" onClick={selectAll}>
+            <button
+              className="btn btn--secondary btn--sm"
+              onClick={() => selectAll(filteredIssues)}
+            >
               Select All
             </button>
             <button className="btn btn--secondary btn--sm" onClick={selectNone}>
@@ -307,11 +215,11 @@ export function Stage3Assign() {
             <button
               className="btn btn--primary btn--sm"
               onClick={() => {
-                void assignSelected()
+                void processSelected(filteredIssues)
               }}
-              disabled={assigning || (selectedIssues.size === 0 && selectedRecommended.size === 0)}
+              disabled={assigning || selectedCount === 0}
             >
-              Assign Selected ({selectedIssues.size + selectedRecommended.size})
+              Assign Selected ({selectedCount})
             </button>
           </div>
         </div>
@@ -334,10 +242,10 @@ export function Stage3Assign() {
               <tbody>
                 {filteredIssues.map(issue => (
                   <IssueRow
-                    key={makeIssueKey(issue)}
+                    key={`${issue.repo}:${issue.number}`}
                     issue={issue}
-                    checked={selectedIssues.has(makeIssueKey(issue))}
-                    onChange={() => toggleIssue(issue, false)}
+                    checked={isSelected(issue)}
+                    onChange={() => toggleItem(issue)}
                     disabled={assigning}
                     showLabels
                   />

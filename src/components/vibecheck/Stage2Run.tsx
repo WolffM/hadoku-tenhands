@@ -5,9 +5,10 @@
  * Shows recommended repos (needs run) and all repos.
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { usePipelineStore } from '../../store'
-import { batchRunVibecheck, runVibecheck, batchUpdateVibecheck } from '../../api/endpoints'
+import { runVibecheck, batchUpdateVibecheck } from '../../api/endpoints'
+import { useBatchAction } from '../../hooks'
 import type { Stage2Repo } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 
@@ -17,119 +18,49 @@ export function Stage2Run() {
   const addLog = usePipelineStore(state => state.addLog)
   const markStage2RepoTriggered = usePipelineStore(state => state.markStage2RepoTriggered)
 
-  const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set())
-  const [selectedRecommended, setSelectedRecommended] = useState<Set<string>>(new Set())
-  const [running, setRunning] = useState(false)
   const [updating, setUpdating] = useState(false)
-
-  // Track if we've initialized the selection
-  const initializedRef = useRef(false)
 
   const repos = stage2.items
 
   // Split repos into recommended (needs run) and others
-  const recommended = repos.filter(repo => {
-    const lastRun = repo.lastRun
-    const status = (lastRun ? lastRun.conclusion || lastRun.status : 'none') as string
-    const isRunning = ['in_progress', 'queued', 'triggered'].includes(status)
-    const needsRun = !lastRun || repo.commitsSinceLastRun > 0
-    return needsRun && !isRunning
+  const recommended = useMemo(
+    () =>
+      repos.filter(repo => {
+        const lastRun = repo.lastRun
+        const status = (lastRun ? lastRun.conclusion || lastRun.status : 'none') as string
+        const isRunning = ['in_progress', 'queued', 'triggered'].includes(status)
+        const needsRun = !lastRun || repo.commitsSinceLastRun > 0
+        return needsRun && !isRunning
+      }),
+    [repos]
+  )
+
+  const others = useMemo(
+    () => repos.filter(repo => !recommended.includes(repo)),
+    [repos, recommended]
+  )
+
+  // Batch action for running vibecheck
+  const {
+    processing: running,
+    selectedCount,
+    toggleItem,
+    selectAll,
+    selectNone,
+    isSelected,
+    processSelected,
+    processSingle
+  } = useBatchAction<Stage2Repo>({
+    processItem: async repo => {
+      if (!owner) return { success: false, error: 'No owner' }
+      const result = await runVibecheck(owner, repo.name)
+      return { success: result.success, error: result.error }
+    },
+    getItemId: repo => repo.name,
+    getItemName: repo => repo.name,
+    onItemSuccess: repo => markStage2RepoTriggered(repo.name),
+    actionVerb: 'Triggered'
   })
-
-  const others = repos.filter(repo => !recommended.includes(repo))
-
-  // Initialize recommended selection - select all recommended by default
-  useEffect(() => {
-    if (recommended.length > 0 && !initializedRef.current) {
-      setSelectedRecommended(new Set(recommended.map(r => r.name)))
-      initializedRef.current = true
-    }
-  }, [recommended])
-
-  const toggleRepo = (repoName: string, isRecommended: boolean) => {
-    const setter = isRecommended ? setSelectedRecommended : setSelectedRepos
-    setter(prev => {
-      const next = new Set(prev)
-      if (next.has(repoName)) {
-        next.delete(repoName)
-      } else {
-        next.add(repoName)
-      }
-      return next
-    })
-  }
-
-  const selectAll = () => {
-    setSelectedRepos(new Set(others.map(r => r.name)))
-  }
-
-  const selectNone = () => {
-    setSelectedRepos(new Set())
-  }
-
-  const runAllRecommended = async () => {
-    if (!owner || selectedRecommended.size === 0) return
-
-    setRunning(true)
-    addLog(`Running VibeCheck on ${selectedRecommended.size} recommended repos...`, 'info')
-
-    const repoList = Array.from(selectedRecommended)
-    let successCount = 0
-
-    await batchRunVibecheck(owner, repoList, (completed, total, result) => {
-      if (result.success) {
-        successCount++
-        addLog(`Triggered on ${result.repo}`, 'success')
-        // Immediately update UI - mark repo as triggered so it moves out of recommended
-        markStage2RepoTriggered(result.repo)
-        setSelectedRecommended(prev => {
-          const next = new Set(prev)
-          next.delete(result.repo)
-          return next
-        })
-      } else {
-        addLog(`Failed on ${result.repo}: ${result.error}`, 'error')
-      }
-    })
-
-    addLog(
-      `All workflows triggered! (${successCount}/${repoList.length} successful)`,
-      successCount > 0 ? 'success' : 'error'
-    )
-    setRunning(false)
-  }
-
-  const runSelected = async () => {
-    if (!owner || selectedRepos.size === 0) return
-
-    setRunning(true)
-    addLog(`Running VibeCheck on ${selectedRepos.size} repos...`, 'info')
-
-    const repoList = Array.from(selectedRepos)
-    let successCount = 0
-
-    await batchRunVibecheck(owner, repoList, (completed, total, result) => {
-      if (result.success) {
-        successCount++
-        addLog(`Triggered on ${result.repo}`, 'success')
-        // Immediately update UI - mark repo as triggered
-        markStage2RepoTriggered(result.repo)
-        setSelectedRepos(prev => {
-          const next = new Set(prev)
-          next.delete(result.repo)
-          return next
-        })
-      } else {
-        addLog(`Failed on ${result.repo}: ${result.error}`, 'error')
-      }
-    })
-
-    addLog(
-      `All workflows triggered! (${successCount}/${repoList.length} successful)`,
-      successCount > 0 ? 'success' : 'error'
-    )
-    setRunning(false)
-  }
 
   const updateAllWorkflows = async () => {
     if (!owner || repos.length === 0) return
@@ -154,35 +85,6 @@ export function Stage2Run() {
       successCount > 0 ? 'success' : 'error'
     )
     setUpdating(false)
-  }
-
-  const runSingle = async (repo: Stage2Repo) => {
-    if (!owner) return
-
-    addLog(`Running VibeCheck on ${repo.name}...`, 'info')
-
-    try {
-      const result = await runVibecheck(owner, repo.name)
-      if (result.success) {
-        addLog(`Triggered on ${repo.name}`, 'success')
-        // Immediately update UI
-        markStage2RepoTriggered(repo.name)
-        setSelectedRecommended(prev => {
-          const next = new Set(prev)
-          next.delete(repo.name)
-          return next
-        })
-        setSelectedRepos(prev => {
-          const next = new Set(prev)
-          next.delete(repo.name)
-          return next
-        })
-      } else {
-        addLog(`Failed on ${repo.name}: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog(`Failed on ${repo.name}`, 'error')
-    }
   }
 
   // Loading state
@@ -232,15 +134,20 @@ export function Stage2Run() {
               <span className="stage-section__icon">⭐</span>
               Recommended ({recommended.length} repos need VibeCheck)
             </h3>
-            <button
-              className="btn btn--primary btn--sm"
-              onClick={() => {
-                void runAllRecommended()
-              }}
-              disabled={running || selectedRecommended.size === 0}
-            >
-              ▶️ Run Selected ({selectedRecommended.size})
-            </button>
+            <div className="stage-section__actions">
+              <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
+                Select All
+              </button>
+              <button
+                className="btn btn--primary btn--sm"
+                onClick={() => {
+                  void processSelected(recommended)
+                }}
+                disabled={running || updating || selectedCount === 0}
+              >
+                ▶️ Run Selected ({selectedCount})
+              </button>
+            </div>
           </div>
 
           <div className="table-container">
@@ -259,12 +166,12 @@ export function Stage2Run() {
                   <RecommendedRow
                     key={repo.name}
                     repo={repo}
-                    checked={selectedRecommended.has(repo.name)}
-                    onChange={() => toggleRepo(repo.name, true)}
+                    checked={isSelected(repo)}
+                    onChange={() => toggleItem(repo)}
                     onRun={() => {
-                      void runSingle(repo)
+                      void processSingle(repo)
                     }}
-                    disabled={running}
+                    disabled={running || updating}
                   />
                 ))}
               </tbody>
@@ -283,7 +190,7 @@ export function Stage2Run() {
             {recommended.length > 0 ? 'Other Repos' : 'All Repos'}
           </h3>
           <div className="stage-section__actions">
-            <button className="btn btn--secondary btn--sm" onClick={selectAll}>
+            <button className="btn btn--secondary btn--sm" onClick={() => selectAll(others)}>
               Select All
             </button>
             <button className="btn btn--secondary btn--sm" onClick={selectNone}>
@@ -292,11 +199,11 @@ export function Stage2Run() {
             <button
               className="btn btn--primary btn--sm"
               onClick={() => {
-                void runSelected()
+                void processSelected(others)
               }}
-              disabled={running || selectedRepos.size === 0}
+              disabled={running || updating || selectedCount === 0}
             >
-              Run Selected ({selectedRepos.size})
+              Run Selected ({selectedCount})
             </button>
           </div>
         </div>
@@ -318,12 +225,12 @@ export function Stage2Run() {
                 <RepoRow
                   key={repo.name}
                   repo={repo}
-                  checked={selectedRepos.has(repo.name)}
-                  onChange={() => toggleRepo(repo.name, false)}
+                  checked={isSelected(repo)}
+                  onChange={() => toggleItem(repo)}
                   onRun={() => {
-                    void runSingle(repo)
+                    void processSingle(repo)
                   }}
-                  disabled={running}
+                  disabled={running || updating}
                 />
               ))}
             </tbody>
