@@ -14,22 +14,41 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
-from backend.services import (
-    run_gh_command,
-    get_authenticated_user,
-    get_repos,
-    get_repo_issues,
-    get_repo_prs,
-    get_workflow_runs,
-    check_vibecheck_installed,
-    check_vibecheck_installed_batch,
-    clear_vibecheck_cache,
-    get_cached,
-    set_cached,
-    clear_cache,
-    get_cache_stats
-)
-from backend.config import VIBECHECK_WORKFLOW
+# Support both direct execution (python backend/app.py) and module execution (python -m backend.app)
+try:
+    from .services import (
+        run_gh_command,
+        get_authenticated_user,
+        get_repos,
+        get_repo_issues,
+        get_repo_prs,
+        get_workflow_runs,
+        check_vibecheck_installed,
+        check_vibecheck_installed_batch,
+        clear_vibecheck_cache,
+        get_cached,
+        set_cached,
+        clear_cache,
+        get_cache_stats
+    )
+    from .config import VIBECHECK_WORKFLOW
+except ImportError:
+    from services import (
+        run_gh_command,
+        get_authenticated_user,
+        get_repos,
+        get_repo_issues,
+        get_repo_prs,
+        get_workflow_runs,
+        check_vibecheck_installed,
+        check_vibecheck_installed_batch,
+        clear_vibecheck_cache,
+        get_cached,
+        set_cached,
+        clear_cache,
+        get_cache_stats
+    )
+    from config import VIBECHECK_WORKFLOW
 
 # On Windows, prevent subprocess from opening console windows
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
