@@ -390,7 +390,12 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         ...state.stage3,
         items: state.stage3.items.filter(
           issue => !(issue.repo === repo && issue.number === issueNumber)
-        )
+        ),
+        // Add repo to reposWithCopilotPRs so other issues from this repo
+        // are excluded from recommended (Copilot is now working on this repo)
+        reposWithCopilotPRs: state.stage3.reposWithCopilotPRs.includes(repo)
+          ? state.stage3.reposWithCopilotPRs
+          : [...state.stage3.reposWithCopilotPRs, repo]
       }
     }))
     // Also refresh pipeline items to update the list view
