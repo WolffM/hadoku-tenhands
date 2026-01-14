@@ -132,6 +132,117 @@ def api_install_vibecheck():
     return jsonify({"success": False, "error": result.stderr})
 
 
+@bp.route("/api/vibecheck-template", methods=["GET"])
+def api_vibecheck_template():
+    """Fetch the latest vibecheck workflow template from the vibecheck repo."""
+    # Try to fetch from WolffM/vibecheck repo
+    result = subprocess.run(
+        ["gh", "api", "repos/WolffM/vibecheck/contents/examples/vibecheck.yml", "--jq", ".content"],
+        capture_output=True,
+        text=True,
+        creationflags=_SUBPROCESS_FLAGS
+    )
+
+    if result.returncode == 0:
+        try:
+            content = base64.b64decode(result.stdout.strip()).decode()
+            return jsonify({"success": True, "template": content})
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Failed to decode template: {e}"})
+
+    # Fallback to local template
+    return jsonify({"success": True, "template": VIBECHECK_WORKFLOW, "source": "local"})
+
+
+@bp.route("/api/update-vibecheck", methods=["POST"])
+def api_update_vibecheck():
+    """Update existing vibecheck workflow in a repository."""
+    data = request.json
+    owner = data.get("owner")
+    repo = data.get("repo")
+    template = data.get("template")  # Optional custom template
+
+    if not owner or not repo:
+        return jsonify({"success": False, "error": "Missing owner or repo"})
+
+    # Get the current file SHA (required for updates)
+    sha_result = subprocess.run(
+        ["gh", "api", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml", "--jq", ".sha"],
+        capture_output=True,
+        text=True,
+        creationflags=_SUBPROCESS_FLAGS
+    )
+
+    if sha_result.returncode != 0:
+        return jsonify({"success": False, "error": "Workflow not found - use install instead"})
+
+    sha = sha_result.stdout.strip()
+
+    # Use provided template or fetch latest from vibecheck repo
+    if template:
+        workflow_content = template
+    else:
+        # Fetch latest from vibecheck repo
+        template_result = subprocess.run(
+            ["gh", "api", "repos/WolffM/vibecheck/contents/examples/vibecheck.yml", "--jq", ".content"],
+            capture_output=True,
+            text=True,
+            creationflags=_SUBPROCESS_FLAGS
+        )
+        if template_result.returncode == 0:
+            try:
+                workflow_content = base64.b64decode(template_result.stdout.strip()).decode()
+            except Exception:
+                workflow_content = VIBECHECK_WORKFLOW
+        else:
+            workflow_content = VIBECHECK_WORKFLOW
+
+    content_b64 = base64.b64encode(workflow_content.encode()).decode()
+
+    result = subprocess.run(
+        ["gh", "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml",
+         "-f", "message=Update vibeCheck workflow to latest version",
+         "-f", f"content={content_b64}",
+         "-f", f"sha={sha}"],
+        capture_output=True,
+        text=True,
+        creationflags=_SUBPROCESS_FLAGS
+    )
+
+    if result.returncode == 0:
+        return jsonify({"success": True, "message": "vibeCheck workflow updated!"})
+    return jsonify({"success": False, "error": result.stderr})
+
+
+@bp.route("/api/repos-with-vibecheck", methods=["GET"])
+def api_repos_with_vibecheck():
+    """Get repos that have vibecheck installed (for updating)."""
+    cache_key = "repos-with-vibecheck"
+    cached = get_cached(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    owner = get_authenticated_user()
+    repos = get_repos()
+
+    if not repos:
+        result = {"owner": owner, "repos": []}
+        set_cached(cache_key, result)
+        return jsonify(result)
+
+    status_dict = check_vibecheck_installed_batch(owner, repos)
+
+    repos_with_vibecheck = [
+        {"name": r["name"], "isPrivate": r.get("isPrivate", False)}
+        for r in repos
+        if status_dict.get(r["name"], False)
+    ]
+
+    result = {"owner": owner, "repos": repos_with_vibecheck}
+    set_cached(cache_key, result)
+    return jsonify(result)
+
+
 @bp.route("/api/run-vibecheck", methods=["POST"])
 def api_run_vibecheck():
     """Trigger the vibecheck workflow."""

@@ -11,26 +11,43 @@ MAX_CONCURRENT_REQUESTS = 10
 MAX_REPOS_FOR_STAGE = 15  # Max repos to check in stage endpoints
 
 # VibeCheck workflow template
-VIBECHECK_WORKFLOW = """name: VibeCheck
+VIBECHECK_WORKFLOW = """name: vibeCheck
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  schedule:
-    - cron: '0 0 * * 0'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  security-events: write
 
 jobs:
-  vibecheck:
+  analyze:
+    name: Static Analysis
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Run VibeCheck
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run vibeCheck
         uses: WolffM/vibecheck@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          cadence: weekly
+          severity_threshold: medium
+          confidence_threshold: medium
+          skip_issues: false
+          autofix_prs: true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibecheck-results
+          path: .vibecheck-output/
+          retention-days: 14
+          if-no-files-found: ignore
 """

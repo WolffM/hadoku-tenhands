@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { usePipelineStore } from '../../store'
-import { batchRunVibecheck, runVibecheck } from '../../api/endpoints'
+import { batchRunVibecheck, runVibecheck, batchUpdateVibecheck } from '../../api/endpoints'
 import type { Stage2Repo } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 
@@ -20,6 +20,7 @@ export function Stage2Run() {
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set())
   const [selectedRecommended, setSelectedRecommended] = useState<Set<string>>(new Set())
   const [running, setRunning] = useState(false)
+  const [updating, setUpdating] = useState(false)
 
   // Track if we've initialized the selection
   const initializedRef = useRef(false)
@@ -130,6 +131,31 @@ export function Stage2Run() {
     setRunning(false)
   }
 
+  const updateAllWorkflows = async () => {
+    if (!owner || repos.length === 0) return
+
+    setUpdating(true)
+    addLog(`Updating vibecheck workflows on ${repos.length} repos to latest version...`, 'info')
+
+    const repoList = repos.map(r => r.name)
+    let successCount = 0
+
+    await batchUpdateVibecheck(owner, repoList, (completed, total, result) => {
+      if (result.success) {
+        successCount++
+        addLog(`Updated ${result.repo}`, 'success')
+      } else {
+        addLog(`Failed to update ${result.repo}: ${result.error}`, 'error')
+      }
+    })
+
+    addLog(
+      `Workflow update complete! (${successCount}/${repoList.length} successful)`,
+      successCount > 0 ? 'success' : 'error'
+    )
+    setUpdating(false)
+  }
+
   const runSingle = async (repo: Stage2Repo) => {
     if (!owner) return
 
@@ -182,6 +208,22 @@ export function Stage2Run() {
 
   return (
     <div className="stage-panel">
+      {/* Global Actions */}
+      <div className="stage-panel__header" style={{ marginBottom: '1rem' }}>
+        <div className="stage-panel__actions">
+          <button
+            className="btn btn--secondary btn--sm"
+            onClick={() => {
+              void updateAllWorkflows()
+            }}
+            disabled={updating || running || repos.length === 0}
+            title="Update all repos to latest vibecheck workflow from WolffM/vibecheck"
+          >
+            {updating ? 'Updating...' : `🔄 Refresh Workflows (${repos.length})`}
+          </button>
+        </div>
+      </div>
+
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section stage-section--recommended">

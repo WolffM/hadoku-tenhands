@@ -310,3 +310,68 @@ export async function batchAssignCopilot(
 
   return results
 }
+
+// ============ Workflow Update APIs ============
+
+export interface ReposWithVibecheckResponse {
+  owner: string
+  repos: { name: string; isPrivate: boolean }[]
+}
+
+/**
+ * Get repos that have vibecheck installed (for updating)
+ */
+export async function getReposWithVibecheck(): Promise<ReposWithVibecheckResponse> {
+  return apiClient.get<ReposWithVibecheckResponse>('/api/repos-with-vibecheck')
+}
+
+/**
+ * Update vibecheck workflow on a repo to latest version
+ */
+export async function updateVibecheck(
+  owner: string,
+  repo: string,
+  template?: string
+): Promise<ActionResponse> {
+  return apiClient.post<ActionResponse>('/api/update-vibecheck', {
+    owner,
+    repo,
+    template
+  })
+}
+
+/**
+ * Update vibecheck on multiple repos
+ */
+export async function batchUpdateVibecheck(
+  owner: string,
+  repos: string[],
+  onProgress?: (completed: number, total: number, result: BatchResult) => void
+): Promise<BatchResult[]> {
+  const results: BatchResult[] = []
+
+  for (let i = 0; i < repos.length; i++) {
+    const repo = repos[i]
+    try {
+      const response = await updateVibecheck(owner, repo)
+      const result: BatchResult = {
+        repo,
+        success: response.success,
+        message: response.message,
+        error: response.error
+      }
+      results.push(result)
+      onProgress?.(i + 1, repos.length, result)
+    } catch (err) {
+      const result: BatchResult = {
+        repo,
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error'
+      }
+      results.push(result)
+      onProgress?.(i + 1, repos.length, result)
+    }
+  }
+
+  return results
+}
