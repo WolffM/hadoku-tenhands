@@ -13,7 +13,7 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: 'src/entry.tsx',
+      entry: 'src/index.ts',
       formats: ['es'],
       fileName: () => 'index.js'
     },
