@@ -13,8 +13,14 @@ from .cache import get_cached_vibecheck_status, set_cached_vibecheck_status
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
 
 
-def run_gh_command(args, capture_output=True):
-    """Run a gh CLI command and return the result."""
+def run_gh_command(args, capture_output=True, timeout=30):
+    """Run a gh CLI command and return the result.
+
+    Args:
+        args: Command arguments to pass to gh
+        capture_output: Whether to capture stdout/stderr
+        timeout: Timeout in seconds (default 30s)
+    """
     try:
         result = subprocess.run(
             ["gh"] + args,
@@ -22,11 +28,14 @@ def run_gh_command(args, capture_output=True):
             text=True,
             encoding='utf-8',
             errors='replace',
-            creationflags=_SUBPROCESS_FLAGS
+            creationflags=_SUBPROCESS_FLAGS,
+            timeout=timeout
         )
         if result.returncode != 0:
             return {"success": False, "error": result.stderr}
         return {"success": True, "output": result.stdout}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Command timed out after {timeout}s"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
