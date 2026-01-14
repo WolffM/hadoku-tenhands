@@ -1,6 +1,9 @@
 #!/bin/sh
 echo "🔍 Running pre-commit checks..."
 
+# Change to frontend directory for npm commands
+cd frontend
+
 # Capture originally staged files BEFORE any modifications
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
 
@@ -51,8 +54,11 @@ echo "✅ Version bumped: $current_version → $new_version"
 # Update lock file
 pnpm install --lockfile-only
 
+# Go back to repo root for git commands
+cd ..
+
 # Stage the version changes
-git add package.json pnpm-lock.yaml
+git add frontend/package.json frontend/pnpm-lock.yaml
 
 # Re-stage only the files that were originally staged (after lint/format may have modified them)
 # This avoids accidentally staging unrelated working directory changes

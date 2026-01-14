@@ -14,7 +14,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
-from services import (
+from backend.services import (
     run_gh_command,
     get_authenticated_user,
     get_repos,
@@ -29,7 +29,7 @@ from services import (
     clear_cache,
     get_cache_stats
 )
-from config import VIBECHECK_WORKFLOW
+from backend.config import VIBECHECK_WORKFLOW
 
 # On Windows, prevent subprocess from opening console windows
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
@@ -85,7 +85,7 @@ def add_cors_headers(response):
     # In production, the React app is served from the same origin
     # In development, React runs on localhost:5173
     origin = request.headers.get('Origin', '')
-    if origin in ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174']:
+    if origin in ['http://localhost:5175', 'http://127.0.0.1:5175', 'http://localhost:5173', 'http://localhost:5174']:
         response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-User-Key'

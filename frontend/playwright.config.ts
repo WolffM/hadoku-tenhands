@@ -13,7 +13,7 @@ export default defineConfig({
   reporter: [['html', { open: 'never' }]],
 
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:5175',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure'
   },
@@ -28,15 +28,15 @@ export default defineConfig({
   // Start both Flask backend and Vite dev server before running tests
   webServer: [
     {
-      command: 'python app.py',
+      command: 'python -m backend.app',
       port: 5000,
       reuseExistingServer: !process.env.CI,
-      cwd: '.',
+      cwd: '..',
       timeout: 30000
     },
     {
       command: 'pnpm dev',
-      port: 5173,
+      port: 5175,
       reuseExistingServer: !process.env.CI,
       timeout: 30000
     }

@@ -28,16 +28,19 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: '@wolffm'
           cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       # Note: actions/setup-node with registry-url automatically creates .npmrc
       # Use NODE_AUTH_TOKEN env var for authentication (no manual .npmrc needed)
 
       - name: Install dependencies
+        working-directory: frontend
         run: pnpm install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
 
       - name: Build package
+        working-directory: frontend
         run: pnpm run build
 
       - name: Check if package changed
@@ -53,6 +56,7 @@ jobs:
 
       - name: Check and bump version if needed
         if: steps.package_changed.outputs.changed == 'true'
+        working-directory: frontend
         run: |
           # Get package name and current version from package.json
           package_name=$(node -p "require('./package.json').name")
@@ -95,6 +99,7 @@ jobs:
 
       - name: Publish package
         if: steps.package_changed.outputs.changed == 'true'
+        working-directory: frontend
         run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
