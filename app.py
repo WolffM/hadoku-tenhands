@@ -171,25 +171,6 @@ def api_assign_copilot():
     return jsonify({"success": False, "error": result.get("error", "Failed to assign Copilot")})
 
 
-@bp.route("/api/get-high-severity-issues", methods=["POST"])
-def api_get_high_severity_issues():
-    """Get high severity vibecheck issues for a repo."""
-    data = request.json
-    owner = data.get("owner")
-    repo = data.get("repo")
-    
-    if not owner or not repo:
-        return jsonify({"success": False, "error": "Missing owner or repo"})
-    
-    issues = get_repo_issues(owner, repo, labels="vibeCheck")
-    high_severity = [i for i in issues if any(
-        "severity:high" in label.get("name", "").lower() or "severity:critical" in label.get("name", "").lower()
-        for label in i.get("labels", [])
-    )]
-    
-    return jsonify({"success": True, "issues": high_severity})
-
-
 @bp.route("/api/approve-pr", methods=["POST"])
 def api_approve_pr():
     """Approve a pull request."""
@@ -275,45 +256,6 @@ def api_merge_pr():
     if result["success"]:
         return jsonify({"success": True, "message": f"PR #{pr_number} merged!"})
     return jsonify({"success": False, "error": result.get("error", "Unknown error")})
-
-
-@bp.route("/api/run-full-pipeline", methods=["POST"])
-def api_run_full_pipeline():
-    """Run the full vibecheck pipeline."""
-    data = request.json
-    owner = data.get("owner")
-    repo = data.get("repo")
-    
-    steps_completed = []
-    
-    # Install vibecheck if not installed
-    if not check_vibecheck_installed(owner, repo):
-        content_b64 = base64.b64encode(VIBECHECK_WORKFLOW.encode()).decode()
-        result = subprocess.run(
-            ["gh", "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml",
-             "-f", "message=Add vibeCheck workflow",
-             "-f", f"content={content_b64}"],
-            capture_output=True, text=True,
-            creationflags=_SUBPROCESS_FLAGS
-        )
-        if result.returncode != 0:
-            return jsonify({"success": False, "error": f"Failed to install: {result.stderr}", "steps_completed": steps_completed})
-        steps_completed.append("install")
-    else:
-        steps_completed.append("install (already done)")
-    
-    # Trigger vibecheck
-    trigger_result = run_gh_command(["workflow", "run", "vibecheck.yml", "-R", f"{owner}/{repo}"])
-    if trigger_result["success"]:
-        steps_completed.append("trigger")
-    else:
-        return jsonify({"success": False, "error": f"Failed to trigger: {trigger_result.get('error')}", "steps_completed": steps_completed})
-    
-    return jsonify({
-        "success": True, 
-        "message": "Pipeline started! Vibecheck workflow is running.",
-        "steps_completed": steps_completed
-    })
 
 
 @bp.route("/api/workflow-status", methods=["POST"])

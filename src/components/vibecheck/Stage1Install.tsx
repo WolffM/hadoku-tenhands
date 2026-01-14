@@ -12,8 +12,8 @@ import type { Stage1Repo } from '../../api/types'
 export function Stage1Install() {
   const stage1 = usePipelineStore(state => state.stage1)
   const owner = usePipelineStore(state => state.owner)
-  const loadStage1 = usePipelineStore(state => state.loadStage1)
   const addLog = usePipelineStore(state => state.addLog)
+  const removeStage1Repo = usePipelineStore(state => state.removeStage1Repo)
 
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set())
   const [installing, setInstalling] = useState(false)
@@ -53,6 +53,13 @@ export function Stage1Install() {
       if (result.success) {
         successCount++
         addLog(`Installed on ${result.repo}`, 'success')
+        // Immediately update UI - remove repo from list
+        removeStage1Repo(result.repo)
+        setSelectedRepos(prev => {
+          const next = new Set(prev)
+          next.delete(result.repo)
+          return next
+        })
       } else {
         addLog(`Failed on ${result.repo}: ${result.error}`, 'error')
       }
@@ -63,12 +70,6 @@ export function Stage1Install() {
       successCount > 0 ? 'success' : 'error'
     )
     setInstalling(false)
-    setSelectedRepos(new Set())
-
-    // Reload after a delay
-    setTimeout(() => {
-      void loadStage1()
-    }, 1000)
   }
 
   // Loading state

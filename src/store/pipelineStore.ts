@@ -76,7 +76,10 @@ interface PipelineState {
   addLog: (message: string, type: LogEntry['type']) => void
   clearLogs: () => void
   refreshPipelineItems: () => void
+  removeStage1Repo: (repoName: string) => void
+  markStage2RepoTriggered: (repoName: string) => void
   removeStage3Issue: (repo: string, issueNumber: number) => void
+  removeStage4PR: (repo: string, prNumber: number) => void
 }
 
 // ============ Helpers ============
@@ -348,6 +351,39 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     set({ logs: [] })
   },
 
+  removeStage1Repo: (repoName: string) => {
+    set(state => ({
+      stage1: {
+        ...state.stage1,
+        items: state.stage1.items.filter(repo => repo.name !== repoName)
+      }
+    }))
+  },
+
+  markStage2RepoTriggered: (repoName: string) => {
+    set(state => ({
+      stage2: {
+        ...state.stage2,
+        items: state.stage2.items.map(repo => {
+          if (repo.name === repoName) {
+            // Create a new lastRun with 'queued' status to move out of recommended list
+            return {
+              ...repo,
+              lastRun: {
+                id: repo.lastRun?.id ?? 0,
+                status: 'queued' as const,
+                conclusion: null,
+                createdAt: new Date().toISOString()
+              },
+              commitsSinceLastRun: 0
+            }
+          }
+          return repo
+        })
+      }
+    }))
+  },
+
   removeStage3Issue: (repo: string, issueNumber: number) => {
     set(state => ({
       stage3: {
@@ -355,6 +391,17 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         items: state.stage3.items.filter(
           issue => !(issue.repo === repo && issue.number === issueNumber)
         )
+      }
+    }))
+    // Also refresh pipeline items to update the list view
+    get().refreshPipelineItems()
+  },
+
+  removeStage4PR: (repo: string, prNumber: number) => {
+    set(state => ({
+      stage4: {
+        ...state.stage4,
+        items: state.stage4.items.filter(pr => !(pr.repo === repo && pr.number === prNumber))
       }
     }))
     // Also refresh pipeline items to update the list view
@@ -420,15 +467,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 }))
 
 // ============ Selectors ============
-
-export const selectItemsAwaitingReview = (state: PipelineState) =>
-  state.pipelineItems.filter(item => item.status === 'waiting_for_review')
-
-export const selectItemsProcessing = (state: PipelineState) =>
-  state.pipelineItems.filter(item => item.status === 'processing')
-
-export const selectItemsReady = (state: PipelineState) =>
-  state.pipelineItems.filter(item => item.status === 'ready')
 
 export const selectReviewQueueCount = (state: PipelineState) =>
   state.pipelineItems.filter(item => item.status === 'waiting_for_review').length

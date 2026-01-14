@@ -67,19 +67,6 @@ export async function runVibecheck(owner: string, repo: string): Promise<ActionR
 }
 
 /**
- * Run full pipeline (install + trigger) on a repo
- */
-export async function runFullPipeline(
-  owner: string,
-  repo: string
-): Promise<ActionResponse & { steps_completed?: string[] }> {
-  return apiClient.post<ActionResponse & { steps_completed?: string[] }>('/api/run-full-pipeline', {
-    owner,
-    repo
-  })
-}
-
-/**
  * Assign Copilot to an issue
  */
 export async function assignCopilot(

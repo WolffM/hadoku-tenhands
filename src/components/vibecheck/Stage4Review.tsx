@@ -16,8 +16,9 @@ import { DiffViewer } from '../review/DiffViewer'
 export function Stage4Review() {
   const stage4 = usePipelineStore(state => state.stage4)
   const owner = usePipelineStore(state => state.owner)
-  const loadStage4 = usePipelineStore(state => state.loadStage4)
   const addLog = usePipelineStore(state => state.addLog)
+  const loadStage4 = usePipelineStore(state => state.loadStage4)
+  const removeStage4PR = usePipelineStore(state => state.removeStage4PR)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [currentPR, setCurrentPR] = useState<PRDetails | null>(null)
@@ -100,18 +101,18 @@ export function Stage4Review() {
     if (!owner || !currentPR) return
 
     setActionLoading(true)
-    addLog(`Merging ${currentPR.repo}#${currentPR.number}...`, 'info')
+    const prRepo = currentPR.repo ?? ''
+    const prNumber = currentPR.number
+    addLog(`Merging ${prRepo}#${prNumber}...`, 'info')
 
     try {
-      const result = await mergePR(owner, currentPR.repo ?? '', currentPR.number)
+      const result = await mergePR(owner, prRepo, prNumber)
       if (result.success) {
-        addLog(`Merged ${currentPR.repo}#${currentPR.number}`, 'success')
-        // Move to next PR
+        addLog(`Merged ${prRepo}#${prNumber}`, 'success')
+        // Immediately remove from UI
+        removeStage4PR(prRepo, prNumber)
+        // Move to next PR (if any left)
         showNextPR()
-        // Reload after a short delay
-        setTimeout(() => {
-          void loadStage4()
-        }, 1000)
       } else {
         addLog(`Failed: ${result.error}`, 'error')
       }
@@ -143,13 +144,15 @@ export function Stage4Review() {
   const quickMerge = async (pr: PullRequest) => {
     if (!owner) return
 
-    addLog(`Merging ${pr.repo}#${pr.number}...`, 'info')
+    const prRepo = pr.repo ?? ''
+    addLog(`Merging ${prRepo}#${pr.number}...`, 'info')
 
     try {
-      const result = await mergePR(owner, pr.repo ?? '', pr.number)
+      const result = await mergePR(owner, prRepo, pr.number)
       if (result.success) {
-        addLog(`Merged ${pr.repo}#${pr.number}`, 'success')
-        void loadStage4()
+        addLog(`Merged ${prRepo}#${pr.number}`, 'success')
+        // Immediately remove from UI
+        removeStage4PR(prRepo, pr.number)
       } else {
         addLog(`Failed: ${result.error}`, 'error')
       }

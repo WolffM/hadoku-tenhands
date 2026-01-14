@@ -14,8 +14,8 @@ import { formatTimeAgo } from '../../utils'
 export function Stage2Run() {
   const stage2 = usePipelineStore(state => state.stage2)
   const owner = usePipelineStore(state => state.owner)
-  const loadStage2 = usePipelineStore(state => state.loadStage2)
   const addLog = usePipelineStore(state => state.addLog)
+  const markStage2RepoTriggered = usePipelineStore(state => state.markStage2RepoTriggered)
 
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set())
   const [selectedRecommended, setSelectedRecommended] = useState<Set<string>>(new Set())
@@ -79,6 +79,13 @@ export function Stage2Run() {
       if (result.success) {
         successCount++
         addLog(`Triggered on ${result.repo}`, 'success')
+        // Immediately update UI - mark repo as triggered so it moves out of recommended
+        markStage2RepoTriggered(result.repo)
+        setSelectedRecommended(prev => {
+          const next = new Set(prev)
+          next.delete(result.repo)
+          return next
+        })
       } else {
         addLog(`Failed on ${result.repo}: ${result.error}`, 'error')
       }
@@ -89,11 +96,6 @@ export function Stage2Run() {
       successCount > 0 ? 'success' : 'error'
     )
     setRunning(false)
-
-    // Reload after a delay
-    setTimeout(() => {
-      void loadStage2()
-    }, 2000)
   }
 
   const runSelected = async () => {
@@ -109,6 +111,13 @@ export function Stage2Run() {
       if (result.success) {
         successCount++
         addLog(`Triggered on ${result.repo}`, 'success')
+        // Immediately update UI - mark repo as triggered
+        markStage2RepoTriggered(result.repo)
+        setSelectedRepos(prev => {
+          const next = new Set(prev)
+          next.delete(result.repo)
+          return next
+        })
       } else {
         addLog(`Failed on ${result.repo}: ${result.error}`, 'error')
       }
@@ -119,12 +128,6 @@ export function Stage2Run() {
       successCount > 0 ? 'success' : 'error'
     )
     setRunning(false)
-    setSelectedRepos(new Set())
-
-    // Reload after a delay
-    setTimeout(() => {
-      void loadStage2()
-    }, 2000)
   }
 
   const runSingle = async (repo: Stage2Repo) => {
@@ -136,6 +139,18 @@ export function Stage2Run() {
       const result = await runVibecheck(owner, repo.name)
       if (result.success) {
         addLog(`Triggered on ${repo.name}`, 'success')
+        // Immediately update UI
+        markStage2RepoTriggered(repo.name)
+        setSelectedRecommended(prev => {
+          const next = new Set(prev)
+          next.delete(repo.name)
+          return next
+        })
+        setSelectedRepos(prev => {
+          const next = new Set(prev)
+          next.delete(repo.name)
+          return next
+        })
       } else {
         addLog(`Failed on ${repo.name}: ${result.error}`, 'error')
       }
