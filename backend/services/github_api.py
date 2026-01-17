@@ -56,14 +56,6 @@ def get_repos(limit=100):
     return []
 
 
-def get_repo_details(owner, repo):
-    """Get detailed information about a specific repository."""
-    result = run_gh_command(["repo", "view", f"{owner}/{repo}", "--json", "name,description,url,isPrivate,defaultBranchRef,updatedAt,stargazerCount,forkCount"])
-    if result["success"]:
-        return json.loads(result["output"])
-    return None
-
-
 def get_repo_issues(owner, repo, labels=None):
     """Get issues for a repository, optionally filtered by labels."""
     cmd = ["issue", "list", "-R", f"{owner}/{repo}", "--json", "number,title,labels,state,createdAt,assignees,url"]
