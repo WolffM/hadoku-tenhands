@@ -141,6 +141,21 @@ test.describe('Stage 3 - Assign', () => {
     const issueContent = page.locator('text=Security vulnerability')
     await expect(issueContent.first()).toBeVisible()
   })
+
+  test('displays Created Date column in issue tables', async ({ page }) => {
+    await Promise.all([
+      page.waitForResponse('**/dispatch/api/stage3-issues'),
+      page.getByRole('button', { name: /Assign Copilot/i }).click()
+    ])
+
+    // Verify "Created Date" column header is present
+    const createdDateHeader = page.locator('th:has-text("Created Date")')
+    await expect(createdDateHeader.first()).toBeVisible()
+
+    // Verify that date values are displayed in the table (e.g., "1d ago", "2d ago")
+    const dateCell = page.locator('td:has-text(/\\d+[dhms] ago|just now/)')
+    await expect(dateCell.first()).toBeVisible()
+  })
 })
 
 test.describe('Stage 4 - Review', () => {

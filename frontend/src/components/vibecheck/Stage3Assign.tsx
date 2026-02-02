@@ -10,7 +10,7 @@ import { usePipelineStore } from '../../store'
 import { assignCopilot } from '../../api/endpoints'
 import { useBatchAction } from '../../hooks'
 import type { Issue } from '../../api/types'
-import { getSeverity, getSeverityClass } from '../../utils'
+import { getSeverity, getSeverityClass, formatTimeAgo } from '../../utils'
 
 export function Stage3Assign() {
   const stage3 = usePipelineStore(state => state.stage3)
@@ -39,7 +39,12 @@ export function Stage3Assign() {
       filtered = filtered.filter(issue => issue.labels.some(l => l.name === labelFilter))
     }
 
-    return filtered
+    // Sort by created date (oldest first)
+    return [...filtered].sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime()
+      const dateB = new Date(b.createdAt).getTime()
+      return dateA - dateB
+    })
   }, [allIssues, severityFilter, labelFilter])
 
   // Get recommended issues (1 per repo, no active Copilot PRs)
@@ -52,7 +57,12 @@ export function Stage3Assign() {
         repoIssues[repo] = issue
       }
     }
-    return Object.values(repoIssues)
+    // Sort by created date (oldest first)
+    return Object.values(repoIssues).sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime()
+      const dateB = new Date(b.createdAt).getTime()
+      return dateA - dateB
+    })
   }, [filteredIssues, reposWithCopilotPRs])
 
   // Available labels for filter (excluding severity/confidence/vibeCheck)
@@ -176,6 +186,7 @@ export function Stage3Assign() {
                   <th>#</th>
                   <th>Title</th>
                   <th>Severity</th>
+                  <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -236,6 +247,7 @@ export function Stage3Assign() {
                   <th>#</th>
                   <th>Title</th>
                   <th>Severity</th>
+                  <th>Created Date</th>
                   <th>Labels</th>
                 </tr>
               </thead>
@@ -311,6 +323,7 @@ function IssueRow({ issue, checked, onChange, disabled, showLabels }: IssueRowPr
       <td>
         <span className={severityClass}>{severity}</span>
       </td>
+      <td className="text-light">{formatTimeAgo(issue.createdAt)}</td>
       {showLabels && (
         <td>
           {otherLabels.map(l => (
