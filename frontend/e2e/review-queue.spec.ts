@@ -142,6 +142,98 @@ test.describe('Review Queue Empty State', () => {
     // Should eventually show empty state (no items to review since only draft PRs)
     await expect(page.locator('text=No items to review')).toBeVisible({ timeout: 10000 })
   })
+
+  test('excludes demo-labeled PRs from review queue', async ({ page }) => {
+    // Mock stage4-prs to return a mix of demo and non-demo PRs
+    await page.route('**/dispatch/api/stage4-prs', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          owner: 'test-user',
+          prs: [
+            {
+              number: 200,
+              title: 'Non-demo PR ready for review',
+              repo: 'test-repo',
+              author: { login: 'test-user' },
+              isDraft: false,
+              copilotCompleted: null,
+              reviewDecision: null,
+              headRefName: 'feature/important',
+              baseRefName: 'main',
+              createdAt: new Date().toISOString(),
+              labels: []
+            },
+            {
+              number: 201,
+              title: 'Demo PR - should not appear',
+              repo: 'test-repo',
+              author: { login: 'copilot[bot]' },
+              isDraft: false,
+              copilotCompleted: true,
+              reviewDecision: null,
+              headRefName: 'demo/test',
+              baseRefName: 'main',
+              createdAt: new Date().toISOString(),
+              labels: [{ name: 'demo' }]
+            }
+          ]
+        })
+      })
+    })
+
+    // Set up other required mocks
+    await page.route('**/dispatch/api/owner', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: 'test-user' })
+      })
+    })
+
+    await page.route('**/dispatch/api/stage1-repos', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: 'test-user', repos: [] })
+      })
+    })
+
+    await page.route('**/dispatch/api/stage3-issues', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          owner: 'test-user',
+          issues: [],
+          labels: [],
+          repos_with_copilot_prs: []
+        })
+      })
+    })
+
+    await page.goto('/?key=test-key')
+    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+
+    // Navigate to Review Queue
+    await page.getByRole('button', { name: /Review Queue/i }).click()
+
+    // Wait for view to render
+    await expect(page.locator('.review-queue-view')).toBeVisible()
+
+    // Should show the review carousel header (since we have 1 non-demo PR ready for review)
+    await expect(page.locator('.review-carousel-header'))
+      .toBeVisible({ timeout: 10000 })
+
+    // The Review Queue badge should show count of 1 (only non-demo PR)
+    const reviewQueueBtn = page.getByRole('button', { name: /Review Queue/i })
+    const buttonText = await reviewQueueBtn.textContent()
+    // Badge should show "1" for the single non-demo PR (not "2" which would include demo)
+    expect(buttonText).toContain('1')
+  })
 })
 
 test.describe('Review Queue Error Handling', () => {
