@@ -20,7 +20,14 @@ export default defineConfig({
     },
     rollupOptions: {
       // Externalize peer dependencies (parent provides them)
-      external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', '@wolffm/themes'],
+      external: [
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'react/jsx-runtime',
+        '@wolffm/themes',
+        '@wolffm/task-ui-components'
+      ],
       output: {
         assetFileNames: 'style.css'
       }
