@@ -14,6 +14,7 @@ import type {
   Stage2Repo
 } from '../api/types'
 import { getStage1Repos, getStage2Repos, getStage3Issues, getStage4PRs } from '../api/endpoints'
+import { isPRReady } from '../utils'
 
 // ============ Types ============
 
@@ -115,18 +116,6 @@ function getStatusFromIssue(issue: Issue, reposWithCopilotPRs: string[]): Pipeli
   }
   // Otherwise pending assignment (not waiting_for_review - that's for PRs)
   return 'pending'
-}
-
-function isPRReady(pr: PullRequest): boolean {
-  const author = pr.author?.login ?? ''
-  const isCopilot = author.toLowerCase().includes('copilot')
-
-  if (isCopilot) {
-    // Copilot PRs are only ready when copilotCompleted is true
-    return pr.copilotCompleted === true
-  }
-  // Non-Copilot PRs are ready if they're not drafts
-  return !pr.isDraft
 }
 
 function getStatusFromPR(pr: PullRequest): PipelineStatus {

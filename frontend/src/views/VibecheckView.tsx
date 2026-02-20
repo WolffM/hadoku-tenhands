@@ -12,6 +12,7 @@ import { Stage2Run } from '../components/vibecheck/Stage2Run'
 import { Stage3Assign } from '../components/vibecheck/Stage3Assign'
 import { Stage4Review } from '../components/vibecheck/Stage4Review'
 import { ProgressLog } from '../components/common'
+import { isPRReady } from '../utils'
 
 type StageTab = 'stage1' | 'stage2' | 'stage3' | 'stage4'
 
@@ -141,19 +142,4 @@ export function VibecheckView() {
       <ProgressLog />
     </div>
   )
-}
-
-// Helper to check if PR is ready for review
-function isPRReady(pr: {
-  isDraft?: boolean
-  copilotCompleted?: boolean | null
-  author?: { login: string } | null
-}): boolean {
-  const author = pr.author?.login ?? ''
-  const isCopilot = author.toLowerCase().includes('copilot')
-
-  if (isCopilot) {
-    return pr.copilotCompleted === true
-  }
-  return !pr.isDraft
 }
