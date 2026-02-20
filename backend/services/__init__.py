@@ -17,7 +17,6 @@ from .github_api import (
     get_repos,
     get_repo_issues,
     get_repo_prs,
-    get_workflows,
     get_workflow_runs,
     check_vibecheck_installed,
     check_vibecheck_installed_batch
@@ -36,7 +35,6 @@ __all__ = [
     'get_repos',
     'get_repo_issues',
     'get_repo_prs',
-    'get_workflows',
     'get_workflow_runs',
     'check_vibecheck_installed',
     'check_vibecheck_installed_batch'

@@ -159,7 +159,6 @@ export function useBatchAction<T>(options: UseBatchActionOptions<T>) {
     selectNone,
     isSelected,
     processSelected,
-    processSingle,
-    setSelectedItems
+    processSingle
   }
 }

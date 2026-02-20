@@ -9,7 +9,6 @@ import './styles/index.css'
 export interface VibeDispatchProps {
   theme?: string // Theme passed from parent (e.g., 'default', 'ocean', 'forest')
   owner?: string // GitHub owner/user (if not provided, fetched from API)
-  initialView?: 'list' | 'review' | 'health' // Initial view to show
 }
 
 // Extend HTMLElement to include __root property

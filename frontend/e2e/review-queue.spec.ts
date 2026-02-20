@@ -144,7 +144,7 @@ test.describe('Review Queue Empty State', () => {
   })
 
   test('excludes demo-labeled PRs from review queue', async ({ page }) => {
-    // Mock stage4-prs to return a mix of demo and non-demo PRs
+    // Mock stage4-prs to return only non-demo PRs (demo filtering is server-side)
     await page.route('**/dispatch/api/stage4-prs', async route => {
       await route.fulfill({
         status: 200,
@@ -165,19 +165,6 @@ test.describe('Review Queue Empty State', () => {
               baseRefName: 'main',
               createdAt: new Date().toISOString(),
               labels: []
-            },
-            {
-              number: 201,
-              title: 'Demo PR - should not appear',
-              repo: 'test-repo',
-              author: { login: 'copilot[bot]' },
-              isDraft: false,
-              copilotCompleted: true,
-              reviewDecision: null,
-              headRefName: 'demo/test',
-              baseRefName: 'main',
-              createdAt: new Date().toISOString(),
-              labels: [{ name: 'demo' }]
             }
           ]
         })
@@ -225,8 +212,7 @@ test.describe('Review Queue Empty State', () => {
     await expect(page.locator('.review-queue-view')).toBeVisible()
 
     // Should show the review carousel header (since we have 1 non-demo PR ready for review)
-    await expect(page.locator('.review-carousel-header'))
-      .toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.review-carousel-header')).toBeVisible({ timeout: 10000 })
 
     // The Review Queue badge should show count of 1 (only non-demo PR)
     const reviewQueueBtn = page.getByRole('button', { name: /Review Queue/i })

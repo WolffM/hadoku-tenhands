@@ -13,7 +13,7 @@ import base64
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urlparse
+
 # Support both direct execution (python backend/app.py) and module execution (python -m backend.app)
 try:
     from .services import (
@@ -23,7 +23,6 @@ try:
         get_repo_issues,
         get_repo_prs,
         get_workflow_runs,
-        check_vibecheck_installed,
         check_vibecheck_installed_batch,
         clear_vibecheck_cache,
         get_cached,
@@ -40,7 +39,6 @@ except ImportError:
         get_repo_issues,
         get_repo_prs,
         get_workflow_runs,
-        check_vibecheck_installed,
         check_vibecheck_installed_batch,
         clear_vibecheck_cache,
         get_cached,
@@ -63,39 +61,6 @@ app = Flask(__name__)
 bp = Blueprint('dispatch', __name__)
 
 
-# ============ Template Filters ============
-@app.template_filter('safe_url')
-def safe_url_filter(url):
-    """
-    Sanitize URLs to prevent XSS attacks via javascript: or data: URIs.
-    Only allows http://, https://, and relative URLs (excluding protocol-relative URLs).
-    Returns '#' for invalid URLs.
-    """
-    if not url:
-        return '#'
-    
-    # Parse the URL
-    try:
-        url_str = str(url)
-        
-        # Check for protocol-relative URLs (e.g., //evil.com)
-        if url_str.startswith('//'):
-            return '#'
-        
-        parsed = urlparse(url_str)
-        
-        # Only allow http, https schemes, and relative URLs
-        if parsed.scheme in ('http', 'https', ''):
-            # Return as plain string - Jinja2's auto-escaping will handle
-            # HTML special characters appropriately for the href attribute context
-            return url_str
-        else:
-            # Reject javascript:, data:, and other dangerous schemes
-            return '#'
-    except (ValueError, AttributeError, TypeError):
-        # If URL parsing fails or url is not string-like, return safe default
-        return '#'
-
 
 # ============ CORS Support ============
 @app.after_request
@@ -112,13 +77,9 @@ def add_cors_headers(response):
     return response
 
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def handle_options(path):
-    """Handle OPTIONS preflight requests for CORS."""
-    if request.method == 'OPTIONS':
-        return '', 204
-    # For non-API routes, return a simple message
+@app.route('/')
+def api_root():
+    """API info endpoint."""
     return jsonify({"message": "VibeDispatch API", "docs": "/api/"})
 
 

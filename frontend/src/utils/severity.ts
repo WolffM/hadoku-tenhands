@@ -78,17 +78,3 @@ export function getSeverityLabel(severity: SeverityLevel): string {
       return 'Unknown'
   }
 }
-
-/**
- * Sort severity levels (critical first, low last)
- */
-export function compareSeverity(a: SeverityLevel, b: SeverityLevel): number {
-  const order: Record<SeverityLevel, number> = {
-    critical: 0,
-    high: 1,
-    medium: 2,
-    low: 3,
-    unknown: 4
-  }
-  return order[a] - order[b]
-}

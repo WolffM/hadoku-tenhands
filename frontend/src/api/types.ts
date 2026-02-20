@@ -6,13 +6,6 @@
 
 // ============ Base Types ============
 
-export interface ApiResponse<T = unknown> {
-  success: boolean
-  error?: string
-  message?: string
-  data?: T
-}
-
 export interface User {
   login: string
   avatarUrl?: string
@@ -199,8 +192,4 @@ export interface PipelineItem {
   updatedAt: string
   // The underlying data (issue, PR, etc.)
   data: Issue | PullRequest | Record<string, unknown>
-}
-
-export interface ReviewQueueItem extends PipelineItem {
-  reviewType: 'pr' | 'plan' | 'task' | 'other'
 }

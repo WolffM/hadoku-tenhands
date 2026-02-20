@@ -75,14 +75,6 @@ def get_repo_prs(owner, repo):
     return []
 
 
-def get_workflows(owner, repo):
-    """Get workflows for a repository."""
-    result = run_gh_command(["workflow", "list", "-R", f"{owner}/{repo}", "--json", "name,id,state"])
-    if result["success"]:
-        return json.loads(result["output"])
-    return []
-
-
 def get_workflow_runs(owner, repo, workflow_name=None, limit=10):
     """Get recent workflow runs."""
     cmd = ["run", "list", "-R", f"{owner}/{repo}", "--json", "databaseId,displayTitle,status,conclusion,createdAt,workflowName,url", "--limit", str(limit)]

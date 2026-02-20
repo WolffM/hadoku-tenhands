@@ -153,7 +153,7 @@ test.describe('Stage 3 - Assign', () => {
     await expect(createdDateHeader.first()).toBeVisible()
 
     // Verify that date values are displayed in the table (e.g., "1d ago", "2d ago")
-    const dateCell = page.locator('td:has-text(/\\d+[dhms] ago|just now/)')
+    const dateCell = page.locator('td').filter({ hasText: /\d+[dhms] ago|just now/ })
     await expect(dateCell.first()).toBeVisible()
   })
 })
