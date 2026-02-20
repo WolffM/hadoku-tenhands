@@ -11,6 +11,8 @@ import { assignCopilot } from '../../api/endpoints'
 import { useBatchAction } from '../../hooks'
 import type { Issue } from '../../api/types'
 import { getSeverity, getSeverityClass, formatTimeAgo } from '../../utils'
+import { LoadingState } from '../common/LoadingState'
+import { EmptyState } from '../common/EmptyState'
 
 export function Stage3Assign() {
   const stage3 = usePipelineStore(state => state.stage3)
@@ -97,24 +99,17 @@ export function Stage3Assign() {
 
   // Loading state
   if (stage3.loading && allIssues.length === 0) {
-    return (
-      <div className="loading-state">
-        <div className="loading-state__spinner" />
-        <p className="loading-state__text">Loading issues...</p>
-      </div>
-    )
+    return <LoadingState text="Loading issues..." />
   }
 
   // Empty state
   if (allIssues.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-state__icon">📭</div>
-        <h3 className="empty-state__title">No issues to assign</h3>
-        <p className="empty-state__description">
-          Run VibeCheck on repos in Stage 2 to create issues.
-        </p>
-      </div>
+      <EmptyState
+        icon="📭"
+        title="No issues to assign"
+        description="Run VibeCheck on repos in Stage 2 to create issues."
+      />
     )
   }
 

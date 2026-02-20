@@ -4,24 +4,37 @@
  * Expanded content showing details of a pipeline item.
  */
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import type { PipelineItem, Issue, PullRequest } from '../../api/types'
 import { usePipelineStore, useReviewQueueStore } from '../../store'
-import { assignCopilot, approvePR, mergePR } from '../../api/endpoints'
-import { getSeverityFromLabels, getSeverityLabel, getSeverityColor } from '../../utils'
+import { assignCopilot } from '../../api/endpoints'
+import {
+  getSeverityFromLabels,
+  getSeverityLabel,
+  getSeverityColor,
+  getErrorMessage
+} from '../../utils'
+import { useReviewActions } from '../../hooks'
 
 interface StageDetailsProps {
   item: PipelineItem
 }
 
 export function StageDetails({ item }: StageDetailsProps) {
-  const [actionLoading, setActionLoading] = useState(false)
+  const [assignLoading, setAssignLoading] = useState(false)
   const owner = usePipelineStore(state => state.owner)
   const addLog = usePipelineStore(state => state.addLog)
   const loadStage3 = usePipelineStore(state => state.loadStage3)
   const loadStage4 = usePipelineStore(state => state.loadStage4)
   const setActiveView = usePipelineStore(state => state.setActiveView)
   const setQueue = useReviewQueueStore(state => state.setQueue)
+
+  const { actionLoading, approve, merge } = useReviewActions({
+    owner,
+    addLog,
+    onAfterApprove: useCallback(() => loadStage4(), [loadStage4]),
+    onAfterMerge: useCallback(() => loadStage4(), [loadStage4])
+  })
 
   // Render based on item type
   if (item.id.startsWith('issue-')) {
@@ -39,7 +52,7 @@ export function StageDetails({ item }: StageDetailsProps) {
 
     const handleAssignCopilot = async () => {
       if (!owner) return
-      setActionLoading(true)
+      setAssignLoading(true)
       try {
         const result = await assignCopilot(owner, item.repo, issue.number)
         if (result.success) {
@@ -49,9 +62,9 @@ export function StageDetails({ item }: StageDetailsProps) {
           addLog(`Failed: ${result.error}`, 'error')
         }
       } catch (err) {
-        addLog(`Error: ${err instanceof Error ? err.message : 'Unknown'}`, 'error')
+        addLog(`Error: ${getErrorMessage(err)}`, 'error')
       } finally {
-        setActionLoading(false)
+        setAssignLoading(false)
       }
     }
 
@@ -89,9 +102,9 @@ export function StageDetails({ item }: StageDetailsProps) {
             onClick={() => {
               void handleAssignCopilot()
             }}
-            disabled={actionLoading}
+            disabled={assignLoading}
           >
-            {actionLoading ? 'Assigning...' : 'Assign Copilot'}
+            {assignLoading ? 'Assigning...' : 'Assign Copilot'}
           </button>
           <button
             className="action-btn action-btn-secondary"
@@ -108,42 +121,6 @@ export function StageDetails({ item }: StageDetailsProps) {
   }
 
   function renderPRDetails(pr: PullRequest) {
-    const handleApprove = async () => {
-      if (!owner) return
-      setActionLoading(true)
-      try {
-        const result = await approvePR(owner, item.repo, pr.number)
-        if (result.success) {
-          addLog(`Approved PR ${item.repo}#${pr.number}`, 'success')
-          await loadStage4()
-        } else {
-          addLog(`Failed: ${result.error}`, 'error')
-        }
-      } catch (err) {
-        addLog(`Error: ${err instanceof Error ? err.message : 'Unknown'}`, 'error')
-      } finally {
-        setActionLoading(false)
-      }
-    }
-
-    const handleMerge = async () => {
-      if (!owner) return
-      setActionLoading(true)
-      try {
-        const result = await mergePR(owner, item.repo, pr.number)
-        if (result.success) {
-          addLog(`Merged PR ${item.repo}#${pr.number}`, 'success')
-          await loadStage4()
-        } else {
-          addLog(`Failed: ${result.error}`, 'error')
-        }
-      } catch (err) {
-        addLog(`Error: ${err instanceof Error ? err.message : 'Unknown'}`, 'error')
-      } finally {
-        setActionLoading(false)
-      }
-    }
-
     const handleViewInReview = () => {
       // Set this PR as the only item in the review queue and switch to review view
       const pipelineItems = usePipelineStore.getState().pipelineItems
@@ -198,7 +175,7 @@ export function StageDetails({ item }: StageDetailsProps) {
           <button
             className="action-btn action-btn-secondary"
             onClick={() => {
-              void handleApprove()
+              void approve(item.repo, pr.number)
             }}
             disabled={actionLoading}
           >
@@ -207,7 +184,7 @@ export function StageDetails({ item }: StageDetailsProps) {
           <button
             className="action-btn action-btn-success"
             onClick={() => {
-              void handleMerge()
+              void merge(item.repo, pr.number)
             }}
             disabled={actionLoading}
           >

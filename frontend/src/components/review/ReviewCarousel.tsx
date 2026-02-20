@@ -2,58 +2,62 @@
  * ReviewCarousel Component
  *
  * Carousel for reviewing pipeline items that need human review.
+ * Uses ReviewQueueShell for navigation and renders PR-specific content.
  */
 
-import { useEffect, useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import type { PullRequest } from '../../api/types'
+import type { PipelineItem, PRDetails, PullRequest } from '../../api/types'
 
 // Configure marked for GitHub-flavored markdown
 marked.setOptions({
   gfm: true,
   breaks: true
 })
-import {
-  usePipelineStore,
-  useReviewQueueStore,
-  selectCurrentItem,
-  selectQueueCurrentIndex,
-  selectQueueTotal,
-  selectHasNext,
-  selectHasPrevious,
-  selectIsQueueEmpty
-} from '../../store'
+import { usePipelineStore, useReviewQueueStore, selectHasNext } from '../../store'
 import { approvePR, mergePR, markPRReady } from '../../api/endpoints'
+import { getErrorMessage } from '../../utils'
 import { DiffViewer } from './DiffViewer'
 import { ReviewActions } from './ReviewActions'
+import { ReviewQueueShell } from './ReviewQueueShell'
 
 interface ReviewCarouselProps {
   isLoading?: boolean
 }
 
 export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
+  return (
+    <ReviewQueueShell isLoading={isLoading}>
+      {(currentItem, currentDetails, detailsLoading) => (
+        <PRReviewContent
+          currentItem={currentItem}
+          currentDetails={currentDetails}
+          detailsLoading={detailsLoading}
+        />
+      )}
+    </ReviewQueueShell>
+  )
+}
+
+interface PRReviewContentProps {
+  currentItem: PipelineItem
+  currentDetails: PRDetails | null
+  detailsLoading: boolean
+}
+
+function PRReviewContent({ currentItem, currentDetails, detailsLoading }: PRReviewContentProps) {
   const [actionLoading, setActionLoading] = useState(false)
 
   const owner = usePipelineStore(state => state.owner)
   const addLog = usePipelineStore(state => state.addLog)
   const loadStage4 = usePipelineStore(state => state.loadStage4)
 
-  const currentItem = useReviewQueueStore(selectCurrentItem)
-  const positionCurrent = useReviewQueueStore(selectQueueCurrentIndex)
-  const positionTotal = useReviewQueueStore(selectQueueTotal)
   const hasNext = useReviewQueueStore(selectHasNext)
-  const hasPrevious = useReviewQueueStore(selectHasPrevious)
-  const isEmpty = useReviewQueueStore(selectIsQueueEmpty)
-
   const goToNext = useReviewQueueStore(state => state.goToNext)
-  const goToPrevious = useReviewQueueStore(state => state.goToPrevious)
-  const loadCurrentDetails = useReviewQueueStore(state => state.loadCurrentDetails)
   const removeCurrentFromQueue = useReviewQueueStore(state => state.removeCurrentFromQueue)
 
-  const currentDetails = useReviewQueueStore(state => state.currentDetails)
-  const detailsLoading = useReviewQueueStore(state => state.detailsLoading)
-  const detailsError = useReviewQueueStore(state => state.detailsError)
+  const pr = currentItem.id.startsWith('pr-') ? (currentItem.data as PullRequest) : null
 
   // Render markdown description with memoization
   const renderedDescription = useMemo(() => {
@@ -61,41 +65,6 @@ export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
     const rawHtml = marked.parse(currentDetails.body) as string
     return DOMPurify.sanitize(rawHtml)
   }, [currentDetails?.body])
-
-  // Load details when current item changes
-  useEffect(() => {
-    if (currentItem && owner) {
-      void loadCurrentDetails(owner)
-    }
-  }, [currentItem?.id, owner, loadCurrentDetails])
-
-  // Show loading state while data is being fetched
-  if (isLoading) {
-    return (
-      <div className="review-carousel review-carousel-loading">
-        <div className="loading-state">
-          <p>Loading review queue...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (isEmpty) {
-    return (
-      <div className="review-carousel review-carousel-empty">
-        <div className="empty-state">
-          <h3>No items to review</h3>
-          <p>All pipeline items have been reviewed or are still processing.</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!currentItem) {
-    return null
-  }
-
-  const pr = currentItem.id.startsWith('pr-') ? (currentItem.data as PullRequest) : null
 
   // Single merge handler that does: mark ready (if draft) -> approve -> merge
   const handleMerge = async () => {
@@ -138,7 +107,7 @@ export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
         setActionLoading(false)
       }
     } catch (err) {
-      addLog(`Error: ${err instanceof Error ? err.message : 'Unknown'}`, 'error')
+      addLog(`Error: ${getErrorMessage(err)}`, 'error')
       setActionLoading(false)
     }
   }
@@ -150,42 +119,17 @@ export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
   }
 
   return (
-    <div className="review-carousel">
-      {/* Header with navigation */}
-      <div className="review-carousel-header">
-        <div className="review-nav">
-          <button
-            className="nav-btn nav-btn-prev"
-            onClick={goToPrevious}
-            disabled={!hasPrevious}
-            title="Previous item"
-          >
-            ←
-          </button>
-          <span className="nav-position">
-            {positionCurrent} / {positionTotal}
-          </span>
-          <button
-            className="nav-btn nav-btn-next"
-            onClick={goToNext}
-            disabled={!hasNext}
-            title="Next item"
-          >
-            →
-          </button>
-        </div>
-
-        <div className="review-item-info">
-          <span className="review-repo">{currentItem.repo}</span>
-          <span className="review-separator">/</span>
-          <span className="review-identifier">{currentItem.identifier}</span>
-          {pr && (
+    <>
+      {/* GitHub link */}
+      {pr && (
+        <div className="review-carousel-header" style={{ borderTop: 'none', paddingTop: 0 }}>
+          <div className="review-item-info">
             <a href={pr.url} target="_blank" rel="noopener noreferrer" className="review-link">
               View on GitHub
             </a>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Title */}
       {pr && (
@@ -193,13 +137,13 @@ export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
           <h2>{pr.title}</h2>
           <div className="review-meta">
             <span>by {pr.author?.login || 'Unknown'}</span>
-            <span className="meta-separator">•</span>
+            <span className="meta-separator">&bull;</span>
             <span>
-              {pr.headRefName} → {pr.baseRefName}
+              {pr.headRefName} &rarr; {pr.baseRefName}
             </span>
             {pr.isDraft && (
               <>
-                <span className="meta-separator">•</span>
+                <span className="meta-separator">&bull;</span>
                 <span className="meta-draft">Draft</span>
               </>
             )}
@@ -225,13 +169,8 @@ export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
             <p>Loading diff...</p>
           </div>
         )}
-        {detailsError && (
-          <div className="error-state">
-            <p>Error loading details: {detailsError}</p>
-          </div>
-        )}
         {currentDetails?.diff && !detailsLoading && <DiffViewer diff={currentDetails.diff} />}
-        {!currentDetails?.diff && !detailsLoading && !detailsError && (
+        {!currentDetails?.diff && !detailsLoading && (
           <div className="no-diff-state">
             <p>No diff available</p>
           </div>
@@ -248,6 +187,6 @@ export function ReviewCarousel({ isLoading = false }: ReviewCarouselProps) {
           loading={actionLoading}
         />
       </div>
-    </div>
+    </>
   )
 }

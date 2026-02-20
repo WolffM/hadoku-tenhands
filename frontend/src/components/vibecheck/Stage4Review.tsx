@@ -6,11 +6,14 @@
  * Includes a PR detail modal with diff viewer.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { usePipelineStore } from '../../store'
-import { getPRDetails, approvePR, mergePR, markPRReady } from '../../api/endpoints'
+import { getPRDetails, markPRReady } from '../../api/endpoints'
 import type { PullRequest, PRDetails } from '../../api/types'
 import { isPRReady } from '../../utils'
+import { useReviewActions } from '../../hooks'
+import { LoadingState } from '../common/LoadingState'
+import { EmptyState } from '../common/EmptyState'
 import { PRRow } from '../review/PRRow'
 import { PRModal } from '../review/PRModal'
 
@@ -25,13 +28,27 @@ export function Stage4Review() {
   const [currentPR, setCurrentPR] = useState<PRDetails | null>(null)
   const [currentPRIndex, setCurrentPRIndex] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [actionLoading, setActionLoading] = useState(false)
 
   const prs = stage4.items
 
   // Split PRs into ready and in-progress
   const readyPRs = useMemo(() => prs.filter(pr => isPRReady(pr)), [prs])
   const inProgressPRs = useMemo(() => prs.filter(pr => !isPRReady(pr)), [prs])
+
+  // Shared approve/merge actions
+  const { actionLoading, approve, merge } = useReviewActions({
+    owner,
+    addLog,
+    onAfterApprove: useCallback(() => {
+      void loadStage4()
+    }, [loadStage4]),
+    onAfterMerge: useCallback(
+      (repo: string, prNumber: number) => {
+        removeStage4PR(repo, prNumber)
+      },
+      [removeStage4PR]
+    )
+  })
 
   const openPRModal = async (pr: PullRequest, index: number) => {
     if (!owner) return
@@ -77,89 +94,14 @@ export function Stage4Review() {
   }
 
   const handleApprove = async () => {
-    if (!owner || !currentPR) return
-
-    setActionLoading(true)
-    addLog(`Approving ${currentPR.repo}#${currentPR.number}...`, 'info')
-
-    try {
-      const result = await approvePR(owner, currentPR.repo ?? '', currentPR.number)
-      if (result.success) {
-        addLog(`Approved ${currentPR.repo}#${currentPR.number}`, 'success')
-        // Reload to update review status
-        void loadStage4()
-      } else {
-        addLog(`Failed: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog('Failed to approve PR', 'error')
-    } finally {
-      setActionLoading(false)
-    }
+    if (!currentPR) return
+    await approve(currentPR.repo ?? '', currentPR.number)
   }
 
   const handleMerge = async () => {
-    if (!owner || !currentPR) return
-
-    setActionLoading(true)
-    const prRepo = currentPR.repo ?? ''
-    const prNumber = currentPR.number
-    addLog(`Merging ${prRepo}#${prNumber}...`, 'info')
-
-    try {
-      const result = await mergePR(owner, prRepo, prNumber)
-      if (result.success) {
-        addLog(`Merged ${prRepo}#${prNumber}`, 'success')
-        // Immediately remove from UI
-        removeStage4PR(prRepo, prNumber)
-        // Move to next PR (if any left)
-        showNextPR()
-      } else {
-        addLog(`Failed: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog('Failed to merge PR', 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const quickApprove = async (pr: PullRequest) => {
-    if (!owner) return
-
-    addLog(`Approving ${pr.repo}#${pr.number}...`, 'info')
-
-    try {
-      const result = await approvePR(owner, pr.repo ?? '', pr.number)
-      if (result.success) {
-        addLog(`Approved ${pr.repo}#${pr.number}`, 'success')
-        void loadStage4()
-      } else {
-        addLog(`Failed: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog('Failed to approve PR', 'error')
-    }
-  }
-
-  const quickMerge = async (pr: PullRequest) => {
-    if (!owner) return
-
-    const prRepo = pr.repo ?? ''
-    addLog(`Merging ${prRepo}#${pr.number}...`, 'info')
-
-    try {
-      const result = await mergePR(owner, prRepo, pr.number)
-      if (result.success) {
-        addLog(`Merged ${prRepo}#${pr.number}`, 'success')
-        // Immediately remove from UI
-        removeStage4PR(prRepo, pr.number)
-      } else {
-        addLog(`Failed: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog('Failed to merge PR', 'error')
-    }
+    if (!currentPR) return
+    await merge(currentPR.repo ?? '', currentPR.number)
+    showNextPR()
   }
 
   const handleMarkReady = async (pr: PullRequest) => {
@@ -182,24 +124,17 @@ export function Stage4Review() {
 
   // Loading state
   if (stage4.loading && prs.length === 0) {
-    return (
-      <div className="loading-state">
-        <div className="loading-state__spinner" />
-        <p className="loading-state__text">Loading pull requests...</p>
-      </div>
-    )
+    return <LoadingState text="Loading pull requests..." />
   }
 
   // Empty state
   if (prs.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-state__icon">📭</div>
-        <h3 className="empty-state__title">No open pull requests</h3>
-        <p className="empty-state__description">
-          Assign Copilot to issues in Stage 3 to generate PRs.
-        </p>
-      </div>
+      <EmptyState
+        icon="📭"
+        title="No open pull requests"
+        description="Assign Copilot to issues in Stage 3 to generate PRs."
+      />
     )
   }
 
@@ -239,10 +174,10 @@ export function Stage4Review() {
                       void openPRModal(pr, index)
                     }}
                     onApprove={() => {
-                      void quickApprove(pr)
+                      void approve(pr.repo ?? '', pr.number)
                     }}
                     onMerge={() => {
-                      void quickMerge(pr)
+                      void merge(pr.repo ?? '', pr.number)
                     }}
                   />
                 ))}

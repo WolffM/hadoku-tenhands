@@ -122,3 +122,11 @@ def check_vibecheck_installed_batch(owner, repos, max_workers=10):
     set_cached_vibecheck_status(status_dict)
     
     return status_dict
+
+
+def get_repo_context():
+    """Get common repo context: (owner, repos, status_dict)."""
+    owner = get_authenticated_user()
+    repos = get_repos()
+    status_dict = check_vibecheck_installed_batch(owner, repos) if repos else {}
+    return owner, repos, status_dict

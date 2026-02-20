@@ -9,7 +9,8 @@ from .cache import (
     get_cached,
     set_cached,
     clear_cache,
-    get_cache_stats
+    get_cache_stats,
+    cached_endpoint
 )
 from .github_api import (
     run_gh_command,
@@ -19,7 +20,8 @@ from .github_api import (
     get_repo_prs,
     get_workflow_runs,
     check_vibecheck_installed,
-    check_vibecheck_installed_batch
+    check_vibecheck_installed_batch,
+    get_repo_context
 )
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     'set_cached',
     'clear_cache',
     'get_cache_stats',
+    'cached_endpoint',
     'run_gh_command',
     'get_authenticated_user',
     'get_repos',
@@ -37,5 +40,6 @@ __all__ = [
     'get_repo_prs',
     'get_workflow_runs',
     'check_vibecheck_installed',
-    'check_vibecheck_installed_batch'
+    'check_vibecheck_installed_batch',
+    'get_repo_context'
 ]

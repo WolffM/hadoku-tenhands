@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 import type { PRDetails, PipelineItem, PullRequest } from '../api/types'
 import { getPRDetails } from '../api/endpoints'
+import { getErrorMessage } from '../utils'
 
 // ============ Types ============
 
@@ -123,7 +124,7 @@ export const useReviewQueueStore = create<ReviewQueueState>((set, get) => ({
       }
     } catch (err) {
       set({
-        detailsError: err instanceof Error ? err.message : 'Unknown error',
+        detailsError: getErrorMessage(err),
         detailsLoading: false
       })
     }

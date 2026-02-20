@@ -9,7 +9,10 @@ import hashlib
 import json
 import os
 import time
+from functools import wraps
 from typing import Any
+
+from flask import jsonify
 
 # Cache configuration
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
@@ -38,7 +41,6 @@ def _is_cache_enabled() -> bool:
 # Legacy module-level cache for vibecheck status (kept for backward compatibility)
 _vibecheck_cache: dict[str, bool] = {}
 _cache_timestamp = 0
-CACHE_TTL = 300  # 5 minutes
 
 
 def _ensure_cache_dir():
@@ -189,12 +191,33 @@ def get_cache_stats() -> dict:
     return stats
 
 
+# ============ Decorator ============
+
+def cached_endpoint(cache_key):
+    """Decorator that adds caching to a Flask route handler.
+
+    The decorated function should return a plain dict.
+    The decorator handles cache lookup, storage, and jsonify.
+    """
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            cached = get_cached(cache_key)
+            if cached:
+                return jsonify(cached)
+            result = fn(*args, **kwargs)
+            set_cached(cache_key, result)
+            return jsonify(result)
+        return wrapper
+    return decorator
+
+
 # ============ Legacy functions for backward compatibility ============
 
 def get_cached_vibecheck_status():
     """Get cached vibecheck status for all repos (legacy function)."""
     global _vibecheck_cache, _cache_timestamp
-    if time.time() - _cache_timestamp < CACHE_TTL and _vibecheck_cache:
+    if time.time() - _cache_timestamp < DEFAULT_TTL and _vibecheck_cache:
         return _vibecheck_cache
     return None
 

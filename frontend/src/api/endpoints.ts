@@ -5,6 +5,7 @@
  */
 
 import { apiClient } from './client'
+import { getErrorMessage } from '../utils'
 import type {
   ActionResponse,
   GlobalWorkflowRunsResponse,
@@ -240,7 +241,7 @@ export async function batchUpdateVibecheck(
       const result: BatchResult = {
         repo,
         success: false,
-        error: err instanceof Error ? err.message : 'Unknown error'
+        error: getErrorMessage(err)
       }
       results.push(result)
       onProgress?.(i + 1, repos.length, result)

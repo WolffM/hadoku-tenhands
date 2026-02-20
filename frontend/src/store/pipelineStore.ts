@@ -14,7 +14,7 @@ import type {
   Stage2Repo
 } from '../api/types'
 import { getStage1Repos, getStage2Repos, getStage3Issues, getStage4PRs } from '../api/endpoints'
-import { isPRReady } from '../utils'
+import { isPRReady, getSeverityFromLabels, getErrorMessage } from '../utils'
 
 // ============ Types ============
 
@@ -94,15 +94,6 @@ function createLogEntry(message: string, type: LogEntry['type'] = 'info'): LogEn
   }
 }
 
-function getSeverityFromLabels(labels: { name: string }[]): string {
-  const labelNames = labels.map(l => l.name.toLowerCase())
-  if (labelNames.some(l => l.includes('severity:critical'))) return 'critical'
-  if (labelNames.some(l => l.includes('severity:high'))) return 'high'
-  if (labelNames.some(l => l.includes('severity:medium'))) return 'medium'
-  if (labelNames.some(l => l.includes('severity:low'))) return 'low'
-  return 'unknown'
-}
-
 function getStatusFromIssue(issue: Issue, reposWithCopilotPRs: string[]): PipelineStatus {
   const repo = issue.repo || ''
   // If repo has an active Copilot PR, it's processing
@@ -133,6 +124,105 @@ function getStatusFromPR(pr: PullRequest): PipelineStatus {
   return 'processing'
 }
 
+// ============ Stage Loader Factory ============
+
+interface StageLoaderConfig<R> {
+  stageKey: 'stage1' | 'stage2' | 'stage3' | 'stage4'
+  fetchFn: () => Promise<R>
+  mapResponse: (response: R) => { items: unknown[]; extra?: Record<string, unknown> }
+}
+
+function createStageLoader<R extends { success: boolean; owner: string }>(
+  config: StageLoaderConfig<R>,
+  set: (fn: (state: PipelineState) => Partial<PipelineState>) => void,
+  get: () => PipelineState
+): () => Promise<void> {
+  const { stageKey, fetchFn, mapResponse } = config
+  return async () => {
+    set(state => ({
+      [stageKey]: { ...state[stageKey], loading: true, error: null }
+    }))
+    try {
+      const response = await fetchFn()
+      if (response.success) {
+        const { items, extra } = mapResponse(response)
+        set(state => ({
+          owner: response.owner,
+          [stageKey]: {
+            ...state[stageKey],
+            ...extra,
+            items,
+            loading: false,
+            lastFetched: new Date()
+          }
+        }))
+        get().refreshPipelineItems()
+      } else {
+        throw new Error(`Failed to load ${stageKey}`)
+      }
+    } catch (err) {
+      set(state => ({
+        [stageKey]: {
+          ...state[stageKey],
+          loading: false,
+          error: getErrorMessage(err)
+        }
+      }))
+    }
+  }
+}
+
+// ============ Pipeline Item Registry ============
+
+type ItemMapper = (state: PipelineState) => PipelineItem[]
+
+const pipelineItemProviders = new Map<string, ItemMapper>()
+
+export function registerPipelineItemProvider(type: string, mapper: ItemMapper) {
+  pipelineItemProviders.set(type, mapper)
+}
+
+function vibecheckItemMapper(state: PipelineState): PipelineItem[] {
+  const items: PipelineItem[] = []
+
+  for (const issue of state.stage3.items) {
+    const severity = getSeverityFromLabels(issue.labels)
+    items.push({
+      id: `issue-${issue.repo}-${issue.number}`,
+      type: 'vibecheck',
+      repo: issue.repo || '',
+      identifier: `#${issue.number}`,
+      currentStage: 3,
+      totalStages: 4,
+      stageName: `Assign (${severity})`,
+      status: getStatusFromIssue(issue, state.stage3.reposWithCopilotPRs),
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt || issue.createdAt,
+      data: issue
+    })
+  }
+
+  for (const pr of state.stage4.items) {
+    items.push({
+      id: `pr-${pr.repo}-${pr.number}`,
+      type: 'vibecheck',
+      repo: pr.repo || '',
+      identifier: `PR #${pr.number}`,
+      currentStage: 4,
+      totalStages: 4,
+      stageName: 'Review',
+      status: getStatusFromPR(pr),
+      createdAt: pr.createdAt,
+      updatedAt: pr.updatedAt || pr.createdAt,
+      data: pr
+    })
+  }
+
+  return items
+}
+
+registerPipelineItemProvider('vibecheck', vibecheckItemMapper)
+
 // ============ Store ============
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
@@ -160,131 +250,48 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   setOwner: owner => set({ owner }),
 
-  loadStage1: async () => {
-    set(state => ({
-      stage1: { ...state.stage1, loading: true, error: null }
-    }))
-    try {
-      const response = await getStage1Repos()
-      if (response.success) {
-        set(state => ({
-          owner: response.owner,
-          stage1: {
-            ...state.stage1,
-            items: response.repos,
-            loading: false,
-            lastFetched: new Date()
-          }
-        }))
-        get().refreshPipelineItems()
-      } else {
-        throw new Error('Failed to load stage 1 repos')
-      }
-    } catch (err) {
-      set(state => ({
-        stage1: {
-          ...state.stage1,
-          loading: false,
-          error: err instanceof Error ? err.message : 'Unknown error'
-        }
-      }))
-    }
-  },
+  loadStage1: createStageLoader(
+    {
+      stageKey: 'stage1',
+      fetchFn: getStage1Repos,
+      mapResponse: r => ({ items: r.repos })
+    },
+    set,
+    get
+  ),
 
-  loadStage2: async () => {
-    set(state => ({
-      stage2: { ...state.stage2, loading: true, error: null }
-    }))
-    try {
-      const response = await getStage2Repos()
-      if (response.success) {
-        set(state => ({
-          owner: response.owner,
-          stage2: {
-            ...state.stage2,
-            items: response.repos,
-            loading: false,
-            lastFetched: new Date()
-          }
-        }))
-        get().refreshPipelineItems()
-      } else {
-        throw new Error('Failed to load stage 2 repos')
-      }
-    } catch (err) {
-      set(state => ({
-        stage2: {
-          ...state.stage2,
-          loading: false,
-          error: err instanceof Error ? err.message : 'Unknown error'
-        }
-      }))
-    }
-  },
+  loadStage2: createStageLoader(
+    {
+      stageKey: 'stage2',
+      fetchFn: getStage2Repos,
+      mapResponse: r => ({ items: r.repos })
+    },
+    set,
+    get
+  ),
 
-  loadStage3: async () => {
-    set(state => ({
-      stage3: { ...state.stage3, loading: true, error: null }
-    }))
-    try {
-      const response = await getStage3Issues()
-      if (response.success) {
-        set(state => ({
-          owner: response.owner,
-          stage3: {
-            ...state.stage3,
-            items: response.issues,
-            labels: response.labels,
-            reposWithCopilotPRs: response.repos_with_copilot_prs,
-            loading: false,
-            lastFetched: new Date()
-          }
-        }))
-        get().refreshPipelineItems()
-      } else {
-        throw new Error('Failed to load stage 3 issues')
-      }
-    } catch (err) {
-      set(state => ({
-        stage3: {
-          ...state.stage3,
-          loading: false,
-          error: err instanceof Error ? err.message : 'Unknown error'
-        }
-      }))
-    }
-  },
+  loadStage3: createStageLoader(
+    {
+      stageKey: 'stage3',
+      fetchFn: getStage3Issues,
+      mapResponse: r => ({
+        items: r.issues,
+        extra: { labels: r.labels, reposWithCopilotPRs: r.repos_with_copilot_prs }
+      })
+    },
+    set,
+    get
+  ),
 
-  loadStage4: async () => {
-    set(state => ({
-      stage4: { ...state.stage4, loading: true, error: null }
-    }))
-    try {
-      const response = await getStage4PRs()
-      if (response.success) {
-        set(state => ({
-          owner: response.owner,
-          stage4: {
-            ...state.stage4,
-            items: response.prs,
-            loading: false,
-            lastFetched: new Date()
-          }
-        }))
-        get().refreshPipelineItems()
-      } else {
-        throw new Error('Failed to load stage 4 PRs')
-      }
-    } catch (err) {
-      set(state => ({
-        stage4: {
-          ...state.stage4,
-          loading: false,
-          error: err instanceof Error ? err.message : 'Unknown error'
-        }
-      }))
-    }
-  },
+  loadStage4: createStageLoader(
+    {
+      stageKey: 'stage4',
+      fetchFn: getStage4PRs,
+      mapResponse: r => ({ items: r.prs })
+    },
+    set,
+    get
+  ),
 
   loadAllStages: async () => {
     // Load all stages in parallel
@@ -406,39 +413,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const state = get()
     const items: PipelineItem[] = []
 
-    // Add stage 3 issues as pipeline items
-    for (const issue of state.stage3.items) {
-      const severity = getSeverityFromLabels(issue.labels)
-      items.push({
-        id: `issue-${issue.repo}-${issue.number}`,
-        type: 'vibecheck',
-        repo: issue.repo || '',
-        identifier: `#${issue.number}`,
-        currentStage: 3,
-        totalStages: 4,
-        stageName: `Assign (${severity})`,
-        status: getStatusFromIssue(issue, state.stage3.reposWithCopilotPRs),
-        createdAt: issue.createdAt,
-        updatedAt: issue.updatedAt || issue.createdAt,
-        data: issue
-      })
-    }
-
-    // Add stage 4 PRs as pipeline items
-    for (const pr of state.stage4.items) {
-      items.push({
-        id: `pr-${pr.repo}-${pr.number}`,
-        type: 'vibecheck',
-        repo: pr.repo || '',
-        identifier: `PR #${pr.number}`,
-        currentStage: 4,
-        totalStages: 4,
-        stageName: 'Review',
-        status: getStatusFromPR(pr),
-        createdAt: pr.createdAt,
-        updatedAt: pr.updatedAt || pr.createdAt,
-        data: pr
-      })
+    for (const mapper of pipelineItemProviders.values()) {
+      items.push(...mapper(state))
     }
 
     // Sort by status (waiting_for_review first) then by date

@@ -10,6 +10,7 @@
 
 import { useState, useCallback } from 'react'
 import { usePipelineStore } from '../store'
+import { getErrorMessage } from '../utils'
 
 export interface BatchActionResult {
   id: string
@@ -103,7 +104,7 @@ export function useBatchAction<T>(options: UseBatchActionOptions<T>) {
             addLog(`Failed on ${itemName}: ${result.error}`, 'error')
           }
         } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+          const errorMsg = getErrorMessage(err)
           addLog(`Failed on ${itemName}: ${errorMsg}`, 'error')
         }
       }
@@ -142,7 +143,7 @@ export function useBatchAction<T>(options: UseBatchActionOptions<T>) {
           return false
         }
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+        const errorMsg = getErrorMessage(err)
         addLog(`Failed on ${itemName}: ${errorMsg}`, 'error')
         return false
       }

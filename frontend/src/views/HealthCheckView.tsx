@@ -8,7 +8,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { getGlobalWorkflowRuns, getHealthCheck } from '../api/endpoints'
 import type { WorkflowRun, HealthCheckResponse } from '../api/types'
-import { formatTimeAgo } from '../utils'
+import { getErrorMessage, formatTimeAgo } from '../utils'
 
 interface WorkflowRunWithRepo extends WorkflowRun {
   repo: string
@@ -46,7 +46,7 @@ export function HealthCheckView() {
         setAllRuns(runsResponse.runs as WorkflowRunWithRepo[])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
+      setError(getErrorMessage(err))
     } finally {
       setLoading(false)
     }

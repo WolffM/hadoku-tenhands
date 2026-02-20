@@ -4,6 +4,8 @@
  * Handles all HTTP communication with the Flask backend.
  */
 
+import { getErrorMessage } from '../utils'
+
 export interface ApiClientConfig {
   baseUrl: string
   getAuthKey?: () => string | null
@@ -63,9 +65,7 @@ export function createApiClient(config: ApiClientConfig) {
         throw err // Re-throw API errors
       }
       // Network or other errors
-      const error: ApiError = new Error(
-        `Network error: ${err instanceof Error ? err.message : 'Unknown error'}`
-      )
+      const error: ApiError = new Error(`Network error: ${getErrorMessage(err)}`)
       throw error
     }
   }

@@ -13,33 +13,27 @@ from . import bp
 try:
     from ..services import (
         run_gh_command,
-        get_authenticated_user,
-        get_repos,
+        get_repo_context,
         get_repo_issues,
         get_repo_prs,
         get_workflow_runs,
-        check_vibecheck_installed_batch,
         clear_vibecheck_cache,
-        get_cached,
-        set_cached,
         clear_cache,
         get_cache_stats,
+        cached_endpoint,
     )
     from ..helpers.stage_helpers import is_demo_pr, get_severity_score, check_copilot_completed
 except ImportError:
     from services import (
         run_gh_command,
-        get_authenticated_user,
-        get_repos,
+        get_repo_context,
         get_repo_issues,
         get_repo_prs,
         get_workflow_runs,
-        check_vibecheck_installed_batch,
         clear_vibecheck_cache,
-        get_cached,
-        set_cached,
         clear_cache,
         get_cache_stats,
+        cached_endpoint,
     )
     from helpers.stage_helpers import is_demo_pr, get_severity_score, check_copilot_completed
 
@@ -98,18 +92,11 @@ def _get_repo_prs_with_info(owner, repo):
 # --- Cache/Monitoring routes ---
 
 @bp.route("/api/global-workflow-runs", methods=["GET"])
+@cached_endpoint("global-workflow-runs")
 def api_global_workflow_runs():
     """Get recent workflow runs across all repositories."""
-    cache_key = "global-workflow-runs"
-    cached = get_cached(cache_key)
-    if cached:
-        return jsonify(cached)
-
     start_total = time.time()
-    owner = get_authenticated_user()
-    repos = get_repos()
-
-    status_dict = check_vibecheck_installed_batch(owner, repos)
+    owner, repos, status_dict = get_repo_context()
 
     print(f"[PERF] Fetching workflow runs for {min(len(repos), 15)} repos in parallel...")
     start = time.time()
@@ -144,9 +131,7 @@ def api_global_workflow_runs():
 
     print(f"[PERF] Total global-workflow-runs: {time.time() - start_total:.2f}s")
 
-    response = {"success": True, "runs": all_runs[:50], "owner": owner}
-    set_cached(cache_key, response)
-    return jsonify(response)
+    return {"success": True, "runs": all_runs[:50], "owner": owner}
 
 
 @bp.route("/api/clear-cache", methods=["POST"])
@@ -167,39 +152,25 @@ def api_cache_stats():
 # --- Stage-based routes ---
 
 @bp.route("/api/stage1-repos", methods=["GET"])
+@cached_endpoint("stage1-repos")
 def api_stage1_repos():
     """Get repos that need vibecheck installed."""
-    cache_key = "stage1-repos"
-    cached = get_cached(cache_key)
-    if cached:
-        return jsonify(cached)
-
-    owner = get_authenticated_user()
-    repos = get_repos()
-    status_dict = check_vibecheck_installed_batch(owner, repos)
+    owner, repos, status_dict = get_repo_context()
 
     needs_install = [
         {"name": r["name"], "description": r.get("description", ""), "isPrivate": r.get("isPrivate", False)}
         for r in repos if not status_dict.get(r["name"], False)
     ]
 
-    result = {"success": True, "repos": needs_install, "owner": owner}
-    set_cached(cache_key, result)
-    return jsonify(result)
+    return {"success": True, "repos": needs_install, "owner": owner}
 
 
 @bp.route("/api/stage2-repos", methods=["GET"])
+@cached_endpoint("stage2-repos")
 def api_stage2_repos():
     """Get repos that have vibecheck installed with run info."""
-    cache_key = "stage2-repos"
-    cached = get_cached(cache_key)
-    if cached:
-        return jsonify(cached)
-
     start = time.time()
-    owner = get_authenticated_user()
-    repos = get_repos()
-    status_dict = check_vibecheck_installed_batch(owner, repos)
+    owner, repos, status_dict = get_repo_context()
 
     vc_repos = [r for r in repos if status_dict.get(r["name"], False)]
 
@@ -213,23 +184,15 @@ def api_stage2_repos():
     result.sort(key=lambda x: (x["lastRun"] is None, -x["commitsSinceLastRun"]), reverse=True)
 
     print(f"[PERF] stage2-repos: {time.time() - start:.2f}s")
-    response = {"success": True, "repos": result, "owner": owner}
-    set_cached(cache_key, response)
-    return jsonify(response)
+    return {"success": True, "repos": result, "owner": owner}
 
 
 @bp.route("/api/stage3-issues", methods=["GET"])
+@cached_endpoint("stage3-issues")
 def api_stage3_issues():
     """Get vibecheck issues across repos for Copilot assignment."""
-    cache_key = "stage3-issues"
-    cached = get_cached(cache_key)
-    if cached:
-        return jsonify(cached)
-
     start = time.time()
-    owner = get_authenticated_user()
-    repos = get_repos()
-    status_dict = check_vibecheck_installed_batch(owner, repos)
+    owner, repos, status_dict = get_repo_context()
 
     vc_repos = [r for r in repos if status_dict.get(r["name"], False)]
 
@@ -285,28 +248,21 @@ def api_stage3_issues():
     all_issues.sort(key=lambda i: get_severity_score(i))
 
     print(f"[PERF] stage3-issues: {time.time() - start:.2f}s")
-    response = {
+    return {
         "success": True,
         "issues": all_issues,
         "labels": sorted(list(label_set)),
         "repos_with_copilot_prs": list(repos_with_copilot_prs),
         "owner": owner
     }
-    set_cached(cache_key, response)
-    return jsonify(response)
 
 
 @bp.route("/api/stage4-prs", methods=["GET"])
+@cached_endpoint("stage4-prs")
 def api_stage4_prs():
     """Get open PRs across repos for review."""
-    cache_key = "stage4-prs"
-    cached = get_cached(cache_key)
-    if cached:
-        return jsonify(cached)
-
     start = time.time()
-    owner = get_authenticated_user()
-    repos = get_repos()
+    owner, repos, _ = get_repo_context()
 
     all_prs = []
 
@@ -318,9 +274,7 @@ def api_stage4_prs():
     all_prs.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
 
     print(f"[PERF] stage4-prs: {time.time() - start:.2f}s")
-    response = {"success": True, "prs": all_prs, "owner": owner}
-    set_cached(cache_key, response)
-    return jsonify(response)
+    return {"success": True, "prs": all_prs, "owner": owner}
 
 
 @bp.route("/api/pr-details", methods=["POST"])

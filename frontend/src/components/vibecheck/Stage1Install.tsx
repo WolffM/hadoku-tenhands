@@ -8,6 +8,8 @@ import { usePipelineStore } from '../../store'
 import { installVibecheck } from '../../api/endpoints'
 import { useBatchAction } from '../../hooks'
 import type { Stage1Repo } from '../../api/types'
+import { LoadingState } from '../common/LoadingState'
+import { EmptyState } from '../common/EmptyState'
 
 export function Stage1Install() {
   const stage1 = usePipelineStore(state => state.stage1)
@@ -38,24 +40,17 @@ export function Stage1Install() {
 
   // Loading state
   if (stage1.loading && repos.length === 0) {
-    return (
-      <div className="loading-state">
-        <div className="loading-state__spinner" />
-        <p className="loading-state__text">Loading repos...</p>
-      </div>
-    )
+    return <LoadingState text="Loading repos..." />
   }
 
   // Empty state - all repos have vibecheck
   if (repos.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-state__icon">✅</div>
-        <h3 className="empty-state__title">All repos have VibeCheck installed!</h3>
-        <p className="empty-state__description">
-          There are no repos that need VibeCheck installed.
-        </p>
-      </div>
+      <EmptyState
+        icon="✅"
+        title="All repos have VibeCheck installed!"
+        description="There are no repos that need VibeCheck installed."
+      />
     )
   }
 
