@@ -23,6 +23,7 @@ from .github_api import (
     check_vibecheck_installed_batch,
     get_repo_context
 )
+from .oss_service import OSSService
 
 __all__ = [
     'get_cached_vibecheck_status',
@@ -41,5 +42,6 @@ __all__ = [
     'get_workflow_runs',
     'check_vibecheck_installed',
     'check_vibecheck_installed_batch',
-    'get_repo_context'
+    'get_repo_context',
+    'OSSService'
 ]

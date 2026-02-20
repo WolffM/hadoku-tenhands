@@ -15,7 +15,16 @@ import type {
   Stage2Response,
   Stage3Response,
   Stage4Response,
-  WorkflowStatusResponse
+  WorkflowStatusResponse,
+  OSSStage1Response,
+  OSSStage2Response,
+  OSSStage3Response,
+  OSSStage4Response,
+  OSSStage5Response,
+  OSSStage5TrackingResponse,
+  OSSForkAssignResponse,
+  OSSSubmitResponse,
+  OSSBaseResponse
 } from './types'
 
 // ============ Stage APIs ============
@@ -249,4 +258,136 @@ export async function batchUpdateVibecheck(
   }
 
   return results
+}
+
+// ============ OSS Pipeline APIs ============
+
+// --- Stage 1: Target Repos (stubs) ---
+
+export async function getOSSTargets(): Promise<OSSStage1Response> {
+  return apiClient.get<OSSStage1Response>('/api/oss/stage1-targets')
+}
+
+export async function addOSSTarget(slug: string): Promise<OSSBaseResponse & { error?: string }> {
+  return apiClient.post<OSSBaseResponse & { error?: string }>('/api/oss/add-target', { slug })
+}
+
+export async function removeOSSTarget(slug: string): Promise<OSSBaseResponse & { error?: string }> {
+  return apiClient.post<OSSBaseResponse & { error?: string }>('/api/oss/remove-target', { slug })
+}
+
+// --- Stage 2: Scored Issues (stubs) ---
+
+export async function getOSSScoredIssues(): Promise<OSSStage2Response> {
+  return apiClient.get<OSSStage2Response>('/api/oss/stage2-issues')
+}
+
+// --- Stage 3: Fork & Assign ---
+
+export async function getOSSAssigned(): Promise<OSSStage3Response> {
+  return apiClient.get<OSSStage3Response>('/api/oss/stage3-assigned')
+}
+
+export async function selectOSSIssue(
+  originOwner: string,
+  repo: string,
+  issueNumber: number,
+  issueTitle: string,
+  issueUrl: string
+): Promise<OSSBaseResponse & { already_selected?: boolean }> {
+  return apiClient.post<OSSBaseResponse & { already_selected?: boolean }>('/api/oss/select-issue', {
+    origin_owner: originOwner,
+    repo,
+    issue_number: issueNumber,
+    issue_title: issueTitle,
+    issue_url: issueUrl
+  })
+}
+
+export async function forkAndAssign(
+  originOwner: string,
+  repo: string,
+  issueNumber: number,
+  issueTitle: string,
+  issueUrl: string
+): Promise<OSSForkAssignResponse> {
+  return apiClient.post<OSSForkAssignResponse>('/api/oss/fork-and-assign', {
+    origin_owner: originOwner,
+    repo,
+    issue_number: issueNumber,
+    issue_title: issueTitle,
+    issue_url: issueUrl
+  })
+}
+
+// --- Stage 4: Review on Fork ---
+
+export async function getOSSForkPRs(): Promise<OSSStage4Response> {
+  return apiClient.get<OSSStage4Response>('/api/oss/stage4-fork-prs')
+}
+
+export async function getOSSForkPRDetails(
+  repo: string,
+  prNumber: number
+): Promise<PRDetailsResponse & { owner: string }> {
+  return apiClient.post<PRDetailsResponse & { owner: string }>('/api/oss/fork-pr-details', {
+    repo,
+    pr_number: prNumber
+  })
+}
+
+export async function approveOSSForkPR(
+  repo: string,
+  prNumber: number
+): Promise<OSSBaseResponse & { message?: string; error?: string }> {
+  return apiClient.post<OSSBaseResponse & { message?: string; error?: string }>(
+    '/api/oss/approve-fork-pr',
+    {
+      repo,
+      pr_number: prNumber
+    }
+  )
+}
+
+export async function mergeOSSForkPR(
+  repo: string,
+  prNumber: number,
+  originSlug: string
+): Promise<OSSBaseResponse & { message?: string; error?: string }> {
+  return apiClient.post<OSSBaseResponse & { message?: string; error?: string }>(
+    '/api/oss/merge-fork-pr',
+    {
+      repo,
+      pr_number: prNumber,
+      origin_slug: originSlug
+    }
+  )
+}
+
+// --- Stage 5: Submit Upstream ---
+
+export async function getOSSReadyToSubmit(): Promise<OSSStage5Response> {
+  return apiClient.get<OSSStage5Response>('/api/oss/stage5-submit')
+}
+
+export async function submitToOrigin(
+  originSlug: string,
+  repo: string,
+  branch: string,
+  title: string,
+  body: string,
+  baseBranch?: string
+): Promise<OSSSubmitResponse> {
+  return apiClient.post<OSSSubmitResponse>('/api/oss/submit-to-origin', {
+    origin_slug: originSlug,
+    repo,
+    branch,
+    title,
+    body,
+    base_branch: baseBranch || 'main'
+  })
+}
+
+export async function getOSSSubmittedTracking(): Promise<OSSStage5TrackingResponse> {
+  return apiClient.get<OSSStage5TrackingResponse>('/api/oss/stage5-tracking')
 }

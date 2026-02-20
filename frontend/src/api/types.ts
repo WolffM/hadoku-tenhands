@@ -181,7 +181,7 @@ export type PipelineStatus =
 
 export interface PipelineItem {
   id: string
-  type: 'vibecheck' | 'investigate' | 'custom'
+  type: 'vibecheck' | 'investigate' | 'custom' | 'oss'
   repo: string
   identifier: string // e.g., "issue-42" or "pr-23"
   currentStage: number
@@ -191,5 +191,126 @@ export interface PipelineItem {
   createdAt: string
   updatedAt: string
   // The underlying data (issue, PR, etc.)
-  data: Issue | PullRequest | Record<string, unknown>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: Issue | PullRequest | Record<string, any>
+}
+
+// ============ OSS Pipeline Types ============
+
+export interface OSSTarget {
+  slug: string
+  health?: {
+    maintainerHealthScore: number
+    mergeAccessibilityScore: number
+    availabilityScore: number
+    overallViability: number
+  }
+  meta?: {
+    stars: number
+    language: string
+    license: string
+    openIssueCount: number
+    hasContributing: boolean
+  }
+}
+
+export interface ScoredIssue {
+  id: string
+  repo: string
+  number: number
+  title: string
+  url: string
+  cvs: number
+  cvsTier: 'go' | 'likely' | 'maybe' | 'risky' | 'skip'
+  lifecycleStage: string
+  complexity: string
+  labels: string[]
+  commentCount: number
+  assignees: string[]
+  claimStatus: string
+  createdAt: string
+  dataCompleteness: 'full' | 'partial'
+  repoKilled: boolean
+}
+
+export interface OSSAssignment {
+  originSlug: string
+  repo: string
+  issueNumber: number
+  forkIssueNumber: number
+  forkIssueUrl: string
+  assignedAt: string
+}
+
+export interface ForkPR {
+  number: number
+  title: string
+  url: string
+  repo: string
+  originSlug: string
+  headRefName: string
+  additions: number
+  deletions: number
+  changedFiles: number
+  reviewDecision: string
+  isDraft: boolean
+  createdAt: string
+}
+
+export interface ReadyToSubmit {
+  originSlug: string
+  repo: string
+  branch: string
+  title: string
+  baseBranch: string
+}
+
+export interface SubmittedPR {
+  originSlug: string
+  prUrl: string
+  title: string
+  state: string
+  submittedAt: string
+}
+
+// ============ OSS API Response Types ============
+
+export interface OSSBaseResponse {
+  success: boolean
+  owner: string
+}
+
+export interface OSSStage1Response extends OSSBaseResponse {
+  targets: OSSTarget[]
+}
+
+export interface OSSStage2Response extends OSSBaseResponse {
+  issues: ScoredIssue[]
+}
+
+export interface OSSStage3Response extends OSSBaseResponse {
+  assignments: OSSAssignment[]
+}
+
+export interface OSSStage4Response extends OSSBaseResponse {
+  prs: ForkPR[]
+}
+
+export interface OSSStage5Response extends OSSBaseResponse {
+  ready: ReadyToSubmit[]
+}
+
+export interface OSSStage5TrackingResponse extends OSSBaseResponse {
+  submitted: SubmittedPR[]
+}
+
+export interface OSSForkAssignResponse extends OSSBaseResponse {
+  fork_issue_url?: string
+  already_assigned?: boolean
+  error?: string
+}
+
+export interface OSSSubmitResponse extends OSSBaseResponse {
+  pr_url?: string
+  error?: string
 }

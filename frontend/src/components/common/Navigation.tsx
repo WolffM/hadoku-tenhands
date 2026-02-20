@@ -13,6 +13,7 @@ export function Navigation() {
 
   const tabs: { id: ViewType; label: string; badge?: number }[] = [
     { id: 'list', label: 'Pipelines' },
+    { id: 'oss', label: 'OSS Contrib' },
     { id: 'review', label: 'Review Queue', badge: reviewCount },
     { id: 'health', label: 'Health' }
   ]

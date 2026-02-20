@@ -11,14 +11,29 @@ import type {
   PipelineStatus,
   PullRequest,
   Stage1Repo,
-  Stage2Repo
+  Stage2Repo,
+  OSSTarget,
+  ScoredIssue,
+  OSSAssignment,
+  ForkPR,
+  ReadyToSubmit
 } from '../api/types'
-import { getStage1Repos, getStage2Repos, getStage3Issues, getStage4PRs } from '../api/endpoints'
+import {
+  getStage1Repos,
+  getStage2Repos,
+  getStage3Issues,
+  getStage4PRs,
+  getOSSTargets,
+  getOSSScoredIssues,
+  getOSSAssigned,
+  getOSSForkPRs,
+  getOSSReadyToSubmit
+} from '../api/endpoints'
 import { isPRReady, getSeverityFromLabels, getErrorMessage } from '../utils'
 
 // ============ Types ============
 
-export type ViewType = 'list' | 'review' | 'health'
+export type ViewType = 'list' | 'review' | 'health' | 'oss'
 
 export interface LogEntry {
   id: string
@@ -49,6 +64,13 @@ interface PipelineState {
     reposWithCopilotPRs: string[]
   }
   stage4: StageData<PullRequest>
+
+  // OSS stage data
+  ossStage1: StageData<OSSTarget>
+  ossStage2: StageData<ScoredIssue>
+  ossStage3: StageData<OSSAssignment>
+  ossStage4: StageData<ForkPR>
+  ossStage5: StageData<ReadyToSubmit>
 
   // Pipeline items (derived from stage data)
   pipelineItems: PipelineItem[]
@@ -81,6 +103,17 @@ interface PipelineState {
   markStage2RepoTriggered: (repoName: string) => void
   removeStage3Issue: (repo: string, issueNumber: number) => void
   removeStage4PR: (repo: string, prNumber: number) => void
+
+  // OSS actions
+  loadOSSStage1: () => Promise<void>
+  loadOSSStage2: () => Promise<void>
+  loadOSSStage3: () => Promise<void>
+  loadOSSStage4: () => Promise<void>
+  loadOSSStage5: () => Promise<void>
+  loadAllOSSStages: () => Promise<void>
+  removeOSSAssignment: (originSlug: string, issueNumber: number) => void
+  removeOSSForkPR: (repo: string, prNumber: number) => void
+  removeOSSReadyToSubmit: (originSlug: string, branch: string) => void
 }
 
 // ============ Helpers ============
@@ -127,7 +160,16 @@ function getStatusFromPR(pr: PullRequest): PipelineStatus {
 // ============ Stage Loader Factory ============
 
 interface StageLoaderConfig<R> {
-  stageKey: 'stage1' | 'stage2' | 'stage3' | 'stage4'
+  stageKey:
+    | 'stage1'
+    | 'stage2'
+    | 'stage3'
+    | 'stage4'
+    | 'ossStage1'
+    | 'ossStage2'
+    | 'ossStage3'
+    | 'ossStage4'
+    | 'ossStage5'
   fetchFn: () => Promise<R>
   mapResponse: (response: R) => { items: unknown[]; extra?: Record<string, unknown> }
 }
@@ -223,6 +265,65 @@ function vibecheckItemMapper(state: PipelineState): PipelineItem[] {
 
 registerPipelineItemProvider('vibecheck', vibecheckItemMapper)
 
+function ossItemMapper(state: PipelineState): PipelineItem[] {
+  const items: PipelineItem[] = []
+
+  // Stage 3 assignments → processing items
+  for (const assignment of state.ossStage3.items) {
+    items.push({
+      id: `oss-assign-${assignment.originSlug}-${assignment.issueNumber}`,
+      type: 'oss',
+      repo: assignment.originSlug,
+      identifier: `#${assignment.issueNumber}`,
+      currentStage: 3,
+      totalStages: 5,
+      stageName: 'Fork & Assign',
+      status: 'processing',
+      createdAt: assignment.assignedAt,
+      updatedAt: assignment.assignedAt,
+      data: assignment
+    })
+  }
+
+  // Stage 4 fork PRs → waiting_for_review or ready
+  for (const pr of state.ossStage4.items) {
+    items.push({
+      id: `oss-pr-${pr.repo}-${pr.number}`,
+      type: 'oss',
+      repo: pr.originSlug,
+      identifier: `PR #${pr.number}`,
+      currentStage: 4,
+      totalStages: 5,
+      stageName: 'Review on Fork',
+      status: pr.reviewDecision === 'APPROVED' ? 'ready' : 'waiting_for_review',
+      createdAt: pr.createdAt,
+      updatedAt: pr.createdAt,
+      data: pr
+    })
+  }
+
+  // Stage 5 ready-to-submit → ready items
+  for (const item of state.ossStage5.items) {
+    items.push({
+      id: `oss-submit-${item.originSlug}-${item.branch}`,
+      type: 'oss',
+      repo: item.originSlug,
+      identifier: item.branch,
+      currentStage: 5,
+      totalStages: 5,
+      stageName: 'Submit Upstream',
+      status: 'ready',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      data: item
+    })
+  }
+
+  return items
+}
+
+registerPipelineItemProvider('oss', ossItemMapper)
+
 // ============ Store ============
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
@@ -240,6 +341,11 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     reposWithCopilotPRs: []
   },
   stage4: { items: [], loading: false, error: null, lastFetched: null },
+  ossStage1: { items: [], loading: false, error: null, lastFetched: null },
+  ossStage2: { items: [], loading: false, error: null, lastFetched: null },
+  ossStage3: { items: [], loading: false, error: null, lastFetched: null },
+  ossStage4: { items: [], loading: false, error: null, lastFetched: null },
+  ossStage5: { items: [], loading: false, error: null, lastFetched: null },
   pipelineItems: [],
   expandedRows: new Set(),
   selectedItems: new Set(),
@@ -409,6 +515,82 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     get().refreshPipelineItems()
   },
 
+  // OSS stage loaders
+  loadOSSStage1: createStageLoader(
+    { stageKey: 'ossStage1', fetchFn: getOSSTargets, mapResponse: r => ({ items: r.targets }) },
+    set,
+    get
+  ),
+  loadOSSStage2: createStageLoader(
+    { stageKey: 'ossStage2', fetchFn: getOSSScoredIssues, mapResponse: r => ({ items: r.issues }) },
+    set,
+    get
+  ),
+  loadOSSStage3: createStageLoader(
+    {
+      stageKey: 'ossStage3',
+      fetchFn: getOSSAssigned,
+      mapResponse: r => ({ items: r.assignments })
+    },
+    set,
+    get
+  ),
+  loadOSSStage4: createStageLoader(
+    { stageKey: 'ossStage4', fetchFn: getOSSForkPRs, mapResponse: r => ({ items: r.prs }) },
+    set,
+    get
+  ),
+  loadOSSStage5: createStageLoader(
+    { stageKey: 'ossStage5', fetchFn: getOSSReadyToSubmit, mapResponse: r => ({ items: r.ready }) },
+    set,
+    get
+  ),
+
+  loadAllOSSStages: async () => {
+    await Promise.all([
+      get().loadOSSStage1(),
+      get().loadOSSStage2(),
+      get().loadOSSStage3(),
+      get().loadOSSStage4(),
+      get().loadOSSStage5()
+    ])
+  },
+
+  // OSS optimistic removers
+  removeOSSAssignment: (originSlug: string, issueNumber: number) => {
+    set(state => ({
+      ossStage3: {
+        ...state.ossStage3,
+        items: state.ossStage3.items.filter(
+          a => !(a.originSlug === originSlug && a.issueNumber === issueNumber)
+        )
+      }
+    }))
+    get().refreshPipelineItems()
+  },
+
+  removeOSSForkPR: (repo: string, prNumber: number) => {
+    set(state => ({
+      ossStage4: {
+        ...state.ossStage4,
+        items: state.ossStage4.items.filter(pr => !(pr.repo === repo && pr.number === prNumber))
+      }
+    }))
+    get().refreshPipelineItems()
+  },
+
+  removeOSSReadyToSubmit: (originSlug: string, branch: string) => {
+    set(state => ({
+      ossStage5: {
+        ...state.ossStage5,
+        items: state.ossStage5.items.filter(
+          item => !(item.originSlug === originSlug && item.branch === branch)
+        )
+      }
+    }))
+    get().refreshPipelineItems()
+  },
+
   refreshPipelineItems: () => {
     const state = get()
     const items: PipelineItem[] = []
@@ -443,3 +625,10 @@ export const selectReviewQueueCount = (state: PipelineState) =>
 
 export const selectIsLoading = (state: PipelineState) =>
   state.stage1.loading || state.stage2.loading || state.stage3.loading || state.stage4.loading
+
+export const selectIsOSSLoading = (state: PipelineState) =>
+  state.ossStage1.loading ||
+  state.ossStage2.loading ||
+  state.ossStage3.loading ||
+  state.ossStage4.loading ||
+  state.ossStage5.loading
