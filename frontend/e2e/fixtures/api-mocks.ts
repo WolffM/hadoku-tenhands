@@ -138,6 +138,7 @@ export const mockPRDetails = {
   number: 101,
   title: 'Fix security vulnerability in auth module',
   body: 'This PR fixes the security vulnerability by adding proper input validation.',
+  repo: 'repo-with-vc-1',
   author: { login: 'copilot[bot]' },
   createdAt: new Date(Date.now() - 3600000).toISOString(),
   headRefName: 'fix/auth-security',
@@ -147,7 +148,7 @@ export const mockPRDetails = {
     { path: 'src/auth/handler.ts', additions: 10, deletions: 5 },
     { path: 'tests/auth.test.ts', additions: 5, deletions: 2 }
   ],
-  commits: [{ message: 'Add input validation to auth module' }],
+  commits: 1,
   reviewDecision: null,
   state: 'open',
   url: 'https://github.com/test-user/repo-with-vc-1/pull/101',
@@ -172,16 +173,200 @@ index abc123..def456 100644
  }`
 }
 
+// ============ OSS Pipeline Mock Data ============
+
+export const mockOSSTargets = [
+  {
+    slug: 'fastify-fastify',
+    health: {
+      maintainerHealthScore: 85,
+      mergeAccessibilityScore: 72,
+      availabilityScore: 90,
+      overallViability: 82
+    },
+    meta: {
+      stars: 31000,
+      language: 'JavaScript',
+      license: 'MIT',
+      openIssueCount: 156,
+      hasContributing: true
+    }
+  },
+  {
+    slug: 'vercel-next.js',
+    meta: {
+      stars: 120000,
+      language: 'TypeScript',
+      license: 'MIT',
+      openIssueCount: 2300,
+      hasContributing: true
+    }
+  }
+]
+
+export const mockOSSScoredIssues = [
+  {
+    id: 'github-fastify-fastify-1234',
+    repo: 'fastify/fastify',
+    number: 1234,
+    title: 'Fix memory leak in request handler',
+    url: 'https://github.com/fastify/fastify/issues/1234',
+    cvs: 92,
+    cvsTier: 'go' as const,
+    lifecycleStage: 'fresh',
+    complexity: 'low',
+    labels: ['good first issue', 'bug'],
+    commentCount: 3,
+    assignees: [],
+    claimStatus: 'available',
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    dataCompleteness: 'full' as const,
+    repoKilled: false
+  },
+  {
+    id: 'github-fastify-fastify-5678',
+    repo: 'fastify/fastify',
+    number: 5678,
+    title: 'Add TypeScript generics to route handler',
+    url: 'https://github.com/fastify/fastify/issues/5678',
+    cvs: 65,
+    cvsTier: 'likely' as const,
+    lifecycleStage: 'triaged',
+    complexity: 'medium',
+    labels: ['enhancement', 'typescript'],
+    commentCount: 7,
+    assignees: [],
+    claimStatus: 'available',
+    createdAt: new Date(Date.now() - 172800000).toISOString(),
+    dataCompleteness: 'partial' as const,
+    repoKilled: false
+  },
+  {
+    id: 'github-vercel-next.js-9999',
+    repo: 'vercel/next.js',
+    number: 9999,
+    title: 'Fix hydration warning in dev mode',
+    url: 'https://github.com/vercel/next.js/issues/9999',
+    cvs: 45,
+    cvsTier: 'maybe' as const,
+    lifecycleStage: 'stale',
+    complexity: 'high',
+    labels: ['bug', 'hydration'],
+    commentCount: 15,
+    assignees: [],
+    claimStatus: 'available',
+    createdAt: new Date(Date.now() - 604800000).toISOString(),
+    dataCompleteness: 'full' as const,
+    repoKilled: false
+  }
+]
+
+export const mockOSSAssignments = [
+  {
+    originSlug: 'fastify/fastify',
+    repo: 'fastify',
+    issueNumber: 1234,
+    forkIssueNumber: 1,
+    forkIssueUrl: 'https://github.com/test-user/fastify/issues/1',
+    assignedAt: new Date(Date.now() - 3600000).toISOString()
+  }
+]
+
+export const mockOSSForkPRs = [
+  {
+    number: 1,
+    title: 'Fix memory leak in request handler',
+    url: 'https://github.com/test-user/fastify/pull/1',
+    repo: 'fastify',
+    originSlug: 'fastify/fastify',
+    headRefName: 'fix/memory-leak',
+    additions: 25,
+    deletions: 8,
+    changedFiles: 3,
+    reviewDecision: '',
+    isDraft: false,
+    createdAt: new Date(Date.now() - 1800000).toISOString()
+  },
+  {
+    number: 2,
+    title: '[WIP] Add TypeScript generics',
+    url: 'https://github.com/test-user/fastify/pull/2',
+    repo: 'fastify',
+    originSlug: 'fastify/fastify',
+    headRefName: 'feat/ts-generics',
+    additions: 50,
+    deletions: 0,
+    changedFiles: 2,
+    reviewDecision: '',
+    isDraft: true,
+    createdAt: new Date(Date.now() - 7200000).toISOString()
+  }
+]
+
+export const mockOSSForkPRDetails = {
+  number: 1,
+  title: 'Fix memory leak in request handler',
+  body: 'This PR fixes the memory leak described in fastify/fastify#1234.',
+  author: { login: 'copilot[bot]' },
+  createdAt: new Date(Date.now() - 1800000).toISOString(),
+  headRefName: 'fix/memory-leak',
+  baseRefName: 'main',
+  repo: 'fastify',
+  files: [
+    { path: 'lib/request.js', additions: 15, deletions: 5 },
+    { path: 'lib/handler.js', additions: 8, deletions: 3 },
+    { path: 'test/request.test.js', additions: 2, deletions: 0 }
+  ],
+  commits: 1,
+  reviewDecision: null,
+  state: 'open',
+  url: 'https://github.com/test-user/fastify/pull/1',
+  isDraft: false,
+  additions: 25,
+  deletions: 8,
+  changedFiles: 3,
+  diff: `diff --git a/lib/request.js b/lib/request.js
+index abc123..def456 100644
+--- a/lib/request.js
++++ b/lib/request.js
+@@ -10,5 +10,15 @@
++  // Fix: clear reference to prevent memory leak
++  request.data = null`
+}
+
+export const mockOSSReadyToSubmit = [
+  {
+    originSlug: 'fastify/fastify',
+    repo: 'fastify',
+    branch: 'fix/memory-leak',
+    title: 'Fix memory leak in request handler',
+    baseBranch: 'main'
+  }
+]
+
+export const mockOSSSubmittedPRs = [
+  {
+    originSlug: 'fastify/fastify',
+    prUrl: 'https://github.com/fastify/fastify/pull/9876',
+    prNumber: 9876,
+    title: 'Fix memory leak in request handler',
+    state: 'open',
+    submittedAt: new Date(Date.now() - 86400000).toISOString(),
+    lastPolledAt: new Date(Date.now() - 600000).toISOString()
+  }
+]
+
 // ============ Mock Setup Functions ============
 
 /**
- * Set up all API mocks for a page
+ * Set up all API mocks for a page (vibecheck + OSS + health)
  */
 export async function mockAllAPIs(page: Page): Promise<void> {
   await mockOwnerAPI(page)
   await mockStageAPIs(page)
   await mockHealthAPIs(page)
   await mockActionAPIs(page)
+  await mockOSSAPIs(page)
 }
 
 /**
@@ -365,6 +550,174 @@ export async function mockActionAPIs(page: Page): Promise<void> {
       body: JSON.stringify({
         success: true,
         message: 'PR merged!'
+      })
+    })
+  })
+}
+
+/**
+ * Mock all OSS pipeline endpoints
+ */
+export async function mockOSSAPIs(page: Page): Promise<void> {
+  // Stage endpoints
+  await page.route('**/dispatch/api/oss/stage1-targets', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, targets: mockOSSTargets, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/stage2-issues', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, issues: mockOSSScoredIssues, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/stage3-assigned', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, assignments: mockOSSAssignments, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/stage4-fork-prs', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, prs: mockOSSForkPRs, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/stage5-submit', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, ready: mockOSSReadyToSubmit, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/stage5-tracking', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, submitted: mockOSSSubmittedPRs, owner: mockOwner })
+    })
+  })
+
+  // Detail endpoints
+  await page.route('**/dispatch/api/oss/fork-pr-details', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, pr: mockOSSForkPRDetails, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/dossier/**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        dossier: {
+          slug: 'fastify-fastify',
+          generatedAt: new Date().toISOString(),
+          sections: {
+            overview: 'Popular Node.js framework for building web applications.',
+            contributionRules: 'Follow the style guide and add tests.',
+            successPatterns: 'Small focused PRs with clear descriptions.',
+            antiPatterns: 'Avoid large refactors without prior discussion.',
+            issueBoard: 'Check the good first issue label.',
+            environmentSetup: 'Run npm install && npm test.'
+          }
+        },
+        owner: mockOwner
+      })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/poll-submitted-prs', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, submitted: mockOSSSubmittedPRs, owner: mockOwner })
+    })
+  })
+
+  // Action endpoints
+  await page.route('**/dispatch/api/oss/add-target', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, message: 'Target added!', owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/remove-target', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, message: 'Target removed!', owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/refresh-target', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/select-issue', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/fork-and-assign', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        fork_issue_url: 'https://github.com/test-user/fastify/issues/2',
+        fork_issue_number: 2,
+        owner: mockOwner
+      })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/approve-fork-pr', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, message: 'PR approved!', owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/merge-fork-pr', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, message: 'PR merged!', owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/submit-to-origin', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        pr_url: 'https://github.com/fastify/fastify/pull/5555',
+        owner: mockOwner
       })
     })
   })
