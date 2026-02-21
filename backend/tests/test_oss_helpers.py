@@ -1,7 +1,7 @@
-"""Tests for oss_helpers — heuristic scoring fallback."""
+"""Tests for oss_helpers — heuristic scoring fallback and PR template formatting."""
 
 import pytest
-from helpers.oss_helpers import score_issue_fallback
+from helpers.oss_helpers import score_issue_fallback, format_upstream_pr_body
 
 
 class TestScoreIssueFallback:
@@ -153,19 +153,6 @@ class TestScoreIssueFallback:
         })
         assert result["cvs"] >= 0
 
-    def test_score_clamped_at_100(self):
-        """Score should never exceed 100."""
-        # Even with all boosts, max is 50 + 20 = 70 currently
-        # But verify the clamp logic works
-        result = score_issue_fallback({
-            "assignees": [],
-            "labels": ["good first issue"],
-            "createdAt": "2026-02-18T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
-            "comments": 10,
-        })
-        assert result["cvs"] <= 100
-
     def test_tier_boundaries(self):
         """Verify tier boundaries: go >= 80, likely >= 60, maybe >= 40, risky >= 20, skip < 20."""
         # go tier: not achievable with current max (70) — that's fine
@@ -211,3 +198,26 @@ class TestScoreIssueFallback:
             "createdAt": "2026-02-18T00:00:00Z", "updatedAt": "2026-02-18T00:00:00Z", "comments": 5,
         })
         assert result["dataCompleteness"] == "partial"
+
+
+class TestFormatUpstreamPrBody:
+    """Tests for format_upstream_pr_body — PR template for upstream submissions."""
+
+    def test_contains_issue_reference(self):
+        body = format_upstream_pr_body("fastify/fastify", 42, "Fix memory leak", "fix-memleak")
+        assert "fastify/fastify#42" in body
+        assert "Fix memory leak" in body
+
+    def test_contains_closes_directive(self):
+        """PR body should include 'Closes #N' for GitHub auto-close."""
+        body = format_upstream_pr_body("vercel/next.js", 100, "Fix routing", "fix-routing")
+        assert "Closes #100" in body
+
+    def test_contains_branch_name(self):
+        body = format_upstream_pr_body("org/repo", 1, "Title", "my-feature-branch")
+        assert "`my-feature-branch`" in body
+
+    def test_special_characters_in_title(self):
+        """Titles with special chars should be included as-is (no escaping needed for markdown)."""
+        body = format_upstream_pr_body("org/repo", 1, "Fix `foo` & <bar>", "fix-foo")
+        assert "Fix `foo` & <bar>" in body

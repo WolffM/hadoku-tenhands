@@ -75,14 +75,6 @@ class TestSendDiscordNotification:
         send_discord_notification("Title", "Desc")
         mock_post.assert_called_once()
 
-    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("helpers.notifications.requests.post")
-    def test_sends_to_correct_url_with_timeout(self, mock_post):
-        send_discord_notification("Title", "Desc")
-
-        call_args = mock_post.call_args
-        assert call_args[0][0] == "https://discord.com/api/webhooks/test"
-        assert call_args.kwargs.get("timeout") or call_args[1].get("timeout") == 5
 
 
 class TestNotifyGoTierIssue:

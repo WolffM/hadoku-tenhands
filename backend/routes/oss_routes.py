@@ -390,6 +390,12 @@ def api_oss_fork_and_assign():
     origin_slug = f"{origin_owner}/{repo}"
     svc = OSSService()
 
+    # Auto-fetch dossier from aggregator if not provided by frontend
+    if not dossier_context:
+        dossier_data = svc.get_dossier(f"{origin_owner}-{repo}")
+        if dossier_data and dossier_data.get("sections"):
+            dossier_context = dossier_data["sections"]
+
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
     if existing:
