@@ -2,14 +2,16 @@
  * OSSSubmitPanel — Stage 5
  *
  * Submit PRs from fork to upstream origin repos.
- * Shows items ready to submit + tracking of already-submitted PRs.
+ * Shows items ready to submit (with batch support) + tracking of already-submitted PRs
+ * with live outcome polling.
  */
 
 import { useState, useEffect } from 'react'
 import { usePipelineStore } from '../../store'
-import { submitToOrigin, getOSSSubmittedTracking } from '../../api/endpoints'
+import { submitToOrigin, pollSubmittedPRs } from '../../api/endpoints'
 import type { ReadyToSubmit, SubmittedPR } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
+import { useBatchAction } from '../../hooks'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
 
@@ -20,6 +22,7 @@ export function OSSSubmitPanel() {
 
   const [submittedPRs, setSubmittedPRs] = useState<SubmittedPR[]>([])
   const [trackingLoading, setTrackingLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [submitting, setSubmitting] = useState<string | null>(null)
 
   // Inline editor state
@@ -27,12 +30,39 @@ export function OSSSubmitPanel() {
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
 
-  // Load submitted PRs on mount
+  // Batch submit hook
+  const {
+    processing: batchSubmitting,
+    selectedCount,
+    toggleItem,
+    selectAll,
+    selectNone,
+    isSelected,
+    processSelected
+  } = useBatchAction<ReadyToSubmit>({
+    processItem: async item => {
+      const result = await submitToOrigin(
+        item.originSlug,
+        item.repo,
+        item.branch,
+        item.title,
+        '',
+        item.baseBranch
+      )
+      return { success: result.success, error: result.error }
+    },
+    getItemId: item => `${item.originSlug}-${item.branch}`,
+    getItemName: item => `${item.originSlug} (${item.branch})`,
+    onItemSuccess: item => removeOSSReadyToSubmit(item.originSlug, item.branch),
+    actionVerb: 'Submitted'
+  })
+
+  // Poll submitted PRs on mount (triggers fresh status check)
   useEffect(() => {
     const loadTracking = async () => {
       setTrackingLoading(true)
       try {
-        const result = await getOSSSubmittedTracking()
+        const result = await pollSubmittedPRs()
         if (result.success) {
           setSubmittedPRs(result.submitted)
         }
@@ -82,7 +112,7 @@ export function OSSSubmitPanel() {
         cancelEditing()
 
         // Refresh tracking
-        const tracking = await getOSSSubmittedTracking()
+        const tracking = await pollSubmittedPRs()
         if (tracking.success) {
           setSubmittedPRs(tracking.submitted)
         }
@@ -94,6 +124,41 @@ export function OSSSubmitPanel() {
     } finally {
       setSubmitting(null)
     }
+  }
+
+  const handleRefreshStatus = async () => {
+    setRefreshing(true)
+    addLog('Polling upstream PR statuses...', 'info')
+    try {
+      const result = await pollSubmittedPRs()
+      if (result.success) {
+        setSubmittedPRs(result.submitted)
+        addLog(`Status updated for ${result.submitted.length} PR(s)`, 'success')
+      } else {
+        addLog('Failed to refresh PR statuses', 'error')
+      }
+    } catch {
+      addLog('Failed to refresh PR statuses', 'error')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const getStatusBadge = (pr: SubmittedPR) => {
+    if (pr.state === 'merged') {
+      return <span className="badge badge--success">Merged</span>
+    }
+    if (pr.state === 'closed') {
+      return <span className="badge badge--danger">Closed</span>
+    }
+    // Open — show review decision if available
+    if (pr.reviewDecision === 'APPROVED') {
+      return <span className="badge badge--success">Approved</span>
+    }
+    if (pr.reviewDecision === 'CHANGES_REQUESTED') {
+      return <span className="badge badge--warning">Changes Requested</span>
+    }
+    return <span className="badge badge--primary">Open</span>
   }
 
   if (ossStage5.loading && readyItems.length === 0 && !trackingLoading) {
@@ -111,6 +176,35 @@ export function OSSSubmitPanel() {
             <span className="stage-section__icon">{'\u{1F4E4}'}</span>
             Ready to Submit ({readyItems.length})
           </h3>
+          {readyItems.length > 0 && (
+            <div className="action-buttons">
+              <button
+                className="btn btn--secondary btn--sm"
+                onClick={() => selectAll(readyItems)}
+                disabled={batchSubmitting}
+              >
+                Select All
+              </button>
+              <button
+                className="btn btn--secondary btn--sm"
+                onClick={selectNone}
+                disabled={batchSubmitting}
+              >
+                Select None
+              </button>
+              {selectedCount > 0 && (
+                <button
+                  className="btn btn--primary btn--sm"
+                  onClick={() => {
+                    void processSelected(readyItems)
+                  }}
+                  disabled={batchSubmitting}
+                >
+                  {batchSubmitting ? 'Submitting...' : `Submit Selected (${selectedCount})`}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {readyItems.length === 0 ? (
@@ -124,6 +218,7 @@ export function OSSSubmitPanel() {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ width: '40px' }}></th>
                   <th>Origin Repo</th>
                   <th>Branch</th>
                   <th>PR Title</th>
@@ -140,6 +235,14 @@ export function OSSSubmitPanel() {
 
                   return (
                     <tr key={key}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={isSelected(item)}
+                          onChange={() => toggleItem(item)}
+                          disabled={batchSubmitting}
+                        />
+                      </td>
                       <td>
                         <span className="repo-link">{item.originSlug}</span>
                       </td>
@@ -170,6 +273,7 @@ export function OSSSubmitPanel() {
                           <button
                             className="btn btn--primary btn--sm"
                             onClick={() => startEditing(item)}
+                            disabled={batchSubmitting}
                           >
                             Submit
                           </button>
@@ -219,10 +323,21 @@ export function OSSSubmitPanel() {
                 <span className="stage-section__icon">{'\u{1F4CA}'}</span>
                 Submitted PRs ({submittedPRs.length})
               </h3>
+              <div className="action-buttons">
+                <button
+                  className="btn btn--secondary btn--sm"
+                  onClick={() => {
+                    void handleRefreshStatus()
+                  }}
+                  disabled={refreshing}
+                >
+                  {refreshing ? 'Refreshing...' : 'Refresh Status'}
+                </button>
+              </div>
             </div>
 
             {trackingLoading ? (
-              <LoadingState text="Loading tracking data..." />
+              <LoadingState text="Polling upstream PR statuses..." />
             ) : (
               <div className="table-container">
                 <table className="data-table">
@@ -233,6 +348,7 @@ export function OSSSubmitPanel() {
                       <th>Title</th>
                       <th>Status</th>
                       <th>Submitted</th>
+                      <th>Last Checked</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -248,24 +364,15 @@ export function OSSSubmitPanel() {
                             rel="noopener noreferrer"
                             className="issue-link"
                           >
-                            View PR
+                            {pr.prNumber ? `#${pr.prNumber}` : 'View PR'}
                           </a>
                         </td>
                         <td>{pr.title}</td>
-                        <td>
-                          <span
-                            className={
-                              pr.state === 'merged'
-                                ? 'badge badge--success'
-                                : pr.state === 'closed'
-                                  ? 'badge badge--danger'
-                                  : 'badge badge--primary'
-                            }
-                          >
-                            {pr.state}
-                          </span>
-                        </td>
+                        <td>{getStatusBadge(pr)}</td>
                         <td className="text-light">{formatTimeAgo(pr.submittedAt)}</td>
+                        <td className="text-light">
+                          {pr.lastPolledAt ? formatTimeAgo(pr.lastPolledAt) : '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

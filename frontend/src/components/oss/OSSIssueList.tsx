@@ -3,12 +3,13 @@
  *
  * Browse scored issues across all target repos.
  * Filter by CVS tier, complexity, lifecycle.
- * Select issues for work (flows to Stage 3 fork-and-assign).
+ * Batch select issues for work (flows to Stage 3 fork-and-assign).
  */
 
 import { useState, useMemo } from 'react'
 import { usePipelineStore } from '../../store'
 import { selectOSSIssue, forkAndAssign } from '../../api/endpoints'
+import { useBatchAction } from '../../hooks'
 import type { ScoredIssue } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
@@ -26,7 +27,6 @@ const TIER_BADGE_CLASS: Record<string, string> = {
 export function OSSIssueList() {
   const ossStage2 = usePipelineStore(state => state.ossStage2)
   const loadOSSStage3 = usePipelineStore(state => state.loadOSSStage3)
-  const addLog = usePipelineStore(state => state.addLog)
 
   // Filter state
   const [tierFilter, setTierFilter] = useState<string>('all')
@@ -35,9 +35,6 @@ export function OSSIssueList() {
 
   // Dossier panel state
   const [dossierSlug, setDossierSlug] = useState<string | null>(null)
-
-  // Selecting state
-  const [selectingId, setSelectingId] = useState<string | null>(null)
 
   // Filter + sort logic
   const filteredIssues = useMemo(() => {
@@ -49,41 +46,33 @@ export function OSSIssueList() {
     return issues
   }, [ossStage2.items, tierFilter, complexityFilter, lifecycleFilter])
 
-  const handleSelectForWork = async (issue: ScoredIssue) => {
-    const parts = issue.repo.split('/')
-    if (parts.length !== 2) return
-    const [originOwner, repo] = parts
-
-    setSelectingId(issue.id)
-    addLog(`Selecting ${issue.repo}#${issue.number} for work...`, 'info')
-
-    try {
-      // Step 1: Mark as selected
+  // Batch fork-and-assign
+  const {
+    processing: assigning,
+    selectedCount,
+    toggleItem,
+    selectAll,
+    selectNone,
+    isSelected,
+    processSelected
+  } = useBatchAction<ScoredIssue>({
+    processItem: async issue => {
+      const parts = issue.repo.split('/')
+      if (parts.length !== 2) return { success: false, error: 'Invalid repo format' }
+      const [originOwner, repo] = parts
       await selectOSSIssue(originOwner, repo, issue.number, issue.title, issue.url)
-
-      // Step 2: Fork and assign
-      addLog(`Forking ${issue.repo} and assigning #${issue.number}...`, 'info')
       const result = await forkAndAssign(originOwner, repo, issue.number, issue.title, issue.url)
-
-      if (result.success) {
-        if (result.already_assigned) {
-          addLog(`Already assigned: ${issue.repo}#${issue.number}`, 'warning')
-        } else {
-          addLog(`Assigned! Fork issue: ${result.fork_issue_url}`, 'success')
-        }
-        void loadOSSStage3()
-      } else {
-        addLog(`Failed: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog('Failed to select issue for work', 'error')
-    } finally {
-      setSelectingId(null)
-    }
-  }
+      return { success: result.success, error: result.error }
+    },
+    getItemId: issue => issue.id,
+    getItemName: issue => `${issue.repo}#${issue.number}`,
+    onItemSuccess: () => {
+      void loadOSSStage3()
+    },
+    actionVerb: 'Assigned'
+  })
 
   const handleViewDossier = (issue: ScoredIssue) => {
-    // Convert repo slug (owner/repo) to hyphenated for aggregator
     setDossierSlug(issue.repo.replace('/', '-'))
   }
 
@@ -157,6 +146,26 @@ export function OSSIssueList() {
             <span className="stage-section__icon">{'\u{1F4CB}'}</span>
             Scored Issues ({filteredIssues.length})
           </h3>
+          <div className="stage-section__actions">
+            <button
+              className="btn btn--secondary btn--sm"
+              onClick={() => selectAll(filteredIssues)}
+            >
+              Select All
+            </button>
+            <button className="btn btn--secondary btn--sm" onClick={selectNone}>
+              Select None
+            </button>
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={() => {
+                void processSelected(filteredIssues)
+              }}
+              disabled={assigning || selectedCount === 0}
+            >
+              Assign Selected ({selectedCount})
+            </button>
+          </div>
         </div>
 
         {filteredIssues.length === 0 ? (
@@ -170,6 +179,7 @@ export function OSSIssueList() {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ width: '30px' }}></th>
                   <th>Repo</th>
                   <th>#</th>
                   <th>Title</th>
@@ -188,6 +198,15 @@ export function OSSIssueList() {
 
                   return (
                     <tr key={issue.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="checkbox"
+                          checked={isSelected(issue)}
+                          onChange={() => toggleItem(issue)}
+                          disabled={assigning}
+                        />
+                      </td>
                       <td>
                         <span className="repo-link">{issue.repo}</span>
                       </td>
@@ -225,23 +244,12 @@ export function OSSIssueList() {
                       <td className="text-light">{issue.commentCount}</td>
                       <td className="text-light">{formatTimeAgo(issue.createdAt)}</td>
                       <td>
-                        <div className="action-buttons">
-                          <button
-                            className="btn btn--primary btn--sm"
-                            onClick={() => {
-                              void handleSelectForWork(issue)
-                            }}
-                            disabled={selectingId === issue.id}
-                          >
-                            {selectingId === issue.id ? 'Assigning...' : 'Select'}
-                          </button>
-                          <button
-                            className="btn btn--secondary btn--sm"
-                            onClick={() => handleViewDossier(issue)}
-                          >
-                            Dossier
-                          </button>
-                        </div>
+                        <button
+                          className="btn btn--secondary btn--sm"
+                          onClick={() => handleViewDossier(issue)}
+                        >
+                          Dossier
+                        </button>
                       </td>
                     </tr>
                   )

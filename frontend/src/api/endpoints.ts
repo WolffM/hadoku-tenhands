@@ -404,3 +404,7 @@ export async function submitToOrigin(
 export async function getOSSSubmittedTracking(): Promise<OSSStage5TrackingResponse> {
   return apiClient.get<OSSStage5TrackingResponse>('/api/oss/stage5-tracking')
 }
+
+export async function pollSubmittedPRs(): Promise<OSSStage5TrackingResponse> {
+  return apiClient.post<OSSStage5TrackingResponse>('/api/oss/poll-submitted-prs', {})
+}

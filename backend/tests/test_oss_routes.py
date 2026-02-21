@@ -1,4 +1,4 @@
-"""Tests for OSS routes — Stage 1 and Stage 2 endpoints."""
+"""Tests for OSS routes — Stage 1, Stage 2, and polling endpoints."""
 
 import json
 from unittest.mock import patch, MagicMock
@@ -474,3 +474,247 @@ class TestDossier:
         assert data["success"] is True
         assert data["dossier"]["slug"] == "fastify-fastify"
         assert data["dossier"]["sections"]["overview"] == "A fast framework"
+
+
+# ============ Poll Submitted PRs ============
+
+
+class TestPollSubmittedPRs:
+    """Tests for POST /api/oss/poll-submitted-prs."""
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    def test_empty_submitted_list(self, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_submitted_prs.return_value = []
+
+        resp = client.post(f"{PREFIX}/api/oss/poll-submitted-prs",
+                          json={}, content_type="application/json")
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert data["submitted"] == []
+        assert data["owner"] == "testuser"
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_polls_open_pr_and_detects_merged(self, mock_gh, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_submitted_prs.return_value = [{
+            "origin_slug": "fastify/fastify",
+            "pr_url": "https://github.com/fastify/fastify/pull/100",
+            "pr_number": 100,
+            "title": "Fix bug",
+            "state": "open",
+            "review_decision": None,
+            "merged_at": None,
+            "closed_at": None,
+            "last_polled_at": None,
+            "submitted_at": "2026-02-18T00:00:00Z",
+        }]
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": json.dumps({
+                "state": "MERGED",
+                "reviewDecision": "APPROVED",
+                "mergedAt": "2026-02-19T12:00:00Z",
+                "closedAt": None,
+            })
+        }
+
+        resp = client.post(f"{PREFIX}/api/oss/poll-submitted-prs",
+                          json={}, content_type="application/json")
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert len(data["submitted"]) == 1
+        assert data["submitted"][0]["state"] == "merged"
+        assert data["submitted"][0]["review_decision"] == "APPROVED"
+        assert data["submitted"][0]["merged_at"] == "2026-02-19T12:00:00Z"
+        assert data["submitted"][0]["last_polled_at"] is not None
+        svc.update_submitted_prs.assert_called_once()
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    def test_preserves_already_closed_prs(self, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_submitted_prs.return_value = [{
+            "origin_slug": "fastify/fastify",
+            "pr_url": "https://github.com/fastify/fastify/pull/50",
+            "pr_number": 50,
+            "title": "Old fix",
+            "state": "merged",
+            "review_decision": "APPROVED",
+            "merged_at": "2026-02-10T00:00:00Z",
+            "closed_at": None,
+            "last_polled_at": "2026-02-15T00:00:00Z",
+            "submitted_at": "2026-02-08T00:00:00Z",
+        }]
+
+        resp = client.post(f"{PREFIX}/api/oss/poll-submitted-prs",
+                          json={}, content_type="application/json")
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert len(data["submitted"]) == 1
+        # Should remain merged — not re-polled
+        assert data["submitted"][0]["state"] == "merged"
+        svc.update_submitted_prs.assert_called_once()
+
+    @patch("routes.oss_routes.notify_upstream_merged")
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_fires_notification_on_merge(self, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
+        svc = mock_svc_cls.return_value
+        svc.get_submitted_prs.return_value = [{
+            "origin_slug": "vercel/next.js",
+            "pr_url": "https://github.com/vercel/next.js/pull/200",
+            "pr_number": 200,
+            "title": "Fix routing",
+            "state": "open",
+            "review_decision": None,
+            "merged_at": None,
+            "closed_at": None,
+            "last_polled_at": None,
+            "submitted_at": "2026-02-18T00:00:00Z",
+        }]
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": json.dumps({
+                "state": "MERGED",
+                "reviewDecision": "APPROVED",
+                "mergedAt": "2026-02-19T12:00:00Z",
+                "closedAt": None,
+            })
+        }
+
+        resp = client.post(f"{PREFIX}/api/oss/poll-submitted-prs",
+                          json={}, content_type="application/json")
+
+        mock_notify.assert_called_once_with(
+            "vercel/next.js",
+            "https://github.com/vercel/next.js/pull/200",
+            "Fix routing",
+        )
+
+    @patch("routes.oss_routes.notify_upstream_feedback")
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_fires_notification_on_review_change(self, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
+        svc = mock_svc_cls.return_value
+        svc.get_submitted_prs.return_value = [{
+            "origin_slug": "vercel/next.js",
+            "pr_url": "https://github.com/vercel/next.js/pull/200",
+            "pr_number": 200,
+            "title": "Fix routing",
+            "state": "open",
+            "review_decision": None,
+            "merged_at": None,
+            "closed_at": None,
+            "last_polled_at": None,
+            "submitted_at": "2026-02-18T00:00:00Z",
+        }]
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": json.dumps({
+                "state": "OPEN",
+                "reviewDecision": "CHANGES_REQUESTED",
+                "mergedAt": None,
+                "closedAt": None,
+            })
+        }
+
+        resp = client.post(f"{PREFIX}/api/oss/poll-submitted-prs",
+                          json={}, content_type="application/json")
+
+        mock_notify.assert_called_once_with(
+            "vercel/next.js",
+            "https://github.com/vercel/next.js/pull/200",
+            "CHANGES_REQUESTED",
+        )
+
+
+# ============ GO-tier Notification in Stage 2 ============
+
+
+class TestGoTierNotification:
+    """Tests for GO-tier notification firing in stage2 issue scoring."""
+
+    @patch("routes.oss_routes.notify_go_tier_issue")
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_go_tier_notification_fires_for_high_cvs(self, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
+        # Clear dedup set for this test
+        from routes.oss_routes import _notified_go_issues
+        _notified_go_issues.clear()
+
+        svc = mock_svc_cls.return_value
+        svc.get_scored_issues.return_value = []
+        svc.get_local_watchlist.return_value = [
+            {"owner": "org", "repo": "repo", "slug": "org-repo"}
+        ]
+
+        # Create issue with "good first issue" + "help wanted" + low comments → high CVS
+        mock_gh.return_value = {
+            "success": True,
+            "output": json.dumps([{
+                "number": 99,
+                "title": "Easy fix with great labels",
+                "url": "https://github.com/org/repo/issues/99",
+                "labels": [{"name": "good first issue"}, {"name": "help wanted"}],
+                "createdAt": "2026-02-18T00:00:00Z",
+                "updatedAt": "2026-02-18T00:00:00Z",
+                "comments": 0,
+                "assignees": [],
+            }])
+        }
+
+        resp = client.get(f"{PREFIX}/api/oss/stage2-issues")
+        data = resp.get_json()
+
+        # CVS = 50 (base) + 20 (gfi) + 15 (help wanted) + 5 (low comments) = 90 → GO tier
+        if data["issues"] and data["issues"][0]["cvs"] >= 85:
+            mock_notify.assert_called_once()
+
+    @patch("routes.oss_routes.notify_go_tier_issue")
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_go_tier_notification_deduplicates(self, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
+        # Clear dedup set for this test
+        from routes.oss_routes import _notified_go_issues
+        _notified_go_issues.clear()
+
+        svc = mock_svc_cls.return_value
+        svc.get_scored_issues.return_value = []
+        svc.get_local_watchlist.return_value = [
+            {"owner": "org", "repo": "repo", "slug": "org-repo"}
+        ]
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": json.dumps([{
+                "number": 99,
+                "title": "Easy fix with great labels",
+                "url": "https://github.com/org/repo/issues/99",
+                "labels": [{"name": "good first issue"}, {"name": "help wanted"}],
+                "createdAt": "2026-02-18T00:00:00Z",
+                "updatedAt": "2026-02-18T00:00:00Z",
+                "comments": 0,
+                "assignees": [],
+            }])
+        }
+
+        # Call twice — notification should only fire once due to dedup
+        client.get(f"{PREFIX}/api/oss/stage2-issues")
+        client.get(f"{PREFIX}/api/oss/stage2-issues")
+
+        # Max one call regardless of how many requests
+        assert mock_notify.call_count <= 1

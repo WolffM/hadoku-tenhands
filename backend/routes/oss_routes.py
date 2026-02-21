@@ -3,6 +3,7 @@ OSS routes — all endpoints for the OSS contribution pipeline (Stages 1-5).
 """
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import request, jsonify
@@ -13,10 +14,21 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
     from ..services.oss_service import _call_aggregator
     from ..helpers.oss_helpers import format_upstream_pr_body, score_issue_fallback
+    from ..helpers.notifications import (
+        notify_go_tier_issue, notify_pr_ready_for_review,
+        notify_upstream_merged, notify_upstream_feedback,
+    )
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
     from services.oss_service import _call_aggregator
     from helpers.oss_helpers import format_upstream_pr_body, score_issue_fallback
+    from helpers.notifications import (
+        notify_go_tier_issue, notify_pr_ready_for_review,
+        notify_upstream_merged, notify_upstream_feedback,
+    )
+
+# Track GO-tier issue IDs already notified (avoid re-firing on cache refresh)
+_notified_go_issues = set()
 
 
 # ============ Stage 1: Target Repos ============
@@ -235,8 +247,18 @@ def _fetch_repo_issues_fallback(entry):
         if isinstance(comments, list):
             comments = len(comments)
 
+        issue_id = f"github-{owner}-{repo}-{issue['number']}"
+
+        # Notify on GO-tier issues (only once per issue)
+        if score_data["cvs"] >= 85 and issue_id not in _notified_go_issues:
+            _notified_go_issues.add(issue_id)
+            notify_go_tier_issue(
+                f"{owner}/{repo}", issue["number"],
+                issue["title"], score_data["cvs"],
+            )
+
         scored.append({
-            "id": f"github-{owner}-{repo}-{issue['number']}",
+            "id": issue_id,
             "repo": f"{owner}/{repo}",
             "number": issue["number"],
             "title": issue["title"],
@@ -682,4 +704,90 @@ def api_oss_stage5_tracking():
     my_user = get_authenticated_user()
     svc = OSSService()
     items = svc.get_submitted_prs()
+    return jsonify({"success": True, "submitted": items, "owner": my_user})
+
+
+def _poll_single_pr(pr):
+    """Poll a single submitted PR for status changes. Returns updated entry."""
+    if pr.get("state") != "open":
+        return pr  # Already in terminal state
+
+    pr_url = pr.get("pr_url", "")
+    # Parse URL: https://github.com/{owner}/{repo}/pull/{number}
+    try:
+        parts = pr_url.rstrip("/").split("/")
+        pr_number = parts[-1]
+        repo_owner = parts[-4]
+        repo_name = parts[-3]
+    except (IndexError, ValueError):
+        return pr
+
+    result = run_gh_command([
+        "pr", "view", pr_number, "-R", f"{repo_owner}/{repo_name}",
+        "--json", "state,reviewDecision,mergedAt,closedAt"
+    ])
+
+    if not result["success"]:
+        return pr
+
+    try:
+        gh_data = json.loads(result["output"])
+    except (json.JSONDecodeError, KeyError):
+        return pr
+
+    old_state = pr.get("state")
+    old_review = pr.get("review_decision")
+
+    # Map gh CLI state to our format
+    new_state = gh_data.get("state", "OPEN").upper()
+    if new_state == "MERGED":
+        pr["state"] = "merged"
+    elif new_state == "CLOSED":
+        pr["state"] = "closed"
+    else:
+        pr["state"] = "open"
+
+    pr["review_decision"] = gh_data.get("reviewDecision")
+    pr["merged_at"] = gh_data.get("mergedAt")
+    pr["closed_at"] = gh_data.get("closedAt")
+    pr["last_polled_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # Trigger notifications on state changes
+    if old_state == "open" and pr["state"] == "merged":
+        notify_upstream_merged(pr.get("origin_slug", ""), pr_url, pr.get("title", ""))
+    if pr["review_decision"] and pr["review_decision"] != old_review:
+        if pr["review_decision"] in ("CHANGES_REQUESTED", "APPROVED"):
+            notify_upstream_feedback(
+                pr.get("origin_slug", ""), pr_url, pr["review_decision"],
+            )
+
+    return pr
+
+
+@bp.route("/api/oss/poll-submitted-prs", methods=["POST"])
+def api_oss_poll_submitted_prs():
+    """Poll all submitted PRs for status changes and update tracking."""
+    my_user = get_authenticated_user()
+    svc = OSSService()
+    items = svc.get_submitted_prs()
+
+    if not items:
+        return jsonify({"success": True, "submitted": [], "owner": my_user})
+
+    # Poll open PRs in parallel
+    open_prs = [pr for pr in items if pr.get("state") == "open"]
+    closed_prs = [pr for pr in items if pr.get("state") != "open"]
+
+    if open_prs:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(_poll_single_pr, pr) for pr in open_prs]
+            updated_open = []
+            for future in as_completed(futures):
+                try:
+                    updated_open.append(future.result())
+                except Exception:
+                    pass
+            items = updated_open + closed_prs
+
+    svc.update_submitted_prs(items)
     return jsonify({"success": True, "submitted": items, "owner": my_user})

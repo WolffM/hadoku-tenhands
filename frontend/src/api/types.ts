@@ -268,8 +268,13 @@ export interface ReadyToSubmit {
 export interface SubmittedPR {
   originSlug: string
   prUrl: string
+  prNumber?: number
   title: string
   state: string
+  reviewDecision?: string
+  mergedAt?: string
+  closedAt?: string
+  lastPolledAt?: string
   submittedAt: string
 }
 

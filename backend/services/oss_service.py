@@ -200,14 +200,30 @@ class OSSService:
 
     def save_submitted_pr(self, origin_slug, pr_url, title):
         """Record a PR submission to an upstream repo."""
+        # Parse PR number from URL (https://github.com/owner/repo/pull/123)
+        pr_number = None
+        try:
+            pr_number = int(pr_url.rstrip("/").split("/")[-1])
+        except (ValueError, IndexError):
+            pass
+
         items = self.get_submitted_prs()
         items.append({
             "origin_slug": origin_slug,
             "pr_url": pr_url,
+            "pr_number": pr_number,
             "title": title,
             "state": "open",
+            "review_decision": None,
+            "merged_at": None,
+            "closed_at": None,
+            "last_polled_at": None,
             "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
+        _save_json("submitted-prs.json", items)
+
+    def update_submitted_prs(self, items):
+        """Write the full updated submitted PRs list (used by polling endpoint)."""
         _save_json("submitted-prs.json", items)
 
     # --- Fork management (gh CLI) ---
@@ -290,6 +306,18 @@ Fix the issue described above. Your changes will be submitted as a PR to `{origi
 
         if dossier and dossier.get("successPatterns"):
             body += f"\n---\n## What Successful PRs Look Like\n{dossier['successPatterns']}\n"
+
+        # Add quirk warnings when available (gracefully no-ops without aggregator)
+        if dossier and dossier.get("detectedQuirks"):
+            quirks = dossier["detectedQuirks"]
+            body += "\n---\n## Important Quirks & Warnings\n"
+            for quirk in quirks:
+                impact = quirk.get("impact", "minor")
+                icon = "BLOCKER" if impact == "blocker" else "WARNING" if impact == "important" else "NOTE"
+                body += f"**[{icon}]** {quirk.get('type', 'unknown')}: {quirk.get('description', '')}\n"
+                if quirk.get("evidence"):
+                    body += f"  Evidence: {quirk['evidence']}\n"
+            body += "\n"
 
         return body
 
