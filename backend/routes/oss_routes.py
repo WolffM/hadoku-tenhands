@@ -10,57 +10,296 @@ from flask import request, jsonify
 from . import bp
 
 try:
-    from ..services import run_gh_command, get_authenticated_user, OSSService
-    from ..helpers.oss_helpers import format_upstream_pr_body
+    from ..services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
+    from ..services.oss_service import _call_aggregator
+    from ..helpers.oss_helpers import format_upstream_pr_body, score_issue_fallback
 except ImportError:
-    from services import run_gh_command, get_authenticated_user, OSSService
-    from helpers.oss_helpers import format_upstream_pr_body
+    from services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
+    from services.oss_service import _call_aggregator
+    from helpers.oss_helpers import format_upstream_pr_body, score_issue_fallback
 
 
-# ============ Stage 1: Target Repos (stubs — M2 aggregator integration) ============
+# ============ Stage 1: Target Repos ============
+
+
+def _enrich_target_via_gh(entry):
+    """Fetch basic repo metadata via gh CLI for a watchlist entry."""
+    owner, repo = entry["owner"], entry["repo"]
+    target = {"slug": entry["slug"]}
+
+    result = run_gh_command([
+        "api", f"/repos/{owner}/{repo}",
+        "--jq", "{stars: .stargazers_count, language: .language, license: .license.spdx_id, openIssueCount: .open_issues_count, hasContributing: false}"
+    ])
+    if result["success"]:
+        try:
+            meta = json.loads(result["output"])
+            target["meta"] = meta
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    return target
+
 
 @bp.route("/api/oss/stage1-targets", methods=["GET"])
+@cached_endpoint("oss-stage1-targets")
 def api_oss_stage1_targets():
-    """Get target repos from aggregator watchlist. Stub for M1."""
+    """Get target repos with health scores.
+
+    Tries aggregator first for watchlist + health data.
+    Falls back to local watchlist with gh CLI metadata enrichment.
+    """
     my_user = get_authenticated_user()
-    return jsonify({"success": True, "targets": [], "owner": my_user})
+    svc = OSSService()
+
+    # Try aggregator first
+    aggregator_slugs = svc.get_watchlist()
+
+    if aggregator_slugs:
+        targets = []
+        for slug in aggregator_slugs:
+            target = {"slug": slug}
+            health = _call_aggregator(f"/recon/{slug}/health")
+            if health:
+                target["health"] = {
+                    "maintainerHealthScore": health.get("maintainerHealthScore", 0),
+                    "mergeAccessibilityScore": health.get("mergeAccessibilityScore", 0),
+                    "availabilityScore": health.get("availabilityScore", 0),
+                    "overallViability": health.get("overallViability", 0),
+                }
+            targets.append(target)
+        return {"success": True, "targets": targets, "owner": my_user}
+
+    # Fallback: local watchlist + gh CLI metadata
+    local_watchlist = svc.get_local_watchlist()
+    targets = []
+
+    if local_watchlist:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(_enrich_target_via_gh, entry) for entry in local_watchlist]
+            for future in as_completed(futures):
+                try:
+                    targets.append(future.result())
+                except Exception:
+                    pass
+
+    return {"success": True, "targets": targets, "owner": my_user}
 
 
 @bp.route("/api/oss/add-target", methods=["POST"])
 def api_oss_add_target():
-    """Add a repo to the aggregator watchlist. Stub for M1."""
+    """Add a repo to the watchlist.
+
+    Accepts {slug: "owner/repo"} in slash format.
+    Validates via gh api, saves to local watchlist, proxies to aggregator.
+    """
+    data = request.json
+    slug = data.get("slug", "").strip()
     my_user = get_authenticated_user()
-    return jsonify({"success": False, "error": "Aggregator not configured", "owner": my_user})
+
+    if "/" not in slug:
+        return jsonify({"success": False, "error": "Format must be owner/repo", "owner": my_user})
+
+    parts = slug.split("/", 1)
+    owner, repo = parts[0].strip(), parts[1].strip()
+
+    if not owner or not repo:
+        return jsonify({"success": False, "error": "Invalid owner/repo format", "owner": my_user})
+
+    # Validate repo exists
+    validate_result = run_gh_command([
+        "api", f"/repos/{owner}/{repo}", "--jq", ".full_name"
+    ])
+    if not validate_result["success"]:
+        return jsonify({"success": False, "error": f"Repository {owner}/{repo} not found", "owner": my_user})
+
+    svc = OSSService()
+
+    # Save to local watchlist
+    svc.add_to_local_watchlist(owner, repo)
+
+    # Proxy to aggregator (best-effort)
+    hyphenated_slug = f"{owner}-{repo}"
+    svc.add_to_watchlist(hyphenated_slug)
+    svc.trigger_refresh(hyphenated_slug)
+
+    # Invalidate cache
+    clear_cache("oss-stage1-targets")
+    clear_cache("oss-stage2-issues")
+
+    return jsonify({"success": True, "owner": my_user})
 
 
 @bp.route("/api/oss/remove-target", methods=["POST"])
 def api_oss_remove_target():
-    """Remove a repo from the aggregator watchlist. Stub for M1."""
+    """Remove a repo from the watchlist."""
+    data = request.json
+    slug = data.get("slug", "").strip()
     my_user = get_authenticated_user()
-    return jsonify({"success": False, "error": "Aggregator not configured", "owner": my_user})
+
+    svc = OSSService()
+
+    if "/" in slug:
+        owner, repo = slug.split("/", 1)
+    else:
+        # Look up in local watchlist by hyphenated slug
+        watchlist = svc.get_local_watchlist()
+        entry = next((e for e in watchlist if e["slug"] == slug), None)
+        if entry:
+            owner, repo = entry["owner"], entry["repo"]
+        else:
+            return jsonify({"success": False, "error": "Target not found", "owner": my_user})
+
+    svc.remove_from_local_watchlist(owner, repo)
+
+    # Proxy to aggregator (best-effort)
+    hyphenated_slug = f"{owner}-{repo}"
+    svc.remove_from_watchlist(hyphenated_slug)
+
+    # Invalidate cache
+    clear_cache("oss-stage1-targets")
+    clear_cache("oss-stage2-issues")
+
+    return jsonify({"success": True, "owner": my_user})
 
 
 @bp.route("/api/oss/refresh-target", methods=["POST"])
 def api_oss_refresh_target():
-    """Trigger re-scrape for a target repo. Stub for M1."""
+    """Trigger re-scrape for a target repo."""
+    data = request.json
+    slug = data.get("slug", "").strip()
     my_user = get_authenticated_user()
-    return jsonify({"success": False, "error": "Aggregator not configured", "owner": my_user})
+
+    svc = OSSService()
+
+    # Convert to hyphenated format for aggregator
+    if "/" in slug:
+        hyphenated_slug = slug.replace("/", "-")
+    else:
+        hyphenated_slug = slug
+
+    svc.trigger_refresh(hyphenated_slug)
+
+    # Invalidate cache regardless of aggregator response
+    clear_cache("oss-stage1-targets")
+    clear_cache("oss-stage2-issues")
+
+    return jsonify({"success": True, "message": "Cache invalidated", "owner": my_user})
 
 
-# ============ Stage 2: Scored Issues (stubs — M2 aggregator integration) ============
+# ============ Stage 2: Scored Issues ============
+
+
+def _fetch_repo_issues_fallback(entry):
+    """Fetch and score issues for a single repo via gh CLI fallback."""
+    owner, repo = entry["owner"], entry["repo"]
+    result = run_gh_command([
+        "issue", "list", "-R", f"{owner}/{repo}",
+        "--label", "good first issue",
+        "--state", "open",
+        "--limit", "30",
+        "--json", "number,title,url,labels,createdAt,updatedAt,comments,assignees"
+    ])
+    if not result["success"]:
+        return []
+
+    try:
+        issues = json.loads(result["output"])
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+    scored = []
+    for issue in issues:
+        score_data = score_issue_fallback(issue)
+        if score_data["cvsTier"] == "skip":
+            continue
+
+        # Normalize labels to string[]
+        labels = []
+        for label in issue.get("labels", []):
+            if isinstance(label, dict):
+                labels.append(label.get("name", ""))
+            elif isinstance(label, str):
+                labels.append(label)
+
+        # Normalize assignees to string[]
+        assignees = []
+        for a in issue.get("assignees", []):
+            if isinstance(a, dict):
+                assignees.append(a.get("login", ""))
+            elif isinstance(a, str):
+                assignees.append(a)
+
+        # Normalize comments to count
+        comments = issue.get("comments", 0)
+        if isinstance(comments, list):
+            comments = len(comments)
+
+        scored.append({
+            "id": f"github-{owner}-{repo}-{issue['number']}",
+            "repo": f"{owner}/{repo}",
+            "number": issue["number"],
+            "title": issue["title"],
+            "url": issue.get("url", f"https://github.com/{owner}/{repo}/issues/{issue['number']}"),
+            "cvs": score_data["cvs"],
+            "cvsTier": score_data["cvsTier"],
+            "lifecycleStage": "unknown",
+            "complexity": "unknown",
+            "labels": labels,
+            "commentCount": comments,
+            "assignees": assignees,
+            "claimStatus": "unclaimed",
+            "createdAt": issue.get("createdAt", ""),
+            "dataCompleteness": "partial",
+            "repoKilled": False,
+        })
+
+    return scored
+
 
 @bp.route("/api/oss/stage2-issues", methods=["GET"])
+@cached_endpoint("oss-stage2-issues")
 def api_oss_stage2_issues():
-    """Get scored issues from aggregator. Stub for M1."""
+    """Get scored issues across all target repos.
+
+    Tries aggregator for CVS-scored issues.
+    Falls back to gh CLI + heuristic scoring.
+    """
     my_user = get_authenticated_user()
-    return jsonify({"success": True, "issues": [], "owner": my_user})
+    svc = OSSService()
+
+    # Try aggregator first
+    aggregator_issues = svc.get_scored_issues()
+    if aggregator_issues:
+        return {"success": True, "issues": aggregator_issues, "owner": my_user}
+
+    # Fallback: fetch from gh CLI for each target in local watchlist
+    local_watchlist = svc.get_local_watchlist()
+    if not local_watchlist:
+        return {"success": True, "issues": [], "owner": my_user}
+
+    all_issues = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(_fetch_repo_issues_fallback, entry) for entry in local_watchlist]
+        for future in as_completed(futures):
+            try:
+                all_issues.extend(future.result())
+            except Exception:
+                pass
+
+    # Sort by CVS score descending
+    all_issues.sort(key=lambda x: x["cvs"], reverse=True)
+
+    return {"success": True, "issues": all_issues, "owner": my_user}
 
 
 @bp.route("/api/oss/dossier/<slug>", methods=["GET"])
 def api_oss_dossier(slug):
-    """Get a repo dossier from aggregator. Stub for M1."""
+    """Get a repo dossier from aggregator. No fallback for dossiers."""
     my_user = get_authenticated_user()
-    return jsonify({"success": True, "dossier": None, "owner": my_user})
+    svc = OSSService()
+    dossier = svc.get_dossier(slug)
+    return jsonify({"success": True, "dossier": dossier, "owner": my_user})
 
 
 # ============ Stage 3: Fork & Assign ============

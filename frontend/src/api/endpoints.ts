@@ -24,7 +24,8 @@ import type {
   OSSStage5TrackingResponse,
   OSSForkAssignResponse,
   OSSSubmitResponse,
-  OSSBaseResponse
+  OSSBaseResponse,
+  OSSDossierResponse
 } from './types'
 
 // ============ Stage APIs ============
@@ -262,7 +263,7 @@ export async function batchUpdateVibecheck(
 
 // ============ OSS Pipeline APIs ============
 
-// --- Stage 1: Target Repos (stubs) ---
+// --- Stage 1: Target Repos ---
 
 export async function getOSSTargets(): Promise<OSSStage1Response> {
   return apiClient.get<OSSStage1Response>('/api/oss/stage1-targets')
@@ -276,10 +277,22 @@ export async function removeOSSTarget(slug: string): Promise<OSSBaseResponse & {
   return apiClient.post<OSSBaseResponse & { error?: string }>('/api/oss/remove-target', { slug })
 }
 
-// --- Stage 2: Scored Issues (stubs) ---
+// --- Stage 2: Scored Issues ---
 
 export async function getOSSScoredIssues(): Promise<OSSStage2Response> {
   return apiClient.get<OSSStage2Response>('/api/oss/stage2-issues')
+}
+
+export async function getOSSDossier(slug: string): Promise<OSSDossierResponse> {
+  return apiClient.get<OSSDossierResponse>(`/api/oss/dossier/${slug}`)
+}
+
+export async function refreshOSSTarget(
+  slug: string
+): Promise<OSSBaseResponse & { message?: string }> {
+  return apiClient.post<OSSBaseResponse & { message?: string }>('/api/oss/refresh-target', {
+    slug
+  })
 }
 
 // --- Stage 3: Fork & Assign ---

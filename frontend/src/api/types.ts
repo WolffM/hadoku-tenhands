@@ -314,3 +314,24 @@ export interface OSSSubmitResponse extends OSSBaseResponse {
   pr_url?: string
   error?: string
 }
+
+// ============ Dossier Types ============
+
+export interface DossierSections {
+  overview: string
+  contributionRules: string
+  successPatterns: string
+  antiPatterns: string
+  issueBoard: string
+  environmentSetup: string
+}
+
+export interface Dossier {
+  slug: string
+  generatedAt: string
+  sections: DossierSections
+}
+
+export interface OSSDossierResponse extends OSSBaseResponse {
+  dossier: Dossier | null
+}

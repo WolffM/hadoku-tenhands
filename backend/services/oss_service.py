@@ -64,7 +64,38 @@ class OSSService:
     def __init__(self):
         self.data_dir = OSS_DATA_DIR
 
-    # --- Aggregator API stubs (M2 implementation) ---
+    # --- Local watchlist ---
+
+    def get_local_watchlist(self):
+        """Get the local watchlist. Returns list of {owner, repo, slug, added_at}."""
+        return _load_json("watchlist.json")
+
+    def add_to_local_watchlist(self, owner, repo):
+        """Add a repo to the local watchlist. Dedup by owner+repo.
+
+        Stores owner and repo as separate fields to avoid slug ambiguity
+        (e.g., vercel-next-js could be vercel/next-js or vercel/next.js).
+        The slug field is the hyphenated form for aggregator compatibility.
+        """
+        items = self.get_local_watchlist()
+        for item in items:
+            if item["owner"] == owner and item["repo"] == repo:
+                return  # Already exists
+        items.append({
+            "owner": owner,
+            "repo": repo,
+            "slug": f"{owner}-{repo}",
+            "added_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        _save_json("watchlist.json", items)
+
+    def remove_from_local_watchlist(self, owner, repo):
+        """Remove a repo from the local watchlist."""
+        items = self.get_local_watchlist()
+        items = [i for i in items if not (i["owner"] == owner and i["repo"] == repo)]
+        _save_json("watchlist.json", items)
+
+    # --- Aggregator API (proxied when available, returns empty/None otherwise) ---
 
     def get_watchlist(self):
         """Get the watchlist from the aggregator. Stub — returns []."""
