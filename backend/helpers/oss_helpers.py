@@ -2,145 +2,7 @@
 OSS helpers — scoring fallback and PR template formatting.
 """
 
-import re
 from datetime import datetime, timezone
-
-
-# ============ Reaction scoring (Tier 1) ============
-
-_REACTION_WEIGHTS = {
-    "THUMBS_UP": 2,
-    "HEART": 1,
-    "ROCKET": 1,
-    "HOORAY": 1,
-    "LAUGH": 0,
-    "EYES": 0,
-    "THUMBS_DOWN": -2,
-    "CONFUSED": -1,
-}
-
-_REACTION_SCORE_CAP = 15
-
-
-def _score_reactions(reaction_groups):
-    """Score an issue based on its GitHub reaction groups.
-
-    Args:
-        reaction_groups: list of dicts from gh CLI reactionGroups field.
-            Each dict has: {"content": "THUMBS_UP", "users": {"totalCount": N}}
-
-    Returns:
-        tuple: (score clamped to ±15, detail dict with per-type breakdown)
-    """
-    if not reaction_groups or not isinstance(reaction_groups, list):
-        return (0, {})
-
-    raw_score = 0
-    detail = {}
-    for group in reaction_groups:
-        content = group.get("content", "")
-        users = group.get("users") or {}
-        count = users.get("totalCount", 0) if isinstance(users, dict) else 0
-        weight = _REACTION_WEIGHTS.get(content, 0)
-        contribution = count * weight
-        if count > 0 or weight != 0:
-            detail[content] = {"count": count, "weight": weight, "contribution": contribution}
-        raw_score += contribution
-
-    clamped = max(-_REACTION_SCORE_CAP, min(_REACTION_SCORE_CAP, raw_score))
-    return (clamped, detail)
-
-
-# ============ Comment sentiment scoring (Tier 2) ============
-
-_POSITIVE_PATTERNS = [
-    r"^\+1$",
-    r"^\+1\b",
-    r"\bme too\b",
-    r"\bsame here\b",
-    r"\bsame issue\b",
-    r"\bbump\b",
-    r"\bseconded\b",
-    r"\bagreed\b",
-    r"\bi also need this\b",
-    r"\bi['\u2019]?d like this too\b",
-    r"\bneed this\b",
-    r"\bwould love this\b",
-    r"\bplease add\b",
-    r"\bplease fix\b",
-    r"\byes please\b",
-]
-
-_NEGATIVE_PATTERNS = [
-    r"^-1$",
-    r"^-1\b",
-    r"\bduplicate of\b",
-    r"\bwon['\u2019]?t fix\b",
-    r"\bwontfix\b",
-    r"\bstale\b",
-    r"\bas designed\b",
-    r"\bnot a bug\b",
-    r"\bclosing\b",
-    r"\bwill not implement\b",
-]
-
-_COMPILED_POSITIVE = [re.compile(p, re.IGNORECASE) for p in _POSITIVE_PATTERNS]
-_COMPILED_NEGATIVE = [re.compile(p, re.IGNORECASE) for p in _NEGATIVE_PATTERNS]
-
-_POSITIVE_COMMENT_SCORE = 3
-_NEGATIVE_COMMENT_SCORE = -3
-_COMMENT_SENTIMENT_CAP = 10
-
-
-def _score_comment_sentiment(comments):
-    """Score comment sentiment using lightweight text pattern matching.
-
-    Args:
-        comments: list of comment dicts with "body" key, or an int (count).
-
-    Returns:
-        tuple: (score clamped to ±10, detail dict with counts)
-    """
-    if not isinstance(comments, list):
-        return (0, {"analyzed_count": 0})
-
-    positive_count = 0
-    negative_count = 0
-    neutral_count = 0
-
-    for comment in comments:
-        if not isinstance(comment, dict):
-            continue
-        body = (comment.get("body") or "").strip()
-        if not body:
-            continue
-
-        matched = False
-        for pattern in _COMPILED_POSITIVE:
-            if pattern.search(body):
-                positive_count += 1
-                matched = True
-                break
-        if not matched:
-            for pattern in _COMPILED_NEGATIVE:
-                if pattern.search(body):
-                    negative_count += 1
-                    matched = True
-                    break
-        if not matched:
-            neutral_count += 1
-
-    analyzed = positive_count + negative_count + neutral_count
-    raw_score = (positive_count * _POSITIVE_COMMENT_SCORE) + (negative_count * _NEGATIVE_COMMENT_SCORE)
-    clamped = max(-_COMMENT_SENTIMENT_CAP, min(_COMMENT_SENTIMENT_CAP, raw_score))
-
-    detail = {
-        "analyzed_count": analyzed,
-        "positive_count": positive_count,
-        "negative_count": negative_count,
-        "neutral_count": neutral_count,
-    }
-    return (clamped, detail)
 
 
 def _map_tier(score):
@@ -172,14 +34,10 @@ def score_issue_with_breakdown(issue):
         "good_first_issue_bonus": 0,
         "stale_penalty": 0,
         "no_triage_penalty": 0,
-        "reaction_score": 0,
-        "comment_sentiment_score": 0,
         "assigned_skip": False,
         "days_since_update": 0,
         "days_since_creation": 0,
         "final_score": 0,
-        "reaction_detail": {},
-        "comment_sentiment_detail": {},
     }
 
     # Skip assigned issues entirely
@@ -239,23 +97,6 @@ def score_issue_with_breakdown(issue):
     if "good first issue" in label_names:
         score += 20
         breakdown["good_first_issue_bonus"] = 20
-
-    # Reaction-based scoring (Tier 1 — available when reactionGroups fetched)
-    reaction_groups = issue.get("reactionGroups")
-    if reaction_groups is not None:
-        reaction_score, reaction_detail = _score_reactions(reaction_groups)
-        score += reaction_score
-        breakdown["reaction_score"] = reaction_score
-        breakdown["reaction_detail"] = reaction_detail
-
-    # Comment sentiment scoring (Tier 2 — only when comment bodies available)
-    raw_comments = issue.get("comments", 0)
-    if isinstance(raw_comments, list) and len(raw_comments) > 0:
-        if isinstance(raw_comments[0], dict) and "body" in raw_comments[0]:
-            sentiment_score, sentiment_detail = _score_comment_sentiment(raw_comments)
-            score += sentiment_score
-            breakdown["comment_sentiment_score"] = sentiment_score
-            breakdown["comment_sentiment_detail"] = sentiment_detail
 
     # Clamp to 0-100
     score = max(0, min(100, score))

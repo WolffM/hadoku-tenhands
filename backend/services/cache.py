@@ -61,15 +61,13 @@ def _get_ttl() -> int:
     return LOCAL_DEV_TTL if _is_local_dev() else DEFAULT_TTL
 
 
-def get_cached(cache_key: str, ttl: int | None = None, schema_version: int | None = None) -> Any | None:
+def get_cached(cache_key: str, ttl: int | None = None) -> Any | None:
     """
     Get a cached value by key.
 
     Args:
         cache_key: Unique identifier for the cached data
         ttl: Optional TTL override in seconds
-        schema_version: If set, reject cache entries with a different version.
-            This auto-invalidates stale caches when scoring logic changes.
 
     Returns:
         Cached data if valid, None if expired or not found
@@ -87,13 +85,6 @@ def get_cached(cache_key: str, ttl: int | None = None, schema_version: int | Non
         with open(cache_path, "r", encoding="utf-8") as f:
             cached = json.load(f)
 
-        # Schema version check — reject mismatched versions
-        if schema_version is not None:
-            cached_version = cached.get("schema_version")
-            if cached_version != schema_version:
-                print(f"[CACHE] SCHEMA MISS: {cache_key} (cached v{cached_version}, need v{schema_version})")
-                return None
-
         cached_time = cached.get("timestamp", 0)
         effective_ttl = ttl if ttl is not None else _get_ttl()
 
@@ -107,14 +98,13 @@ def get_cached(cache_key: str, ttl: int | None = None, schema_version: int | Non
         return None
 
 
-def set_cached(cache_key: str, data: Any, schema_version: int | None = None) -> None:
+def set_cached(cache_key: str, data: Any) -> None:
     """
     Cache a value with the given key.
 
     Args:
         cache_key: Unique identifier for the cached data
         data: Data to cache (must be JSON serializable)
-        schema_version: Optional version tag stored with the entry
     """
     if not _is_cache_enabled():
         return
@@ -123,15 +113,12 @@ def set_cached(cache_key: str, data: Any, schema_version: int | None = None) -> 
     cache_path = _get_cache_path(cache_key)
 
     try:
-        entry = {
-            "timestamp": time.time(),
-            "key": cache_key,
-            "data": data,
-        }
-        if schema_version is not None:
-            entry["schema_version"] = schema_version
         with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(entry, f, indent=2)
+            json.dump({
+                "timestamp": time.time(),
+                "key": cache_key,
+                "data": data
+            }, f, indent=2)
         print(f"[CACHE] SET: {cache_key} (TTL: {_get_ttl()}s)")
     except (IOError, TypeError) as e:
         print(f"[CACHE] ERROR setting {cache_key}: {e}")
@@ -206,25 +193,20 @@ def get_cache_stats() -> dict:
 
 # ============ Decorator ============
 
-def cached_endpoint(cache_key, schema_version=None):
+def cached_endpoint(cache_key):
     """Decorator that adds caching to a Flask route handler.
 
     The decorated function should return a plain dict.
     The decorator handles cache lookup, storage, and jsonify.
-
-    Args:
-        cache_key: Unique identifier for this endpoint's cache
-        schema_version: Bump this when the response shape or scoring logic changes.
-            Cached entries with a different version are treated as misses.
     """
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            cached = get_cached(cache_key, schema_version=schema_version)
+            cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
             result = fn(*args, **kwargs)
-            set_cached(cache_key, result, schema_version=schema_version)
+            set_cached(cache_key, result)
             return jsonify(result)
         return wrapper
     return decorator
