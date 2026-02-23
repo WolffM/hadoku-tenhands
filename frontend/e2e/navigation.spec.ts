@@ -13,17 +13,26 @@ test.describe('Navigation', () => {
     await mockAllAPIs(page)
   })
 
-  test('loads the app with Pipelines view by default', async ({ page }) => {
+  test('loads the app with pipeline selection view by default', async ({ page }) => {
     await page.goto('/?key=test-key')
 
     // App should render - look for the title
     await expect(page.locator('text=VibeDispatch')).toBeVisible()
 
-    // Pipelines button should be visible
-    const pipelinesBtn = page.getByRole('button', { name: /Pipelines/i })
-    await expect(pipelinesBtn).toBeVisible()
+    // Pipeline selection should be visible
+    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
+    await expect(page.locator('text=Vibecheck Pipeline')).toBeVisible()
+    await expect(page.locator('text=OSS Contribution Pipeline')).toBeVisible()
+  })
 
-    // Stage tabs should be visible (Install VibeCheck, Run VibeCheck, etc.)
+  test('can navigate to Pipelines view via card', async ({ page }) => {
+    await page.goto('/?key=test-key')
+    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
+
+    // Click the Vibecheck Pipeline card
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
+
+    // Stage tabs should be visible
     await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
   })
 
@@ -31,17 +40,15 @@ test.describe('Navigation', () => {
     await page.goto('/?key=test-key')
     await expect(page.locator('text=VibeDispatch')).toBeVisible()
 
-    // Verify Review Queue button exists
+    // Verify Review Queue button exists (visible from select view)
     const reviewQueueBtn = page.getByRole('button', { name: /Review Queue/i })
     await expect(reviewQueueBtn).toBeVisible()
 
     // Click it
     await reviewQueueBtn.click()
 
-    // Stage tabs should disappear (view switched)
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).not.toBeVisible({
-      timeout: 5000
-    })
+    // Pipeline selection should disappear
+    await expect(page.locator('text=Select a Pipeline')).not.toBeVisible({ timeout: 5000 })
   })
 
   test('can navigate to Health view', async ({ page }) => {
@@ -51,8 +58,8 @@ test.describe('Navigation', () => {
     // Click Health button
     await page.getByRole('button', { name: /Health/i }).click()
 
-    // Stage tabs should disappear (we're no longer in Pipelines view)
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).not.toBeVisible()
+    // Pipeline selection should disappear
+    await expect(page.locator('text=Select a Pipeline')).not.toBeVisible()
 
     // Health button should still be visible
     await expect(page.getByRole('button', { name: /Health/i })).toBeVisible()
@@ -61,29 +68,45 @@ test.describe('Navigation', () => {
   test('can navigate between Pipelines and Health', async ({ page }) => {
     await page.goto('/?key=test-key')
 
-    // Start at Pipelines - verify stage tabs are visible
+    // Navigate to Pipelines first via card
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
     await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
 
     // Go to Health
     await page.getByRole('button', { name: /Health/i }).click()
     await expect(page.getByRole('button', { name: /Install VibeCheck/i })).not.toBeVisible()
 
-    // Go back to Pipelines
+    // Go back to Pipelines via the Pipelines tab (visible since Health is a global view)
     await page.getByRole('button', { name: /Pipelines/i }).click()
 
     // Should see stage tabs again
     await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
   })
 
+  test('Home button returns to pipeline selection', async ({ page }) => {
+    await page.goto('/?key=test-key')
+
+    // Navigate to Pipelines
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
+    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
+
+    // Click Home
+    await page.getByRole('button', { name: /Home/i }).click()
+
+    // Should be back at pipeline selection
+    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
+  })
+
   test('shows badge on Review Queue tab when items need review', async ({ page }) => {
     await page.goto('/?key=test-key')
+
+    // Navigate to Pipelines so all tabs load data
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
 
     // Wait for app to load
     await expect(page.locator('text=VibeDispatch')).toBeVisible()
 
     // Review Queue button should show a badge with count
-    // The badge appears as part of the button text like "Review Queue 4"
-    // Wait for the badge to appear (data loads asynchronously)
     const reviewQueueBtn = page.getByRole('button', { name: /Review Queue/i })
     await expect(reviewQueueBtn).toBeVisible()
 

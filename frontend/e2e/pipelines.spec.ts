@@ -11,12 +11,11 @@ test.describe('Pipelines View', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
+    // Navigate from pipeline selection to Vibecheck pipeline
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
   })
 
   test('displays 4 stage tabs', async ({ page }) => {
-    // Wait for the app to load
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
-
     // Should have 4 stage tab buttons
     await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
     await expect(page.getByRole('button', { name: /Run VibeCheck/i })).toBeVisible()
@@ -25,8 +24,6 @@ test.describe('Pipelines View', () => {
   })
 
   test('has Refresh All button', async ({ page }) => {
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
-
     const refreshBtn = page.getByRole('button', { name: /Refresh All/i })
     await expect(refreshBtn).toBeVisible()
   })
@@ -36,6 +33,7 @@ test.describe('Stage 1 - Install', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
   })
 
   test('displays repos needing vibecheck installation', async ({ page }) => {
@@ -66,24 +64,19 @@ test.describe('Stage 2 - Run', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
   })
 
   test('displays repos with vibecheck installed', async ({ page }) => {
     // Set up response wait BEFORE clicking
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage2-repos'),
-      page.getByRole('button', { name: /Run VibeCheck/i }).click()
-    ])
+    await page.getByRole('button', { name: /Run VibeCheck/i }).click()
 
     // Should show stage 2 content - look for repo names
     await expect(page.locator('text=repo-with-vc-1').first()).toBeVisible()
   })
 
   test('shows recommended repos section', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage2-repos'),
-      page.getByRole('button', { name: /Run VibeCheck/i }).click()
-    ])
+    await page.getByRole('button', { name: /Run VibeCheck/i }).click()
 
     // Check for repo content
     const repoContent = page.locator('text=repo-with-vc')
@@ -91,10 +84,7 @@ test.describe('Stage 2 - Run', () => {
   })
 
   test('has Run action buttons', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage2-repos'),
-      page.getByRole('button', { name: /Run VibeCheck/i }).click()
-    ])
+    await page.getByRole('button', { name: /Run VibeCheck/i }).click()
 
     // Look for run-related buttons - the stage tab itself contains "Run"
     // so we need more specific selectors
@@ -107,13 +97,11 @@ test.describe('Stage 3 - Assign', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
   })
 
   test('displays vibecheck issues', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage3-issues'),
-      page.getByRole('button', { name: /Assign Copilot/i }).click()
-    ])
+    await page.getByRole('button', { name: /Assign Copilot/i }).click()
 
     // Should show issues - look for issue titles from mock data
     const issueContent = page.locator('text=Security vulnerability')
@@ -121,10 +109,7 @@ test.describe('Stage 3 - Assign', () => {
   })
 
   test('has severity filter or badges', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage3-issues'),
-      page.getByRole('button', { name: /Assign Copilot/i }).click()
-    ])
+    await page.getByRole('button', { name: /Assign Copilot/i }).click()
 
     // Look for severity-related elements (filter, badges, etc.) or issue content
     const issueContent = page.locator('text=Security vulnerability')
@@ -132,10 +117,7 @@ test.describe('Stage 3 - Assign', () => {
   })
 
   test('displays severity badges on issues', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage3-issues'),
-      page.getByRole('button', { name: /Assign Copilot/i }).click()
-    ])
+    await page.getByRole('button', { name: /Assign Copilot/i }).click()
 
     // Verify issues are displayed (badges may or may not be visible depending on UI)
     const issueContent = page.locator('text=Security vulnerability')
@@ -143,10 +125,7 @@ test.describe('Stage 3 - Assign', () => {
   })
 
   test('displays Created Date column in issue tables', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage3-issues'),
-      page.getByRole('button', { name: /Assign Copilot/i }).click()
-    ])
+    await page.getByRole('button', { name: /Assign Copilot/i }).click()
 
     // Verify "Created Date" column header is present
     const createdDateHeader = page.locator('th:has-text("Created Date")')
@@ -162,13 +141,11 @@ test.describe('Stage 4 - Review', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
   })
 
   test('displays open PRs', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage4-prs'),
-      page.getByRole('button', { name: /Review & Merge/i }).click()
-    ])
+    await page.getByRole('button', { name: /Review & Merge/i }).click()
 
     // Should show PR titles from mock data
     const prContent = page.locator('text=Fix security vulnerability')
@@ -176,10 +153,7 @@ test.describe('Stage 4 - Review', () => {
   })
 
   test('shows Ready for Review and In Progress sections', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage4-prs'),
-      page.getByRole('button', { name: /Review & Merge/i }).click()
-    ])
+    await page.getByRole('button', { name: /Review & Merge/i }).click()
 
     // Look for PR content - sections may vary by UI implementation
     const prContent = page.locator('text=Fix security vulnerability')
@@ -187,10 +161,7 @@ test.describe('Stage 4 - Review', () => {
   })
 
   test('has action buttons for PRs', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage4-prs'),
-      page.getByRole('button', { name: /Review & Merge/i }).click()
-    ])
+    await page.getByRole('button', { name: /Review & Merge/i }).click()
 
     // Look for action buttons (View, Approve, Merge, etc.)
     const actionButtons = page.getByRole('button', { name: /View|Approve|Merge|Details/i })
@@ -205,10 +176,7 @@ test.describe('Stage 4 - Review', () => {
   })
 
   test('can view PR details', async ({ page }) => {
-    await Promise.all([
-      page.waitForResponse('**/dispatch/api/stage4-prs'),
-      page.getByRole('button', { name: /Review & Merge/i }).click()
-    ])
+    await page.getByRole('button', { name: /Review & Merge/i }).click()
 
     // Verify PR content is visible
     await expect(page.locator('text=Fix security vulnerability').first()).toBeVisible()
@@ -232,11 +200,10 @@ test.describe('Stage Navigation', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
   })
 
   test('can navigate between all stages', async ({ page }) => {
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
-
     // Click through each stage tab
     const stages = ['Run VibeCheck', 'Assign Copilot', 'Review & Merge']
 
@@ -251,8 +218,6 @@ test.describe('Stage Navigation', () => {
   })
 
   test('stage tabs show item counts', async ({ page }) => {
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
-
     // Wait for content to appear (indicates data loaded)
     await expect(page.getByRole('checkbox', { name: /repo-without-vc-1/i })).toBeVisible()
 

@@ -207,9 +207,8 @@ def _fetch_repo_issues_fallback(entry):
     owner, repo = entry["owner"], entry["repo"]
     result = run_gh_command([
         "issue", "list", "-R", f"{owner}/{repo}",
-        "--label", "good first issue",
         "--state", "open",
-        "--limit", "30",
+        "--limit", "50",
         "--json", "number,title,url,labels,createdAt,updatedAt,comments,assignees"
     ])
     if not result["success"]:
@@ -324,6 +323,18 @@ def api_oss_dossier(slug):
     return jsonify({"success": True, "dossier": dossier, "owner": my_user})
 
 
+@bp.route("/api/oss/issue-brief/<slug>/<issue_id>", methods=["GET"])
+def api_oss_issue_brief(slug, issue_id):
+    """Get a pre-built issue brief from the aggregator.
+
+    Returns the full ScoredIssue, RepoHealth, and a ready-to-use brief markdown string.
+    """
+    my_user = get_authenticated_user()
+    svc = OSSService()
+    brief = svc.get_issue_brief(slug, issue_id)
+    return jsonify({"success": True, "data": brief, "owner": my_user})
+
+
 # ============ Stage 3: Fork & Assign ============
 
 @bp.route("/api/oss/stage3-assigned", methods=["GET"])
@@ -396,6 +407,10 @@ def api_oss_fork_and_assign():
         if dossier_data and dossier_data.get("sections"):
             dossier_context = dossier_data["sections"]
 
+    # Try aggregator issue-brief for enhanced context
+    issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
+    issue_brief = svc.get_issue_brief(f"{origin_owner}-{repo}", issue_id)
+
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
     if existing:
@@ -427,9 +442,10 @@ def api_oss_fork_and_assign():
     # 3. Sync fork
     svc.sync_fork(my_user, repo)
 
-    # 4. Build agent context
+    # 4. Build agent context (issue_brief takes priority over dossier)
     context_body = svc.build_agent_context(
-        origin_owner, repo, issue_number, issue_title, issue_url, dossier_context
+        origin_owner, repo, issue_number, issue_title, issue_url,
+        dossier_context, issue_brief
     )
 
     # 5. Create context issue on fork

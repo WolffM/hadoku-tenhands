@@ -423,6 +423,96 @@ class TestBuildAgentContext:
         assert "Quirks" not in body
 
 
+class TestIssueBrief:
+    """Tests for get_issue_brief and issue-brief integration with build_agent_context."""
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_issue_brief_returns_data(self, mock_agg):
+        mock_agg.return_value = {
+            "success": True,
+            "data": {
+                "issue": {"id": "github-org-repo-42", "cvs": 85},
+                "repoHealth": {"overallViability": 80},
+                "brief": "# Task: Fix bug\n\nContribution rules...",
+            },
+        }
+        svc = OSSService()
+        result = svc.get_issue_brief("org-repo", "github-org-repo-42")
+        assert result is not None
+        assert result["brief"] == "# Task: Fix bug\n\nContribution rules..."
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_issue_brief_returns_none_when_aggregator_down(self, mock_agg):
+        mock_agg.return_value = None
+        svc = OSSService()
+        result = svc.get_issue_brief("org-repo", "github-org-repo-42")
+        assert result is None
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_issue_brief_returns_none_on_error_response(self, mock_agg):
+        mock_agg.return_value = {"success": False, "error": "Not found"}
+        svc = OSSService()
+        result = svc.get_issue_brief("org-repo", "github-org-repo-42")
+        assert result is None
+
+    @patch("services.oss_service.run_gh_command")
+    def test_context_with_issue_brief_uses_brief_string(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
+        svc = OSSService()
+
+        issue_brief = {
+            "issue": {"id": "github-org-repo-42"},
+            "repoHealth": {},
+            "brief": "# Contribution Context\nFollow conventional commits.",
+        }
+        body = svc.build_agent_context("org", "repo", 42, "Fix", "https://example.com", issue_brief=issue_brief)
+
+        assert "Contribution Context" in body
+        assert "Follow conventional commits" in body
+        # Should NOT fetch CONTRIBUTING.md when issue_brief is provided
+        assert mock_gh.call_count == 1  # Only the issue view call
+
+    @patch("services.oss_service.run_gh_command")
+    def test_context_with_issue_brief_skips_dossier(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
+        svc = OSSService()
+
+        dossier = {"contributionRules": "Dossier rules"}
+        issue_brief = {"brief": "Brief rules"}
+        body = svc.build_agent_context("org", "repo", 42, "Fix", "https://example.com", dossier, issue_brief)
+
+        # issue_brief takes priority over dossier
+        assert "Brief rules" in body
+        assert "Dossier rules" not in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_context_falls_back_to_dossier_when_brief_missing(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
+        svc = OSSService()
+
+        dossier = {"contributionRules": "Dossier rules"}
+        body = svc.build_agent_context("org", "repo", 42, "Fix", "https://example.com", dossier, issue_brief=None)
+
+        assert "Dossier rules" in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_context_return_metadata(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
+        svc = OSSService()
+
+        issue_brief = {"brief": "Brief content"}
+        body, metadata = svc.build_agent_context(
+            "org", "repo", 42, "Fix", "https://example.com",
+            issue_brief=issue_brief, return_metadata=True
+        )
+
+        assert isinstance(body, str)
+        assert isinstance(metadata, dict)
+        assert metadata["issue_brief_used"] is True
+        assert metadata["issue_body_fetched"] is True
+        assert "aggregator-issue-brief" in metadata["sources"]
+
+
 class TestClaimManagement:
     """Tests for report_claim and report_unclaim."""
 

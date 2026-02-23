@@ -33,7 +33,7 @@ import { isPRReady, getSeverityFromLabels, getErrorMessage } from '../utils'
 
 // ============ Types ============
 
-export type ViewType = 'list' | 'review' | 'health' | 'oss'
+export type ViewType = 'select' | 'list' | 'review' | 'health' | 'oss'
 
 export interface LogEntry {
   id: string
@@ -328,7 +328,7 @@ registerPipelineItemProvider('oss', ossItemMapper)
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
   // Initial state
-  activeView: 'list',
+  activeView: 'select',
   owner: null,
   stage1: { items: [], loading: false, error: null, lastFetched: null },
   stage2: { items: [], loading: false, error: null, lastFetched: null },

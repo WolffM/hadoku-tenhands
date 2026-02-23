@@ -12,3 +12,4 @@ from . import action_routes    # noqa: E402, F401
 from . import workflow_routes  # noqa: E402, F401
 from . import pipeline_routes  # noqa: E402, F401
 from . import oss_routes       # noqa: E402, F401
+from . import oss_debug_routes # noqa: E402, F401
