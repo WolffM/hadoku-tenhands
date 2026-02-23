@@ -209,7 +209,7 @@ def _fetch_repo_issues_fallback(entry):
         "issue", "list", "-R", f"{owner}/{repo}",
         "--state", "open",
         "--limit", "50",
-        "--json", "number,title,url,labels,createdAt,updatedAt,comments,assignees"
+        "--json", "number,title,url,labels,createdAt,updatedAt,comments,assignees,reactionGroups"
     ])
     if not result["success"]:
         return []

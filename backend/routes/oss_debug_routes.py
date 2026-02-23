@@ -330,7 +330,7 @@ def api_oss_debug_score_issue():
     # Fetch issue data via gh CLI
     result = run_gh_command([
         "issue", "view", issue_number, "-R", f"{owner}/{repo}",
-        "--json", "number,title,labels,createdAt,updatedAt,comments,assignees,url"
+        "--json", "number,title,labels,createdAt,updatedAt,comments,assignees,url,reactionGroups"
     ])
 
     if not result["success"]:
