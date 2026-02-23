@@ -71,7 +71,9 @@ def api_oss_stage1_targets():
         targets = []
         for slug in aggregator_slugs:
             target = {"slug": slug}
-            health = _call_aggregator(f"/recon/{slug}/health")
+            health_resp = _call_aggregator(f"/recon/{slug}/health")
+            # Unwrap: { success, data: { maintainerHealthScore, ... } }
+            health = health_resp.get("data", health_resp) if isinstance(health_resp, dict) else None
             if health:
                 target["health"] = {
                     "maintainerHealthScore": health.get("maintainerHealthScore", 0),
