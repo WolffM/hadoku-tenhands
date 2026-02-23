@@ -513,6 +513,162 @@ class TestIssueBrief:
         assert "aggregator-issue-brief" in metadata["sources"]
 
 
+class TestToolDetection:
+    """Tests for _detect_tool_from_issue helper."""
+
+    def test_detects_ruff_from_vibecheck_table(self):
+        from services.oss_service import _detect_tool_from_issue
+        body = "| Tool | `ruff` |\n| Rule | F841 |"
+        assert _detect_tool_from_issue(body) == "ruff"
+
+    def test_detects_bandit_from_vibecheck_table(self):
+        from services.oss_service import _detect_tool_from_issue
+        body = "| Tool | `bandit` |"
+        assert _detect_tool_from_issue(body) == "bandit"
+
+    def test_detects_mypy(self):
+        from services.oss_service import _detect_tool_from_issue
+        body = "| Tool | `mypy` |"
+        assert _detect_tool_from_issue(body) == "mypy"
+
+    def test_detects_checkov(self):
+        from services.oss_service import _detect_tool_from_issue
+        body = "| Tool | `checkov` |"
+        assert _detect_tool_from_issue(body) == "checkov"
+
+    def test_detects_osv_scanner(self):
+        from services.oss_service import _detect_tool_from_issue
+        body = "| Tool | `osv-scanner` |"
+        assert _detect_tool_from_issue(body) == "osv-scanner"
+
+    def test_returns_none_for_no_tool(self):
+        from services.oss_service import _detect_tool_from_issue
+        body = "This is a regular issue with no tool table."
+        assert _detect_tool_from_issue(body) is None
+
+    def test_returns_none_for_empty_body(self):
+        from services.oss_service import _detect_tool_from_issue
+        assert _detect_tool_from_issue("") is None
+        assert _detect_tool_from_issue(None) is None
+
+
+class TestTDDInstructions:
+    """Tests for TDD workflow instructions in build_agent_context."""
+
+    @patch("services.oss_service.run_gh_command")
+    def test_tool_specific_reproduce_step(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"body": "| Tool | `ruff` |", "labels": []})},
+            {"success": False, "output": ""},
+        ]
+        svc = OSSService()
+
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com")
+
+        assert "Run `ruff`" in body
+        assert "Re-run `ruff`" in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_generic_reproduce_when_no_tool_detected(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"body": "Just a plain bug.", "labels": []})},
+            {"success": False, "output": ""},
+        ]
+        svc = OSSService()
+
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com")
+
+        assert "Write a failing test" in body
+        assert "Re-run the test or tool" in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_tdd_workflow_section_present(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
+            {"success": False, "output": ""},
+        ]
+        svc = OSSService()
+
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com")
+
+        assert "Workflow: Test-Driven Fix" in body
+        assert "Reproduce" in body
+        assert "Implement the fix" in body
+        assert "Verify the fix" in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_rules_section_present(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
+            {"success": False, "output": ""},
+        ]
+        svc = OSSService()
+
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com")
+
+        assert "DO NOT" in body
+        assert "modify or weaken a test" in body
+        assert "disable linter rules" in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_failure_reporting_section_present(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
+            {"success": False, "output": ""},
+        ]
+        svc = OSSService()
+
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com")
+
+        assert "If You Cannot Complete This Task" in body
+        assert "Add a comment on this issue" in body
+        assert "Do **NOT** create a PR with no meaningful changes" in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_self_owned_pr_target_text(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
+            {"success": False, "output": ""},
+        ]
+        svc = OSSService()
+
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", is_self_owned=True)
+
+        assert "reviewed as a PR on" in body
+
+    @patch("services.oss_service.run_gh_command")
+    def test_third_party_pr_target_text(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
+            {"success": False, "output": ""},
+        ]
+        svc = OSSService()
+
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", is_self_owned=False)
+
+        assert "submitted as a PR to" in body
+
+
+class TestSelfOwnedAssignment:
+    """Tests for is_self_owned field in assignments."""
+
+    def test_save_assignment_with_self_owned_true(self, clean_watchlist):
+        svc = OSSService()
+        svc.save_assignment("me", "myrepo", 42, 1, "https://example.com/issues/1", is_self_owned=True)
+
+        items = svc.get_assigned_issues()
+        assert len(items) == 1
+        assert items[0]["is_self_owned"] is True
+
+    def test_save_assignment_default_is_self_owned_false(self, clean_watchlist):
+        svc = OSSService()
+        svc.save_assignment("other", "repo", 42, 1, "https://example.com/issues/1")
+
+        items = svc.get_assigned_issues()
+        assert len(items) == 1
+        assert items[0]["is_self_owned"] is False
+
+
 class TestClaimManagement:
     """Tests for report_claim and report_unclaim."""
 

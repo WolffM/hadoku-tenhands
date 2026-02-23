@@ -821,7 +821,7 @@ class TestForkAndAssign:
             "slug": "fastify-fastify",
             "sections": {"contributionRules": "Follow the style guide"},
         }
-        svc.build_agent_context.return_value = "## Context"
+        svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
 
         mock_gh.return_value = {
             "success": True,
@@ -843,6 +843,146 @@ class TestForkAndAssign:
         svc.get_dossier.assert_called_once_with("fastify-fastify")
         call_args = svc.build_agent_context.call_args
         assert call_args[0][5] == {"contributionRules": "Follow the style guide"}
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_self_owned_skips_fork_and_sync(self, mock_gh, mock_svc_cls, mock_user, client):
+        """When origin_owner == my_user, fork/sync steps are skipped."""
+        svc = mock_svc_cls.return_value
+        svc.find_assignment.return_value = None
+        svc.get_dossier.return_value = None
+        svc.get_issue_brief.return_value = None
+        svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": "https://github.com/testuser/myrepo/issues/1\n",
+        }
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/fork-and-assign",
+            json={
+                "origin_owner": "testuser",
+                "repo": "myrepo",
+                "issue_number": 42,
+                "issue_title": "Fix bug",
+                "issue_url": "https://github.com/testuser/myrepo/issues/42",
+            },
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert data["is_self_owned"] is True
+        # Fork/sync methods should NOT have been called
+        svc.check_fork_exists.assert_not_called()
+        svc.fork_repo.assert_not_called()
+        svc.wait_for_fork.assert_not_called()
+        svc.sync_fork.assert_not_called()
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_third_party_uses_fork_flow(self, mock_gh, mock_svc_cls, mock_user, client):
+        """When origin_owner != my_user, the full fork flow runs."""
+        svc = mock_svc_cls.return_value
+        svc.find_assignment.return_value = None
+        svc.check_fork_exists.return_value = True
+        svc.wait_for_fork.return_value = True
+        svc.get_dossier.return_value = None
+        svc.get_issue_brief.return_value = None
+        svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": "https://github.com/testuser/fastify/issues/1\n",
+        }
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/fork-and-assign",
+            json={
+                "origin_owner": "fastify",
+                "repo": "fastify",
+                "issue_number": 42,
+                "issue_title": "Fix docs",
+                "issue_url": "https://github.com/fastify/fastify/issues/42",
+            },
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert data["is_self_owned"] is False
+        svc.check_fork_exists.assert_called_once()
+        svc.wait_for_fork.assert_called_once()
+        svc.sync_fork.assert_called_once()
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_response_includes_context_sources(self, mock_gh, mock_svc_cls, mock_user, client):
+        """Response should include context_sources from metadata."""
+        svc = mock_svc_cls.return_value
+        svc.find_assignment.return_value = None
+        svc.check_fork_exists.return_value = True
+        svc.wait_for_fork.return_value = True
+        svc.get_dossier.return_value = None
+        svc.get_issue_brief.return_value = None
+        svc.build_agent_context.return_value = (
+            "## Context",
+            {"sources": ["gh-issue-view", "gh-contributing-md"]},
+        )
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": "https://github.com/testuser/fastify/issues/1\n",
+        }
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/fork-and-assign",
+            json={
+                "origin_owner": "fastify",
+                "repo": "fastify",
+                "issue_number": 42,
+                "issue_title": "Fix docs",
+                "issue_url": "https://github.com/fastify/fastify/issues/42",
+            },
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert "context_sources" in data
+        assert "gh-issue-view" in data["context_sources"]
+        assert "gh-contributing-md" in data["context_sources"]
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    def test_dedup_response_includes_is_self_owned(self, mock_svc_cls, mock_user, client):
+        """Dedup (already_assigned) response should include is_self_owned."""
+        svc = mock_svc_cls.return_value
+        svc.find_assignment.return_value = {
+            "fork_issue_url": "https://github.com/testuser/myrepo/issues/1"
+        }
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/fork-and-assign",
+            json={
+                "origin_owner": "testuser",
+                "repo": "myrepo",
+                "issue_number": 42,
+                "issue_title": "Fix bug",
+                "issue_url": "https://github.com/testuser/myrepo/issues/42",
+            },
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert data["already_assigned"] is True
+        assert data["is_self_owned"] is True
+        assert data["context_sources"] == []
 
 
 # ============ Stage 4: Review on Fork ============
