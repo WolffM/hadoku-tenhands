@@ -5,7 +5,13 @@ import { useTheme } from './hooks/useTheme'
 import { usePipelineStore } from './store'
 import { getOwner } from './api/endpoints'
 import { Navigation } from './components/common'
-import { VibecheckView, ReviewQueueView, HealthCheckView, OSSView } from './views'
+import {
+  VibecheckView,
+  ReviewQueueView,
+  HealthCheckView,
+  OSSView,
+  PipelineSelectView
+} from './views'
 import type { VibeDispatchProps } from './entry'
 
 export default function App(props: VibeDispatchProps = {}) {
@@ -69,8 +75,10 @@ export default function App(props: VibeDispatchProps = {}) {
       case 'health':
         return <HealthCheckView />
       case 'list':
-      default:
         return <VibecheckView />
+      case 'select':
+      default:
+        return <PipelineSelectView />
     }
   }
 

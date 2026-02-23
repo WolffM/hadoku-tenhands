@@ -15,12 +15,14 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
+    // Navigate from pipeline selection to Vibecheck pipeline
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
   })
 
   // ============ Stage 1: Install VibeCheck ============
 
   test('Stage 1: Select All selects all repo checkboxes', async ({ page }) => {
-    // Stage 1 is the default tab
+    // Stage 1 is the default tab within vibecheck
     await expect(page.getByRole('checkbox', { name: /repo-without-vc-1/i })).toBeVisible()
     await page.getByRole('button', { name: /Select All/i }).click()
 

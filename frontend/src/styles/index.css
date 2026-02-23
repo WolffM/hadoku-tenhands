@@ -2328,3 +2328,100 @@ td .pr-link {
   gap: 0.75rem;
   align-items: flex-end;
 }
+
+/* ============ Pipeline Selection ============ */
+
+.pipeline-select {
+  padding: 2rem;
+}
+
+.pipeline-select__header {
+  margin-bottom: 1.5rem;
+}
+
+.pipeline-select__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.pipeline-select__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pipeline-select-card {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  width: 100%;
+  padding: 1.5rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.pipeline-select-card:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.pipeline-select-card__icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.pipeline-select-card__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pipeline-select-card__title {
+  margin: 0 0 0.25rem 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.pipeline-select-card__description {
+  margin: 0 0 0.75rem 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.pipeline-select-card__stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.pipeline-select-card__stage {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding: 0.125rem 0.5rem;
+  background-color: var(--color-neutral-light);
+  border-radius: 9999px;
+}
+
+.pipeline-select-card__arrow {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  padding: 0 0.125rem;
+  background: none;
+}
+
+/* Home button style */
+.nav-tabs__tab--home {
+  font-weight: var(--font-weight-semibold);
+}

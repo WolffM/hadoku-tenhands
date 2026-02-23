@@ -128,6 +128,21 @@ class OSSService:
         """Get a repo dossier from the aggregator. Stub — returns None."""
         return _call_aggregator(f"/recon/{slug}/dossier")
 
+    def get_issue_brief(self, slug, issue_id):
+        """Get a pre-built issue brief from the aggregator.
+
+        Args:
+            slug: Hyphenated repo slug (e.g., "fastify-fastify")
+            issue_id: Issue identifier (e.g., "github-fastify-fastify-1234")
+
+        Returns:
+            dict with {issue, repoHealth, brief} or None if unavailable.
+        """
+        result = _call_aggregator(f"/recon/{slug}/issue-brief/{issue_id}")
+        if result and result.get("success") and result.get("data"):
+            return result["data"]
+        return None
+
     def trigger_refresh(self, slug):
         """Trigger a re-scrape for a repo. Stub — returns False."""
         result = _call_aggregator(f"/recon/{slug}/refresh", method="POST")
@@ -253,8 +268,26 @@ class OSSService:
 
     # --- Agent context ---
 
-    def build_agent_context(self, origin_owner, repo, issue_number, issue_title, issue_url, dossier=None):
-        """Build the markdown context body for a fork issue assigned to an agent."""
+    def build_agent_context(self, origin_owner, repo, issue_number, issue_title, issue_url,
+                             dossier=None, issue_brief=None, return_metadata=False):
+        """Build the markdown context body for a fork issue assigned to an agent.
+
+        Three-tier context strategy:
+        1. issue_brief.brief available: Use aggregator's pre-built brief
+        2. dossier available (no brief): Use dossier sections
+        3. Neither available: Fetch CONTRIBUTING.md via gh CLI
+
+        Args:
+            return_metadata: If True, return (body, metadata) tuple instead of just body.
+        """
+        metadata = {
+            "issue_body_fetched": False,
+            "contributing_fetched": False,
+            "dossier_used": False,
+            "issue_brief_used": False,
+            "sources": [],
+        }
+
         # Fetch original issue body
         original = run_gh_command([
             "issue", "view", str(issue_number),
@@ -265,21 +298,10 @@ class OSSService:
         if original["success"]:
             try:
                 original_data = json.loads(original["output"])
+                metadata["issue_body_fetched"] = True
+                metadata["sources"].append("gh-issue-view")
             except (json.JSONDecodeError, KeyError):
                 pass
-
-        # Fetch CONTRIBUTING.md (fallback if no dossier)
-        contrib_text = ""
-        if not dossier:
-            contrib = run_gh_command([
-                "api", f"/repos/{origin_owner}/{repo}/contents/CONTRIBUTING.md",
-                "--jq", ".content"
-            ])
-            if contrib["success"] and contrib["output"].strip():
-                try:
-                    contrib_text = base64.b64decode(contrib["output"].strip()).decode("utf-8")
-                except Exception:
-                    pass
 
         body = f"""## Upstream Issue
 **Repository:** [{origin_owner}/{repo}](https://github.com/{origin_owner}/{repo})
@@ -299,26 +321,49 @@ Fix the issue described above. Your changes will be submitted as a PR to `{origi
 - Add tests if the repo has a test suite
 """
 
-        if dossier and dossier.get("contributionRules"):
-            body += f"\n---\n## Contribution Rules\n{dossier['contributionRules']}\n"
-        elif contrib_text:
-            body += f"\n---\n## CONTRIBUTING.md\n<details><summary>Expand</summary>\n\n{contrib_text[:3000]}\n\n</details>\n"
+        # Tier 1: Use aggregator issue-brief if available
+        if issue_brief and issue_brief.get("brief"):
+            body += f"\n---\n## Contribution Context\n{issue_brief['brief']}\n"
+            metadata["issue_brief_used"] = True
+            metadata["sources"].append("aggregator-issue-brief")
+        # Tier 2: Use dossier sections if available
+        elif dossier and (dossier.get("contributionRules") or dossier.get("detectedQuirks")):
+            if dossier.get("contributionRules"):
+                body += f"\n---\n## Contribution Rules\n{dossier['contributionRules']}\n"
+            metadata["dossier_used"] = True
+            metadata["sources"].append("aggregator-dossier")
 
-        if dossier and dossier.get("successPatterns"):
-            body += f"\n---\n## What Successful PRs Look Like\n{dossier['successPatterns']}\n"
+            if dossier.get("successPatterns"):
+                body += f"\n---\n## What Successful PRs Look Like\n{dossier['successPatterns']}\n"
 
-        # Add quirk warnings when available (gracefully no-ops without aggregator)
-        if dossier and dossier.get("detectedQuirks"):
-            quirks = dossier["detectedQuirks"]
-            body += "\n---\n## Important Quirks & Warnings\n"
-            for quirk in quirks:
-                impact = quirk.get("impact", "minor")
-                icon = "BLOCKER" if impact == "blocker" else "WARNING" if impact == "important" else "NOTE"
-                body += f"**[{icon}]** {quirk.get('type', 'unknown')}: {quirk.get('description', '')}\n"
-                if quirk.get("evidence"):
-                    body += f"  Evidence: {quirk['evidence']}\n"
-            body += "\n"
+            # Add quirk warnings when available
+            if dossier.get("detectedQuirks"):
+                quirks = dossier["detectedQuirks"]
+                body += "\n---\n## Important Quirks & Warnings\n"
+                for quirk in quirks:
+                    impact = quirk.get("impact", "minor")
+                    icon = "BLOCKER" if impact == "blocker" else "WARNING" if impact == "important" else "NOTE"
+                    body += f"**[{icon}]** {quirk.get('type', 'unknown')}: {quirk.get('description', '')}\n"
+                    if quirk.get("evidence"):
+                        body += f"  Evidence: {quirk['evidence']}\n"
+                body += "\n"
+        # Tier 3: Fetch CONTRIBUTING.md via gh CLI
+        else:
+            contrib = run_gh_command([
+                "api", f"/repos/{origin_owner}/{repo}/contents/CONTRIBUTING.md",
+                "--jq", ".content"
+            ])
+            if contrib["success"] and contrib["output"].strip():
+                try:
+                    contrib_text = base64.b64decode(contrib["output"].strip()).decode("utf-8")
+                    body += f"\n---\n## CONTRIBUTING.md\n<details><summary>Expand</summary>\n\n{contrib_text[:3000]}\n\n</details>\n"
+                    metadata["contributing_fetched"] = True
+                    metadata["sources"].append("gh-contributing-md")
+                except Exception:
+                    pass
 
+        if return_metadata:
+            return body, metadata
         return body
 
     # --- Claim management ---

@@ -356,6 +356,24 @@ export const mockOSSSubmittedPRs = [
   }
 ]
 
+export const mockOSSIssueBrief = {
+  issue: {
+    id: 'github-fastify-fastify-1234',
+    number: 1234,
+    title: 'Fix memory leak in request handler',
+    cvs: 92,
+    cvsTier: 'go' as const
+  },
+  repoHealth: {
+    maintainerHealthScore: 85,
+    mergeAccessibilityScore: 72,
+    availabilityScore: 90,
+    overallViability: 82
+  },
+  brief:
+    '## Contribution Brief\n\nThis issue involves fixing a memory leak in the request handler.\n\n### Key Points\n- Focus on the `onRequest` hook lifecycle\n- Add cleanup in `onResponse`\n- Follow fastify plugin patterns'
+}
+
 // ============ Mock Setup Functions ============
 
 /**
@@ -609,6 +627,14 @@ export async function mockOSSAPIs(page: Page): Promise<void> {
   })
 
   // Detail endpoints
+  await page.route('**/dispatch/api/oss/issue-brief/**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: mockOSSIssueBrief, owner: mockOwner })
+    })
+  })
+
   await page.route('**/dispatch/api/oss/fork-pr-details', async route => {
     await route.fulfill({
       status: 200,

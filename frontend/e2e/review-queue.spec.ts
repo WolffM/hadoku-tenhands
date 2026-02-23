@@ -64,7 +64,7 @@ test.describe('Review Queue View', () => {
     await page.getByRole('button', { name: /Review Queue/i }).click()
     await expect(page.locator('.review-queue-view')).toBeVisible()
 
-    // Go back to Pipelines
+    // Go back to Pipelines — tab is visible from any non-select view
     await page.getByRole('button', { name: /Pipelines/i }).click()
 
     // Should see stage tabs again
@@ -212,7 +212,7 @@ test.describe('Review Queue Empty State', () => {
     await expect(page.locator('.review-queue-view')).toBeVisible()
 
     // Should show the review carousel header (since we have 1 non-demo PR ready for review)
-    await expect(page.locator('.review-carousel-header')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.review-carousel-header').first()).toBeVisible({ timeout: 10000 })
 
     // The Review Queue badge should show count of 1 (only non-demo PR)
     const reviewQueueBtn = page.getByRole('button', { name: /Review Queue/i })

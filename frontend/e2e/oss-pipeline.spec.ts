@@ -6,12 +6,33 @@
  */
 
 import { test, expect, type Page } from '@playwright/test'
-import { mockAllAPIs, mockOwner } from './fixtures/api-mocks'
+import {
+  mockAllAPIs,
+  mockOwner,
+  mockOSSTargets,
+  mockOSSScoredIssues,
+  mockOSSAssignments,
+  mockOSSForkPRs,
+  mockOSSForkPRDetails,
+  mockOSSReadyToSubmit,
+  mockOSSSubmittedPRs
+} from './fixtures/api-mocks'
 
 /** Navigate to a specific OSS pipeline stage tab */
 async function navigateToOSSStage(page: Page, stageLabel: string): Promise<void> {
-  // Click "OSS Contrib" in main navigation
-  await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+  // Wait for page to be ready
+  await expect(page.locator('text=VibeDispatch')).toBeVisible()
+
+  // If on the pipeline selection view, click the OSS card directly
+  const ossCard = page
+    .locator('.pipeline-select-card')
+    .filter({ hasText: 'OSS Contribution Pipeline' })
+  if (await ossCard.isVisible()) {
+    await ossCard.click()
+  } else {
+    // Already inside a pipeline — click "OSS Contrib" tab in navigation
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+  }
   // Wait for stage tabs to render (default is "Fork & Assign")
   await expect(page.locator('.stage-tab__label').filter({ hasText: 'Fork & Assign' })).toBeVisible()
   if (stageLabel !== 'Fork & Assign') {
@@ -466,7 +487,11 @@ test.describe('OSS Pipeline - Navigation', () => {
   })
 
   test('can navigate to OSS view and see all 5 stage tabs', async ({ page }) => {
-    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+    // From select view, click the OSS card
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
 
     const stageLabels = [
       'Target Repos',
@@ -481,14 +506,20 @@ test.describe('OSS Pipeline - Navigation', () => {
   })
 
   test('default tab is Fork & Assign (Stage 3)', async ({ page }) => {
-    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
     const activeTab = page.locator('.stage-tab--active')
     await expect(activeTab).toBeVisible()
     await expect(activeTab.locator('.stage-tab__label')).toHaveText('Fork & Assign')
   })
 
   test('stage tabs show item counts', async ({ page }) => {
-    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
     // Target Repos tab should show count (2 targets)
     const targetTab = page.locator('.stage-tab').filter({ hasText: 'Target Repos' })
     const countSpan = targetTab.locator('.stage-tab__count')
@@ -496,7 +527,10 @@ test.describe('OSS Pipeline - Navigation', () => {
   })
 
   test('can navigate between all 5 OSS stages', async ({ page }) => {
-    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
 
     const stages = [
       'Target Repos',
@@ -514,11 +548,344 @@ test.describe('OSS Pipeline - Navigation', () => {
   })
 
   test('Refresh All button exists and works', async ({ page }) => {
-    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
     const refreshBtn = page.getByRole('button', { name: /Refresh All/i })
     await expect(refreshBtn).toBeVisible()
     await refreshBtn.click()
     // Should not crash — title still visible
     await expect(page.locator('text=VibeDispatch')).toBeVisible()
+  })
+})
+
+// ============ Full Pipeline Run ("The Big Test") ============
+
+test.describe('OSS Pipeline - Full Pipeline Run', () => {
+  test('walks through all 5 stages with stateful mocks', async ({ page }) => {
+    // Stateful mock data — mutated between steps to simulate pipeline progression
+    const targets = [...mockOSSTargets]
+    const scoredIssues = [...mockOSSScoredIssues]
+    const assignments = [...mockOSSAssignments]
+    const forkPRs = [...mockOSSForkPRs]
+    const readyToSubmit = [...mockOSSReadyToSubmit]
+    const submittedPRs = [...mockOSSSubmittedPRs]
+
+    // Set up base mocks (owner, health, vibecheck stages, action APIs)
+    await page.route('**/dispatch/api/owner', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: mockOwner })
+      })
+    })
+
+    // Stateful OSS stage mocks
+    await page.route('**/dispatch/api/oss/stage1-targets', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, targets, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/stage2-issues', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, issues: scoredIssues, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/stage3-assigned', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, assignments, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/stage4-fork-prs', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, prs: forkPRs, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/stage5-submit', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, ready: readyToSubmit, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/stage5-tracking', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, submitted: submittedPRs, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/poll-submitted-prs', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, submitted: submittedPRs, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/fork-pr-details', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, pr: mockOSSForkPRDetails, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/dossier/**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          dossier: {
+            slug: 'fastify-fastify',
+            generatedAt: new Date().toISOString(),
+            sections: {
+              overview: 'Popular framework',
+              contributionRules: 'Follow the style guide.'
+            }
+          },
+          owner: mockOwner
+        })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/issue-brief/**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: null, owner: mockOwner })
+      })
+    })
+
+    // Action mocks — verify calls with request tracking
+    let addTargetCalled = false
+    await page.route('**/dispatch/api/oss/add-target', async route => {
+      addTargetCalled = true
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'Target added!', owner: mockOwner })
+      })
+    })
+
+    let selectIssueCalled = false
+    await page.route('**/dispatch/api/oss/select-issue', async route => {
+      selectIssueCalled = true
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: mockOwner })
+      })
+    })
+
+    let forkAndAssignCalled = false
+    await page.route('**/dispatch/api/oss/fork-and-assign', async route => {
+      forkAndAssignCalled = true
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          fork_issue_url: 'https://github.com/test-user/fastify/issues/3',
+          fork_issue_number: 3,
+          owner: mockOwner
+        })
+      })
+    })
+
+    let approveForkPRCalled = false
+    await page.route('**/dispatch/api/oss/approve-fork-pr', async route => {
+      approveForkPRCalled = true
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'PR approved!', owner: mockOwner })
+      })
+    })
+
+    let mergeForkPRCalled = false
+    await page.route('**/dispatch/api/oss/merge-fork-pr', async route => {
+      mergeForkPRCalled = true
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'PR merged!', owner: mockOwner })
+      })
+    })
+
+    let submitToOriginCalled = false
+    await page.route('**/dispatch/api/oss/submit-to-origin', async route => {
+      submitToOriginCalled = true
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          pr_url: 'https://github.com/fastify/fastify/pull/5555',
+          owner: mockOwner
+        })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/remove-target', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: mockOwner })
+      })
+    })
+
+    await page.route('**/dispatch/api/oss/refresh-target', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: mockOwner })
+      })
+    })
+
+    // Also mock vibecheck endpoints (loaded in background)
+    await page.route('**/dispatch/api/stage1-repos', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: mockOwner, repos: [] })
+      })
+    })
+
+    await page.route('**/dispatch/api/stage4-prs', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, owner: mockOwner, prs: [] })
+      })
+    })
+
+    await page.route('**/dispatch/api/stage3-issues', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          owner: mockOwner,
+          issues: [],
+          labels: [],
+          repos_with_copilot_prs: []
+        })
+      })
+    })
+
+    // -------- Step 1: Start at pipeline selection, click OSS card --------
+    await page.goto('/?key=test-key')
+    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Fork & Assign' })
+    ).toBeVisible()
+
+    // -------- Step 2: Stage 1 — verify targets are displayed --------
+    await page.locator('.stage-tab').filter({ hasText: 'Target Repos' }).click()
+    await expect(page.locator('text=fastify-fastify').first()).toBeVisible()
+    await expect(page.locator('text=vercel-next.js').first()).toBeVisible()
+
+    // Add a new target
+    const input = page.locator('input[placeholder*="fastify/fastify"]')
+    await input.fill('lodash/lodash')
+    await page.getByRole('button', { name: /Add Target/i }).click()
+    expect(addTargetCalled).toBe(true)
+
+    // -------- Step 3: Stage 2 — verify scored issues --------
+    await page.locator('.stage-tab').filter({ hasText: 'Select Issues' }).click()
+    await expect(page.locator('text=Fix memory leak').first()).toBeVisible()
+    await expect(page.locator('text=92').first()).toBeVisible()
+
+    // Select an issue and batch assign
+    const checkbox = page.locator('input[type="checkbox"]').first()
+    await checkbox.check()
+    await page.getByRole('button', { name: /Assign Selected/i }).click()
+    expect(selectIssueCalled).toBe(true)
+
+    // -------- Step 4: Stage 3 — verify assignment and fork-and-assign form --------
+    await page.locator('.stage-tab').filter({ hasText: 'Fork & Assign' }).click()
+    await expect(page.locator('text=fastify/fastify').first()).toBeVisible()
+    await expect(page.locator('text=Fork #1')).toBeVisible()
+
+    // Fill and submit the manual fork-and-assign form
+    const ownerInput = page.locator('input[placeholder="e.g. fastify"]').first()
+    const repoInput = page.locator('input[placeholder="e.g. fastify"]').nth(1)
+    const issueInput = page.locator('input[placeholder="e.g. 5432"]')
+    const titleInput = page.locator('input[placeholder="Brief description of the issue"]')
+    const urlInput = page.locator('input[placeholder*="https://github.com"]')
+
+    await ownerInput.fill('lodash')
+    await repoInput.fill('lodash')
+    await issueInput.fill('999')
+    await titleInput.fill('Fix sorting bug')
+    await urlInput.fill('https://github.com/lodash/lodash/issues/999')
+    await page.locator('.oss-assign-form button[type="submit"]').click()
+    expect(forkAndAssignCalled).toBe(true)
+
+    // -------- Step 5: Stage 4 — verify fork PRs, approve, merge --------
+    await page.locator('.stage-tab').filter({ hasText: 'Review on Fork' }).click()
+    await expect(page.locator('text=Fix memory leak').first()).toBeVisible()
+
+    // Approve the first PR
+    await page
+      .getByRole('button', { name: /^Approve$/i })
+      .first()
+      .click()
+    expect(approveForkPRCalled).toBe(true)
+
+    // Merge the first PR
+    await page
+      .getByRole('button', { name: /^Merge$/i })
+      .first()
+      .click()
+    expect(mergeForkPRCalled).toBe(true)
+
+    // -------- Step 6: Stage 5 — verify ready-to-submit, submit to origin --------
+    await page.locator('.stage-tab').filter({ hasText: 'Submit Upstream' }).click()
+    await expect(page.locator('text=Ready to Submit')).toBeVisible()
+    await expect(page.locator('text=fix/memory-leak')).toBeVisible()
+
+    // Open the submit editor
+    await page
+      .locator('.data-table .btn--primary')
+      .filter({ hasText: /^Submit$/ })
+      .first()
+      .click()
+    await expect(page.locator('text=Edit PR before submitting')).toBeVisible()
+
+    // Edit title and submit
+    const prTitleInput = page.locator('.oss-submit-editor input')
+    await prTitleInput.clear()
+    await prTitleInput.fill('fix: memory leak in request handler')
+    await page.getByRole('button', { name: /Confirm Submit/i }).click()
+    expect(submitToOriginCalled).toBe(true)
+
+    // Verify submitted PRs tracking section
+    await expect(page.locator('text=#9876')).toBeVisible()
+
+    // -------- Step 7: Navigate back home --------
+    await page.getByRole('button', { name: /^Home$/i }).click()
+    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
   })
 })
