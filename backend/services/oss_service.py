@@ -116,9 +116,18 @@ class OSSService:
     # --- Aggregator API (proxied when available, returns empty/None otherwise) ---
 
     def get_watchlist(self):
-        """Get the watchlist from the aggregator. Stub — returns []."""
+        """Get the watchlist from the aggregator.
+
+        Aggregator returns: { success: true, data: { slugs: [...] } }
+        """
         result = _call_aggregator("/recon/watchlist")
-        if result and "slugs" in result:
+        if not result or not isinstance(result, dict):
+            return []
+        # Unwrap: { success, data: { slugs: [...] } }
+        data = result.get("data") or result
+        if isinstance(data, dict) and "slugs" in data:
+            return data["slugs"]
+        if "slugs" in result:
             return result["slugs"]
         return []
 
@@ -133,18 +142,39 @@ class OSSService:
         return result is not None
 
     def get_scored_issues(self, slug=None):
-        """Get scored issues from the aggregator. Stub — returns []."""
+        """Get scored issues from the aggregator.
+
+        Aggregator returns: { success: true, data: { issues: [...] } }
+        """
         if slug:
             result = _call_aggregator(f"/recon/{slug}/scored-issues")
         else:
             result = _call_aggregator("/recon/all-scored-issues")
-        if result and isinstance(result, list):
+        if not result:
+            return []
+        # Unwrap aggregator response: { success, data: { issues: [...] } }
+        if isinstance(result, dict):
+            data = result.get("data") or result
+            issues = data.get("issues") if isinstance(data, dict) else None
+            if isinstance(issues, list):
+                return issues
+        if isinstance(result, list):
             return result
         return []
 
     def get_dossier(self, slug):
-        """Get a repo dossier from the aggregator. Stub — returns None."""
-        return _call_aggregator(f"/recon/{slug}/dossier")
+        """Get a repo dossier from the aggregator.
+
+        Aggregator returns: { success: true, data: { slug, sections: {...} } }
+        Callers expect: { slug, sections: {...} } (the inner data object)
+        """
+        result = _call_aggregator(f"/recon/{slug}/dossier")
+        if not result or not isinstance(result, dict):
+            return None
+        # Unwrap: { success, data: { ... } }
+        if "data" in result and isinstance(result["data"], dict):
+            return result["data"]
+        return result
 
     def get_issue_brief(self, slug, issue_id):
         """Get a pre-built issue brief from the aggregator.
