@@ -6,6 +6,7 @@ and aggregator API communication.
 """
 
 import os
+import re
 import json
 import time
 import base64
@@ -54,6 +55,23 @@ def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
         return None
     except Exception:
         return None
+
+
+def _detect_tool_from_issue(issue_body):
+    """Extract the detection tool name from a vibecheck issue body.
+
+    vibecheck issues use a markdown table with a row like:
+        | Tool | `ruff` |
+
+    Returns the tool name (str) or None if not detected.
+    """
+    if not issue_body:
+        return None
+    # Match vibecheck table format: | Tool | `toolname` |
+    match = re.search(r'\|\s*Tool\s*\|\s*`(\w[\w-]*)`', issue_body)
+    if match:
+        return match.group(1).lower()
+    return None
 
 
 # ============ OSSService ============
@@ -173,7 +191,8 @@ class OSSService:
         """Get fork issues that have been created and assigned to an agent."""
         return _load_json("assignments.json")
 
-    def save_assignment(self, origin_owner, repo, issue_number, fork_issue_number, fork_issue_url):
+    def save_assignment(self, origin_owner, repo, issue_number, fork_issue_number, fork_issue_url,
+                         is_self_owned=False):
         """Record a fork-and-assign action."""
         items = self.get_assigned_issues()
         items.append({
@@ -182,6 +201,7 @@ class OSSService:
             "issue_number": issue_number,
             "fork_issue_number": int(fork_issue_number),
             "fork_issue_url": fork_issue_url,
+            "is_self_owned": is_self_owned,
             "assigned_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
         _save_json("assignments.json", items)
@@ -269,7 +289,8 @@ class OSSService:
     # --- Agent context ---
 
     def build_agent_context(self, origin_owner, repo, issue_number, issue_title, issue_url,
-                             dossier=None, issue_brief=None, return_metadata=False):
+                             dossier=None, issue_brief=None, return_metadata=False,
+                             is_self_owned=False):
         """Build the markdown context body for a fork issue assigned to an agent.
 
         Three-tier context strategy:
@@ -279,6 +300,7 @@ class OSSService:
 
         Args:
             return_metadata: If True, return (body, metadata) tuple instead of just body.
+            is_self_owned: If True, the repo is owned by the contributor (not a fork).
         """
         metadata = {
             "issue_body_fetched": False,
@@ -303,22 +325,72 @@ class OSSService:
             except (json.JSONDecodeError, KeyError):
                 pass
 
+        issue_body = original_data.get('body', '')
+
+        # Detect tool from vibecheck issue body for tool-specific instructions
+        detected_tool = _detect_tool_from_issue(issue_body)
+
+        if detected_tool:
+            reproduce_step = (
+                f"1. **Reproduce the finding:** Run `{detected_tool}` on the affected file(s) "
+                f"to confirm the issue exists.\n"
+                f"   If `{detected_tool}` is not already installed, install it first. "
+                f"Capture the output showing the finding."
+            )
+            verify_step = (
+                f"3. **Verify the fix:** Re-run `{detected_tool}` on the affected file(s) "
+                f"and confirm the finding is resolved.\n"
+                f"   The tool should no longer report this specific issue. "
+                f"No new issues should be introduced."
+            )
+        else:
+            reproduce_step = (
+                "1. **Reproduce the issue:** Write a failing test or run the relevant "
+                "linting/analysis tool to confirm the problem.\n"
+                "   If the repo has a test suite, add a test case that fails due to this issue."
+            )
+            verify_step = (
+                "3. **Verify the fix:** Re-run the test or tool and confirm the issue is resolved.\n"
+                "   All existing tests must still pass. No new issues should be introduced."
+            )
+
+        if is_self_owned:
+            pr_target = f"Your changes will be reviewed as a PR on `{origin_owner}/{repo}`."
+        else:
+            pr_target = f"Your changes will be submitted as a PR to `{origin_owner}/{repo}`."
+
         body = f"""## Upstream Issue
 **Repository:** [{origin_owner}/{repo}](https://github.com/{origin_owner}/{repo})
 **Issue:** [#{issue_number}: {issue_title}]({issue_url})
 
 ### Original Issue Description
-{original_data.get('body', '*No description provided.*')}
+{issue_body or '*No description provided.*'}
 
 ---
 ## Instructions
-Fix the issue described above. Your changes will be submitted as a PR to `{origin_owner}/{repo}`.
 
-**Important:**
-- Follow the upstream repo's coding style and conventions
-- Keep changes minimal and focused
-- Write clear commit messages
-- Add tests if the repo has a test suite
+{pr_target}
+
+### Workflow: Test-Driven Fix
+
+{reproduce_step}
+
+2. **Implement the fix:** Make the minimal change needed to resolve the issue.
+   Follow the upstream repo's coding style and conventions. Write clear commit messages.
+
+{verify_step}
+
+### Rules
+- **DO NOT** modify or weaken a test to make it pass. The test must accurately verify the fix.
+- **DO NOT** disable linter rules or add suppression comments to "fix" the issue.
+- Keep changes minimal and focused — do not refactor unrelated code.
+- If the repo has a test suite, your PR **must** include a test that covers the fix.
+
+### If You Cannot Complete This Task
+If you are unable to reproduce the finding or implement a fix:
+- **Add a comment on this issue** explaining what you tried and why it failed.
+- Include the relevant tool output or error messages in the comment.
+- Do **NOT** create a PR with no meaningful changes or with suppressed warnings.
 """
 
         # Tier 1: Use aggregator issue-brief if available

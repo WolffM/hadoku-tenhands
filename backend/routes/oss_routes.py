@@ -401,6 +401,9 @@ def api_oss_fork_and_assign():
     origin_slug = f"{origin_owner}/{repo}"
     svc = OSSService()
 
+    # Detect self-owned repos (can't fork your own repo)
+    is_self_owned = (origin_owner.lower() == my_user.lower())
+
     # Auto-fetch dossier from aggregator if not provided by frontend
     if not dossier_context:
         dossier_data = svc.get_dossier(f"{origin_owner}-{repo}")
@@ -419,36 +422,44 @@ def api_oss_fork_and_assign():
             "fork_issue_url": existing["fork_issue_url"],
             "owner": my_user,
             "already_assigned": True,
+            "is_self_owned": is_self_owned,
+            "context_sources": [],
         })
 
-    # 1. Fork if needed
-    if not svc.check_fork_exists(my_user, repo):
-        fork_result = svc.fork_repo(origin_owner, repo)
-        if not fork_result["success"]:
+    if is_self_owned:
+        # Self-owned repo — no fork needed, create issue directly on the repo
+        pass
+    else:
+        # Third-party repo — fork, wait, and sync
+        # 1. Fork if needed
+        if not svc.check_fork_exists(my_user, repo):
+            fork_result = svc.fork_repo(origin_owner, repo)
+            if not fork_result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Failed to fork: {fork_result.get('error', 'Unknown error')}",
+                    "owner": my_user,
+                })
+
+        # 2. Wait for fork to be ready
+        if not svc.wait_for_fork(my_user, repo, timeout=60, interval=3):
             return jsonify({
                 "success": False,
-                "error": f"Failed to fork: {fork_result.get('error', 'Unknown error')}",
+                "error": "Fork creation timed out",
                 "owner": my_user,
             })
 
-    # 2. Wait for fork to be ready
-    if not svc.wait_for_fork(my_user, repo, timeout=60, interval=3):
-        return jsonify({
-            "success": False,
-            "error": "Fork creation timed out",
-            "owner": my_user,
-        })
-
-    # 3. Sync fork
-    svc.sync_fork(my_user, repo)
+        # 3. Sync fork
+        svc.sync_fork(my_user, repo)
 
     # 4. Build agent context (issue_brief takes priority over dossier)
-    context_body = svc.build_agent_context(
+    context_body, context_metadata = svc.build_agent_context(
         origin_owner, repo, issue_number, issue_title, issue_url,
-        dossier_context, issue_brief
+        dossier_context, issue_brief, return_metadata=True,
+        is_self_owned=is_self_owned
     )
 
-    # 5. Create context issue on fork
+    # 5. Create context issue on target repo (fork or self-owned)
     create_result = run_gh_command([
         "issue", "create", "-R", f"{my_user}/{repo}",
         "--title", f"[OSS] Fix {origin_owner}/{repo}#{issue_number}: {issue_title}",
@@ -473,7 +484,10 @@ def api_oss_fork_and_assign():
     ])
 
     # 7. Track locally
-    svc.save_assignment(origin_owner, repo, issue_number, fork_issue_number, fork_issue_url)
+    svc.save_assignment(
+        origin_owner, repo, issue_number, fork_issue_number, fork_issue_url,
+        is_self_owned=is_self_owned
+    )
 
     # 8. Report claim to aggregator (best-effort)
     issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
@@ -483,6 +497,8 @@ def api_oss_fork_and_assign():
         "success": True,
         "fork_issue_url": fork_issue_url,
         "owner": my_user,
+        "is_self_owned": is_self_owned,
+        "context_sources": context_metadata["sources"],
     })
 
 
