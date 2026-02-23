@@ -27,10 +27,6 @@ except ImportError:
         notify_upstream_merged, notify_upstream_feedback,
     )
 
-# Schema version for cached scoring responses.
-# Bump this when scoring logic changes to auto-invalidate stale caches.
-OSS_SCORING_SCHEMA_VERSION = 2  # v2: added reactionGroups + comment sentiment
-
 # Track GO-tier issue IDs already notified (avoid re-firing on cache refresh)
 _notified_go_issues = set()
 
@@ -213,7 +209,7 @@ def _fetch_repo_issues_fallback(entry):
         "issue", "list", "-R", f"{owner}/{repo}",
         "--state", "open",
         "--limit", "50",
-        "--json", "number,title,url,labels,createdAt,updatedAt,comments,assignees,reactionGroups"
+        "--json", "number,title,url,labels,createdAt,updatedAt,comments,assignees"
     ])
     if not result["success"]:
         return []
@@ -283,7 +279,7 @@ def _fetch_repo_issues_fallback(entry):
 
 
 @bp.route("/api/oss/stage2-issues", methods=["GET"])
-@cached_endpoint("oss-stage2-issues", schema_version=OSS_SCORING_SCHEMA_VERSION)
+@cached_endpoint("oss-stage2-issues")
 def api_oss_stage2_issues():
     """Get scored issues across all target repos.
 
