@@ -93,6 +93,45 @@ cd backend && python -m pytest tests/ -v
 - `backend/tests/` — Pytest test suite
 - `frontend/src/` — React frontend
 
+## Copilot Agent Behavior
+
+- Copilot agents (copilot-swe-agent) create PRs in **draft mode** and never take them out of draft.
+- They add commits to the branch — when commits appear, the work is done and ready for review.
+- Do NOT wait for a PR to leave draft mode before reviewing it. Check for commits/changes instead.
+- PRs authored by `app/copilot-swe-agent` are the Copilot agent's output.
+
+## Copilot Session Investigation
+
+`scripts/copilot-sessions.py` inspects Copilot coding agent session logs. Requires `gh` CLI >= 2.80.0.
+
+```bash
+# List recent Copilot agent sessions (optionally filter by repo)
+python scripts/copilot-sessions.py list --repo WolffM/hadoku-watchparty
+
+# View full session log for a specific PR
+python scripts/copilot-sessions.py log -R WolffM/hadoku-watchparty --pr 123
+
+# View condensed thinking summary (strips file content noise)
+python scripts/copilot-sessions.py summary -R WolffM/hadoku-watchparty --pr 123
+
+# Same, with TDD workflow analysis appended
+python scripts/copilot-sessions.py summary -R WolffM/hadoku-watchparty --pr 123 --analyze
+
+# Compare workflow compliance across multiple PRs (table output)
+python scripts/copilot-sessions.py compare -R WolffM/hadoku-watchparty --prs 95,115,123
+
+# Bulk thinking summaries for a batch of PRs
+python scripts/copilot-sessions.py batch -R WolffM/hadoku-watchparty --prs 107,109,111
+```
+
+**How it works:** PR number → first commit SHA → copilot check-run → Actions run ID → job logs → `COPILOT_AGENT_SESSION_ID` → `gh agent-task view <id> --log`. Tool detection is dynamic (pattern-based, no hardcoded tool names) so it works across any repo.
+
+**Workflow analysis tracks:** reproduced (lint/check before first edit), verified (lint/check after edit), tool_installed, code_review, codeql, self_corrected (edits after code review feedback).
+
+## Aggregator Response Envelope
+
+All aggregator API responses are wrapped in `{ success: true, data: { ... } }`. The unwrapping happens in `backend/services/oss_service.py` — each method (get_watchlist, get_scored_issues, get_dossier, get_issue_brief) handles the envelope. If adding new aggregator calls, always unwrap the envelope.
+
 ## Rules
 
 - Never add scoring logic, sentiment analysis, or reaction analysis to vibedispatch. These belong in hadoku-aggregator.
