@@ -331,10 +331,11 @@ class TestBuildAgentContext:
         body = svc.build_agent_context("fastify", "fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
 
         assert "fastify/fastify" in body
-        assert "#42" in body
         assert "Fix docs" in body
         assert "Original issue body" in body
         assert "Instructions" in body
+        # Must NOT contain issue number reference (would trigger GitHub cross-reference)
+        assert "#42" not in body
 
     @patch("services.oss_service.run_gh_command")
     def test_context_with_contributing_md(self, mock_gh):

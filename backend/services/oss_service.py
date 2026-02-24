@@ -521,11 +521,10 @@ class OSSService:
         else:
             pr_target = f"Your changes will be submitted as a PR to `{origin_owner}/{repo}`."
 
-        body = f"""## Upstream Issue
-**Repository:** [{origin_owner}/{repo}](https://github.com/{origin_owner}/{repo})
-**Issue:** [#{issue_number}: {issue_title}]({issue_url})
+        body = f"""## Issue Context
+**Title:** {issue_title}
 
-### Original Issue Description
+### Description
 {issue_body or '*No description provided.*'}
 
 ---
@@ -543,6 +542,7 @@ class OSSService:
 {verify_step}
 
 ### Rules
+- **DO NOT** reference, close, or link any external issues in your PR or commits. No "Closes", "Fixes", or "Resolves" directives.
 - **DO NOT** modify or weaken a test to make it pass. The test must accurately verify the fix.
 - **DO NOT** disable linter rules or add suppression comments to "fix" the issue.
 - Keep changes minimal and focused — do not refactor unrelated code.

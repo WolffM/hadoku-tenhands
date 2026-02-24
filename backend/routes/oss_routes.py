@@ -468,7 +468,7 @@ def api_oss_fork_and_assign():
     # 5. Create context issue on target repo (fork or self-owned)
     create_result = run_gh_command([
         "issue", "create", "-R", f"{my_user}/{repo}",
-        "--title", f"[OSS] Fix {origin_owner}/{repo}#{issue_number}: {issue_title}",
+        "--title", f"[OSS] Fix: {issue_title}",
         "--body", context_body
     ])
 
