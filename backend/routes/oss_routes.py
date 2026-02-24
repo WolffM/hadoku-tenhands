@@ -276,6 +276,13 @@ def _fetch_repo_issues_fallback(entry):
             "createdAt": issue.get("createdAt", ""),
             "dataCompleteness": "partial",
             "repoKilled": False,
+            "difficulty": "unknown",
+            "difficultyScore": 0,
+            "likelyFiles": [],
+            "relatedIssues": [],
+            "sentimentScore": 0,
+            "contentQualityScore": 0,
+            "competitionLevel": "unknown",
         })
 
     return scored
@@ -458,14 +465,26 @@ def api_oss_fork_and_assign():
         # 3b. Enable issues on fork (forks inherit has_issues=false from parent)
         svc.enable_fork_issues(my_user, repo)
 
-    # 4. Build agent context (issue_brief takes priority over dossier)
+    # 4. Check for same-repo overlap with existing assignments
+    existing_assignments = svc.get_assigned_issues()
+    same_repo = [a for a in existing_assignments
+                 if a["repo"] == repo and a["origin_slug"] == origin_slug
+                 and a.get("issue_number") != issue_number]
+    overlap_warning = None
+    if same_repo:
+        overlap_warning = (
+            f"Warning: {len(same_repo)} other issue(s) from {origin_slug} "
+            f"already assigned. Parallel work on the same repo may cause merge conflicts."
+        )
+
+    # 5. Build agent context (issue_brief takes priority over dossier)
     context_body, context_metadata = svc.build_agent_context(
         origin_owner, repo, issue_number, issue_title, issue_url,
         dossier_context, issue_brief, return_metadata=True,
         is_self_owned=is_self_owned
     )
 
-    # 5. Create context issue on target repo (fork or self-owned)
+    # 6. Create context issue on target repo (fork or self-owned)
     create_result = run_gh_command([
         "issue", "create", "-R", f"{my_user}/{repo}",
         "--title", f"[OSS] Fix: {issue_title}",
@@ -479,7 +498,7 @@ def api_oss_fork_and_assign():
             "owner": my_user,
         })
 
-    # 6. Assign Copilot
+    # 7. Assign Copilot
     fork_issue_url = create_result["output"].strip()
     fork_issue_number = fork_issue_url.split("/")[-1]
 
@@ -489,7 +508,7 @@ def api_oss_fork_and_assign():
         "--add-assignee", "@Copilot"
     ])
 
-    # 7. Track locally
+    # 8. Track locally
     default_branch = svc.get_default_branch(
         origin_owner, repo, issue_brief=issue_brief, dossier_context=dossier_context
     )
@@ -498,17 +517,20 @@ def api_oss_fork_and_assign():
         is_self_owned=is_self_owned, default_branch=default_branch
     )
 
-    # 8. Report claim to aggregator (best-effort)
+    # 9. Report claim to aggregator (best-effort)
     issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
     svc.report_claim(origin_slug, issue_id, my_user, fork_issue_url)
 
-    return jsonify({
+    response = {
         "success": True,
         "fork_issue_url": fork_issue_url,
         "owner": my_user,
         "is_self_owned": is_self_owned,
         "context_sources": context_metadata["sources"],
-    })
+    }
+    if overlap_warning:
+        response["overlap_warning"] = overlap_warning
+    return jsonify(response)
 
 
 # ============ Stage 4: Review on Fork ============
