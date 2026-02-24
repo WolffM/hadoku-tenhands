@@ -449,9 +449,10 @@ class OSSService:
         """Build the markdown context body for a fork issue assigned to an agent.
 
         Three-tier context strategy:
-        1. issue_brief.brief available: Use aggregator's pre-built brief
-        2. dossier available (no brief): Use dossier sections
-        3. Neither available: Fetch CONTRIBUTING.md via gh CLI
+        1. issue_brief.brief available: Brief-first layout — aggregator's pre-built brief
+           (rules, env setup, issue details, contribution rules) at top, our TDD workflow appended.
+        2. dossier available (no brief): Our own rules + dossier sections.
+        3. Neither available: Our own rules + CONTRIBUTING.md via gh CLI.
 
         Args:
             return_metadata: If True, return (body, metadata) tuple instead of just body.
@@ -465,56 +466,67 @@ class OSSService:
             "sources": [],
         }
 
-        # Get original issue body — prefer aggregator issue-brief, fall back to gh CLI
-        issue_body = ""
-        if issue_brief and issue_brief.get("issue"):
-            issue_body = issue_brief["issue"].get("body") or ""
-            if issue_body:
-                metadata["issue_body_fetched"] = True
-                metadata["sources"].append("aggregator-issue-body")
+        # --- Tier 1: Brief-first layout ---
+        # The aggregator brief is a complete context document (CRITICAL RULES, Environment Setup,
+        # Issue Details, Contribution Rules, PR patterns, Quirks). Use it as the primary body
+        # and only append our TDD workflow + failure instructions.
+        if issue_brief and issue_brief.get("brief"):
+            # Detect tool from the brief's issue body for TDD step customization
+            brief_issue_body = ""
+            if issue_brief.get("issue"):
+                brief_issue_body = issue_brief["issue"].get("body") or ""
+            detected_tool = _detect_tool_from_issue(brief_issue_body)
 
-        if not issue_body:
-            original = run_gh_command([
-                "issue", "view", str(issue_number),
-                "-R", f"{origin_owner}/{repo}",
-                "--json", "body,labels"
-            ])
-            original_data = {}
-            if original["success"]:
-                try:
-                    original_data = json.loads(original["output"])
-                    metadata["issue_body_fetched"] = True
-                    metadata["sources"].append("gh-issue-view")
-                except (json.JSONDecodeError, KeyError):
-                    pass
-            issue_body = original_data.get('body', '')
+            reproduce_step, verify_step = self._build_tdd_steps(detected_tool)
+
+            if is_self_owned:
+                pr_target = f"Your changes will be reviewed as a PR on `{origin_owner}/{repo}`."
+            else:
+                pr_target = f"Your changes will be submitted as a PR to `{origin_owner}/{repo}`."
+
+            body = issue_brief["brief"]
+            body += f"\n\n---\n## Instructions\n\n{pr_target}\n"
+            body += f"\n### Workflow: Test-Driven Fix\n\n{reproduce_step}\n\n"
+            body += "2. **Implement the fix:** Make the minimal change needed to resolve the issue.\n"
+            body += "   Follow the upstream repo's coding style and conventions. Write clear commit messages.\n\n"
+            body += f"{verify_step}\n"
+            body += "\n### If You Cannot Complete This Task\n"
+            body += "If you are unable to reproduce the finding or implement a fix:\n"
+            body += "- **Add a comment on this issue** explaining what you tried and why it failed.\n"
+            body += "- Include the relevant tool output or error messages in the comment.\n"
+            body += "- Do **NOT** create a PR with no meaningful changes or with suppressed warnings.\n"
+
+            metadata["issue_brief_used"] = True
+            metadata["issue_body_fetched"] = True
+            metadata["sources"].append("aggregator-issue-brief")
+
+            if return_metadata:
+                return body, metadata
+            return body
+
+        # --- Tiers 2 & 3: Our own body with rules ---
+        # When no brief is available, build the full context ourselves.
+
+        # Get original issue body via gh CLI
+        issue_body = ""
+        original = run_gh_command([
+            "issue", "view", str(issue_number),
+            "-R", f"{origin_owner}/{repo}",
+            "--json", "body,labels"
+        ])
+        original_data = {}
+        if original["success"]:
+            try:
+                original_data = json.loads(original["output"])
+                metadata["issue_body_fetched"] = True
+                metadata["sources"].append("gh-issue-view")
+            except (json.JSONDecodeError, KeyError):
+                pass
+        issue_body = original_data.get('body', '')
 
         # Detect tool from vibecheck issue body for tool-specific instructions
         detected_tool = _detect_tool_from_issue(issue_body)
-
-        if detected_tool:
-            reproduce_step = (
-                f"1. **Reproduce the finding:** Run `{detected_tool}` on the affected file(s) "
-                f"to confirm the issue exists.\n"
-                f"   If `{detected_tool}` is not already installed, install it first. "
-                f"Capture the output showing the finding."
-            )
-            verify_step = (
-                f"3. **Verify the fix:** Re-run `{detected_tool}` on the affected file(s) "
-                f"and confirm the finding is resolved.\n"
-                f"   The tool should no longer report this specific issue. "
-                f"No new issues should be introduced."
-            )
-        else:
-            reproduce_step = (
-                "1. **Reproduce the issue:** Write a failing test or run the relevant "
-                "linting/analysis tool to confirm the problem.\n"
-                "   If the repo has a test suite, add a test case that fails due to this issue."
-            )
-            verify_step = (
-                "3. **Verify the fix:** Re-run the test or tool and confirm the issue is resolved.\n"
-                "   All existing tests must still pass. No new issues should be introduced."
-            )
+        reproduce_step, verify_step = self._build_tdd_steps(detected_tool)
 
         if is_self_owned:
             pr_target = f"Your changes will be reviewed as a PR on `{origin_owner}/{repo}`."
@@ -543,8 +555,10 @@ class OSSService:
 
 ### Rules
 - **DO NOT** reference, close, or link any external issues in your PR or commits. No "Closes", "Fixes", or "Resolves" directives.
+- **DO NOT** use GitHub MCP tools to look up issues on other repositories.
 - **DO NOT** modify or weaken a test to make it pass. The test must accurately verify the fix.
 - **DO NOT** disable linter rules or add suppression comments to "fix" the issue.
+- **DO NOT** commit `__pycache__/` directories. Add to `.gitignore` if missing.
 - Keep changes minimal and focused — do not refactor unrelated code.
 - If the repo has a test suite, your PR **must** include a test that covers the fix.
 
@@ -555,13 +569,8 @@ If you are unable to reproduce the finding or implement a fix:
 - Do **NOT** create a PR with no meaningful changes or with suppressed warnings.
 """
 
-        # Tier 1: Use aggregator issue-brief if available
-        if issue_brief and issue_brief.get("brief"):
-            body += f"\n---\n## Contribution Context\n{issue_brief['brief']}\n"
-            metadata["issue_brief_used"] = True
-            metadata["sources"].append("aggregator-issue-brief")
         # Tier 2: Use dossier sections if available
-        elif dossier and (dossier.get("contributionRules") or dossier.get("detectedQuirks")):
+        if dossier and (dossier.get("contributionRules") or dossier.get("detectedQuirks")):
             if dossier.get("contributionRules"):
                 body += f"\n---\n## Contribution Rules\n{dossier['contributionRules']}\n"
             metadata["dossier_used"] = True
@@ -599,6 +608,37 @@ If you are unable to reproduce the finding or implement a fix:
         if return_metadata:
             return body, metadata
         return body
+
+    @staticmethod
+    def _build_tdd_steps(detected_tool):
+        """Build TDD reproduce/verify steps based on detected tool.
+
+        Returns (reproduce_step, verify_step) strings.
+        """
+        if detected_tool:
+            reproduce_step = (
+                f"1. **Reproduce the finding:** Run `{detected_tool}` on the affected file(s) "
+                f"to confirm the issue exists.\n"
+                f"   If `{detected_tool}` is not already installed, install it first. "
+                f"Capture the output showing the finding."
+            )
+            verify_step = (
+                f"3. **Verify the fix:** Re-run `{detected_tool}` on the affected file(s) "
+                f"and confirm the finding is resolved.\n"
+                f"   The tool should no longer report this specific issue. "
+                f"No new issues should be introduced."
+            )
+        else:
+            reproduce_step = (
+                "1. **Reproduce the issue:** Write a failing test or run the relevant "
+                "linting/analysis tool to confirm the problem.\n"
+                "   If the repo has a test suite, add a test case that fails due to this issue."
+            )
+            verify_step = (
+                "3. **Verify the fix:** Re-run the test or tool and confirm the issue is resolved.\n"
+                "   All existing tests must still pass. No new issues should be introduced."
+            )
+        return reproduce_step, verify_step
 
     # --- Claim management ---
 

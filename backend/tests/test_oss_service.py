@@ -456,30 +456,32 @@ class TestIssueBrief:
         result = svc.get_issue_brief("org-repo", "github-org-repo-42")
         assert result is None
 
-    @patch("services.oss_service.run_gh_command")
-    def test_context_with_issue_brief_uses_brief_string(self, mock_gh):
-        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
+    def test_context_with_issue_brief_uses_brief_as_primary(self):
+        """When brief is available, it becomes the primary body — no gh CLI calls needed."""
         svc = OSSService()
 
         issue_brief = {
-            "issue": {"id": "github-org-repo-42"},
+            "issue": {"id": "github-org-repo-42", "body": "Original issue body"},
             "repoHealth": {},
-            "brief": "# Contribution Context\nFollow conventional commits.",
+            "brief": "# Task: Fix bug\n\n## CRITICAL RULES\n- No cross refs\n\n## Issue Details\nThe bug details.",
         }
         body = svc.build_agent_context("org", "repo", 42, "Fix", "https://example.com", issue_brief=issue_brief)
 
-        assert "Contribution Context" in body
-        assert "Follow conventional commits" in body
-        # Should NOT fetch CONTRIBUTING.md when issue_brief is provided
-        assert mock_gh.call_count == 1  # Only the issue view call
+        # Brief content appears as the primary body
+        assert body.startswith("# Task: Fix bug")
+        assert "CRITICAL RULES" in body
+        assert "The bug details" in body
+        # Our TDD workflow is appended
+        assert "Workflow: Test-Driven Fix" in body
+        assert "If You Cannot Complete This Task" in body
+        # Our own ### Rules section should NOT appear (brief has its own rules)
+        assert "### Rules" not in body
 
-    @patch("services.oss_service.run_gh_command")
-    def test_context_with_issue_brief_skips_dossier(self, mock_gh):
-        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
+    def test_context_with_issue_brief_skips_dossier(self):
         svc = OSSService()
 
         dossier = {"contributionRules": "Dossier rules"}
-        issue_brief = {"brief": "Brief rules"}
+        issue_brief = {"brief": "Brief rules", "issue": {"body": ""}}
         body = svc.build_agent_context("org", "repo", 42, "Fix", "https://example.com", dossier, issue_brief)
 
         # issue_brief takes priority over dossier
@@ -496,12 +498,10 @@ class TestIssueBrief:
 
         assert "Dossier rules" in body
 
-    @patch("services.oss_service.run_gh_command")
-    def test_context_return_metadata(self, mock_gh):
-        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
+    def test_context_return_metadata_with_brief(self):
         svc = OSSService()
 
-        issue_brief = {"brief": "Brief content"}
+        issue_brief = {"brief": "Brief content", "issue": {"body": "Issue body"}}
         body, metadata = svc.build_agent_context(
             "org", "repo", 42, "Fix", "https://example.com",
             issue_brief=issue_brief, return_metadata=True
@@ -512,6 +512,32 @@ class TestIssueBrief:
         assert metadata["issue_brief_used"] is True
         assert metadata["issue_body_fetched"] is True
         assert "aggregator-issue-brief" in metadata["sources"]
+
+    def test_brief_with_tool_detected_in_issue_body(self):
+        """When brief is available and issue body has a tool table, TDD steps are tool-specific."""
+        svc = OSSService()
+
+        issue_brief = {
+            "issue": {"body": "| Tool | `ruff` |\n| Rule | F841 |"},
+            "brief": "# Task: Fix ruff issue\n\n## Issue Details\nRuff finding.",
+        }
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", issue_brief=issue_brief)
+
+        assert "Run `ruff`" in body
+        assert "Re-run `ruff`" in body
+
+    def test_brief_no_gh_cli_calls(self):
+        """When brief is available, no gh CLI calls should be made."""
+        svc = OSSService()
+
+        issue_brief = {
+            "issue": {"body": "Issue body"},
+            "brief": "# Task\n\nBrief content here.",
+        }
+        # No mock_gh needed — if it tries to call run_gh_command it would fail
+        body = svc.build_agent_context("org", "repo", 42, "Fix", "https://example.com", issue_brief=issue_brief)
+
+        assert "Brief content here" in body
 
 
 class TestToolDetection:
@@ -610,6 +636,8 @@ class TestTDDInstructions:
         assert "DO NOT" in body
         assert "modify or weaken a test" in body
         assert "disable linter rules" in body
+        assert "GitHub MCP tools" in body
+        assert "__pycache__" in body
 
     @patch("services.oss_service.run_gh_command")
     def test_failure_reporting_section_present(self, mock_gh):
