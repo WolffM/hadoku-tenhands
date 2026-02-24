@@ -1096,13 +1096,25 @@ class TestMergeForkPR:
     @patch("routes.oss_routes.OSSService")
     @patch("routes.oss_routes.run_gh_command")
     def test_merge_extracts_branch_info_and_saves_to_stage5(self, mock_gh, mock_svc_cls, mock_user, client):
-        """Tests the multi-step merge flow: view → draft check → merge → save_ready_to_submit."""
+        """Tests the multi-step merge flow: view → draft check → merge → sanitize → save."""
         svc = mock_svc_cls.return_value
+        svc.get_assigned_issues.return_value = [
+            {"origin_slug": "fastify/fastify", "repo": "fastify", "issue_number": 42,
+             "default_branch": "main", "fork_issue_number": 3}
+        ]
+        svc.create_clean_branch.return_value = {"success": True, "sha": "abc123"}
+        svc.delete_branch.return_value = {"success": True}
+        svc.close_fork_issue.return_value = {"success": True}
 
         mock_gh.side_effect = [
-            {"success": True, "output": json.dumps({"headRefName": "fix-docs", "title": "Fix docs", "baseRefName": "main"})},
-            {"success": True, "output": json.dumps({"isDraft": False})},
+            # 1. pr view (combined: branch info + isDraft)
+            {"success": True, "output": json.dumps({"headRefName": "copilot/fix-docs", "title": "Fix docs", "baseRefName": "main", "isDraft": False})},
+            # 2. pr merge
             {"success": True, "output": "Merged"},
+            # 3. git ref HEAD (squash SHA)
+            {"success": True, "output": "deadbeef123"},
+            # 4. pr list (conflict check)
+            {"success": True, "output": json.dumps([])},
         ]
 
         resp = client.post(
@@ -1113,13 +1125,15 @@ class TestMergeForkPR:
         data = resp.get_json()
 
         assert data["success"] is True
-        svc.save_ready_to_submit.assert_called_once_with(
-            origin_slug="fastify/fastify",
-            repo="fastify",
-            branch="fix-docs",
-            title="Fix docs",
-            base_branch="main",
-        )
+        assert "clean_branch" in data
+        assert data["clean_branch"].startswith("fix/42-")
+        svc.create_clean_branch.assert_called_once()
+        svc.delete_branch.assert_called_once_with("testuser", "fastify", "copilot/fix-docs")
+        svc.close_fork_issue.assert_called_once_with("testuser", "fastify", 3)
+        svc.save_ready_to_submit.assert_called_once()
+        call_kwargs = svc.save_ready_to_submit.call_args[1]
+        assert call_kwargs["issue_number"] == 42
+        assert call_kwargs["branch"].startswith("fix/42-")
 
     @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
     @patch("routes.oss_routes.OSSService")
@@ -1127,12 +1141,25 @@ class TestMergeForkPR:
     def test_merge_marks_draft_as_ready_before_merge(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests the isDraft branch — should call 'pr ready' before 'pr merge'."""
         svc = mock_svc_cls.return_value
+        svc.get_assigned_issues.return_value = [
+            {"origin_slug": "fastify/fastify", "repo": "fastify", "issue_number": 10,
+             "default_branch": "main", "fork_issue_number": 1}
+        ]
+        svc.create_clean_branch.return_value = {"success": True, "sha": "abc123"}
+        svc.delete_branch.return_value = {"success": True}
+        svc.close_fork_issue.return_value = {"success": True}
 
         mock_gh.side_effect = [
-            {"success": True, "output": json.dumps({"headRefName": "fix", "title": "Fix", "baseRefName": "main"})},
-            {"success": True, "output": json.dumps({"isDraft": True})},
-            {"success": True, "output": ""},  # pr ready
-            {"success": True, "output": "Merged"},  # pr merge
+            # 1. pr view (combined: branch info + isDraft)
+            {"success": True, "output": json.dumps({"headRefName": "fix", "title": "Fix", "baseRefName": "main", "isDraft": True})},
+            # 2. pr ready
+            {"success": True, "output": ""},
+            # 3. pr merge
+            {"success": True, "output": "Merged"},
+            # 4. git ref HEAD (squash SHA)
+            {"success": True, "output": "deadbeef123"},
+            # 5. pr list (conflict check)
+            {"success": True, "output": json.dumps([])},
         ]
 
         resp = client.post(
@@ -1142,7 +1169,37 @@ class TestMergeForkPR:
         )
 
         assert resp.get_json()["success"] is True
-        assert mock_gh.call_count == 4  # view + draft check + ready + merge
+        # view + ready + merge + HEAD ref + conflict check = 5
+        assert mock_gh.call_count == 5
+
+    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes.run_gh_command")
+    def test_merge_falls_back_when_sanitization_fails(self, mock_gh, mock_svc_cls, mock_user, client):
+        """When squash SHA lookup fails, merge still succeeds with original branch."""
+        svc = mock_svc_cls.return_value
+        svc.get_assigned_issues.return_value = []
+
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({"headRefName": "copilot/fix", "title": "Fix", "baseRefName": "main", "isDraft": False})},
+            {"success": True, "output": "Merged"},
+            # HEAD ref lookup fails
+            {"success": False, "error": "Not found"},
+            # conflict check
+            {"success": True, "output": json.dumps([])},
+        ]
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/merge-fork-pr",
+            json={"repo": "fastify", "pr_number": 1, "origin_slug": "fastify/fastify"},
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert "warning" in data
+        svc.save_ready_to_submit.assert_called_once()
+        assert svc.save_ready_to_submit.call_args[1]["branch"] == "copilot/fix"
 
     @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
@@ -1198,6 +1255,9 @@ class TestSubmitToOrigin:
     def test_submit_generates_default_body_when_not_provided(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests the 'if not body' branch — route should call format_upstream_pr_body."""
         svc = mock_svc_cls.return_value
+        svc.get_ready_to_submit.return_value = [
+            {"origin_slug": "fastify/fastify", "branch": "fix-docs", "issue_number": 42}
+        ]
         mock_gh.return_value = {
             "success": True,
             "output": "https://github.com/fastify/fastify/pull/123\n",

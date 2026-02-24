@@ -222,7 +222,7 @@ class OSSService:
         return _load_json("assignments.json")
 
     def save_assignment(self, origin_owner, repo, issue_number, fork_issue_number, fork_issue_url,
-                         is_self_owned=False):
+                         is_self_owned=False, default_branch="main"):
         """Record a fork-and-assign action."""
         items = self.get_assigned_issues()
         items.append({
@@ -232,6 +232,7 @@ class OSSService:
             "fork_issue_number": int(fork_issue_number),
             "fork_issue_url": fork_issue_url,
             "is_self_owned": is_self_owned,
+            "default_branch": default_branch,
             "assigned_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
         _save_json("assignments.json", items)
@@ -240,7 +241,8 @@ class OSSService:
         """Get items ready to submit upstream (merged fork PRs)."""
         return _load_json("ready-to-submit.json")
 
-    def save_ready_to_submit(self, origin_slug, repo, branch, title, base_branch):
+    def save_ready_to_submit(self, origin_slug, repo, branch, title, base_branch,
+                              issue_number=0):
         """Record a merged fork PR that's ready for upstream submission."""
         items = self.get_ready_to_submit()
         items.append({
@@ -249,6 +251,7 @@ class OSSService:
             "branch": branch,
             "title": title,
             "base_branch": base_branch,
+            "issue_number": issue_number,
             "merged_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
         _save_json("ready-to-submit.json", items)
@@ -316,6 +319,128 @@ class OSSService:
             time.sleep(interval)
         return False
 
+    def enable_fork_issues(self, my_user, repo):
+        """Enable issues on a forked repo (forks inherit has_issues=false)."""
+        return run_gh_command([
+            "api", f"repos/{my_user}/{repo}",
+            "-X", "PATCH", "-f", "has_issues=true"
+        ])
+
+    def get_default_branch(self, owner, repo, issue_brief=None, dossier_context=None):
+        """Get the default branch of a repo.
+
+        Fallback chain:
+        1. issue_brief.repoHealth.defaultBranch (structured, from aggregator)
+        2. Parse from dossier text ("Default branch: `master`")
+        3. gh api /repos/{owner}/{repo} (last resort)
+        4. "main" (final fallback)
+        """
+        # 1. From aggregator issue-brief (already fetched)
+        if issue_brief:
+            health = issue_brief.get("repoHealth") or {}
+            db = health.get("defaultBranch")
+            if db:
+                return db
+
+        # 2. Parse from dossier contributionRules text
+        if dossier_context:
+            rules = dossier_context if isinstance(dossier_context, str) else ""
+            if isinstance(dossier_context, dict):
+                rules = dossier_context.get("contributionRules", "")
+            match = re.search(r"Default branch:\s*`([^`]+)`", rules)
+            if match:
+                return match.group(1)
+
+        # 3. gh api as last resort
+        result = run_gh_command([
+            "api", f"/repos/{owner}/{repo}", "--jq", ".default_branch"
+        ])
+        if result["success"] and result["output"].strip():
+            return result["output"].strip()
+
+        return "main"
+
+    def get_user_identity(self):
+        """Get the authenticated user's name and noreply email for commit authoring."""
+        result = run_gh_command(["api", "user", "--jq", "{login: .login, name: .name, id: .id}"])
+        if result["success"]:
+            data = json.loads(result["output"])
+            login = data.get("login", "")
+            name = data.get("name") or login
+            uid = data.get("id", "")
+            email = f"{uid}+{login}@users.noreply.github.com"
+            return {"name": name, "email": email, "login": login}
+        return None
+
+    def create_clean_branch(self, my_user, repo, squash_sha, branch_name, commit_message):
+        """Create a re-authored branch from a squash commit using the Git Data API.
+
+        Takes the squash commit (authored by Copilot), creates a new commit with
+        the same tree but the authenticated user's identity, then creates a branch.
+        Returns {"success": True, "sha": new_commit_sha} or {"success": False, "error": ...}.
+        """
+        # 1. Get the squash commit's tree and parent
+        commit_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/commits/{squash_sha}",
+            "--jq", "{tree: .tree.sha, parents: [.parents[].sha]}"
+        ])
+        if not commit_result["success"]:
+            return {"success": False, "error": f"Failed to read commit: {commit_result.get('error', '')}"}
+
+        commit_data = json.loads(commit_result["output"])
+        tree_sha = commit_data["tree"]
+        parents = commit_data["parents"]
+
+        # 2. Get user identity for authoring
+        identity = self.get_user_identity()
+        if not identity:
+            return {"success": False, "error": "Failed to get user identity"}
+
+        # 3. Create a new commit with the user's identity
+        create_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/commits",
+            "-X", "POST",
+            "-f", f"message={commit_message}",
+            "-f", f"tree={tree_sha}",
+            "-f", f"parents[]={parents[0]}",
+            "-f", f"author[name]={identity['name']}",
+            "-f", f"author[email]={identity['email']}",
+            "-f", f"committer[name]={identity['name']}",
+            "-f", f"committer[email]={identity['email']}",
+        ])
+        if not create_result["success"]:
+            return {"success": False, "error": f"Failed to create commit: {create_result.get('error', '')}"}
+
+        new_sha = json.loads(create_result["output"]).get("sha")
+
+        # 4. Create the clean branch pointing at the new commit
+        ref_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/refs",
+            "-X", "POST",
+            "-f", f"ref=refs/heads/{branch_name}",
+            "-f", f"sha={new_sha}",
+        ])
+        if not ref_result["success"]:
+            return {"success": False, "error": f"Failed to create branch: {ref_result.get('error', '')}"}
+
+        return {"success": True, "sha": new_sha}
+
+    def delete_branch(self, my_user, repo, branch_name):
+        """Delete a branch from a repo via the Git Data API."""
+        # URL-encode slashes in branch name (e.g., copilot/fix-foo → copilot%2Ffix-foo)
+        encoded = branch_name.replace("/", "%2F")
+        return run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/refs/heads/{encoded}",
+            "-X", "DELETE"
+        ])
+
+    def close_fork_issue(self, my_user, repo, issue_number):
+        """Close a context issue on a fork to hide it from public view."""
+        return run_gh_command([
+            "issue", "close", str(issue_number),
+            "-R", f"{my_user}/{repo}"
+        ])
+
     # --- Agent context ---
 
     def build_agent_context(self, origin_owner, repo, issue_number, issue_title, issue_url,
@@ -340,22 +465,29 @@ class OSSService:
             "sources": [],
         }
 
-        # Fetch original issue body
-        original = run_gh_command([
-            "issue", "view", str(issue_number),
-            "-R", f"{origin_owner}/{repo}",
-            "--json", "body,labels"
-        ])
-        original_data = {}
-        if original["success"]:
-            try:
-                original_data = json.loads(original["output"])
+        # Get original issue body — prefer aggregator issue-brief, fall back to gh CLI
+        issue_body = ""
+        if issue_brief and issue_brief.get("issue"):
+            issue_body = issue_brief["issue"].get("body") or ""
+            if issue_body:
                 metadata["issue_body_fetched"] = True
-                metadata["sources"].append("gh-issue-view")
-            except (json.JSONDecodeError, KeyError):
-                pass
+                metadata["sources"].append("aggregator-issue-body")
 
-        issue_body = original_data.get('body', '')
+        if not issue_body:
+            original = run_gh_command([
+                "issue", "view", str(issue_number),
+                "-R", f"{origin_owner}/{repo}",
+                "--json", "body,labels"
+            ])
+            original_data = {}
+            if original["success"]:
+                try:
+                    original_data = json.loads(original["output"])
+                    metadata["issue_body_fetched"] = True
+                    metadata["sources"].append("gh-issue-view")
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            issue_body = original_data.get('body', '')
 
         # Detect tool from vibecheck issue body for tool-specific instructions
         detected_tool = _detect_tool_from_issue(issue_body)
