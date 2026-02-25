@@ -479,6 +479,9 @@ def api_oss_fork_and_assign():
         # 3b. Enable issues on fork (forks inherit has_issues=false from parent)
         svc.enable_fork_issues(my_user, repo)
 
+        # 3c. Ensure .github/copilot-instructions.md exists on fork
+        svc.ensure_copilot_instructions(my_user, repo)
+
     # 4. Check for same-repo overlap with existing assignments
     existing_assignments = svc.get_assigned_issues()
     same_repo = [a for a in existing_assignments

@@ -513,6 +513,51 @@ class OSSService:
             "-R", f"{my_user}/{repo}"
         ])
 
+    def ensure_copilot_instructions(self, my_user, repo):
+        """Ensure .github/copilot-instructions.md exists on the fork.
+
+        This file is read by the Copilot coding agent BEFORE the issue body,
+        so it's the best place for workflow enforcement. Only creates the file
+        if it doesn't already exist. Best-effort — failures are silently ignored.
+        """
+        # Check if file already exists
+        check = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/contents/.github/copilot-instructions.md",
+            "--jq", ".sha"
+        ])
+        if check["success"] and check["output"].strip():
+            return  # Already exists
+
+        content = (
+            "# Copilot Coding Agent Instructions\n\n"
+            "## Mandatory Workflow (MUST follow in order)\n\n"
+            "### Phase 1: Reproduce (MUST complete before Phase 2)\n"
+            "- Read the issue description and understand the problem.\n"
+            "- Write a failing test or run the existing test suite to confirm the bug.\n"
+            "- **Do NOT proceed to Phase 2 until you have a confirmed failure.**\n\n"
+            "### Phase 2: Implement (MUST complete before Phase 3)\n"
+            "- Make the minimal code change to fix the bug.\n"
+            "- Do NOT refactor unrelated code or add features.\n\n"
+            "### Phase 3: Verify (MUST complete before committing)\n"
+            "- Re-run the specific test from Phase 1 and confirm it passes.\n"
+            "- Run the full test suite to check for regressions.\n"
+            "- **Do NOT commit until all tests pass.**\n\n"
+            "## Rules\n"
+            "- DO NOT reference, close, or link any external issues. "
+            "No Closes, Fixes, or Resolves directives.\n"
+            "- DO NOT use GitHub MCP tools to look up issues on other repositories.\n"
+            "- DO NOT modify or weaken a test to make it pass.\n"
+            "- DO NOT commit __pycache__/ directories. Add to .gitignore if missing.\n"
+            "- Keep changes minimal and focused.\n"
+        )
+        encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+        run_gh_command([
+            "api", f"repos/{my_user}/{repo}/contents/.github/copilot-instructions.md",
+            "-X", "PUT",
+            "-f", f"message=Add Copilot workflow instructions",
+            "-f", f"content={encoded}",
+        ])
+
     # --- Agent context ---
 
     def build_agent_context(self, origin_owner, repo, issue_number, issue_title, issue_url,
@@ -538,36 +583,25 @@ class OSSService:
             "sources": [],
         }
 
-        # --- Tier 1: Brief-first layout ---
-        # The aggregator brief is a complete context document (CRITICAL RULES, Environment Setup,
-        # Issue Details, Contribution Rules, PR patterns, Quirks). Use it as the primary body
-        # and only append our TDD workflow + failure instructions.
+        # --- Build common elements used by all tiers ---
+        if is_self_owned:
+            pr_target = f"Your changes will be reviewed as a PR on `{origin_owner}/{repo}`."
+        else:
+            pr_target = f"Your changes will be submitted as a PR to `{origin_owner}/{repo}`."
+
+        # --- Tier 1: Brief available ---
         if issue_brief and issue_brief.get("brief"):
-            # Detect tool from the brief's issue body for TDD step customization
             brief_issue_body = ""
             if issue_brief.get("issue"):
                 brief_issue_body = issue_brief["issue"].get("body") or ""
             detected_tool = _detect_tool_from_issue(brief_issue_body)
-
             reproduce_step, verify_step = self._build_tdd_steps(detected_tool)
 
-            if is_self_owned:
-                pr_target = f"Your changes will be reviewed as a PR on `{origin_owner}/{repo}`."
-            else:
-                pr_target = f"Your changes will be submitted as a PR to `{origin_owner}/{repo}`."
-
-            # Sanitize the brief to prevent upstream cross-references on the fork
-            body = _sanitize_upstream_refs(issue_brief["brief"])
-            body += f"\n\n---\n## Instructions\n\n{pr_target}\n"
-            body += f"\n### Workflow: Test-Driven Fix\n\n{reproduce_step}\n\n"
-            body += "2. **Implement the fix:** Make the minimal change needed to resolve the issue.\n"
-            body += "   Follow the upstream repo's coding style and conventions. Write clear commit messages.\n\n"
-            body += f"{verify_step}\n"
-            body += "\n### If You Cannot Complete This Task\n"
-            body += "If you are unable to reproduce the finding or implement a fix:\n"
-            body += "- **Add a comment on this issue** explaining what you tried and why it failed.\n"
-            body += "- Include the relevant tool output or error messages in the comment.\n"
-            body += "- Do **NOT** create a PR with no meaningful changes or with suppressed warnings.\n"
+            # TDD workflow FIRST — this is the most important section
+            body = self._build_workflow_header(pr_target, reproduce_step, verify_step)
+            # Then the brief content (issue details, env setup, contribution rules, etc.)
+            body += "\n---\n"
+            body += _sanitize_upstream_refs(issue_brief["brief"])
 
             metadata["issue_brief_used"] = True
             metadata["issue_body_fetched"] = True
@@ -577,10 +611,7 @@ class OSSService:
                 return body, metadata
             return body
 
-        # --- Tiers 2 & 3: Our own body with rules ---
-        # When no brief is available, build the full context ourselves.
-
-        # Get original issue body via gh CLI
+        # --- Tiers 2 & 3: No brief — build context ourselves ---
         issue_body = ""
         original = run_gh_command([
             "issue", "view", str(issue_number),
@@ -596,52 +627,20 @@ class OSSService:
             except (json.JSONDecodeError, KeyError):
                 pass
         issue_body = original_data.get('body', '')
-        # Sanitize to prevent upstream cross-references on the fork
         issue_body = _sanitize_upstream_refs(issue_body)
 
-        # Detect tool from vibecheck issue body for tool-specific instructions
         detected_tool = _detect_tool_from_issue(issue_body)
         reproduce_step, verify_step = self._build_tdd_steps(detected_tool)
 
-        if is_self_owned:
-            pr_target = f"Your changes will be reviewed as a PR on `{origin_owner}/{repo}`."
-        else:
-            pr_target = f"Your changes will be submitted as a PR to `{origin_owner}/{repo}`."
-
-        body = f"""## Issue Context
+        # TDD workflow FIRST, then issue context
+        body = self._build_workflow_header(pr_target, reproduce_step, verify_step)
+        body += f"""
+---
+## Issue Context
 **Title:** {issue_title}
 
 ### Description
 {issue_body or '*No description provided.*'}
-
----
-## Instructions
-
-{pr_target}
-
-### Workflow: Test-Driven Fix
-
-{reproduce_step}
-
-2. **Implement the fix:** Make the minimal change needed to resolve the issue.
-   Follow the upstream repo's coding style and conventions. Write clear commit messages.
-
-{verify_step}
-
-### Rules
-- **DO NOT** reference, close, or link any external issues in your PR or commits. No "Closes", "Fixes", or "Resolves" directives.
-- **DO NOT** use GitHub MCP tools to look up issues on other repositories.
-- **DO NOT** modify or weaken a test to make it pass. The test must accurately verify the fix.
-- **DO NOT** disable linter rules or add suppression comments to "fix" the issue.
-- **DO NOT** commit `__pycache__/` directories. Add to `.gitignore` if missing.
-- Keep changes minimal and focused — do not refactor unrelated code.
-- If the repo has a test suite, your PR **must** include a test that covers the fix.
-
-### If You Cannot Complete This Task
-If you are unable to reproduce the finding or implement a fix:
-- **Add a comment on this issue** explaining what you tried and why it failed.
-- Include the relevant tool output or error messages in the comment.
-- Do **NOT** create a PR with no meaningful changes or with suppressed warnings.
 """
 
         # Tier 2: Use dossier sections if available (sanitize to prevent cross-refs)
@@ -684,6 +683,52 @@ If you are unable to reproduce the finding or implement a fix:
         if return_metadata:
             return body, metadata
         return body
+
+    @staticmethod
+    def _build_workflow_header(pr_target, reproduce_step, verify_step):
+        """Build the mandatory workflow section that goes at the TOP of every context issue.
+
+        This must be the first thing the agent reads. Research shows that instructions
+        at the top of issue bodies have the highest compliance rate, and explicit
+        "Do NOT proceed until..." gates create the strongest behavioral boundaries.
+        """
+        return f"""## Mandatory Workflow (Read First — Do NOT Skip)
+
+{pr_target}
+
+You MUST follow these phases in order. Do NOT skip ahead.
+
+### Phase 1: Reproduce (MUST complete before Phase 2)
+{reproduce_step}
+- **Do NOT proceed to Phase 2 until you have confirmed a failing test or reproduced the issue.**
+- If you cannot reproduce it, document why in a comment on this issue and stop.
+
+### Phase 2: Implement (MUST complete before Phase 3)
+2. **Implement the fix:** Make the minimal code change needed to resolve the issue.
+   Follow the upstream repo's coding style and conventions. Write clear commit messages.
+- Do NOT refactor unrelated code. Do NOT add features beyond what the issue asks for.
+
+### Phase 3: Verify (MUST complete before committing)
+{verify_step}
+- Re-run the specific failing test from Phase 1 to confirm it now passes.
+- Run the full test suite to check for regressions.
+- **Do NOT commit until all tests pass.**
+
+### Rules
+- **DO NOT** reference, close, or link any external issues in your PR or commits. No "Closes", "Fixes", or "Resolves" directives.
+- **DO NOT** use GitHub MCP tools to look up issues on other repositories.
+- **DO NOT** modify or weaken a test to make it pass. The test must accurately verify the fix.
+- **DO NOT** disable linter rules or add suppression comments to "fix" the issue.
+- **DO NOT** commit `__pycache__/` directories. Add to `.gitignore` if missing.
+- Keep changes minimal and focused.
+- If the repo has a test suite, your PR **must** include a test that covers the fix.
+
+### If You Cannot Complete This Task
+If you are unable to reproduce the finding or implement a fix:
+- **Add a comment on this issue** explaining what you tried and why it failed.
+- Include the relevant tool output or error messages in the comment.
+- Do **NOT** create a PR with no meaningful changes or with suppressed warnings.
+"""
 
     @staticmethod
     def _build_tdd_steps(detected_tool):
