@@ -456,6 +456,14 @@ class TestIssueBrief:
         result = svc.get_issue_brief("org-repo", "github-org-repo-42")
         assert result is None
 
+    @patch("services.oss_service._call_aggregator")
+    def test_get_issue_brief_returns_none_on_pending(self, mock_agg):
+        """When pre-computed data is missing, aggregator returns status: pending."""
+        mock_agg.return_value = {"success": True, "data": {"status": "pending"}}
+        svc = OSSService()
+        result = svc.get_issue_brief("org-repo", "github-org-repo-42")
+        assert result is None
+
     def test_context_with_issue_brief_uses_brief_as_primary(self):
         """When brief is available, it becomes the primary body — no gh CLI calls needed."""
         svc = OSSService()
@@ -742,3 +750,38 @@ class TestClaimManagement:
 
         # Should not raise
         svc.report_unclaim("org/repo", "id")
+
+
+class TestPendingStatus:
+    """Tests for handling aggregator 'pending' status when pre-computed data is missing."""
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_scored_issues_returns_empty_on_pending(self, mock_agg):
+        mock_agg.return_value = {"success": True, "data": {"status": "pending"}}
+        svc = OSSService()
+        result = svc.get_scored_issues("org-repo")
+        assert result == []
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_dossier_returns_none_on_pending(self, mock_agg):
+        mock_agg.return_value = {"success": True, "data": {"status": "pending"}}
+        svc = OSSService()
+        result = svc.get_dossier("org-repo")
+        assert result is None
+
+    @patch("services.oss_service._call_aggregator")
+    def test_trigger_compute_calls_correct_endpoint(self, mock_agg):
+        mock_agg.return_value = {"success": True}
+        svc = OSSService()
+        result = svc.trigger_compute("org-repo")
+        assert result is True
+        mock_agg.assert_called_once_with(
+            "/recon/org-repo/compute", method="POST", timeout=30
+        )
+
+    @patch("services.oss_service._call_aggregator")
+    def test_trigger_compute_graceful_when_aggregator_down(self, mock_agg):
+        mock_agg.return_value = None
+        svc = OSSService()
+        result = svc.trigger_compute("org-repo")
+        assert result is False

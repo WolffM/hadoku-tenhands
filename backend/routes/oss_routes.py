@@ -137,6 +137,8 @@ def api_oss_add_target():
     hyphenated_slug = f"{owner}-{repo}"
     svc.add_to_watchlist(hyphenated_slug)
     svc.trigger_refresh(hyphenated_slug)
+    # Trigger pre-computation so scored issues/dossier are available
+    svc.trigger_compute(hyphenated_slug)
 
     # Invalidate cache
     clear_cache("oss-stage1-targets")
@@ -194,12 +196,14 @@ def api_oss_refresh_target():
         hyphenated_slug = slug
 
     svc.trigger_refresh(hyphenated_slug)
+    # Trigger pre-computation so scored issues/dossier are available
+    svc.trigger_compute(hyphenated_slug)
 
     # Invalidate cache regardless of aggregator response
     clear_cache("oss-stage1-targets")
     clear_cache("oss-stage2-issues")
 
-    return jsonify({"success": True, "message": "Cache invalidated", "owner": my_user})
+    return jsonify({"success": True, "message": "Cache invalidated, compute triggered", "owner": my_user})
 
 
 # ============ Stage 2: Scored Issues ============
@@ -414,15 +418,25 @@ def api_oss_fork_and_assign():
     # Detect self-owned repos (can't fork your own repo)
     is_self_owned = (origin_owner.lower() == my_user.lower())
 
-    # Auto-fetch dossier from aggregator if not provided by frontend
+    # Auto-fetch dossier and issue-brief from aggregator
+    hyphenated_slug = f"{origin_owner}-{repo}"
+    issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
+
     if not dossier_context:
-        dossier_data = svc.get_dossier(f"{origin_owner}-{repo}")
+        dossier_data = svc.get_dossier(hyphenated_slug)
         if dossier_data and dossier_data.get("sections"):
             dossier_context = dossier_data["sections"]
 
-    # Try aggregator issue-brief for enhanced context
-    issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
-    issue_brief = svc.get_issue_brief(f"{origin_owner}-{repo}", issue_id)
+    issue_brief = svc.get_issue_brief(hyphenated_slug, issue_id)
+
+    # If both are missing (pending), trigger compute and retry once
+    if not dossier_context and not issue_brief:
+        svc.trigger_compute(hyphenated_slug)
+        time.sleep(2)
+        dossier_data = svc.get_dossier(hyphenated_slug)
+        if dossier_data and dossier_data.get("sections"):
+            dossier_context = dossier_data["sections"]
+        issue_brief = svc.get_issue_brief(hyphenated_slug, issue_id)
 
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
