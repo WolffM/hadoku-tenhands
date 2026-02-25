@@ -514,19 +514,22 @@ class OSSService:
         ])
 
     def ensure_copilot_instructions(self, my_user, repo):
-        """Ensure .github/copilot-instructions.md exists on the fork.
+        """Write .github/copilot-instructions.md on the fork.
 
         This file is read by the Copilot coding agent BEFORE the issue body,
-        so it's the best place for workflow enforcement. Only creates the file
-        if it doesn't already exist. Best-effort — failures are silently ignored.
+        so it's the best place for workflow enforcement. Always overwrites any
+        existing file (including one inherited from upstream) to ensure our
+        quality gates and cross-linking rules are applied consistently.
+        Best-effort — failures are silently ignored.
         """
-        # Check if file already exists
+        # Check if file already exists (need sha for update)
+        existing_sha = None
         check = run_gh_command([
             "api", f"repos/{my_user}/{repo}/contents/.github/copilot-instructions.md",
             "--jq", ".sha"
         ])
         if check["success"] and check["output"].strip():
-            return  # Already exists
+            existing_sha = check["output"].strip()
 
         content = (
             "# Copilot Coding Agent Instructions\n\n"
@@ -556,12 +559,15 @@ class OSSService:
             "- Keep changes minimal and focused.\n"
         )
         encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-        run_gh_command([
+        cmd = [
             "api", f"repos/{my_user}/{repo}/contents/.github/copilot-instructions.md",
             "-X", "PUT",
             "-f", f"message=Add Copilot workflow instructions",
             "-f", f"content={encoded}",
-        ])
+        ]
+        if existing_sha:
+            cmd.extend(["-f", f"sha={existing_sha}"])
+        run_gh_command(cmd)
 
     # --- Agent context ---
 
