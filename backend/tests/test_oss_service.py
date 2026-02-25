@@ -484,7 +484,10 @@ class TestIssueBrief:
         assert "The bug details" in body
         # Phase-gate language is present
         assert "Do NOT proceed to Phase 2" in body
-        assert "Do NOT commit until all tests pass" in body
+        assert "Do NOT proceed to Phase 4 until all tests pass" in body
+        assert "Phase 4: Quality Check" in body
+        assert "code_review" in body
+        assert "codeql" in body
         assert "If You Cannot Complete This Task" in body
         # Workflow appears before brief content
         assert body.index("Mandatory Workflow") < body.index("# Task: Fix bug")
@@ -634,8 +637,12 @@ class TestTDDInstructions:
         assert "Phase 1: Reproduce" in body
         assert "Implement the fix" in body
         assert "Phase 3: Verify" in body
+        assert "Phase 4: Quality Check" in body
         assert "Do NOT proceed to Phase 2" in body
-        assert "Do NOT commit until all tests pass" in body
+        assert "Do NOT proceed to Phase 4 until all tests pass" in body
+        assert "code_review" in body
+        assert "codeql" in body
+        assert "Do NOT commit until code review and CodeQL analysis are clean" in body
 
     @patch("services.oss_service.run_gh_command")
     def test_rules_section_present(self, mock_gh):

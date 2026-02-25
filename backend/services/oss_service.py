@@ -538,10 +538,15 @@ class OSSService:
             "### Phase 2: Implement (MUST complete before Phase 3)\n"
             "- Make the minimal code change to fix the bug.\n"
             "- Do NOT refactor unrelated code or add features.\n\n"
-            "### Phase 3: Verify (MUST complete before committing)\n"
+            "### Phase 3: Verify (MUST complete before Phase 4)\n"
             "- Re-run the specific test from Phase 1 and confirm it passes.\n"
             "- Run the full test suite to check for regressions.\n"
-            "- **Do NOT commit until all tests pass.**\n\n"
+            "- **Do NOT proceed to Phase 4 until all tests pass.**\n\n"
+            "### Phase 4: Quality Check (MUST complete before committing)\n"
+            "- Use the `code_review` tool to review your own changes.\n"
+            "- Use the `codeql` tool to scan for security and quality issues.\n"
+            "- Address any findings before committing.\n"
+            "- **Do NOT commit until code review and CodeQL analysis are clean.**\n\n"
             "## Rules\n"
             "- DO NOT reference, close, or link any external issues. "
             "No Closes, Fixes, or Resolves directives.\n"
@@ -708,11 +713,17 @@ You MUST follow these phases in order. Do NOT skip ahead.
    Follow the upstream repo's coding style and conventions. Write clear commit messages.
 - Do NOT refactor unrelated code. Do NOT add features beyond what the issue asks for.
 
-### Phase 3: Verify (MUST complete before committing)
+### Phase 3: Verify (MUST complete before Phase 4)
 {verify_step}
 - Re-run the specific failing test from Phase 1 to confirm it now passes.
 - Run the full test suite to check for regressions.
-- **Do NOT commit until all tests pass.**
+- **Do NOT proceed to Phase 4 until all tests pass.**
+
+### Phase 4: Quality Check (MUST complete before committing)
+4. **Run code review:** Use the `code_review` tool to review your own changes for correctness, style, and potential issues.
+5. **Run CodeQL analysis:** Use the `codeql` tool to scan for security vulnerabilities and code quality issues.
+- Address any findings from code review or CodeQL before committing.
+- **Do NOT commit until code review and CodeQL analysis are clean.**
 
 ### Rules
 - **DO NOT** reference, close, or link any external issues in your PR or commits. No "Closes", "Fixes", or "Resolves" directives.
