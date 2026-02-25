@@ -482,6 +482,12 @@ def api_oss_fork_and_assign():
         # 3c. Ensure .github/copilot-instructions.md exists on fork
         svc.ensure_copilot_instructions(my_user, repo)
 
+        # 3d. Ensure CI workflow exists on fork for deterministic quality checks
+        language = None
+        if issue_brief and issue_brief.get("repoHealth"):
+            language = issue_brief["repoHealth"].get("language")
+        svc.ensure_ci_workflow(my_user, repo, language=language)
+
     # 4. Check for same-repo overlap with existing assignments
     existing_assignments = svc.get_assigned_issues()
     same_repo = [a for a in existing_assignments
@@ -627,6 +633,91 @@ def api_oss_fork_pr_details():
     return jsonify({
         "success": False,
         "error": result.get("error", "Failed to fetch PR"),
+        "owner": my_user,
+    })
+
+
+@bp.route("/api/oss/run-review-pipeline", methods=["POST"])
+def api_oss_run_review_pipeline():
+    """Run the review pipeline on a fork PR: request Copilot code review.
+
+    Called after Copilot has created a PR on the fork. This triggers the
+    Copilot review agent as a separate reviewer. CI checks run automatically
+    via the workflow pushed during Stage 3.
+
+    Input: { "repo": "email-verifier", "pr_number": 42 }
+    """
+    data = request.json
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+
+    if not all([repo, pr_number]):
+        return jsonify({"success": False, "error": "Missing required fields"})
+
+    if "/" in str(repo):
+        repo = repo.split("/")[-1]
+
+    my_user = get_authenticated_user()
+    svc = OSSService()
+
+    # Request Copilot code review
+    review_result = svc.request_copilot_review(my_user, repo, int(pr_number))
+
+    # Get current CI check status
+    checks = svc.get_pr_check_runs(my_user, repo, int(pr_number))
+
+    return jsonify({
+        "success": True,
+        "copilot_review_requested": review_result.get("success", False),
+        "ci_checks": checks,
+        "owner": my_user,
+    })
+
+
+@bp.route("/api/oss/review-status", methods=["POST"])
+def api_oss_review_status():
+    """Get the review pipeline status for a fork PR.
+
+    Returns CI check results and Copilot review status so the caller
+    can determine if the PR is ready for merge.
+    """
+    data = request.json
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+
+    if not all([repo, pr_number]):
+        return jsonify({"success": False, "error": "Missing required fields"})
+
+    if "/" in str(repo):
+        repo = repo.split("/")[-1]
+
+    my_user = get_authenticated_user()
+    svc = OSSService()
+
+    checks = svc.get_pr_check_runs(my_user, repo, int(pr_number))
+    reviews = svc.get_pr_reviews(my_user, repo, int(pr_number))
+
+    # Determine readiness
+    ci_passed = all(
+        c.get("conclusion") == "success"
+        for c in checks
+        if c.get("status") == "completed"
+    )
+    ci_pending = any(c.get("status") != "completed" for c in checks)
+
+    copilot_review = next(
+        (r for r in reviews if "copilot" in (r.get("user") or "").lower()),
+        None
+    )
+
+    return jsonify({
+        "success": True,
+        "ci_checks": checks,
+        "ci_passed": ci_passed,
+        "ci_pending": ci_pending,
+        "reviews": reviews,
+        "copilot_review": copilot_review,
+        "ready_for_merge": ci_passed and not ci_pending and copilot_review is not None,
         "owner": my_user,
     })
 
