@@ -572,16 +572,11 @@ class OSSService:
         triggers on push and pull_request events, so it runs automatically
         when the Copilot coding agent pushes commits.
 
-        Language detection: uses provided language, or falls back to
-        gh api /repos/{owner}/{repo} .language.
+        Language detection: checks for marker files (go.mod, package.json, etc.)
+        first, then falls back to the GitHub API .language field.
         """
-        # Detect language if not provided
         if not language:
-            result = run_gh_command([
-                "api", f"/repos/{my_user}/{repo}", "--jq", ".language"
-            ])
-            if result["success"] and result["output"].strip():
-                language = result["output"].strip()
+            language = self._detect_repo_language(my_user, repo)
 
         workflow_yaml = self._build_ci_workflow(language)
 
@@ -604,6 +599,47 @@ class OSSService:
         if existing_sha:
             cmd.extend(["-f", f"sha={existing_sha}"])
         run_gh_command(cmd)
+
+    def _detect_repo_language(self, my_user, repo):
+        """Detect the primary language of a repo by checking for marker files.
+
+        Checks for language-specific marker files (go.mod, package.json, etc.)
+        before falling back to the GitHub API .language field, which is unreliable
+        (it reports based on file count/size, not project intent — e.g. a Go repo
+        with Python test scripts may be reported as Python).
+
+        Returns a language string like 'Go', 'Python', 'JavaScript', or None.
+        """
+        # Marker files in priority order (most specific first)
+        markers = [
+            ("go.mod", "Go"),
+            ("Cargo.toml", "Rust"),
+            ("package.json", "JavaScript"),
+            ("pyproject.toml", "Python"),
+            ("setup.py", "Python"),
+            ("requirements.txt", "Python"),
+            ("Gemfile", "Ruby"),
+            ("pom.xml", "Java"),
+            ("build.gradle", "Java"),
+        ]
+
+        for filename, lang in markers:
+            result = run_gh_command([
+                "api", f"repos/{my_user}/{repo}/contents/{filename}",
+                "--jq", ".name"
+            ])
+            if result["success"] and result["output"].strip():
+                return lang
+
+        # Fallback to GitHub API language field
+        result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}",
+            "--jq", ".language"
+        ])
+        if result["success"] and result["output"].strip():
+            return result["output"].strip()
+
+        return None
 
     @staticmethod
     def _build_ci_workflow(language):

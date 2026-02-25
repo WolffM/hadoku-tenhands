@@ -940,10 +940,10 @@ class TestCIWorkflow:
         assert "sha=abc123sha" in " ".join(cmd)
 
     @patch("services.oss_service.run_gh_command")
-    def test_ensure_ci_workflow_detects_language_from_api(self, mock_gh):
+    def test_ensure_ci_workflow_detects_language_from_marker_file(self, mock_gh):
         mock_gh.side_effect = [
-            # Language detection from API
-            {"success": True, "output": "Go\n"},
+            # Marker file checks: go.mod found
+            {"success": True, "output": "go.mod\n"},
             # Check if workflow exists — not found
             {"success": False, "output": ""},
             # PUT to create file
@@ -952,11 +952,59 @@ class TestCIWorkflow:
         svc = OSSService()
         svc.ensure_ci_workflow("myuser", "myrepo")  # No language provided
 
-        # Verify the workflow contains Go-specific content
+        # First call should check go.mod (first marker)
+        first_call = mock_gh.call_args_list[0]
+        assert "go.mod" in " ".join(first_call[0][0])
+
+        # Verify the workflow contains Go-specific content (base64 encoded)
         put_call = mock_gh.call_args_list[-1]
         cmd = put_call[0][0]
-        # The content is base64-encoded in the command args
         assert "ci.yml" in " ".join(cmd)
+
+    @patch("services.oss_service.run_gh_command")
+    def test_ensure_ci_workflow_falls_back_to_api_language(self, mock_gh):
+        mock_gh.side_effect = [
+            # Marker file checks: all miss (9 markers)
+            {"success": False, "output": ""},  # go.mod
+            {"success": False, "output": ""},  # Cargo.toml
+            {"success": False, "output": ""},  # package.json
+            {"success": False, "output": ""},  # pyproject.toml
+            {"success": False, "output": ""},  # setup.py
+            {"success": False, "output": ""},  # requirements.txt
+            {"success": False, "output": ""},  # Gemfile
+            {"success": False, "output": ""},  # pom.xml
+            {"success": False, "output": ""},  # build.gradle
+            # Fallback: GitHub API .language
+            {"success": True, "output": "Python\n"},
+            # Check if workflow exists — not found
+            {"success": False, "output": ""},
+            # PUT to create file
+            {"success": True, "output": "{}"},
+        ]
+        svc = OSSService()
+        svc.ensure_ci_workflow("myuser", "myrepo")  # No language provided
+
+        # Verify the fallback API call was made
+        api_call = mock_gh.call_args_list[9]
+        assert ".language" in " ".join(api_call[0][0])
+
+    @patch("services.oss_service.run_gh_command")
+    def test_detect_repo_language_prefers_marker_over_api(self, mock_gh):
+        """Marker file detection should short-circuit on first match."""
+        mock_gh.side_effect = [
+            # go.mod not found
+            {"success": False, "output": ""},
+            # Cargo.toml not found
+            {"success": False, "output": ""},
+            # package.json found
+            {"success": True, "output": "package.json\n"},
+        ]
+        svc = OSSService()
+        lang = svc._detect_repo_language("myuser", "myrepo")
+
+        assert lang == "JavaScript"
+        # Should have stopped after 3 calls (didn't check remaining markers or API)
+        assert mock_gh.call_count == 3
 
 
 class TestCopilotReview:
