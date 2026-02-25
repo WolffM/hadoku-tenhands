@@ -145,6 +145,9 @@ class OSSService:
         """Get scored issues from the aggregator.
 
         Aggregator returns: { success: true, data: { issues: [...] } }
+        When pre-computed data is missing: { success: true, data: { status: "pending" } }
+
+        Returns list of issues, or [] if unavailable/pending.
         """
         if slug:
             result = _call_aggregator(f"/recon/{slug}/scored-issues")
@@ -155,6 +158,9 @@ class OSSService:
         # Unwrap aggregator response: { success, data: { issues: [...] } }
         if isinstance(result, dict):
             data = result.get("data") or result
+            # Check for pending status (pre-computed data not yet available)
+            if isinstance(data, dict) and data.get("status") == "pending":
+                return []
             issues = data.get("issues") if isinstance(data, dict) else None
             if isinstance(issues, list):
                 return issues
@@ -166,14 +172,19 @@ class OSSService:
         """Get a repo dossier from the aggregator.
 
         Aggregator returns: { success: true, data: { slug, sections: {...} } }
-        Callers expect: { slug, sections: {...} } (the inner data object)
+        When pre-computed data is missing: { success: true, data: { status: "pending" } }
+        Callers expect: { slug, sections: {...} } (the inner data object), or None.
         """
         result = _call_aggregator(f"/recon/{slug}/dossier")
         if not result or not isinstance(result, dict):
             return None
         # Unwrap: { success, data: { ... } }
         if "data" in result and isinstance(result["data"], dict):
-            return result["data"]
+            data = result["data"]
+            # Check for pending status
+            if data.get("status") == "pending":
+                return None
+            return data
         return result
 
     def get_issue_brief(self, slug, issue_id):
@@ -184,15 +195,28 @@ class OSSService:
             issue_id: Issue identifier (e.g., "github-fastify-fastify-1234")
 
         Returns:
-            dict with {issue, repoHealth, brief} or None if unavailable.
+            dict with {issue, repoHealth, brief} or None if unavailable/pending.
         """
         result = _call_aggregator(f"/recon/{slug}/issue-brief/{issue_id}")
         if result and result.get("success") and result.get("data"):
-            return result["data"]
+            data = result["data"]
+            # Check for pending status
+            if isinstance(data, dict) and data.get("status") == "pending":
+                return None
+            return data
         return None
 
+    def trigger_compute(self, slug):
+        """Trigger pre-computation of scored issues, dossier, and briefs for a repo.
+
+        The aggregator requires POST /:slug/compute to run before scored-issues,
+        dossier, and issue-brief endpoints return data.
+        """
+        result = _call_aggregator(f"/recon/{slug}/compute", method="POST", timeout=30)
+        return result is not None
+
     def trigger_refresh(self, slug):
-        """Trigger a re-scrape for a repo. Stub — returns False."""
+        """Trigger a re-scrape for a repo."""
         result = _call_aggregator(f"/recon/{slug}/refresh", method="POST")
         return result is not None
 
