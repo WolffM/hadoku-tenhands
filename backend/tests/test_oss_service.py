@@ -333,7 +333,9 @@ class TestBuildAgentContext:
         assert "fastify/fastify" in body
         assert "Fix docs" in body
         assert "Original issue body" in body
-        assert "Instructions" in body
+        # Workflow section comes FIRST (before issue context)
+        assert body.startswith("## Mandatory Workflow")
+        assert body.index("Mandatory Workflow") < body.index("Issue Context")
         # Must NOT contain issue number reference (would trigger GitHub cross-reference)
         assert "#42" not in body
 
@@ -465,7 +467,7 @@ class TestIssueBrief:
         assert result is None
 
     def test_context_with_issue_brief_uses_brief_as_primary(self):
-        """When brief is available, it becomes the primary body — no gh CLI calls needed."""
+        """When brief is available, workflow comes first, then the brief content."""
         svc = OSSService()
 
         issue_brief = {
@@ -475,15 +477,17 @@ class TestIssueBrief:
         }
         body = svc.build_agent_context("org", "repo", 42, "Fix", "https://example.com", issue_brief=issue_brief)
 
-        # Brief content appears as the primary body
-        assert body.startswith("# Task: Fix bug")
+        # Mandatory Workflow comes FIRST
+        assert body.startswith("## Mandatory Workflow")
+        # Brief content appears after the workflow section
         assert "CRITICAL RULES" in body
         assert "The bug details" in body
-        # Our TDD workflow is appended
-        assert "Workflow: Test-Driven Fix" in body
+        # Phase-gate language is present
+        assert "Do NOT proceed to Phase 2" in body
+        assert "Do NOT commit until all tests pass" in body
         assert "If You Cannot Complete This Task" in body
-        # Our own ### Rules section should NOT appear (brief has its own rules)
-        assert "### Rules" not in body
+        # Workflow appears before brief content
+        assert body.index("Mandatory Workflow") < body.index("# Task: Fix bug")
 
     def test_context_with_issue_brief_skips_dossier(self):
         svc = OSSService()
@@ -626,10 +630,12 @@ class TestTDDInstructions:
 
         body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com")
 
-        assert "Workflow: Test-Driven Fix" in body
-        assert "Reproduce" in body
+        assert "Mandatory Workflow" in body
+        assert "Phase 1: Reproduce" in body
         assert "Implement the fix" in body
-        assert "Verify the fix" in body
+        assert "Phase 3: Verify" in body
+        assert "Do NOT proceed to Phase 2" in body
+        assert "Do NOT commit until all tests pass" in body
 
     @patch("services.oss_service.run_gh_command")
     def test_rules_section_present(self, mock_gh):
