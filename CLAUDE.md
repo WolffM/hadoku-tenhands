@@ -132,6 +132,25 @@ python scripts/copilot-sessions.py batch -R WolffM/hadoku-watchparty --prs 107,1
 
 All aggregator API responses are wrapped in `{ success: true, data: { ... } }`. The unwrapping happens in `backend/services/oss_service.py` — each method (get_watchlist, get_scored_issues, get_dossier, get_issue_brief) handles the envelope. If adding new aggregator calls, always unwrap the envelope.
 
+## Upstream Cross-Linking Prevention — CRITICAL
+
+**Work on forked repos MUST be invisible to the upstream repository until explicitly submitted by the user's personal GitHub account.** This is the single most important rule in the pipeline.
+
+GitHub automatically creates cross-reference notifications when:
+1. A URL like `https://github.com/owner/repo/issues/N` appears in any issue or PR on a fork
+2. An `owner/repo#N` reference appears in any issue or PR body, title, or commit
+3. `Closes #N`, `Fixes #N`, or `Resolves #N` keywords appear in PR bodies or commits
+
+**All of these MUST be prevented at the context-building and issue-creation stage:**
+
+- `build_agent_context()` MUST sanitize the aggregator brief, dossier content, and issue body to strip upstream URLs and cross-references before they are posted as fork issues
+- Fork issue titles MUST NOT contain upstream issue references (no `owner/repo#N`)
+- The `format_upstream_pr_body()` helper with `Fixes` and `Closes` directives is ONLY for Stage 5 (upstream submission) — it must NEVER be used for fork-level PRs
+- Copilot agents must NEVER be able to link fork work back to upstream — only the user's personal account may do this
+- The sanitization function `_sanitize_upstream_refs()` in `oss_service.py` handles this — all content destined for fork issues must pass through it
+
+**If cross-references leak to upstream, the entire stealth workflow is compromised.** This has happened in 3 consecutive runs and must not happen again.
+
 ## Rules
 
 - Never add scoring logic, sentiment analysis, or reaction analysis to vibedispatch. These belong in hadoku-aggregator.

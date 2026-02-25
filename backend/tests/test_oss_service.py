@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from services.oss_service import OSSService, OSS_DATA_DIR, _load_json, _save_json
+from services.oss_service import OSSService, OSS_DATA_DIR, _load_json, _save_json, _sanitize_upstream_refs
 
 
 @pytest.fixture(autouse=True)
@@ -785,3 +785,79 @@ class TestPendingStatus:
         svc = OSSService()
         result = svc.trigger_compute("org-repo")
         assert result is False
+
+
+class TestSanitizeUpstreamRefs:
+    """Tests for _sanitize_upstream_refs — preventing cross-linking to upstream repos."""
+
+    def test_strips_github_issue_url(self):
+        text = "Issue: https://github.com/reisepass/email-verifier/issues/4"
+        result = _sanitize_upstream_refs(text)
+        assert "https://github.com" not in result
+        assert "reisepass/email-verifier issue 4" in result
+
+    def test_strips_github_pr_url(self):
+        text = "See https://github.com/fastify/fastify/pull/123 for details"
+        result = _sanitize_upstream_refs(text)
+        assert "https://github.com" not in result
+        assert "fastify/fastify PR 123" in result
+
+    def test_strips_cross_repo_ref(self):
+        text = "This fixes reisepass/email-verifier#4"
+        result = _sanitize_upstream_refs(text)
+        assert "reisepass/email-verifier#4" not in result
+        assert "reisepass/email-verifier issue 4" in result
+
+    def test_neutralizes_closes_keyword(self):
+        text = "Closes #4"
+        result = _sanitize_upstream_refs(text)
+        assert "Closes #4" not in result
+        assert "Related to issue 4" in result
+
+    def test_neutralizes_fixes_keyword(self):
+        text = "Fixes #7"
+        result = _sanitize_upstream_refs(text)
+        assert "Fixes #7" not in result
+        assert "Related to issue 7" in result
+
+    def test_neutralizes_resolves_keyword(self):
+        text = "Resolves #12"
+        result = _sanitize_upstream_refs(text)
+        assert "Resolves #12" not in result
+        assert "Related to issue 12" in result
+
+    def test_handles_none_input(self):
+        assert _sanitize_upstream_refs(None) is None
+
+    def test_handles_empty_string(self):
+        assert _sanitize_upstream_refs("") == ""
+
+    def test_preserves_normal_text(self):
+        text = "Fix the broken test suite by updating imports"
+        assert _sanitize_upstream_refs(text) == text
+
+    def test_sanitizes_multiple_refs_in_one_string(self):
+        text = (
+            "Issue: https://github.com/owner/repo/issues/1\n"
+            "Related: owner/repo#2\n"
+            "Closes #3"
+        )
+        result = _sanitize_upstream_refs(text)
+        assert "https://github.com" not in result
+        assert "owner/repo#" not in result
+        assert "Closes #3" not in result
+
+    def test_brief_sanitization_in_context(self):
+        """End-to-end: brief content with upstream URL gets sanitized in build_agent_context."""
+        svc = OSSService()
+        brief = {
+            "brief": "# Task\n\nIssue: https://github.com/reisepass/email-verifier/issues/4\nRepo: reisepass/email-verifier",
+            "issue": {"body": "test body"},
+        }
+        body = svc.build_agent_context(
+            "reisepass", "email-verifier", 4, "Running the tests",
+            "https://github.com/reisepass/email-verifier/issues/4",
+            issue_brief=brief,
+        )
+        assert "https://github.com/reisepass/email-verifier/issues/4" not in body
+        assert "reisepass/email-verifier issue 4" in body

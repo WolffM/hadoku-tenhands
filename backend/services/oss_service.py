@@ -20,6 +20,19 @@ from .github_api import run_gh_command, get_authenticated_user
 OSS_DATA_DIR = os.path.join(CACHE_DIR, "oss")
 AGGREGATOR_API_URL = os.environ.get("AGGREGATOR_API_URL", "")
 
+# Pattern: https://github.com/owner/repo/issues/123 or /pull/123
+_GITHUB_ISSUE_URL_RE = re.compile(
+    r'https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:issues|pull)/\d+'
+)
+# Pattern: owner/repo#123  (but NOT standalone #123 which is fine on a fork)
+_CROSS_REPO_REF_RE = re.compile(
+    r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+'
+)
+# Pattern: Closes/Fixes/Resolves #123 (GitHub auto-close keywords)
+_AUTOCLOSE_RE = re.compile(
+    r'\b(Closes?|Fixes?|Resolves?)\s+#\d+', re.IGNORECASE
+)
+
 
 # ============ Private Helpers ============
 
@@ -55,6 +68,41 @@ def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
         return None
     except Exception:
         return None
+
+
+def _sanitize_upstream_refs(text):
+    """Strip upstream GitHub references from text to prevent cross-linking.
+
+    When we post issues on a fork, GitHub auto-creates cross-reference
+    notifications on the upstream repo for any of these patterns:
+    - Full URLs: https://github.com/owner/repo/issues/123
+    - Cross-repo refs: owner/repo#123
+    - Auto-close keywords: Closes #123, Fixes #123, Resolves #123
+
+    This function neutralizes them so the fork work stays invisible to upstream.
+    """
+    if not text:
+        return text
+    # Replace full GitHub issue/PR URLs with plain text (no link)
+    # e.g. https://github.com/reisepass/email-verifier/issues/4 → reisepass/email-verifier issue 4
+    text = _GITHUB_ISSUE_URL_RE.sub(
+        lambda m: m.group(0)
+            .replace("https://github.com/", "")
+            .replace("/issues/", " issue ")
+            .replace("/pull/", " PR "),
+        text
+    )
+    # Replace cross-repo refs: owner/repo#123 → owner/repo issue 123
+    text = _CROSS_REPO_REF_RE.sub(
+        lambda m: m.group(0).replace("#", " issue "),
+        text
+    )
+    # Neutralize auto-close keywords: "Closes #4" → "Related to issue 4"
+    text = _AUTOCLOSE_RE.sub(
+        lambda m: "Related to issue " + m.group(0).split("#")[-1],
+        text
+    )
+    return text
 
 
 def _detect_tool_from_issue(issue_body):
@@ -508,7 +556,8 @@ class OSSService:
             else:
                 pr_target = f"Your changes will be submitted as a PR to `{origin_owner}/{repo}`."
 
-            body = issue_brief["brief"]
+            # Sanitize the brief to prevent upstream cross-references on the fork
+            body = _sanitize_upstream_refs(issue_brief["brief"])
             body += f"\n\n---\n## Instructions\n\n{pr_target}\n"
             body += f"\n### Workflow: Test-Driven Fix\n\n{reproduce_step}\n\n"
             body += "2. **Implement the fix:** Make the minimal change needed to resolve the issue.\n"
@@ -547,6 +596,8 @@ class OSSService:
             except (json.JSONDecodeError, KeyError):
                 pass
         issue_body = original_data.get('body', '')
+        # Sanitize to prevent upstream cross-references on the fork
+        issue_body = _sanitize_upstream_refs(issue_body)
 
         # Detect tool from vibecheck issue body for tool-specific instructions
         detected_tool = _detect_tool_from_issue(issue_body)
@@ -593,15 +644,15 @@ If you are unable to reproduce the finding or implement a fix:
 - Do **NOT** create a PR with no meaningful changes or with suppressed warnings.
 """
 
-        # Tier 2: Use dossier sections if available
+        # Tier 2: Use dossier sections if available (sanitize to prevent cross-refs)
         if dossier and (dossier.get("contributionRules") or dossier.get("detectedQuirks")):
             if dossier.get("contributionRules"):
-                body += f"\n---\n## Contribution Rules\n{dossier['contributionRules']}\n"
+                body += f"\n---\n## Contribution Rules\n{_sanitize_upstream_refs(dossier['contributionRules'])}\n"
             metadata["dossier_used"] = True
             metadata["sources"].append("aggregator-dossier")
 
             if dossier.get("successPatterns"):
-                body += f"\n---\n## What Successful PRs Look Like\n{dossier['successPatterns']}\n"
+                body += f"\n---\n## What Successful PRs Look Like\n{_sanitize_upstream_refs(dossier['successPatterns'])}\n"
 
             # Add quirk warnings when available
             if dossier.get("detectedQuirks"):
@@ -610,9 +661,9 @@ If you are unable to reproduce the finding or implement a fix:
                 for quirk in quirks:
                     impact = quirk.get("impact", "minor")
                     icon = "BLOCKER" if impact == "blocker" else "WARNING" if impact == "important" else "NOTE"
-                    body += f"**[{icon}]** {quirk.get('type', 'unknown')}: {quirk.get('description', '')}\n"
+                    body += f"**[{icon}]** {quirk.get('type', 'unknown')}: {_sanitize_upstream_refs(quirk.get('description', ''))}\n"
                     if quirk.get("evidence"):
-                        body += f"  Evidence: {quirk['evidence']}\n"
+                        body += f"  Evidence: {_sanitize_upstream_refs(quirk['evidence'])}\n"
                 body += "\n"
         # Tier 3: Fetch CONTRIBUTING.md via gh CLI
         else:
@@ -623,7 +674,8 @@ If you are unable to reproduce the finding or implement a fix:
             if contrib["success"] and contrib["output"].strip():
                 try:
                     contrib_text = base64.b64decode(contrib["output"].strip()).decode("utf-8")
-                    body += f"\n---\n## CONTRIBUTING.md\n<details><summary>Expand</summary>\n\n{contrib_text[:3000]}\n\n</details>\n"
+                    contrib_text = _sanitize_upstream_refs(contrib_text[:3000])
+                    body += f"\n---\n## CONTRIBUTING.md\n<details><summary>Expand</summary>\n\n{contrib_text}\n\n</details>\n"
                     metadata["contributing_fetched"] = True
                     metadata["sources"].append("gh-contributing-md")
                 except Exception:
