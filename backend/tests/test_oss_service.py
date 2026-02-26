@@ -1007,6 +1007,76 @@ class TestCIWorkflow:
         assert mock_gh.call_count == 3
 
 
+class TestForkSettings:
+    """Tests for configure_fork_settings and approve_pending_workflow_runs."""
+
+    @patch("services.oss_service.run_gh_command")
+    def test_configure_fork_settings_enables_issues(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": "{}"}
+        svc = OSSService()
+        svc.configure_fork_settings("myuser", "myrepo")
+
+        # First call should enable issues
+        issues_call = mock_gh.call_args_list[0]
+        cmd = " ".join(issues_call[0][0])
+        assert "repos/myuser/myrepo" in cmd
+        assert "PATCH" in cmd
+        assert "has_issues=true" in cmd
+
+    @patch("services.oss_service.run_gh_command")
+    def test_configure_fork_settings_enables_actions(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": "{}"}
+        svc = OSSService()
+        svc.configure_fork_settings("myuser", "myrepo")
+
+        # Second call should enable Actions with allow all
+        actions_call = mock_gh.call_args_list[1]
+        cmd = " ".join(actions_call[0][0])
+        assert "repos/myuser/myrepo/actions/permissions" in cmd
+        assert "PUT" in cmd
+        assert "enabled=true" in cmd
+        assert "allowed_actions=all" in cmd
+
+    @patch("services.oss_service.run_gh_command")
+    def test_approve_pending_workflow_runs_approves_action_required(self, mock_gh):
+        mock_gh.side_effect = [
+            # List runs with action_required
+            {"success": True, "output": "111\n222\n333\n"},
+            # Approve run 111
+            {"success": True, "output": "{}"},
+            # Approve run 222
+            {"success": True, "output": "{}"},
+            # Approve run 333
+            {"success": True, "output": "{}"},
+        ]
+        svc = OSSService()
+        approved = svc.approve_pending_workflow_runs("myuser", "myrepo")
+
+        assert approved == 3
+        # Verify approve calls
+        for i, run_id in enumerate(["111", "222", "333"]):
+            approve_call = mock_gh.call_args_list[1 + i]
+            cmd = " ".join(approve_call[0][0])
+            assert f"actions/runs/{run_id}/approve" in cmd
+
+    @patch("services.oss_service.run_gh_command")
+    def test_approve_pending_workflow_runs_returns_zero_on_no_pending(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": "\n"}
+        svc = OSSService()
+        approved = svc.approve_pending_workflow_runs("myuser", "myrepo")
+
+        assert approved == 0
+        assert mock_gh.call_count == 1  # Only the list call
+
+    @patch("services.oss_service.run_gh_command")
+    def test_approve_pending_workflow_runs_returns_zero_on_failure(self, mock_gh):
+        mock_gh.return_value = {"success": False, "output": ""}
+        svc = OSSService()
+        approved = svc.approve_pending_workflow_runs("myuser", "myrepo")
+
+        assert approved == 0
+
+
 class TestCopilotReview:
     """Tests for request_copilot_review and review helpers."""
 

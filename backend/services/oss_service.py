@@ -398,6 +398,53 @@ class OSSService:
             "-X", "PATCH", "-f", "has_issues=true"
         ])
 
+    def configure_fork_settings(self, my_user, repo):
+        """Configure fork repository settings for the pipeline.
+
+        Enables issues, configures Actions permissions, and sets
+        any other repo-level settings needed for automated CI
+        and Copilot agent work.
+        """
+        # 1. Enable issues (forks inherit has_issues=false)
+        run_gh_command([
+            "api", f"repos/{my_user}/{repo}",
+            "-X", "PATCH", "-f", "has_issues=true"
+        ])
+
+        # 2. Enable Actions with "allow all" policy
+        run_gh_command([
+            "api", f"repos/{my_user}/{repo}/actions/permissions",
+            "-X", "PUT",
+            "-f", "enabled=true",
+            "-f", "allowed_actions=all"
+        ])
+
+    def approve_pending_workflow_runs(self, my_user, repo):
+        """Approve any workflow runs waiting for approval on the fork.
+
+        GitHub blocks first-time workflow runs on forked repos with
+        'action_required' status. This finds and approves them.
+        Returns the number of runs approved.
+        """
+        result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/actions/runs",
+            "--jq", '.workflow_runs[] | select(.conclusion=="action_required") | .id'
+        ])
+        if not result["success"]:
+            return 0
+
+        approved = 0
+        for line in result["output"].strip().split("\n"):
+            run_id = line.strip()
+            if run_id:
+                approve_result = run_gh_command([
+                    "api", "-X", "POST",
+                    f"repos/{my_user}/{repo}/actions/runs/{run_id}/approve"
+                ])
+                if approve_result["success"]:
+                    approved += 1
+        return approved
+
     def get_default_branch(self, owner, repo, issue_brief=None, dossier_context=None):
         """Get the default branch of a repo.
 
