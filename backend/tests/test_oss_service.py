@@ -426,6 +426,85 @@ class TestBuildAgentContext:
         assert "Quirks" not in body
 
 
+class TestContextNewDossierSections:
+    """Tests for antiPatterns, environmentSetup, widened gate, and dossier_completeness."""
+
+    @patch("services.oss_context.run_gh_command")
+    def test_anti_patterns_with_real_content(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {
+            "antiPatterns": {"hasContent": True, "patterns": ["Failing CI", "No tests"]},
+        }
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", dossier)
+        assert "Common Rejection Reasons" in body
+        assert "Failing CI" in body
+        assert "No tests" in body
+
+    @patch("services.oss_context.run_gh_command")
+    def test_anti_patterns_skipped_when_no_content(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {
+            "contributionRules": "Some rules",
+            "antiPatterns": {"hasContent": False, "patterns": []},
+        }
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", dossier)
+        assert "Common Rejection Reasons" not in body
+
+    @patch("services.oss_context.run_gh_command")
+    def test_environment_setup_included(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {"environmentSetup": "Run npm install && npm test"}
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", dossier)
+        assert "Environment & Setup" in body
+        assert "npm install" in body
+
+    @patch("services.oss_context.run_gh_command")
+    def test_dev_environment_fallback(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {"devEnvironment": "go mod tidy && go test ./..."}
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", dossier)
+        assert "Environment & Setup" in body
+        assert "go mod tidy" in body
+
+    @patch("services.oss_context.run_gh_command")
+    def test_widened_gate_enters_tier2_on_env_setup_alone(self, mock_gh):
+        """Tier 2 should activate even if only environmentSetup is present."""
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {"environmentSetup": "pip install -e ."}
+        body, metadata = svc.build_agent_context(
+            "org", "repo", 1, "Fix", "https://example.com", dossier, return_metadata=True)
+        assert metadata["dossier_used"] is True
+        assert "aggregator-dossier" in metadata["sources"]
+        # Should NOT have CONTRIBUTING.md since Tier 2 was used
+        assert "CONTRIBUTING.md" not in body
+
+    @patch("services.oss_context.run_gh_command")
+    def test_dossier_completeness_in_metadata(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {"contributionRules": "rules"}
+        completeness = {"overview": True, "contributionRules": True, "score": 2, "total": 6}
+        body, metadata = svc.build_agent_context(
+            "org", "repo", 1, "Fix", "https://example.com", dossier,
+            return_metadata=True, dossier_completeness=completeness)
+        assert metadata["dossier_completeness"] == completeness
+        assert metadata["dossier_completeness"]["score"] == 2
+
+    @patch("services.oss_context.run_gh_command")
+    def test_dossier_completeness_absent_when_not_provided(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {"contributionRules": "rules"}
+        body, metadata = svc.build_agent_context(
+            "org", "repo", 1, "Fix", "https://example.com", dossier, return_metadata=True)
+        assert "dossier_completeness" not in metadata
+
+
 class TestIssueBrief:
     """Tests for get_issue_brief and issue-brief integration with build_agent_context."""
 
@@ -791,6 +870,136 @@ class TestPendingStatus:
         svc = OSSService()
         result = svc.trigger_compute("org-repo")
         assert result is False
+
+
+class TestIncludeMeta:
+    """Tests for include_meta parameter on aggregator methods."""
+
+    _META = {"scraped_at": "2026-02-24T00:00:00Z", "computed_at": "2026-02-26T00:00:00Z", "served_at": "2026-02-26T01:00:00Z"}
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_dossier_include_meta_returns_tuple(self, mock_agg):
+        mock_agg.return_value = {
+            "success": True,
+            "data": {"slug": "org-repo", "sections": {"overview": "hi"}},
+            "_meta": self._META,
+        }
+        svc = OSSService()
+        data, meta = svc.get_dossier("org-repo", include_meta=True)
+        assert data["slug"] == "org-repo"
+        assert meta == self._META
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_dossier_default_returns_bare_data(self, mock_agg):
+        mock_agg.return_value = {
+            "success": True,
+            "data": {"slug": "org-repo", "sections": {}},
+            "_meta": self._META,
+        }
+        svc = OSSService()
+        result = svc.get_dossier("org-repo")
+        assert isinstance(result, dict)
+        assert result["slug"] == "org-repo"
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_dossier_include_meta_pending(self, mock_agg):
+        mock_agg.return_value = {"success": True, "data": {"status": "pending"}, "_meta": self._META}
+        svc = OSSService()
+        data, meta = svc.get_dossier("org-repo", include_meta=True)
+        assert data is None
+        assert meta is None
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_scored_issues_include_meta_returns_tuple(self, mock_agg):
+        issues = [{"id": "1", "cvs": 80}]
+        mock_agg.return_value = {
+            "success": True,
+            "data": {"issues": issues},
+            "_meta": self._META,
+        }
+        svc = OSSService()
+        result_issues, meta = svc.get_scored_issues("org-repo", include_meta=True)
+        assert result_issues == issues
+        assert meta == self._META
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_scored_issues_default_returns_list(self, mock_agg):
+        issues = [{"id": "1"}]
+        mock_agg.return_value = {"success": True, "data": {"issues": issues}, "_meta": self._META}
+        svc = OSSService()
+        result = svc.get_scored_issues("org-repo")
+        assert result == issues
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_scored_issues_include_meta_pending(self, mock_agg):
+        mock_agg.return_value = {"success": True, "data": {"status": "pending"}, "_meta": self._META}
+        svc = OSSService()
+        result_issues, meta = svc.get_scored_issues("org-repo", include_meta=True)
+        assert result_issues == []
+        assert meta is None
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_issue_brief_include_meta_returns_tuple(self, mock_agg):
+        brief_data = {"issue": {}, "repoHealth": {}, "brief": "markdown"}
+        mock_agg.return_value = {
+            "success": True,
+            "data": brief_data,
+            "_meta": self._META,
+        }
+        svc = OSSService()
+        data, meta = svc.get_issue_brief("org-repo", "github-org-repo-1", include_meta=True)
+        assert data == brief_data
+        assert meta == self._META
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_issue_brief_default_returns_bare_data(self, mock_agg):
+        brief_data = {"issue": {}, "repoHealth": {}, "brief": "md"}
+        mock_agg.return_value = {"success": True, "data": brief_data, "_meta": self._META}
+        svc = OSSService()
+        result = svc.get_issue_brief("org-repo", "github-org-repo-1")
+        assert result == brief_data
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_health_returns_data(self, mock_agg):
+        health_data = {
+            "maintainerHealthScore": 80, "mergeAccessibilityScore": 70,
+            "prPatterns": {"medianFilesChanged": 3}, "detectedQuirks": [],
+            "analyzedAt": "2026-02-26T00:00:00Z",
+        }
+        mock_agg.return_value = {"success": True, "data": health_data, "_meta": self._META}
+        svc = OSSService()
+        result = svc.get_health("org-repo")
+        assert result["maintainerHealthScore"] == 80
+        assert result["prPatterns"]["medianFilesChanged"] == 3
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_health_include_meta(self, mock_agg):
+        health_data = {"maintainerHealthScore": 80}
+        mock_agg.return_value = {"success": True, "data": health_data, "_meta": self._META}
+        svc = OSSService()
+        data, meta = svc.get_health("org-repo", include_meta=True)
+        assert data["maintainerHealthScore"] == 80
+        assert meta == self._META
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_health_returns_none_when_aggregator_down(self, mock_agg):
+        mock_agg.return_value = None
+        svc = OSSService()
+        assert svc.get_health("org-repo") is None
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_health_include_meta_when_aggregator_down(self, mock_agg):
+        mock_agg.return_value = None
+        svc = OSSService()
+        data, meta = svc.get_health("org-repo", include_meta=True)
+        assert data is None
+        assert meta is None
+
+    @patch("services.oss_service._call_aggregator")
+    def test_get_health_pending(self, mock_agg):
+        mock_agg.return_value = {"success": True, "data": {"status": "pending"}}
+        svc = OSSService()
+        assert svc.get_health("org-repo") is None
 
 
 class TestSanitizeUpstreamRefs:

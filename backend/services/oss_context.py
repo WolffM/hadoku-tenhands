@@ -18,7 +18,7 @@ class OSSContextMixin:
 
     def build_agent_context(self, origin_owner, repo, issue_number, issue_title, issue_url,
                              dossier=None, issue_brief=None, return_metadata=False,
-                             is_self_owned=False):
+                             is_self_owned=False, dossier_completeness=None):
         """Build the markdown context body for a fork issue assigned to an agent.
 
         Three-tier context strategy:
@@ -61,6 +61,7 @@ class OSSContextMixin:
 
             metadata["issue_brief_used"] = True
             metadata["issue_body_fetched"] = True
+            metadata["context_tier"] = 1
             metadata["sources"].append("aggregator-issue-brief")
 
             if return_metadata:
@@ -100,14 +101,35 @@ class OSSContextMixin:
 """
 
         # Tier 2: Use dossier sections if available (sanitize to prevent cross-refs)
-        if dossier and (dossier.get("contributionRules") or dossier.get("detectedQuirks")):
+        _tier2_keys = ("contributionRules", "detectedQuirks", "successPatterns",
+                       "antiPatterns", "environmentSetup", "devEnvironment")
+        if dossier and any(dossier.get(k) for k in _tier2_keys):
             if dossier.get("contributionRules"):
                 body += f"\n---\n## Contribution Rules\n{_sanitize_upstream_refs(dossier['contributionRules'])}\n"
             metadata["dossier_used"] = True
+            metadata["context_tier"] = 2
             metadata["sources"].append("aggregator-dossier")
+            if dossier_completeness:
+                metadata["dossier_completeness"] = dossier_completeness
 
             if dossier.get("successPatterns"):
                 body += f"\n---\n## What Successful PRs Look Like\n{_sanitize_upstream_refs(dossier['successPatterns'])}\n"
+
+            # Anti-patterns (common rejection reasons) — only when content is real
+            anti = dossier.get("antiPatterns")
+            if anti and isinstance(anti, dict) and anti.get("hasContent", False):
+                patterns = anti.get("patterns", [])
+                if patterns:
+                    body += "\n---\n## Common Rejection Reasons\n"
+                    for p in patterns:
+                        body += f"- {_sanitize_upstream_refs(str(p))}\n"
+
+            # Environment setup — handle rename from devEnvironment to environmentSetup
+            env = dossier.get("environmentSetup") or dossier.get("devEnvironment")
+            if env:
+                env_text = env if isinstance(env, str) else str(env)
+                if env_text.strip():
+                    body += f"\n---\n## Environment & Setup\n{_sanitize_upstream_refs(env_text)}\n"
 
             # Add quirk warnings when available
             if dossier.get("detectedQuirks"):
@@ -122,6 +144,7 @@ class OSSContextMixin:
                 body += "\n"
         # Tier 3: Fetch CONTRIBUTING.md via gh CLI
         else:
+            metadata["context_tier"] = 3
             contrib = run_gh_command([
                 "api", f"/repos/{origin_owner}/{repo}/contents/CONTRIBUTING.md",
                 "--jq", ".content"

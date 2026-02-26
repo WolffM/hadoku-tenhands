@@ -183,70 +183,109 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
         result = _call_aggregator("/recon/watchlist/remove", method="POST", data={"slug": slug})
         return result is not None
 
-    def get_scored_issues(self, slug=None):
+    def get_scored_issues(self, slug=None, include_meta=False):
         """Get scored issues from the aggregator.
 
-        Aggregator returns: { success: true, data: { issues: [...] } }
+        Aggregator returns: { success: true, data: { issues: [...] }, _meta: {...} }
         When pre-computed data is missing: { success: true, data: { status: "pending" } }
 
+        Args:
+            slug: Optional hyphenated repo slug to filter by.
+            include_meta: If True, return (issues, meta) tuple.
+
         Returns list of issues, or [] if unavailable/pending.
+        When include_meta=True, returns (issues_list, meta_dict_or_None).
         """
         if slug:
             result = _call_aggregator(f"/recon/{slug}/scored-issues")
         else:
             result = _call_aggregator("/recon/all-scored-issues")
+        _empty = ([], None) if include_meta else []
         if not result:
-            return []
+            return _empty
+        meta = result.get("_meta") if isinstance(result, dict) else None
         # Unwrap aggregator response: { success, data: { issues: [...] } }
         if isinstance(result, dict):
             data = result.get("data") or result
             # Check for pending status (pre-computed data not yet available)
             if isinstance(data, dict) and data.get("status") == "pending":
-                return []
+                return _empty
             issues = data.get("issues") if isinstance(data, dict) else None
             if isinstance(issues, list):
-                return issues
+                return (issues, meta) if include_meta else issues
         if isinstance(result, list):
-            return result
-        return []
+            return (result, meta) if include_meta else result
+        return _empty
 
-    def get_dossier(self, slug):
+    def get_dossier(self, slug, include_meta=False):
         """Get a repo dossier from the aggregator.
 
-        Aggregator returns: { success: true, data: { slug, sections: {...} } }
+        Aggregator returns: { success: true, data: { slug, sections: {...}, completeness: {...} }, _meta: {...} }
         When pre-computed data is missing: { success: true, data: { status: "pending" } }
+
+        Args:
+            slug: Hyphenated repo slug.
+            include_meta: If True, return (data, meta) tuple.
+
         Callers expect: { slug, sections: {...} } (the inner data object), or None.
+        When include_meta=True, returns (data_or_None, meta_dict_or_None).
         """
         result = _call_aggregator(f"/recon/{slug}/dossier")
+        _none = (None, None) if include_meta else None
         if not result or not isinstance(result, dict):
-            return None
+            return _none
+        meta = result.get("_meta")
         # Unwrap: { success, data: { ... } }
         if "data" in result and isinstance(result["data"], dict):
             data = result["data"]
             # Check for pending status
             if data.get("status") == "pending":
-                return None
-            return data
-        return result
+                return _none
+            return (data, meta) if include_meta else data
+        return (result, meta) if include_meta else result
 
-    def get_issue_brief(self, slug, issue_id):
+    def get_issue_brief(self, slug, issue_id, include_meta=False):
         """Get a pre-built issue brief from the aggregator.
 
         Args:
             slug: Hyphenated repo slug (e.g., "fastify-fastify")
             issue_id: Issue identifier (e.g., "github-fastify-fastify-1234")
+            include_meta: If True, return (data, meta) tuple.
 
         Returns:
             dict with {issue, repoHealth, brief} or None if unavailable/pending.
+            When include_meta=True, returns (data_or_None, meta_dict_or_None).
         """
+        _none = (None, None) if include_meta else None
         result = _call_aggregator(f"/recon/{slug}/issue-brief/{issue_id}")
         if result and result.get("success") and result.get("data"):
+            meta = result.get("_meta")
             data = result["data"]
             # Check for pending status
             if isinstance(data, dict) and data.get("status") == "pending":
-                return None
-            return data
-        return None
+                return _none
+            return (data, meta) if include_meta else data
+        return _none
+
+    def get_health(self, slug, include_meta=False):
+        """Get repo health scores from the aggregator.
+
+        Returns dict with maintainerHealthScore, mergeAccessibilityScore, etc.,
+        plus new fields: prPatterns, detectedQuirks, analyzedAt.
+
+        Args:
+            slug: Hyphenated repo slug.
+            include_meta: If True, return (data, meta) tuple.
+        """
+        result = _call_aggregator(f"/recon/{slug}/health")
+        _none = (None, None) if include_meta else None
+        if not result or not isinstance(result, dict):
+            return _none
+        meta = result.get("_meta")
+        data = result.get("data", result)
+        if isinstance(data, dict) and data.get("status") == "pending":
+            return _none
+        return (data, meta) if include_meta else data
 
     def trigger_compute(self, slug):
         """Trigger pre-computation of scored issues, dossier, and briefs for a repo.

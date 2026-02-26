@@ -260,7 +260,7 @@ class TestStage2Issues:
     def test_fallback_scores_and_structures_issues(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests the _fetch_repo_issues_fallback pipeline: JSON parse → score → build response dict."""
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "fastify", "repo": "fastify", "slug": "fastify-fastify"}
         ]
@@ -299,7 +299,7 @@ class TestStage2Issues:
     @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_filters_out_assigned_issues(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "fastify", "repo": "fastify", "slug": "fastify-fastify"}
         ]
@@ -331,7 +331,7 @@ class TestStage2Issues:
     @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_normalizes_dict_labels_to_strings(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "org", "repo": "repo", "slug": "org-repo"}
         ]
@@ -362,7 +362,7 @@ class TestStage2Issues:
     @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_sorts_by_cvs_descending(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "org", "repo": "repo", "slug": "org-repo"}
         ]
@@ -400,7 +400,7 @@ class TestStage2Issues:
     def test_fallback_handles_malformed_json_gracefully(self, mock_gh, mock_svc_cls, mock_user, client):
         """When gh returns invalid JSON, the route should return empty issues (not crash)."""
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "org", "repo": "repo", "slug": "org-repo"}
         ]
@@ -431,7 +431,7 @@ class TestGoTierNotification:
         _notified_go_issues.clear()
 
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "org", "repo": "repo", "slug": "org-repo"}
         ]
@@ -468,7 +468,7 @@ class TestGoTierNotification:
         _notified_go_issues.clear()
 
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "org", "repo": "repo", "slug": "org-repo"}
         ]
@@ -726,6 +726,8 @@ class TestForkAndAssign:
     @patch("routes.oss_routes_stage3.OSSService")
     def test_dedup_returns_existing_assignment(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
         svc.find_assignment.return_value = {
             "fork_issue_url": "https://github.com/testuser/fastify/issues/1"
         }
@@ -766,7 +768,8 @@ class TestForkAndAssign:
         svc.find_assignment.return_value = None
         svc.check_fork_exists.return_value = False
         svc.fork_repo.return_value = {"success": False, "error": "Rate limited"}
-        svc.get_dossier.return_value = None
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
@@ -791,7 +794,8 @@ class TestForkAndAssign:
         svc.find_assignment.return_value = None
         svc.check_fork_exists.return_value = True
         svc.wait_for_fork.return_value = False
-        svc.get_dossier.return_value = None
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
@@ -817,10 +821,11 @@ class TestForkAndAssign:
         svc.find_assignment.return_value = None
         svc.check_fork_exists.return_value = True
         svc.wait_for_fork.return_value = True
-        svc.get_dossier.return_value = {
-            "slug": "fastify-fastify",
-            "sections": {"contributionRules": "Follow the style guide"},
-        }
+        svc.get_dossier.return_value = (
+            {"slug": "fastify-fastify", "sections": {"contributionRules": "Follow the style guide"}},
+            {"scraped_at": "2026-02-24T00:00:00Z"},
+        )
+        svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
 
         mock_gh.return_value = {
@@ -840,7 +845,7 @@ class TestForkAndAssign:
             content_type="application/json",
         )
 
-        svc.get_dossier.assert_called_once_with("fastify-fastify")
+        svc.get_dossier.assert_called_once_with("fastify-fastify", include_meta=True)
         call_args = svc.build_agent_context.call_args
         assert call_args[0][5] == {"contributionRules": "Follow the style guide"}
 
@@ -851,8 +856,8 @@ class TestForkAndAssign:
         """When origin_owner == my_user, fork/sync steps are skipped."""
         svc = mock_svc_cls.return_value
         svc.find_assignment.return_value = None
-        svc.get_dossier.return_value = None
-        svc.get_issue_brief.return_value = None
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
 
         mock_gh.return_value = {
@@ -890,8 +895,8 @@ class TestForkAndAssign:
         svc.find_assignment.return_value = None
         svc.check_fork_exists.return_value = True
         svc.wait_for_fork.return_value = True
-        svc.get_dossier.return_value = None
-        svc.get_issue_brief.return_value = None
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
 
         mock_gh.return_value = {
@@ -927,8 +932,8 @@ class TestForkAndAssign:
         svc.find_assignment.return_value = None
         svc.check_fork_exists.return_value = True
         svc.wait_for_fork.return_value = True
-        svc.get_dossier.return_value = None
-        svc.get_issue_brief.return_value = None
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = (
             "## Context",
             {"sources": ["gh-issue-view", "gh-contributing-md"]},
@@ -962,6 +967,8 @@ class TestForkAndAssign:
     def test_dedup_response_includes_is_self_owned(self, mock_svc_cls, mock_user, client):
         """Dedup (already_assigned) response should include is_self_owned."""
         svc = mock_svc_cls.return_value
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
         svc.find_assignment.return_value = {
             "fork_issue_url": "https://github.com/testuser/myrepo/issues/1"
         }

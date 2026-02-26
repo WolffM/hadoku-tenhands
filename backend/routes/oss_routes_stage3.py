@@ -87,21 +87,27 @@ def api_oss_fork_and_assign():
     hyphenated_slug = f"{origin_owner}-{repo}"
     issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
 
+    dossier_meta = None
+    brief_meta = None
+    dossier_completeness = None
+
     if not dossier_context:
-        dossier_data = svc.get_dossier(hyphenated_slug)
+        dossier_data, dossier_meta = svc.get_dossier(hyphenated_slug, include_meta=True)
         if dossier_data and dossier_data.get("sections"):
             dossier_context = dossier_data["sections"]
+            dossier_completeness = dossier_data.get("completeness")
 
-    issue_brief = svc.get_issue_brief(hyphenated_slug, issue_id)
+    issue_brief, brief_meta = svc.get_issue_brief(hyphenated_slug, issue_id, include_meta=True)
 
     # If both are missing (pending), trigger compute and retry once
     if not dossier_context and not issue_brief:
         svc.trigger_compute(hyphenated_slug)
         time.sleep(2)
-        dossier_data = svc.get_dossier(hyphenated_slug)
+        dossier_data, dossier_meta = svc.get_dossier(hyphenated_slug, include_meta=True)
         if dossier_data and dossier_data.get("sections"):
             dossier_context = dossier_data["sections"]
-        issue_brief = svc.get_issue_brief(hyphenated_slug, issue_id)
+            dossier_completeness = dossier_data.get("completeness")
+        issue_brief, brief_meta = svc.get_issue_brief(hyphenated_slug, issue_id, include_meta=True)
 
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
@@ -180,7 +186,7 @@ def api_oss_fork_and_assign():
     context_body, context_metadata = svc.build_agent_context(
         origin_owner, repo, issue_number, issue_title, issue_url,
         dossier_context, issue_brief, return_metadata=True,
-        is_self_owned=is_self_owned
+        is_self_owned=is_self_owned, dossier_completeness=dossier_completeness
     )
 
     # 6. Create context issue on target repo (fork or self-owned)
@@ -216,6 +222,22 @@ def api_oss_fork_and_assign():
         is_self_owned=is_self_owned, default_branch=default_branch
     )
 
+    # 8b. Persist aggregator metadata to assignment
+    aggregator_meta = {}
+    if dossier_meta:
+        aggregator_meta["dossier"] = dossier_meta
+    if brief_meta:
+        aggregator_meta["brief"] = brief_meta
+    meta_updates = {
+        "context_tier": context_metadata.get("context_tier"),
+        "context_sources": context_metadata.get("sources", []),
+    }
+    if aggregator_meta:
+        meta_updates["aggregator_meta"] = aggregator_meta
+    if dossier_completeness:
+        meta_updates["dossier_completeness"] = dossier_completeness
+    svc.update_assignment(repo, int(fork_issue_number), meta_updates)
+
     # 9. Report claim to aggregator (best-effort)
     issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
     svc.report_claim(origin_slug, issue_id, my_user, fork_issue_url)
@@ -226,6 +248,8 @@ def api_oss_fork_and_assign():
         "owner": my_user,
         "is_self_owned": is_self_owned,
         "context_sources": context_metadata["sources"],
+        "context_tier": context_metadata.get("context_tier"),
+        "aggregator_freshness": dossier_meta,
     }
     if overlap_warning:
         response["overlap_warning"] = overlap_warning
