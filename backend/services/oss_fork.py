@@ -285,9 +285,6 @@ class OSSForkMixin:
 
     def ensure_ci_workflow(self, my_user, repo, language=None):
         """Push a CI workflow to the fork that runs on every push."""
-        if not language:
-            language = self._detect_repo_language(my_user, repo)
-
         workflow_yaml = self._build_ci_workflow(language)
         self._push_file_to_repo(
             my_user, repo,
@@ -306,9 +303,6 @@ class OSSForkMixin:
         """
         from .workflow_templates import build_jobs_from_toolchain, render_static_analysis_workflow
 
-        if not language:
-            language = self._detect_repo_language(my_user, repo)
-
         jobs = build_jobs_from_toolchain(toolchain_profile, language)
         workflow_yaml = render_static_analysis_workflow(jobs)
         self._push_file_to_repo(
@@ -318,47 +312,6 @@ class OSSForkMixin:
             "Add static analysis workflow (Stage 4b)",
         )
 
-    # --- Language detection ---
-
-    def _detect_repo_language(self, my_user, repo):
-        """Detect the primary language of a repo by checking for marker files.
-
-        Checks for language-specific marker files (go.mod, package.json, etc.)
-        before falling back to the GitHub API .language field, which is unreliable
-        (it reports based on file count/size, not project intent).
-
-        Returns a language string like 'Go', 'Python', 'JavaScript', or None.
-        """
-        # Marker files in priority order (most specific first)
-        markers = [
-            ("go.mod", "Go"),
-            ("Cargo.toml", "Rust"),
-            ("package.json", "JavaScript"),
-            ("pyproject.toml", "Python"),
-            ("setup.py", "Python"),
-            ("requirements.txt", "Python"),
-            ("Gemfile", "Ruby"),
-            ("pom.xml", "Java"),
-            ("build.gradle", "Java"),
-        ]
-
-        for filename, lang in markers:
-            result = run_gh_command([
-                "api", f"repos/{my_user}/{repo}/contents/{filename}",
-                "--jq", ".name"
-            ])
-            if result["success"] and result["output"].strip():
-                return lang
-
-        # Fallback to GitHub API language field
-        result = run_gh_command([
-            "api", f"repos/{my_user}/{repo}",
-            "--jq", ".language"
-        ])
-        if result["success"] and result["output"].strip():
-            return result["output"].strip()
-
-        return None
 
     @staticmethod
     def _build_ci_workflow(language):
