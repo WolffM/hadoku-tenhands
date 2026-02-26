@@ -1,5 +1,5 @@
 """
-Pipeline Orchestrator — sequences Stage 4 sub-stages (4a → 4b → 4c).
+Pipeline Orchestrator — sequences Stage 4 sub-stages (4a → 4b → 4c → 4d → 4.5).
 
 The orchestrator is a state machine that advances assignments through
 the pipeline one step at a time. It delegates actual work to dispatchers
@@ -11,9 +11,15 @@ State transitions:
     static_analysis_running → static_analysis_done
     static_analysis_done → review_in_progress
     review_in_progress → review_complete
+    review_complete → remediation_running | remediation_done (skip)
+    remediation_running → remediation_done
+    remediation_done → retrospective_complete
 """
 
+import time
+
 from .dispatchers import create_default_registry
+from .github_api import run_gh_command
 from .oss_service import _sanitize_upstream_refs
 
 
@@ -25,6 +31,9 @@ PIPELINE_STATES = [
     "static_analysis_done",
     "review_in_progress",
     "review_complete",
+    "remediation_running",
+    "remediation_done",
+    "retrospective_complete",
 ]
 
 
@@ -72,7 +81,13 @@ class PipelineOrchestrator:
         elif status == "review_in_progress":
             return self._check_review(assignment, ctx)
         elif status == "review_complete":
-            return {"success": True, "status": "review_complete",
+            return self._dispatch_remediation(assignment, ctx)
+        elif status == "remediation_running":
+            return self._check_remediation(assignment, ctx)
+        elif status == "remediation_done":
+            return self._log_retrospective(assignment, ctx)
+        elif status == "retrospective_complete":
+            return {"success": True, "status": "retrospective_complete",
                     "advanced": False, "message": "Pipeline complete"}
 
         return {"success": False, "status": status,
@@ -177,6 +192,205 @@ class PipelineOrchestrator:
 
         return {"success": True, "status": "review_in_progress",
                 "advanced": False, "details": result}
+
+    # ---- Stage 4d: Remediation ----
+
+    def _dispatch_remediation(self, assignment, ctx):
+        """Dispatch remediation (4d) or skip if review has no actionable comments."""
+        inline_comments = self._count_inline_comments(assignment, ctx)
+
+        if inline_comments == 0:
+            # No actionable feedback — skip 4d
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            updates = {
+                "stage4_status": "remediation_done",
+                "stage4d_skipped": True,
+                "stage4d_done_at": now,
+            }
+            self._update_assignment(assignment, updates)
+            return {"success": True, "status": "remediation_done",
+                    "advanced": True, "skipped": True,
+                    "message": "No actionable review comments — skipped remediation"}
+
+        # Build remediation context and dispatch
+        remediation_body = self._build_remediation_context(assignment, ctx)
+        dispatcher = self.dispatchers["remediation"]
+        job_spec = {
+            "type": "remediation",
+            "pr_number": assignment.get("stage4_pr_number"),
+            "remediation_body": remediation_body,
+        }
+        result = dispatcher.dispatch(job_spec, ctx)
+        if result.get("success"):
+            updates = {
+                "stage4_status": "remediation_running",
+                "stage4d_pre_commit_count": result.get("pre_commit_count"),
+                "stage4d_skipped": False,
+            }
+            self._update_assignment(assignment, updates)
+            return {"success": True, "status": "remediation_running",
+                    "advanced": True, "details": result}
+
+        return {"success": False, "status": "review_complete",
+                "advanced": False,
+                "error": result.get("error", "Remediation dispatch failed")}
+
+    def _check_remediation(self, assignment, ctx):
+        """Check if remediation (4d) is complete."""
+        dispatcher = self.dispatchers["remediation"]
+        job_id = str(assignment.get("stage4_pr_number", ""))
+        result = dispatcher.check_status(job_id, ctx)
+
+        if result.get("done"):
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            updates = {
+                "stage4_status": "remediation_done",
+                "stage4d_done_at": now,
+            }
+            self._update_assignment(assignment, updates)
+            return {"success": True, "status": "remediation_done",
+                    "advanced": True, "details": result}
+
+        return {"success": True, "status": "remediation_running",
+                "advanced": False, "details": result}
+
+    def _count_inline_comments(self, assignment, ctx):
+        """Count inline review comments on the PR (not the top-level review body)."""
+        pr_number = assignment.get("stage4_pr_number")
+        if not pr_number:
+            return 0
+        result = run_gh_command([
+            "api",
+            f"repos/{ctx['my_user']}/{ctx['repo']}/pulls/{pr_number}/comments",
+            "--jq", "length",
+        ])
+        if result["success"]:
+            try:
+                return int(result["output"].strip())
+            except (ValueError, TypeError):
+                pass
+        return 0
+
+    def _build_remediation_context(self, assignment, ctx):
+        """Build remediation prompt from review comments + SA findings."""
+        parts = ["## Remediation Required\n"]
+
+        pr_number = assignment.get("stage4_pr_number")
+        my_user = ctx["my_user"]
+        repo = ctx["repo"]
+
+        # Gather inline review comments
+        if pr_number:
+            result = run_gh_command([
+                "api",
+                f"repos/{my_user}/{repo}/pulls/{pr_number}/comments",
+                "--jq",
+                '.[] | "- `\\(.path):\\(.line // .original_line // \"?\")`: \\(.body)"',
+            ])
+            if result["success"] and result["output"].strip():
+                parts.append(
+                    "### Review Comments\n"
+                    f"{result['output'].strip()}\n"
+                )
+
+        # Gather SA findings that survived auto-fix
+        sa_run_id = assignment.get("stage4_sa_run_id")
+        if sa_run_id:
+            sa_dispatcher = self.dispatchers.get("static_analysis")
+            if sa_dispatcher:
+                sa_results = sa_dispatcher.collect_results(None, ctx)
+                if sa_results.get("success"):
+                    findings = sa_results["outputs"].get("findings", "")
+                    if findings:
+                        if len(findings) > 5000:
+                            findings = findings[:5000] + "\n... (truncated)"
+                        parts.append(
+                            "### Static Analysis Findings (post auto-fix)\n"
+                            f"```\n{findings}\n```\n"
+                        )
+
+        parts.append(
+            "### Instructions\n"
+            "1. Address each review comment above.\n"
+            "2. Fix any remaining static analysis findings.\n"
+            "3. Do not introduce new issues.\n"
+        )
+
+        context = "\n".join(parts)
+        context = _sanitize_upstream_refs(context)
+        return context
+
+    # ---- Stage 4.5: Retrospective ----
+
+    def _log_retrospective(self, assignment, ctx):
+        """Stage 4.5: Log structured retrospective and finalize pipeline."""
+        retro = self._collect_retrospective(assignment, ctx)
+
+        if self.svc:
+            self.svc.append_retrospective_log(retro)
+
+        updates = {"stage4_status": "retrospective_complete"}
+        self._update_assignment(assignment, updates)
+        return {"success": True, "status": "retrospective_complete",
+                "advanced": True, "retrospective": retro}
+
+    def _collect_retrospective(self, assignment, ctx):
+        """Gather structured metrics for the pipeline run."""
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        repo = assignment.get("repo", "")
+        fork_issue = assignment.get("fork_issue_number", 0)
+        pr_number = assignment.get("stage4_pr_number")
+
+        retro = {
+            "id": f"{repo}/{fork_issue}/{now}",
+            "created_at": now,
+            "origin_slug": assignment.get("origin_slug", ""),
+            "repo": repo,
+            "issue_number": assignment.get("issue_number"),
+            "fork_issue_number": fork_issue,
+        }
+
+        # SWE metrics
+        swe_data = {"pr_number": pr_number,
+                     "pr_branch": assignment.get("stage4_pr_branch")}
+        if pr_number and self.dispatchers.get("swe"):
+            swe_results = self.dispatchers["swe"].collect_results(
+                str(fork_issue), ctx)
+            if swe_results.get("success"):
+                swe_data.update(swe_results["outputs"])
+        retro["swe"] = swe_data
+
+        # SA metrics
+        retro["static_analysis"] = {
+            "run_id": assignment.get("stage4_sa_run_id"),
+            "conclusion": assignment.get("stage4_sa_conclusion"),
+        }
+
+        # Review metrics
+        inline_count = self._count_inline_comments(assignment, ctx)
+        retro["review"] = {
+            "inline_comment_count": inline_count,
+            "actionable": inline_count > 0,
+        }
+
+        # Remediation metrics
+        skipped = assignment.get("stage4d_skipped", True)
+        retro["remediation"] = {"skipped": skipped}
+        if not skipped and self.dispatchers.get("remediation"):
+            remed_results = self.dispatchers["remediation"].collect_results(
+                str(pr_number), ctx)
+            if remed_results.get("success"):
+                retro["remediation"].update(remed_results["outputs"])
+
+        # Timing
+        retro["timing"] = {
+            "assigned_at": assignment.get("assigned_at"),
+            "completed_at": now,
+        }
+
+        return retro
+
+    # ---- Context builders ----
 
     def _build_review_context(self, assignment, ctx):
         """Build review context from dossier + static analysis findings.

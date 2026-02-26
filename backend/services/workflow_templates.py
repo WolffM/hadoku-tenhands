@@ -11,6 +11,19 @@ back to sensible language defaults.
 """
 
 
+def _COMMIT_FIXES_STEP(message):
+    """Build a git commit+push step for auto-fixed changes."""
+    return (
+        "- name: Commit fixes\n"
+        "  run: |\n"
+        "    git config user.name 'github-actions[bot]'\n"
+        "    git config user.email 'github-actions[bot]@users.noreply.github.com'\n"
+        "    git add -A\n"
+        f"    git diff --cached --quiet || git commit -m '{message}'\n"
+        "    git push || true"
+    )
+
+
 def build_ruff_job():
     """Ruff linter job (Python)."""
     return {
@@ -19,6 +32,8 @@ def build_ruff_job():
             "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
             "- uses: actions/setup-python@v5\n  with:\n    python-version: '3.x'",
             "- run: pip install ruff",
+            "- name: Auto-fix\n  run: ruff check . --fix || true",
+            _COMMIT_FIXES_STEP("style: auto-fix ruff findings"),
             "- run: ruff check . --output-format=github",
         ],
     }
@@ -32,6 +47,8 @@ def build_eslint_job():
             "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
             "- uses: actions/setup-node@v4\n  with:\n    node-version: '20'",
             "- run: npm ci",
+            "- name: Auto-fix\n  run: npx eslint . --fix || true",
+            _COMMIT_FIXES_STEP("style: auto-fix eslint findings"),
             "- run: npx eslint . || true",
         ],
     }
@@ -44,6 +61,8 @@ def build_biome_job():
         "steps": [
             "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
             "- uses: actions/setup-node@v4\n  with:\n    node-version: '20'",
+            "- name: Auto-fix\n  run: npx @biomejs/biome check . --write || true",
+            _COMMIT_FIXES_STEP("style: auto-fix biome findings"),
             "- run: npx @biomejs/biome check .",
         ],
     }
@@ -57,6 +76,8 @@ def build_golangci_lint_job():
             "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
             "- uses: actions/setup-go@v5\n  with:\n    go-version: 'stable'",
             "- run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest",
+            "- name: Auto-fix\n  run: golangci-lint run --fix || true",
+            _COMMIT_FIXES_STEP("style: auto-fix golangci-lint findings"),
             "- run: golangci-lint run",
         ],
     }
@@ -82,6 +103,8 @@ def build_clippy_job():
         "steps": [
             "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
             "- run: rustup component add clippy",
+            "- name: Auto-fix\n  run: cargo clippy --fix --allow-dirty || true",
+            _COMMIT_FIXES_STEP("style: auto-fix clippy findings"),
             "- run: cargo clippy -- -D warnings",
         ],
     }
@@ -223,7 +246,7 @@ def render_static_analysis_workflow(jobs):
         "        required: true",
         "",
         "permissions:",
-        "  contents: read",
+        "  contents: write",
         "  pull-requests: write",
         "  security-events: write",
         "",
