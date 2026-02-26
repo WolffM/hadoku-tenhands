@@ -38,8 +38,10 @@ class StageDispatcher:
         """Check if a dispatched job is complete.
 
         Args:
-            job_id: Identifier returned by dispatch().
-            context: Dict with assignment metadata.
+            job_id: Correlation key identifying the specific job to check.
+                    Dispatchers MUST use this to distinguish between
+                    concurrent jobs of the same type.
+            context: Dict with ambient metadata (my_user, repo, etc.)
         Returns:
             Dict with {done: bool, status: str, ...details}.
         """
@@ -82,16 +84,41 @@ class CopilotSWEDispatcher(StageDispatcher):
             "message": "SWE agent already dispatched during Stage 3",
         }
 
+    def _find_pr_for_issue(self, my_user, repo, fork_issue_number, copilot_prs):
+        """Correlate a fork issue to its Copilot PR via the issue timeline.
+
+        GitHub cross-references link issues to PRs created from them.
+        Returns the matched PR dict from copilot_prs, or None.
+        """
+        result = run_gh_command([
+            "api",
+            f"repos/{my_user}/{repo}/issues/{fork_issue_number}/timeline",
+            "--jq",
+            '[.[] | select(.event=="cross-referenced") '
+            '| .source.issue.number] | first',
+        ])
+        if not result["success"]:
+            return None
+        try:
+            linked_pr_number = int(result["output"].strip())
+        except (ValueError, TypeError):
+            return None
+        return next(
+            (p for p in copilot_prs if p["number"] == linked_pr_number),
+            None,
+        )
+
     def check_status(self, job_id, context):
         """Check if the Copilot SWE agent has finished.
 
-        Detection: look for a Copilot-authored PR and check if
-        the 'Running Copilot coding agent' check-run has completed.
+        Detection: correlate the fork issue (job_id) to its Copilot PR
+        via the issue timeline, then check the check-run status.
         """
         my_user = context["my_user"]
         repo = context["repo"]
+        fork_issue_number = context.get("fork_issue_number")
 
-        # Find Copilot-authored PRs
+        # Fetch all open PRs
         result = run_gh_command([
             "pr", "list", "-R", f"{my_user}/{repo}",
             "--json", "number,title,headRefName,author,commits",
@@ -103,20 +130,35 @@ class CopilotSWEDispatcher(StageDispatcher):
 
         prs = json.loads(result["output"])
 
-        # Find the agent's PR
-        agent_pr = None
+        # Filter to Copilot-authored PRs
+        copilot_prs = []
         for pr in prs:
             author = pr.get("author", {})
             login = author.get("login", "") if isinstance(author, dict) else ""
             if "copilot" in login.lower():
-                agent_pr = pr
-                break
+                copilot_prs.append(pr)
+
+        if not copilot_prs:
+            return {"done": False, "status": "waiting_for_pr", "pr_number": None}
+
+        # Correlate: find the PR for this specific fork issue
+        agent_pr = None
+        if fork_issue_number and len(copilot_prs) > 1:
+            agent_pr = self._find_pr_for_issue(
+                my_user, repo, int(fork_issue_number), copilot_prs)
+
+        # Single PR or no fork_issue_number — use the only one
+        if not agent_pr and len(copilot_prs) == 1:
+            agent_pr = copilot_prs[0]
 
         if not agent_pr:
             return {"done": False, "status": "waiting_for_pr", "pr_number": None}
 
         pr_number = agent_pr["number"]
         pr_branch = agent_pr["headRefName"]
+
+        commits = agent_pr.get("commits", [])
+        commit_count = len(commits) if isinstance(commits, list) else 0
 
         # Check the Copilot coding agent check-run
         head_result = run_gh_command([
@@ -140,9 +182,26 @@ class CopilotSWEDispatcher(StageDispatcher):
                         "pr_number": pr_number,
                         "pr_branch": pr_branch,
                     }
+                if status and status != "completed":
+                    return {
+                        "done": False,
+                        "status": "working",
+                        "pr_number": pr_number,
+                        "pr_branch": pr_branch,
+                        "commit_count": commit_count,
+                    }
 
-        commits = agent_pr.get("commits", [])
-        commit_count = len(commits) if isinstance(commits, list) else 0
+        # Fallback: check-run absent or API failed. Copilot always creates
+        # an "Initial plan" commit first, then implementation commits.
+        # 2+ commits means implementation work exists — treat as done.
+        if commit_count >= 2:
+            return {
+                "done": True,
+                "status": "completed",
+                "pr_number": pr_number,
+                "pr_branch": pr_branch,
+            }
+
         return {
             "done": False,
             "status": "working",
@@ -387,6 +446,146 @@ class CopilotReviewDispatcher(StageDispatcher):
         return {"success": False, "error": "No Copilot review found"}
 
 
+# ============ Copilot Remediation Dispatcher ============
+
+
+class CopilotRemediationDispatcher(StageDispatcher):
+    """Dispatches remediation to Copilot via PR comment on existing PR.
+
+    This is the Stage 4d dispatcher. It:
+    - Posts a PR comment tagging @copilot with review feedback + SA findings
+    - Monitors for new commits on the PR branch (Copilot responds by pushing)
+    - Collects updated PR stats after remediation
+    """
+
+    def dispatch(self, job_spec, context):
+        """Post a remediation comment on the PR to trigger Copilot."""
+        my_user = context["my_user"]
+        repo = context["repo"]
+        pr_number = job_spec.get("pr_number")
+        remediation_body = job_spec.get("remediation_body", "")
+
+        if not pr_number:
+            return {"success": False, "error": "No PR number"}
+
+        # Record current commit count for change detection
+        pr_result = run_gh_command([
+            "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
+            "--json", "commits", "--jq", ".commits | length",
+        ])
+        pre_commit_count = 0
+        if pr_result["success"]:
+            try:
+                pre_commit_count = int(pr_result["output"].strip())
+            except (ValueError, TypeError):
+                pass
+
+        # Post remediation comment tagging @copilot
+        comment_body = f"@copilot Please address the following feedback:\n\n{remediation_body}"
+        comment_result = run_gh_command([
+            "pr", "comment", str(pr_number),
+            "-R", f"{my_user}/{repo}",
+            "--body", comment_body,
+        ])
+
+        if not comment_result.get("success", False):
+            return {"success": False, "error": comment_result.get("error", "Comment failed")}
+
+        return {
+            "success": True,
+            "job_id": str(pr_number),
+            "pr_number": pr_number,
+            "pre_commit_count": pre_commit_count,
+        }
+
+    def check_status(self, job_id, context):
+        """Check if Copilot has pushed new commits after the remediation comment."""
+        my_user = context["my_user"]
+        repo = context["repo"]
+        pr_number = context.get("stage4_pr_number")
+        pre_commit_count = context.get("stage4d_pre_commit_count", 0)
+
+        if not pr_number:
+            return {"done": False, "status": "error", "error": "No PR number"}
+
+        # Fetch current commit count
+        pr_result = run_gh_command([
+            "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
+            "--json", "commits", "--jq", ".commits | length",
+        ])
+        if not pr_result["success"]:
+            return {"done": False, "status": "error",
+                    "error": pr_result.get("error", "")}
+
+        try:
+            current_count = int(pr_result["output"].strip())
+        except (ValueError, TypeError):
+            return {"done": False, "status": "error",
+                    "error": "Could not parse commit count"}
+
+        new_commits = current_count - pre_commit_count
+        if new_commits > 0:
+            return {
+                "done": True,
+                "status": "completed",
+                "new_commits": new_commits,
+                "total_commits": current_count,
+            }
+
+        # Also check the Copilot coding agent check-run
+        head_result = run_gh_command([
+            "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
+            "--json", "headRefOid", "--jq", ".headRefOid",
+        ])
+        if head_result["success"]:
+            head_sha = head_result["output"].strip()
+            checks_result = run_gh_command([
+                "api",
+                f"repos/{my_user}/{repo}/commits/{head_sha}/check-runs",
+                "--jq",
+                '.check_runs[] | select(.name=="Running Copilot coding agent") | .status',
+            ])
+            if checks_result["success"]:
+                status = checks_result["output"].strip()
+                if status and status != "completed":
+                    return {"done": False, "status": "working",
+                            "new_commits": 0}
+
+        return {"done": False, "status": "waiting_for_commits",
+                "new_commits": 0}
+
+    def collect_results(self, job_id, context):
+        """Collect updated PR stats after remediation."""
+        my_user = context["my_user"]
+        repo = context["repo"]
+        pr_number = context.get("stage4_pr_number")
+
+        if not pr_number:
+            return {"success": False, "error": "No PR number"}
+
+        result = run_gh_command([
+            "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
+            "--json", "additions,deletions,changedFiles,commits",
+        ])
+        if not result["success"]:
+            return {"success": False, "error": result.get("error", "")}
+
+        pr_data = json.loads(result["output"])
+        pre_count = context.get("stage4d_pre_commit_count", 0)
+        total_commits = len(pr_data.get("commits", []))
+
+        return {
+            "success": True,
+            "outputs": {
+                "additions": pr_data.get("additions", 0),
+                "deletions": pr_data.get("deletions", 0),
+                "changed_files": pr_data.get("changedFiles", 0),
+                "new_commits": total_commits - pre_count,
+                "total_commits": total_commits,
+            },
+        }
+
+
 # ============ Dispatcher Registry ============
 
 
@@ -399,4 +598,5 @@ def create_default_registry():
         "swe": CopilotSWEDispatcher(),
         "static_analysis": GitHubActionsDispatcher(),
         "review": CopilotReviewDispatcher(),
+        "remediation": CopilotRemediationDispatcher(),
     }

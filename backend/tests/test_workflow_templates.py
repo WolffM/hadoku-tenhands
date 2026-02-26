@@ -90,6 +90,36 @@ class TestToolBuilders:
             job = builder()
             assert any("inputs.ref" in s for s in job["steps"]), f"{name} missing inputs.ref"
 
+    def test_autofix_linters_have_fix_step(self):
+        """Linters with auto-fix support should have an Auto-fix step."""
+        autofix_builders = [
+            ("ruff", build_ruff_job),
+            ("eslint", build_eslint_job),
+            ("biome", build_biome_job),
+            ("golangci-lint", build_golangci_lint_job),
+            ("clippy", build_clippy_job),
+        ]
+        for name, builder in autofix_builders:
+            job = builder()
+            steps_text = "\n".join(job["steps"])
+            assert "Auto-fix" in steps_text, f"{name} missing Auto-fix step"
+            assert "Commit fixes" in steps_text, f"{name} missing Commit fixes step"
+            assert "git push" in steps_text, f"{name} missing git push in commit step"
+
+    def test_diagnostic_jobs_no_autofix(self):
+        """Diagnostic-only jobs should NOT have auto-fix steps."""
+        job = build_go_vet_job()
+        steps_text = "\n".join(job["steps"])
+        assert "Auto-fix" not in steps_text
+
+        job = build_codeql_job("python")
+        steps_text = "\n".join(job["steps"])
+        assert "Auto-fix" not in steps_text
+
+        job = build_pytest_job()
+        steps_text = "\n".join(job["steps"])
+        assert "Auto-fix" not in steps_text
+
 
 class TestDefaultLinterJobs:
     """Tests for language-based fallback jobs."""
@@ -186,7 +216,7 @@ class TestRenderWorkflow:
         jobs = {"ruff": build_ruff_job()}
         yaml = render_static_analysis_workflow(jobs)
         assert "permissions:" in yaml
-        assert "contents: read" in yaml
+        assert "contents: write" in yaml
         assert "security-events: write" in yaml
 
     def test_render_includes_all_jobs(self):

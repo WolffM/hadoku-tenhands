@@ -11,6 +11,7 @@ from services.dispatchers import (
     CopilotSWEDispatcher,
     GitHubActionsDispatcher,
     CopilotReviewDispatcher,
+    CopilotRemediationDispatcher,
 )
 
 
@@ -53,8 +54,8 @@ class TestPipelineStates:
 
     def test_states_in_order(self):
         assert PIPELINE_STATES[0] == "swe_agent_working"
-        assert PIPELINE_STATES[-1] == "review_complete"
-        assert len(PIPELINE_STATES) == 6
+        assert PIPELINE_STATES[-1] == "retrospective_complete"
+        assert len(PIPELINE_STATES) == 9
 
 
 class TestOrchestratorSWECompletion:
@@ -66,7 +67,8 @@ class TestOrchestratorSWECompletion:
         )
         orch = PipelineOrchestrator(
             dispatchers={"swe": swe, "static_analysis": MockDispatcher(),
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment()
         result = orch.advance(assignment, {"my_user": "me"})
@@ -84,7 +86,8 @@ class TestOrchestratorSWECompletion:
         )
         orch = PipelineOrchestrator(
             dispatchers={"swe": swe, "static_analysis": MockDispatcher(),
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment()
         result = orch.advance(assignment, {"my_user": "me"})
@@ -103,7 +106,8 @@ class TestOrchestratorStaticAnalysis:
         )
         orch = PipelineOrchestrator(
             dispatchers={"swe": MockDispatcher(), "static_analysis": sa,
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment(
             stage4_status="swe_agent_done",
@@ -121,7 +125,8 @@ class TestOrchestratorStaticAnalysis:
         )
         orch = PipelineOrchestrator(
             dispatchers={"swe": MockDispatcher(), "static_analysis": sa,
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment(stage4_status="static_analysis_running")
         result = orch.advance(assignment, {"my_user": "me"})
@@ -137,7 +142,8 @@ class TestOrchestratorStaticAnalysis:
         )
         orch = PipelineOrchestrator(
             dispatchers={"swe": MockDispatcher(), "static_analysis": sa,
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment(stage4_status="swe_agent_done")
         result = orch.advance(assignment, {"my_user": "me"})
@@ -156,7 +162,8 @@ class TestOrchestratorReview:
         orch = PipelineOrchestrator(
             dispatchers={"swe": MockDispatcher(),
                          "static_analysis": MockDispatcher(),
-                         "review": review},
+                         "review": review,
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment(
             stage4_status="static_analysis_done",
@@ -175,7 +182,8 @@ class TestOrchestratorReview:
         orch = PipelineOrchestrator(
             dispatchers={"swe": MockDispatcher(),
                          "static_analysis": MockDispatcher(),
-                         "review": review},
+                         "review": review,
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment(
             stage4_status="review_in_progress",
@@ -195,20 +203,22 @@ class TestOrchestratorEdgeCases:
         orch = PipelineOrchestrator(
             dispatchers={"swe": MockDispatcher(),
                          "static_analysis": MockDispatcher(),
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
         )
-        assignment = _make_assignment(stage4_status="review_complete")
+        assignment = _make_assignment(stage4_status="retrospective_complete")
         result = orch.advance(assignment, {"my_user": "me"})
 
         assert result["success"] is True
         assert result["advanced"] is False
-        assert result["status"] == "review_complete"
+        assert result["status"] == "retrospective_complete"
 
     def test_unknown_status_returns_error(self):
         orch = PipelineOrchestrator(
             dispatchers={"swe": MockDispatcher(),
                          "static_analysis": MockDispatcher(),
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
         )
         assignment = _make_assignment(stage4_status="bogus_state")
         result = orch.advance(assignment, {"my_user": "me"})
@@ -224,7 +234,8 @@ class TestOrchestratorEdgeCases:
         )
         orch = PipelineOrchestrator(
             dispatchers={"swe": swe, "static_analysis": MockDispatcher(),
-                         "review": MockDispatcher()},
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
             oss_service=mock_svc,
         )
         assignment = _make_assignment()
@@ -237,9 +248,12 @@ class TestOrchestratorEdgeCases:
              "stage4_pr_branch": "fix/x"},
         )
 
-    def test_full_pipeline_walk(self):
-        """Walk through the entire pipeline from start to finish."""
-        # Each dispatcher returns "done" on check_status
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_full_pipeline_walk_with_skip(self, mock_gh):
+        """Walk through pipeline with 4d skipped (no inline comments)."""
+        # inline comments count → 0
+        mock_gh.return_value = {"success": True, "output": "0\n"}
+
         swe = MockDispatcher(
             status_result={"done": True, "pr_number": 2, "pr_branch": "fix/x"},
         )
@@ -251,8 +265,10 @@ class TestOrchestratorEdgeCases:
             dispatch_result={"success": True, "job_id": "rev"},
             status_result={"done": True, "review_state": "APPROVED"},
         )
+        remediation = MockDispatcher()
         orch = PipelineOrchestrator(
-            dispatchers={"swe": swe, "static_analysis": sa, "review": review},
+            dispatchers={"swe": swe, "static_analysis": sa,
+                         "review": review, "remediation": remediation},
         )
         assignment = _make_assignment()
         ctx = {"my_user": "me"}
@@ -277,9 +293,18 @@ class TestOrchestratorEdgeCases:
         r5 = orch.advance(assignment, ctx)
         assert r5["status"] == "review_complete"
 
-        # Step 6: review_complete → no-op
+        # Step 6: review_complete → remediation_done (skipped, 0 comments)
         r6 = orch.advance(assignment, ctx)
-        assert r6["advanced"] is False
+        assert r6["status"] == "remediation_done"
+        assert r6["skipped"] is True
+
+        # Step 7: remediation_done → retrospective_complete
+        r7 = orch.advance(assignment, ctx)
+        assert r7["status"] == "retrospective_complete"
+
+        # Step 8: retrospective_complete → no-op
+        r8 = orch.advance(assignment, ctx)
+        assert r8["advanced"] is False
 
 
 class TestDispatcherSwappability:
@@ -305,6 +330,7 @@ class TestDispatcherSwappability:
                     dispatch_result={"success": True, "job_id": "sa"},
                 ),
                 "review": MockDispatcher(),
+                "remediation": MockDispatcher(),
             },
         )
         assignment = _make_assignment()
@@ -313,3 +339,169 @@ class TestDispatcherSwappability:
         assert result["status"] == "swe_agent_done"
         assert assignment["stage4_pr_number"] == 10
         assert assignment["stage4_pr_branch"] == "custom/branch"
+
+
+class TestOrchestratorRemediation:
+    """Tests for remediation (4d) dispatch and skip logic."""
+
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_skips_remediation_when_no_inline_comments(self, mock_gh):
+        """When review has 0 inline comments, skip 4d."""
+        mock_gh.return_value = {"success": True, "output": "0\n"}
+        remediation = MockDispatcher()
+        orch = PipelineOrchestrator(
+            dispatchers={"swe": MockDispatcher(),
+                         "static_analysis": MockDispatcher(),
+                         "review": MockDispatcher(),
+                         "remediation": remediation},
+        )
+        assignment = _make_assignment(
+            stage4_status="review_complete", stage4_pr_number=12,
+        )
+        result = orch.advance(assignment, {"my_user": "me"})
+
+        assert result["success"] is True
+        assert result["status"] == "remediation_done"
+        assert result["skipped"] is True
+        assert assignment["stage4d_skipped"] is True
+
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_dispatches_remediation_when_inline_comments_exist(self, mock_gh):
+        """When review has inline comments, dispatch 4d."""
+        mock_gh.side_effect = [
+            # _count_inline_comments → 3
+            {"success": True, "output": "3\n"},
+            # _build_remediation_context → inline comments
+            {"success": True, "output": "- `file.py:10`: Fix import\n"},
+        ]
+        remediation = MockDispatcher(
+            dispatch_result={"success": True, "job_id": "14",
+                             "pre_commit_count": 2},
+        )
+        orch = PipelineOrchestrator(
+            dispatchers={"swe": MockDispatcher(),
+                         "static_analysis": MockDispatcher(),
+                         "review": MockDispatcher(),
+                         "remediation": remediation},
+        )
+        assignment = _make_assignment(
+            stage4_status="review_complete", stage4_pr_number=14,
+        )
+        result = orch.advance(assignment, {"my_user": "me"})
+
+        assert result["success"] is True
+        assert result["status"] == "remediation_running"
+        assert assignment["stage4d_skipped"] is False
+
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_check_remediation_completion(self, mock_gh):
+        """Remediation done when dispatcher says done."""
+        remediation = MockDispatcher(
+            status_result={"done": True, "new_commits": 1},
+        )
+        orch = PipelineOrchestrator(
+            dispatchers={"swe": MockDispatcher(),
+                         "static_analysis": MockDispatcher(),
+                         "review": MockDispatcher(),
+                         "remediation": remediation},
+        )
+        assignment = _make_assignment(
+            stage4_status="remediation_running",
+            stage4_pr_number=14,
+            stage4d_pre_commit_count=3,
+        )
+        result = orch.advance(assignment, {"my_user": "me"})
+
+        assert result["success"] is True
+        assert result["status"] == "remediation_done"
+        assert result["advanced"] is True
+
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_check_remediation_still_working(self, mock_gh):
+        """Remediation not done yet."""
+        remediation = MockDispatcher(
+            status_result={"done": False, "status": "waiting_for_commits"},
+        )
+        orch = PipelineOrchestrator(
+            dispatchers={"swe": MockDispatcher(),
+                         "static_analysis": MockDispatcher(),
+                         "review": MockDispatcher(),
+                         "remediation": remediation},
+        )
+        assignment = _make_assignment(
+            stage4_status="remediation_running",
+            stage4_pr_number=14,
+        )
+        result = orch.advance(assignment, {"my_user": "me"})
+
+        assert result["success"] is True
+        assert result["status"] == "remediation_running"
+        assert result["advanced"] is False
+
+
+class TestOrchestratorRetrospective:
+    """Tests for retrospective logging (4.5)."""
+
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_logs_retrospective_and_finalizes(self, mock_gh):
+        """Retrospective collects metrics and advances to complete."""
+        # Mock for _count_inline_comments in retrospective
+        mock_gh.return_value = {"success": True, "output": "2\n"}
+
+        mock_svc = MagicMock()
+        swe = MockDispatcher(
+            results_result={"success": True, "outputs": {
+                "pr_number": 14, "additions": 20, "deletions": 5,
+                "commit_count": 3,
+            }},
+        )
+        orch = PipelineOrchestrator(
+            dispatchers={"swe": swe,
+                         "static_analysis": MockDispatcher(),
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
+            oss_service=mock_svc,
+        )
+        assignment = _make_assignment(
+            stage4_status="remediation_done",
+            stage4_pr_number=14,
+            stage4_pr_branch="copilot/fix-bug",
+            stage4_sa_run_id=99,
+            stage4_sa_conclusion="failure",
+            stage4d_skipped=False,
+        )
+        result = orch.advance(assignment, {"my_user": "me"})
+
+        assert result["success"] is True
+        assert result["status"] == "retrospective_complete"
+        assert result["advanced"] is True
+        assert "retrospective" in result
+
+        # Verify service was called to persist
+        mock_svc.append_retrospective_log.assert_called_once()
+        retro = mock_svc.append_retrospective_log.call_args[0][0]
+        assert retro["swe"]["pr_number"] == 14
+        assert retro["review"]["actionable"] is True
+        assert retro["remediation"]["skipped"] is False
+
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_retrospective_without_service(self, mock_gh):
+        """Retrospective works without oss_service (no persistence)."""
+        mock_gh.return_value = {"success": True, "output": "0\n"}
+        orch = PipelineOrchestrator(
+            dispatchers={"swe": MockDispatcher(),
+                         "static_analysis": MockDispatcher(),
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
+        )
+        assignment = _make_assignment(
+            stage4_status="remediation_done",
+            stage4_pr_number=14,
+            stage4d_skipped=True,
+        )
+        result = orch.advance(assignment, {"my_user": "me"})
+
+        assert result["success"] is True
+        assert result["status"] == "retrospective_complete"
+        retro = result["retrospective"]
+        assert retro["remediation"]["skipped"] is True

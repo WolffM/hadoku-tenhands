@@ -10,6 +10,7 @@ from services.dispatchers import (
     CopilotSWEDispatcher,
     GitHubActionsDispatcher,
     CopilotReviewDispatcher,
+    CopilotRemediationDispatcher,
     create_default_registry,
 )
 
@@ -37,9 +38,11 @@ class TestStageDispatcherInterface:
         assert "swe" in registry
         assert "static_analysis" in registry
         assert "review" in registry
+        assert "remediation" in registry
         assert isinstance(registry["swe"], CopilotSWEDispatcher)
         assert isinstance(registry["static_analysis"], GitHubActionsDispatcher)
         assert isinstance(registry["review"], CopilotReviewDispatcher)
+        assert isinstance(registry["remediation"], CopilotRemediationDispatcher)
 
 
 class TestCopilotSWEDispatcher:
@@ -129,6 +132,119 @@ class TestCopilotSWEDispatcher:
         assert result["outputs"]["pr_number"] == 2
         assert result["outputs"]["additions"] == 50
         assert result["outputs"]["commit_count"] == 2
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_find_pr_for_issue_success(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": "14\n"}
+        d = CopilotSWEDispatcher()
+        prs = [
+            {"number": 12, "headRefName": "copilot/fix-a"},
+            {"number": 14, "headRefName": "copilot/fix-b"},
+        ]
+        result = d._find_pr_for_issue("me", "r", 13, prs)
+        assert result is not None
+        assert result["number"] == 14
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_find_pr_for_issue_failure(self, mock_gh):
+        mock_gh.return_value = {"success": False, "error": "not found"}
+        d = CopilotSWEDispatcher()
+        prs = [{"number": 12}, {"number": 14}]
+        result = d._find_pr_for_issue("me", "r", 13, prs)
+        assert result is None
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_correlates_via_timeline(self, mock_gh):
+        """With multiple Copilot PRs, timeline selects the correct one."""
+        copilot_pr_a = {
+            "number": 12, "title": "Fix A",
+            "headRefName": "copilot/fix-a",
+            "author": {"login": "app/copilot-swe-agent"},
+            "commits": [{"sha": "a"}],
+        }
+        copilot_pr_b = {
+            "number": 14, "title": "Fix B",
+            "headRefName": "copilot/fix-b",
+            "author": {"login": "app/copilot-swe-agent"},
+            "commits": [{"sha": "b"}, {"sha": "c"}],
+        }
+        mock_gh.side_effect = [
+            # pr list — 2 Copilot PRs
+            {"success": True, "output": json.dumps([copilot_pr_a, copilot_pr_b])},
+            # timeline — issue #13 links to PR #14
+            {"success": True, "output": "14\n"},
+            # pr view headRefOid
+            {"success": True, "output": "def456\n"},
+            # check-runs — completed
+            {"success": True, "output": "completed\n"},
+        ]
+        d = CopilotSWEDispatcher()
+        result = d.check_status("13", {
+            "my_user": "me", "repo": "r", "fork_issue_number": 13,
+        })
+        assert result["done"] is True
+        assert result["pr_number"] == 14
+        assert result["pr_branch"] == "copilot/fix-b"
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_done_via_commit_count_fallback(self, mock_gh):
+        """When check-run is absent but PR has 2+ commits, treat as done."""
+        mock_gh.side_effect = [
+            # pr list — single Copilot PR with 2 commits
+            {"success": True, "output": json.dumps([{
+                "number": 12, "title": "Fix tests",
+                "headRefName": "copilot/fix-tests",
+                "author": {"login": "app/copilot-swe-agent"},
+                "commits": [{"sha": "plan"}, {"sha": "impl"}],
+            }])},
+            # pr view headRefOid
+            {"success": True, "output": "abc123\n"},
+            # check-runs — empty (no Copilot check-run found)
+            {"success": True, "output": "\n"},
+        ]
+        d = CopilotSWEDispatcher()
+        result = d.check_status("11", {"my_user": "me", "repo": "r"})
+        assert result["done"] is True
+        assert result["pr_number"] == 12
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_working_single_commit_no_checkrun(self, mock_gh):
+        """When check-run is absent and only 1 commit, still working."""
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps([{
+                "number": 12, "title": "Fix tests",
+                "headRefName": "copilot/fix-tests",
+                "author": {"login": "app/copilot-swe-agent"},
+                "commits": [{"sha": "plan"}],
+            }])},
+            {"success": True, "output": "abc123\n"},
+            {"success": True, "output": "\n"},
+        ]
+        d = CopilotSWEDispatcher()
+        result = d.check_status("11", {"my_user": "me", "repo": "r"})
+        assert result["done"] is False
+        assert result["commit_count"] == 1
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_waiting_when_ambiguous(self, mock_gh):
+        """With multiple Copilot PRs and failed timeline, returns waiting."""
+        mock_gh.side_effect = [
+            # pr list — 2 Copilot PRs
+            {"success": True, "output": json.dumps([
+                {"number": 12, "headRefName": "copilot/fix-a",
+                 "author": {"login": "app/copilot-swe-agent"}, "commits": []},
+                {"number": 14, "headRefName": "copilot/fix-b",
+                 "author": {"login": "app/copilot-swe-agent"}, "commits": []},
+            ])},
+            # timeline — fails
+            {"success": False, "error": "timeout"},
+        ]
+        d = CopilotSWEDispatcher()
+        result = d.check_status("13", {
+            "my_user": "me", "repo": "r", "fork_issue_number": 13,
+        })
+        assert result["done"] is False
+        assert result["status"] == "waiting_for_pr"
 
 
 class TestGitHubActionsDispatcher:
@@ -298,3 +414,116 @@ class TestCopilotReviewDispatcher:
         assert result["success"] is True
         assert result["outputs"]["review_state"] == "CHANGES_REQUESTED"
         assert "fix X" in result["outputs"]["review_body"]
+
+
+class TestCopilotRemediationDispatcher:
+    """Tests for the Copilot remediation dispatcher (Stage 4d)."""
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_dispatch_posts_comment_and_records_commit_count(self, mock_gh):
+        mock_gh.side_effect = [
+            # pr view — current commit count
+            {"success": True, "output": "3\n"},
+            # pr comment
+            {"success": True, "output": "{}"},
+        ]
+        d = CopilotRemediationDispatcher()
+        result = d.dispatch(
+            {"pr_number": 14, "remediation_body": "Fix the import"},
+            {"my_user": "me", "repo": "r"},
+        )
+
+        assert result["success"] is True
+        assert result["pre_commit_count"] == 3
+        # Verify comment contains @copilot
+        comment_cmd = " ".join(mock_gh.call_args_list[1][0][0])
+        assert "comment" in comment_cmd
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_dispatch_failure_when_comment_fails(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": "2\n"},
+            {"success": False, "error": "forbidden"},
+        ]
+        d = CopilotRemediationDispatcher()
+        result = d.dispatch(
+            {"pr_number": 14, "remediation_body": "Fix it"},
+            {"my_user": "me", "repo": "r"},
+        )
+        assert result["success"] is False
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_detects_new_commits(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": "5\n"}
+        d = CopilotRemediationDispatcher()
+        result = d.check_status("14", {
+            "my_user": "me", "repo": "r",
+            "stage4_pr_number": 14,
+            "stage4d_pre_commit_count": 3,
+        })
+
+        assert result["done"] is True
+        assert result["new_commits"] == 2
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_waiting_when_no_new_commits(self, mock_gh):
+        mock_gh.side_effect = [
+            # pr view — same commit count
+            {"success": True, "output": "3\n"},
+            # pr view headRefOid
+            {"success": True, "output": "abc123\n"},
+            # check-runs — empty
+            {"success": True, "output": "\n"},
+        ]
+        d = CopilotRemediationDispatcher()
+        result = d.check_status("14", {
+            "my_user": "me", "repo": "r",
+            "stage4_pr_number": 14,
+            "stage4d_pre_commit_count": 3,
+        })
+
+        assert result["done"] is False
+        assert result["status"] == "waiting_for_commits"
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_working_when_agent_in_progress(self, mock_gh):
+        mock_gh.side_effect = [
+            # pr view — same commit count
+            {"success": True, "output": "3\n"},
+            # pr view headRefOid
+            {"success": True, "output": "abc123\n"},
+            # check-runs — in_progress
+            {"success": True, "output": "in_progress\n"},
+        ]
+        d = CopilotRemediationDispatcher()
+        result = d.check_status("14", {
+            "my_user": "me", "repo": "r",
+            "stage4_pr_number": 14,
+            "stage4d_pre_commit_count": 3,
+        })
+
+        assert result["done"] is False
+        assert result["status"] == "working"
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_collect_results_returns_updated_stats(self, mock_gh):
+        mock_gh.return_value = {
+            "success": True,
+            "output": json.dumps({
+                "additions": 30,
+                "deletions": 8,
+                "changedFiles": 5,
+                "commits": [{"sha": "a"}, {"sha": "b"}, {"sha": "c"}, {"sha": "d"}],
+            }),
+        }
+        d = CopilotRemediationDispatcher()
+        result = d.collect_results("14", {
+            "my_user": "me", "repo": "r",
+            "stage4_pr_number": 14,
+            "stage4d_pre_commit_count": 3,
+        })
+
+        assert result["success"] is True
+        assert result["outputs"]["additions"] == 30
+        assert result["outputs"]["new_commits"] == 1
+        assert result["outputs"]["total_commits"] == 4

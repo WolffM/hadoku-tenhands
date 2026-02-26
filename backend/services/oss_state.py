@@ -174,6 +174,18 @@ class OSSStateMixin:
         """Write the full updated submitted PRs list (used by polling endpoint)."""
         _save_json("submitted-prs.json", items)
 
+    # --- Retrospective logs ---
+
+    def get_retrospective_logs(self):
+        """Get all retrospective log entries."""
+        return _load_json("retrospective-logs.json")
+
+    def append_retrospective_log(self, entry):
+        """Append a single retrospective entry to the log."""
+        items = self.get_retrospective_logs()
+        items.append(entry)
+        _save_json("retrospective-logs.json", items)
+
     # --- Dedup ---
 
     def find_assignment(self, origin_slug, issue_number):
