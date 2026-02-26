@@ -476,8 +476,8 @@ def api_oss_fork_and_assign():
         # 3. Sync fork
         svc.sync_fork(my_user, repo)
 
-        # 3b. Enable issues on fork (forks inherit has_issues=false from parent)
-        svc.enable_fork_issues(my_user, repo)
+        # 3b. Configure fork settings (issues, Actions permissions)
+        svc.configure_fork_settings(my_user, repo)
 
         # 3c. Ensure .github/copilot-instructions.md exists on fork
         svc.ensure_copilot_instructions(my_user, repo)
@@ -487,6 +487,9 @@ def api_oss_fork_and_assign():
         if issue_brief and issue_brief.get("repoHealth"):
             language = issue_brief["repoHealth"].get("language")
         svc.ensure_ci_workflow(my_user, repo, language=language)
+
+        # 3e. Approve any pending workflow runs from previous setups
+        svc.approve_pending_workflow_runs(my_user, repo)
 
     # 4. Check for same-repo overlap with existing assignments
     existing_assignments = svc.get_assigned_issues()
