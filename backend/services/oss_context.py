@@ -101,8 +101,8 @@ class OSSContextMixin:
 """
 
         # Tier 2: Use dossier sections if available (sanitize to prevent cross-refs)
-        _tier2_keys = ("contributionRules", "detectedQuirks", "successPatterns",
-                       "antiPatterns", "environmentSetup", "devEnvironment")
+        _tier2_keys = ("contributionRules", "successPatterns",
+                       "environmentSetup", "devEnvironment")
         if dossier and any(dossier.get(k) for k in _tier2_keys):
             if dossier.get("contributionRules"):
                 body += f"\n---\n## Contribution Rules\n{_sanitize_upstream_refs(dossier['contributionRules'])}\n"
@@ -115,14 +115,12 @@ class OSSContextMixin:
             if dossier.get("successPatterns"):
                 body += f"\n---\n## What Successful PRs Look Like\n{_sanitize_upstream_refs(dossier['successPatterns'])}\n"
 
-            # Anti-patterns (common rejection reasons) — only when content is real
+            # Anti-patterns — only when completeness marks content as real (not boilerplate)
             anti = dossier.get("antiPatterns")
-            if anti and isinstance(anti, dict) and anti.get("hasContent", False):
-                patterns = anti.get("patterns", [])
-                if patterns:
-                    body += "\n---\n## Common Rejection Reasons\n"
-                    for p in patterns:
-                        body += f"- {_sanitize_upstream_refs(str(p))}\n"
+            if anti and isinstance(anti, str):
+                has_real_content = (dossier_completeness or {}).get("antiPatterns", False)
+                if has_real_content:
+                    body += f"\n---\n## Common Rejection Reasons\n{_sanitize_upstream_refs(anti)}\n"
 
             # Environment setup — handle rename from devEnvironment to environmentSetup
             env = dossier.get("environmentSetup") or dossier.get("devEnvironment")
@@ -131,17 +129,6 @@ class OSSContextMixin:
                 if env_text.strip():
                     body += f"\n---\n## Environment & Setup\n{_sanitize_upstream_refs(env_text)}\n"
 
-            # Add quirk warnings when available
-            if dossier.get("detectedQuirks"):
-                quirks = dossier["detectedQuirks"]
-                body += "\n---\n## Important Quirks & Warnings\n"
-                for quirk in quirks:
-                    impact = quirk.get("impact", "minor")
-                    icon = "BLOCKER" if impact == "blocker" else "WARNING" if impact == "important" else "NOTE"
-                    body += f"**[{icon}]** {quirk.get('type', 'unknown')}: {_sanitize_upstream_refs(quirk.get('description', ''))}\n"
-                    if quirk.get("evidence"):
-                        body += f"  Evidence: {_sanitize_upstream_refs(quirk['evidence'])}\n"
-                body += "\n"
         # Tier 3: Fetch CONTRIBUTING.md via gh CLI
         else:
             metadata["context_tier"] = 3
@@ -158,6 +145,20 @@ class OSSContextMixin:
                     metadata["sources"].append("gh-contributing-md")
                 except Exception:
                     pass
+
+        # Quirk warnings — sourced from health (via issue_brief), applies to all tiers
+        quirks = None
+        if issue_brief and issue_brief.get("repoHealth"):
+            quirks = issue_brief["repoHealth"].get("detectedQuirks")
+        if quirks:
+            body += "\n---\n## Important Quirks & Warnings\n"
+            for quirk in quirks:
+                impact = quirk.get("impact", "minor")
+                icon = "BLOCKER" if impact == "blocker" else "WARNING" if impact == "important" else "NOTE"
+                body += f"**[{icon}]** {quirk.get('type', 'unknown')}: {_sanitize_upstream_refs(quirk.get('description', ''))}\n"
+                if quirk.get("evidence"):
+                    body += f"  Evidence: {_sanitize_upstream_refs(quirk['evidence'])}\n"
+            body += "\n"
 
         if return_metadata:
             return body, metadata

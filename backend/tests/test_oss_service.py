@@ -371,18 +371,21 @@ class TestBuildAgentContext:
         assert mock_gh.call_count == 1  # Only the issue view call
 
     @patch("services.oss_context.run_gh_command")
-    def test_context_with_dossier_quirks(self, mock_gh):
+    def test_context_with_quirks_from_issue_brief(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
         svc = OSSService()
 
-        dossier = {
-            "detectedQuirks": [
-                {"type": "CLA required", "description": "Must sign CLA before merge", "impact": "blocker", "evidence": "CONTRIBUTING.md line 5"},
-                {"type": "Commit format", "description": "Use conventional commits", "impact": "important"},
-                {"type": "Optional", "description": "Changelog appreciated", "impact": "minor"},
-            ]
+        issue_brief = {
+            "repoHealth": {
+                "detectedQuirks": [
+                    {"type": "CLA required", "description": "Must sign CLA before merge", "impact": "blocker", "evidence": "CONTRIBUTING.md line 5"},
+                    {"type": "Commit format", "description": "Use conventional commits", "impact": "important"},
+                    {"type": "Optional", "description": "Changelog appreciated", "impact": "minor"},
+                ],
+            }
         }
-        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", dossier)
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com",
+                                       issue_brief=issue_brief)
 
         assert "Quirks & Warnings" in body
         assert "[BLOCKER]" in body
@@ -434,20 +437,36 @@ class TestContextNewDossierSections:
         mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
         svc = OSSService()
         dossier = {
-            "antiPatterns": {"hasContent": True, "patterns": ["Failing CI", "No tests"]},
+            "contributionRules": "Follow the style guide",
+            "antiPatterns": "## Anti-Patterns\n\n- Failing CI\n- No tests\n",
         }
-        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", dossier)
+        completeness = {"antiPatterns": True}
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com",
+                                       dossier, dossier_completeness=completeness)
         assert "Common Rejection Reasons" in body
         assert "Failing CI" in body
         assert "No tests" in body
 
     @patch("services.oss_context.run_gh_command")
-    def test_anti_patterns_skipped_when_no_content(self, mock_gh):
+    def test_anti_patterns_skipped_when_boilerplate(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
         svc = OSSService()
         dossier = {
             "contributionRules": "Some rules",
-            "antiPatterns": {"hasContent": False, "patterns": []},
+            "antiPatterns": "## Anti-Patterns\n\nNo significant anti-patterns detected.\n",
+        }
+        completeness = {"antiPatterns": False}
+        body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com",
+                                       dossier, dossier_completeness=completeness)
+        assert "Common Rejection Reasons" not in body
+
+    @patch("services.oss_context.run_gh_command")
+    def test_anti_patterns_skipped_when_no_completeness(self, mock_gh):
+        """antiPatterns should be skipped when no completeness data is provided (safe default)."""
+        mock_gh.return_value = {"success": True, "output": json.dumps({"body": "body", "labels": []})}
+        svc = OSSService()
+        dossier = {
+            "antiPatterns": "## Anti-Patterns\n\n- Failing CI\n",
         }
         body = svc.build_agent_context("org", "repo", 1, "Fix", "https://example.com", dossier)
         assert "Common Rejection Reasons" not in body
@@ -1149,71 +1168,19 @@ class TestCIWorkflow:
         assert "sha=abc123sha" in " ".join(cmd)
 
     @patch("services.oss_fork.run_gh_command")
-    def test_ensure_ci_workflow_detects_language_from_marker_file(self, mock_gh):
+    def test_ensure_ci_workflow_uses_generic_when_no_language(self, mock_gh):
+        """When no language is provided, should use generic workflow (no detection API calls)."""
         mock_gh.side_effect = [
-            # Marker file checks: go.mod found
-            {"success": True, "output": "go.mod\n"},
             # Check if workflow exists — not found
             {"success": False, "output": ""},
             # PUT to create file
             {"success": True, "output": "{}"},
         ]
         svc = OSSService()
-        svc.ensure_ci_workflow("myuser", "myrepo")  # No language provided
+        svc.ensure_ci_workflow("myuser", "myrepo")  # No language
 
-        # First call should check go.mod (first marker)
-        first_call = mock_gh.call_args_list[0]
-        assert "go.mod" in " ".join(first_call[0][0])
-
-        # Verify the workflow contains Go-specific content (base64 encoded)
-        put_call = mock_gh.call_args_list[-1]
-        cmd = put_call[0][0]
-        assert "ci.yml" in " ".join(cmd)
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_ensure_ci_workflow_falls_back_to_api_language(self, mock_gh):
-        mock_gh.side_effect = [
-            # Marker file checks: all miss (9 markers)
-            {"success": False, "output": ""},  # go.mod
-            {"success": False, "output": ""},  # Cargo.toml
-            {"success": False, "output": ""},  # package.json
-            {"success": False, "output": ""},  # pyproject.toml
-            {"success": False, "output": ""},  # setup.py
-            {"success": False, "output": ""},  # requirements.txt
-            {"success": False, "output": ""},  # Gemfile
-            {"success": False, "output": ""},  # pom.xml
-            {"success": False, "output": ""},  # build.gradle
-            # Fallback: GitHub API .language
-            {"success": True, "output": "Python\n"},
-            # Check if workflow exists — not found
-            {"success": False, "output": ""},
-            # PUT to create file
-            {"success": True, "output": "{}"},
-        ]
-        svc = OSSService()
-        svc.ensure_ci_workflow("myuser", "myrepo")  # No language provided
-
-        # Verify the fallback API call was made
-        api_call = mock_gh.call_args_list[9]
-        assert ".language" in " ".join(api_call[0][0])
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_detect_repo_language_prefers_marker_over_api(self, mock_gh):
-        """Marker file detection should short-circuit on first match."""
-        mock_gh.side_effect = [
-            # go.mod not found
-            {"success": False, "output": ""},
-            # Cargo.toml not found
-            {"success": False, "output": ""},
-            # package.json found
-            {"success": True, "output": "package.json\n"},
-        ]
-        svc = OSSService()
-        lang = svc._detect_repo_language("myuser", "myrepo")
-
-        assert lang == "JavaScript"
-        # Should have stopped after 3 calls (didn't check remaining markers or API)
-        assert mock_gh.call_count == 3
+        # Should only make 2 calls: check existence + create file (no language detection)
+        assert mock_gh.call_count == 2
 
 
 class TestForkSettings:
