@@ -111,7 +111,6 @@ interface PipelineState {
   loadOSSStage4: () => Promise<void>
   loadOSSStage5: () => Promise<void>
   loadAllOSSStages: () => Promise<void>
-  removeOSSAssignment: (originSlug: string, issueNumber: number) => void
   removeOSSForkPR: (repo: string, prNumber: number) => void
   removeOSSReadyToSubmit: (originSlug: string, branch: string) => void
 }
@@ -557,18 +556,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   },
 
   // OSS optimistic removers
-  removeOSSAssignment: (originSlug: string, issueNumber: number) => {
-    set(state => ({
-      ossStage3: {
-        ...state.ossStage3,
-        items: state.ossStage3.items.filter(
-          a => !(a.originSlug === originSlug && a.issueNumber === issueNumber)
-        )
-      }
-    }))
-    get().refreshPipelineItems()
-  },
-
   removeOSSForkPR: (repo: string, prNumber: number) => {
     set(state => ({
       ossStage4: {

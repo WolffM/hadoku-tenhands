@@ -17,12 +17,12 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from ..helpers.oss_helpers import score_issue_with_breakdown
-    from .oss_routes import _notified_go_issues
+    from .oss_routes_stage2 import _notified_go_issues
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from helpers.oss_helpers import score_issue_with_breakdown
-    from routes.oss_routes import _notified_go_issues
+    from routes.oss_routes_stage2 import _notified_go_issues
 
 
 # ============ Group A: Health Checks ============

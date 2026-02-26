@@ -31,7 +31,7 @@ PREFIX = "/dispatch"
 class TestAddTarget:
     """Tests for POST /api/oss/add-target."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
     def test_add_invalid_slug_no_slash(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/add-target",
@@ -43,7 +43,7 @@ class TestAddTarget:
         assert data["success"] is False
         assert "owner/repo" in data["error"]
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
     def test_add_invalid_slug_empty_parts(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/add-target",
@@ -54,8 +54,8 @@ class TestAddTarget:
 
         assert data["success"] is False
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.run_gh_command")
     def test_add_nonexistent_repo(self, mock_gh, mock_user, client):
         mock_gh.return_value = {"success": False, "error": "Not found"}
 
@@ -69,10 +69,10 @@ class TestAddTarget:
         assert data["success"] is False
         assert "not found" in data["error"].lower()
 
-    @patch("routes.oss_routes.clear_cache")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage1.clear_cache")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    @patch("routes.oss_routes_stage1.run_gh_command")
     def test_add_parses_owner_repo_correctly(self, mock_gh, mock_svc_cls, mock_user, mock_cache, client):
         """Verifies the slug.split('/') parsing passes correct args to service."""
         mock_gh.return_value = {"success": True, "output": "fastify/fastify"}
@@ -86,10 +86,10 @@ class TestAddTarget:
 
         svc.add_to_local_watchlist.assert_called_once_with("fastify", "fastify")
 
-    @patch("routes.oss_routes.clear_cache")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage1.clear_cache")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    @patch("routes.oss_routes_stage1.run_gh_command")
     def test_add_invalidates_both_caches(self, mock_gh, mock_svc_cls, mock_user, mock_cache, client):
         mock_gh.return_value = {"success": True, "output": "fastify/fastify"}
 
@@ -106,9 +106,9 @@ class TestAddTarget:
 class TestRemoveTarget:
     """Tests for POST /api/oss/remove-target."""
 
-    @patch("routes.oss_routes.clear_cache")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage1.clear_cache")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
     def test_remove_with_slash_splits_correctly(self, mock_svc_cls, mock_user, mock_cache, client):
         """Tests the '/' in slug branch — parses owner/repo from slash format."""
         svc = mock_svc_cls.return_value
@@ -121,9 +121,9 @@ class TestRemoveTarget:
 
         svc.remove_from_local_watchlist.assert_called_once_with("fastify", "fastify")
 
-    @patch("routes.oss_routes.clear_cache")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage1.clear_cache")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
     def test_remove_hyphenated_slug_looks_up_watchlist(self, mock_svc_cls, mock_user, mock_cache, client):
         """Tests the else branch — iterates watchlist to find matching slug."""
         svc = mock_svc_cls.return_value
@@ -139,8 +139,8 @@ class TestRemoveTarget:
 
         svc.remove_from_local_watchlist.assert_called_once_with("fastify", "fastify")
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
     def test_remove_hyphenated_slug_not_found_errors(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.get_local_watchlist.return_value = []
@@ -159,9 +159,9 @@ class TestRemoveTarget:
 class TestRefreshTarget:
     """Tests for POST /api/oss/refresh-target."""
 
-    @patch("routes.oss_routes.clear_cache")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage1.clear_cache")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
     def test_refresh_converts_slash_to_hyphen(self, mock_svc_cls, mock_user, mock_cache, client):
         """Tests the slug.replace('/', '-') conversion logic."""
         svc = mock_svc_cls.return_value
@@ -181,9 +181,9 @@ class TestRefreshTarget:
 class TestStage1Enrichment:
     """Tests for the _enrich_target_via_gh logic in GET /api/oss/stage1-targets."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    @patch("routes.oss_routes_stage1.run_gh_command")
     def test_local_watchlist_enriches_via_gh_json_parsing(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests that _enrich_target_via_gh actually parses JSON and builds the target dict."""
         svc = mock_svc_cls.return_value
@@ -206,9 +206,9 @@ class TestStage1Enrichment:
         assert data["targets"][0]["meta"]["stars"] == 1000
         assert data["targets"][0]["meta"]["language"] == "JavaScript"
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    @patch("routes.oss_routes_stage1.run_gh_command")
     def test_local_watchlist_gh_failure_returns_target_without_meta(self, mock_gh, mock_svc_cls, mock_user, client):
         """When gh CLI fails, target should still appear but without meta field."""
         svc = mock_svc_cls.return_value
@@ -227,9 +227,9 @@ class TestStage1Enrichment:
         assert data["targets"][0]["slug"] == "fastify-fastify"
         assert "meta" not in data["targets"][0]
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    @patch("routes.oss_routes_stage1.run_gh_command")
     def test_local_watchlist_malformed_json_returns_target_without_meta(self, mock_gh, mock_svc_cls, mock_user, client):
         """When gh CLI returns invalid JSON, target appears without meta."""
         svc = mock_svc_cls.return_value
@@ -254,9 +254,9 @@ class TestStage1Enrichment:
 class TestStage2Issues:
     """Tests for GET /api/oss/stage2-issues — fallback scoring logic."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_scores_and_structures_issues(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests the _fetch_repo_issues_fallback pipeline: JSON parse → score → build response dict."""
         svc = mock_svc_cls.return_value
@@ -294,9 +294,9 @@ class TestStage2Issues:
         assert issue["dataCompleteness"] == "partial"
         assert issue["id"] == "github-fastify-fastify-1"
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_filters_out_assigned_issues(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.get_scored_issues.return_value = []
@@ -326,9 +326,9 @@ class TestStage2Issues:
         assert data["success"] is True
         assert len(data["issues"]) == 0
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_normalizes_dict_labels_to_strings(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.get_scored_issues.return_value = []
@@ -357,9 +357,9 @@ class TestStage2Issues:
 
         assert data["issues"][0]["labels"] == ["bug", "good first issue"]
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_sorts_by_cvs_descending(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.get_scored_issues.return_value = []
@@ -394,9 +394,9 @@ class TestStage2Issues:
         assert data["issues"][0]["cvs"] >= data["issues"][1]["cvs"]
         assert data["issues"][0]["number"] == 2  # GFI issue (70) first
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.run_gh_command")
     def test_fallback_handles_malformed_json_gracefully(self, mock_gh, mock_svc_cls, mock_user, client):
         """When gh returns invalid JSON, the route should return empty issues (not crash)."""
         svc = mock_svc_cls.return_value
@@ -420,14 +420,14 @@ class TestStage2Issues:
 class TestGoTierNotification:
     """Tests for GO-tier notification firing in _fetch_repo_issues_fallback."""
 
-    @patch("routes.oss_routes.notify_go_tier_issue")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.score_issue_fallback")
+    @patch("routes.oss_routes_stage2.notify_go_tier_issue")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.run_gh_command")
+    @patch("routes.oss_routes_stage2.score_issue_fallback")
     def test_notification_fires_when_cvs_reaches_85(self, mock_score, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
         """Bypass the real scorer and inject CVS >= 85 to test the notification trigger."""
-        from routes.oss_routes import _notified_go_issues
+        from routes.oss_routes_stage2 import _notified_go_issues
         _notified_go_issues.clear()
 
         svc = mock_svc_cls.return_value
@@ -457,14 +457,14 @@ class TestGoTierNotification:
 
         mock_notify.assert_called_once_with("org/repo", 99, "Critical fix", 92)
 
-    @patch("routes.oss_routes.notify_go_tier_issue")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.score_issue_fallback")
+    @patch("routes.oss_routes_stage2.notify_go_tier_issue")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.run_gh_command")
+    @patch("routes.oss_routes_stage2.score_issue_fallback")
     def test_notification_deduplicates_by_issue_id(self, mock_score, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
         """Same issue polled twice should only fire notification once."""
-        from routes.oss_routes import _notified_go_issues
+        from routes.oss_routes_stage2 import _notified_go_issues
         _notified_go_issues.clear()
 
         svc = mock_svc_cls.return_value
@@ -501,9 +501,9 @@ class TestGoTierNotification:
 class TestPollSubmittedPRs:
     """Tests for POST /api/oss/poll-submitted-prs — state detection and notifications."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.run_gh_command")
     def test_detects_state_transition_to_merged(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
@@ -540,8 +540,8 @@ class TestPollSubmittedPRs:
         assert data["submitted"][0]["last_polled_at"] is not None
         svc.update_submitted_prs.assert_called_once()
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.OSSService")
     def test_skips_polling_for_already_terminal_prs(self, mock_svc_cls, mock_user, client):
         """PRs in merged/closed state should not trigger gh CLI calls."""
         svc = mock_svc_cls.return_value
@@ -564,10 +564,10 @@ class TestPollSubmittedPRs:
 
         assert data["submitted"][0]["state"] == "merged"
 
-    @patch("routes.oss_routes.notify_upstream_merged")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage5.notify_upstream_merged")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.run_gh_command")
     def test_fires_merge_notification_on_state_change(self, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
@@ -602,10 +602,10 @@ class TestPollSubmittedPRs:
             "Fix routing",
         )
 
-    @patch("routes.oss_routes.notify_upstream_feedback")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage5.notify_upstream_feedback")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.run_gh_command")
     def test_fires_feedback_notification_on_review_change(self, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
@@ -640,10 +640,10 @@ class TestPollSubmittedPRs:
             "CHANGES_REQUESTED",
         )
 
-    @patch("routes.oss_routes.notify_upstream_feedback")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage5.notify_upstream_feedback")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.run_gh_command")
     def test_no_notification_when_review_unchanged(self, mock_gh, mock_svc_cls, mock_user, mock_notify, client):
         """If review_decision hasn't changed, no notification should fire."""
         svc = mock_svc_cls.return_value
@@ -682,8 +682,8 @@ class TestPollSubmittedPRs:
 class TestSelectIssue:
     """Tests for POST /api/oss/select-issue."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
     def test_select_issue_already_selected_returns_flag(self, mock_svc_cls, mock_user, client):
         """Tests the dedup branch — different response shape when already selected."""
         svc = mock_svc_cls.return_value
@@ -706,7 +706,7 @@ class TestSelectIssue:
         assert data["already_selected"] is True
         svc.select_issue.assert_not_called()
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
     def test_select_issue_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/select-issue",
@@ -722,8 +722,8 @@ class TestSelectIssue:
 class TestForkAndAssign:
     """Tests for POST /api/oss/fork-and-assign."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
     def test_dedup_returns_existing_assignment(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.find_assignment.return_value = {
@@ -747,7 +747,7 @@ class TestForkAndAssign:
         assert data["already_assigned"] is True
         assert data["fork_issue_url"] == "https://github.com/testuser/fastify/issues/1"
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
@@ -759,8 +759,8 @@ class TestForkAndAssign:
         assert data["success"] is False
         assert "missing" in data["error"].lower()
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
     def test_fork_creation_failure(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.find_assignment.return_value = None
@@ -784,8 +784,8 @@ class TestForkAndAssign:
         assert data["success"] is False
         assert "fork" in data["error"].lower()
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
     def test_fork_timeout(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.find_assignment.return_value = None
@@ -809,9 +809,9 @@ class TestForkAndAssign:
         assert data["success"] is False
         assert "timed out" in data["error"].lower()
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
+    @patch("routes.oss_routes_stage3.run_gh_command")
     def test_auto_fetches_dossier_when_not_provided(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.find_assignment.return_value = None
@@ -844,9 +844,9 @@ class TestForkAndAssign:
         call_args = svc.build_agent_context.call_args
         assert call_args[0][5] == {"contributionRules": "Follow the style guide"}
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
+    @patch("routes.oss_routes_stage3.run_gh_command")
     def test_self_owned_skips_fork_and_sync(self, mock_gh, mock_svc_cls, mock_user, client):
         """When origin_owner == my_user, fork/sync steps are skipped."""
         svc = mock_svc_cls.return_value
@@ -881,9 +881,9 @@ class TestForkAndAssign:
         svc.wait_for_fork.assert_not_called()
         svc.sync_fork.assert_not_called()
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
+    @patch("routes.oss_routes_stage3.run_gh_command")
     def test_third_party_uses_fork_flow(self, mock_gh, mock_svc_cls, mock_user, client):
         """When origin_owner != my_user, the full fork flow runs."""
         svc = mock_svc_cls.return_value
@@ -918,9 +918,9 @@ class TestForkAndAssign:
         svc.wait_for_fork.assert_called_once()
         svc.sync_fork.assert_called_once()
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
+    @patch("routes.oss_routes_stage3.run_gh_command")
     def test_response_includes_context_sources(self, mock_gh, mock_svc_cls, mock_user, client):
         """Response should include context_sources from metadata."""
         svc = mock_svc_cls.return_value
@@ -957,8 +957,8 @@ class TestForkAndAssign:
         assert "gh-issue-view" in data["context_sources"]
         assert "gh-contributing-md" in data["context_sources"]
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
     def test_dedup_response_includes_is_self_owned(self, mock_svc_cls, mock_user, client):
         """Dedup (already_assigned) response should include is_self_owned."""
         svc = mock_svc_cls.return_value
@@ -991,9 +991,9 @@ class TestForkAndAssign:
 class TestStage4ForkPRs:
     """Tests for GET /api/oss/stage4-fork-prs."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    @patch("routes.oss_routes_stage4.run_gh_command")
     def test_injects_repo_and_origin_slug_into_prs(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests that _get_fork_prs adds repo/originSlug fields to each PR dict."""
         svc = mock_svc_cls.return_value
@@ -1019,9 +1019,9 @@ class TestStage4ForkPRs:
         assert data["prs"][0]["repo"] == "fastify"
         assert data["prs"][0]["originSlug"] == "fastify/fastify"
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    @patch("routes.oss_routes_stage4.run_gh_command")
     def test_deduplicates_forked_repos_via_set(self, mock_gh, mock_svc_cls, mock_user, client):
         """Two assignments for same repo should only fetch PRs once."""
         svc = mock_svc_cls.return_value
@@ -1040,8 +1040,8 @@ class TestStage4ForkPRs:
 class TestForkPRDetails:
     """Tests for POST /api/oss/fork-pr-details."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.run_gh_command")
     def test_merges_diff_into_pr_data(self, mock_gh, mock_user, client):
         """Tests that the route makes 2 gh calls and injects diff into pr_data."""
         mock_gh.side_effect = [
@@ -1061,7 +1061,7 @@ class TestForkPRDetails:
         assert "diff" in data["pr"]
         assert "+fixed" in data["pr"]["diff"]
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/fork-pr-details",
@@ -1077,7 +1077,7 @@ class TestForkPRDetails:
 class TestApproveForkPR:
     """Tests for POST /api/oss/approve-fork-pr."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/approve-fork-pr",
@@ -1092,9 +1092,9 @@ class TestApproveForkPR:
 class TestMergeForkPR:
     """Tests for POST /api/oss/merge-fork-pr."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    @patch("routes.oss_routes_stage4.run_gh_command")
     def test_merge_extracts_branch_info_and_saves_to_stage5(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests the multi-step merge flow: view → draft check → merge → sanitize → save."""
         svc = mock_svc_cls.return_value
@@ -1135,9 +1135,9 @@ class TestMergeForkPR:
         assert call_kwargs["issue_number"] == 42
         assert call_kwargs["branch"].startswith("fix/42-")
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    @patch("routes.oss_routes_stage4.run_gh_command")
     def test_merge_marks_draft_as_ready_before_merge(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests the isDraft branch — should call 'pr ready' before 'pr merge'."""
         svc = mock_svc_cls.return_value
@@ -1172,9 +1172,9 @@ class TestMergeForkPR:
         # view + ready + merge + HEAD ref + conflict check = 5
         assert mock_gh.call_count == 5
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    @patch("routes.oss_routes_stage4.run_gh_command")
     def test_merge_falls_back_when_sanitization_fails(self, mock_gh, mock_svc_cls, mock_user, client):
         """When squash SHA lookup fails, merge still succeeds with original branch."""
         svc = mock_svc_cls.return_value
@@ -1201,7 +1201,7 @@ class TestMergeForkPR:
         svc.save_ready_to_submit.assert_called_once()
         assert svc.save_ready_to_submit.call_args[1]["branch"] == "copilot/fix"
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/merge-fork-pr",
@@ -1218,9 +1218,9 @@ class TestMergeForkPR:
 class TestSubmitToOrigin:
     """Tests for POST /api/oss/submit-to-origin."""
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.run_gh_command")
     def test_submit_saves_and_removes_ready_item(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         mock_gh.return_value = {
@@ -1249,9 +1249,9 @@ class TestSubmitToOrigin:
         )
         svc.remove_ready_to_submit.assert_called_once_with("fastify/fastify", "fix-docs")
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.run_gh_command")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.run_gh_command")
     def test_submit_generates_default_body_when_not_provided(self, mock_gh, mock_svc_cls, mock_user, client):
         """Tests the 'if not body' branch — route should call format_upstream_pr_body."""
         svc = mock_svc_cls.return_value
@@ -1279,7 +1279,7 @@ class TestSubmitToOrigin:
         assert len(call_args[body_idx]) > 0
         assert "fastify/fastify" in call_args[body_idx]
 
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/submit-to-origin",

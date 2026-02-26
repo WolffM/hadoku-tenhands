@@ -1,0 +1,373 @@
+"""
+Stage 4 routes — Review on Fork.
+
+Endpoints for pipeline advancement, fork PR listing, review, approval, and merge.
+"""
+
+import re
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from flask import request, jsonify
+
+from . import bp
+
+try:
+    from ..services import run_gh_command, get_authenticated_user, OSSService
+    from ..services.pipeline_orchestrator import PipelineOrchestrator
+except ImportError:
+    from services import run_gh_command, get_authenticated_user, OSSService
+    from services.pipeline_orchestrator import PipelineOrchestrator
+
+
+@bp.route("/api/oss/advance-pipeline", methods=["POST"])
+def api_oss_advance_pipeline():
+    """Advance an assignment through the Stage 4 pipeline (4a -> 4b -> 4c).
+
+    Idempotent — each call moves the assignment forward at most one step.
+    The frontend can poll this endpoint to drive the pipeline.
+
+    Input: { "repo": "email-verifier", "fork_issue_number": 1 }
+    """
+    data = request.json
+    repo = data.get("repo")
+    fork_issue_number = data.get("fork_issue_number")
+
+    if not all([repo, fork_issue_number]):
+        return jsonify({"success": False, "error": "Missing required fields"})
+
+    if "/" in str(repo):
+        repo = repo.split("/")[-1]
+
+    my_user = get_authenticated_user()
+    svc = OSSService()
+
+    assignment = svc.find_assignment_by_fork_issue(repo, int(fork_issue_number))
+    if not assignment:
+        return jsonify({"success": False, "error": "Assignment not found"})
+
+    orchestrator = PipelineOrchestrator(oss_service=svc)
+    result = orchestrator.advance(assignment, {"my_user": my_user})
+
+    result["owner"] = my_user
+    return jsonify(result)
+
+
+@bp.route("/api/oss/pipeline-status", methods=["GET"])
+def api_oss_pipeline_status():
+    """Get Stage 4 pipeline status for all assignments.
+
+    Returns each assignment's current pipeline state so the frontend
+    can display progress indicators.
+    """
+    my_user = get_authenticated_user()
+    svc = OSSService()
+    assignments = svc.get_assigned_issues()
+
+    statuses = []
+    for a in assignments:
+        statuses.append({
+            "origin_slug": a.get("origin_slug"),
+            "repo": a.get("repo"),
+            "issue_number": a.get("issue_number"),
+            "fork_issue_number": a.get("fork_issue_number"),
+            "stage4_status": a.get("stage4_status", "swe_agent_working"),
+            "stage4_pr_number": a.get("stage4_pr_number"),
+            "stage4_pr_branch": a.get("stage4_pr_branch"),
+            "stage4_review_requested": a.get("stage4_review_requested", False),
+        })
+
+    return jsonify({"success": True, "statuses": statuses, "owner": my_user})
+
+
+def _get_fork_prs(my_user, repo, origin_slug):
+    """Fetch PRs from a single forked repo. Used by ThreadPoolExecutor."""
+    result = run_gh_command([
+        "pr", "list", "-R", f"{my_user}/{repo}",
+        "--json", "number,title,url,headRefName,additions,deletions,changedFiles,reviewDecision,isDraft,createdAt,mergeable"
+    ])
+    if result["success"]:
+        try:
+            prs = json.loads(result["output"])
+            for pr in prs:
+                pr["repo"] = repo
+                pr["originSlug"] = origin_slug
+            return prs
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return []
+
+
+@bp.route("/api/oss/stage4-fork-prs", methods=["GET"])
+def api_oss_stage4_fork_prs():
+    """Get PRs from all forked repos where we've assigned work."""
+    my_user = get_authenticated_user()
+    svc = OSSService()
+
+    assignments = svc.get_assigned_issues()
+    forked_repos = {(a["origin_slug"], a["repo"]) for a in assignments}
+
+    all_prs = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [
+            executor.submit(_get_fork_prs, my_user, repo, origin_slug)
+            for origin_slug, repo in forked_repos
+        ]
+        for future in as_completed(futures):
+            all_prs.extend(future.result())
+
+    # Enrich PRs with pipeline status from assignment records
+    status_lookup = {}
+    for a in assignments:
+        if a.get("stage4_pr_number"):
+            key = (a["repo"], a["stage4_pr_number"])
+            status_lookup[key] = a.get("stage4_status", "swe_agent_working")
+
+    for pr in all_prs:
+        key = (pr.get("repo"), pr.get("number"))
+        pr["pipelineStatus"] = status_lookup.get(key, "swe_agent_working")
+
+    all_prs.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
+    return jsonify({"success": True, "prs": all_prs, "owner": my_user})
+
+
+@bp.route("/api/oss/fork-pr-details", methods=["POST"])
+def api_oss_fork_pr_details():
+    """Get detailed info about a PR on a fork, including diff."""
+    data = request.json
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+
+    if not all([repo, pr_number]):
+        return jsonify({"success": False, "error": "Missing required fields"})
+
+    # Normalize: if caller passes "owner/repo", extract just the repo name
+    if "/" in str(repo):
+        repo = repo.split("/")[-1]
+
+    my_user = get_authenticated_user()
+
+    result = run_gh_command([
+        "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
+        "--json", "number,title,body,author,createdAt,headRefName,baseRefName,files,commits,reviewDecision,state,url,isDraft,additions,deletions,changedFiles,assignees"
+    ])
+
+    if result["success"]:
+        pr_data = json.loads(result["output"])
+
+        diff_result = run_gh_command([
+            "pr", "diff", str(pr_number), "-R", f"{my_user}/{repo}"
+        ])
+        if diff_result["success"]:
+            pr_data["diff"] = diff_result["output"]
+
+        return jsonify({"success": True, "pr": pr_data, "owner": my_user})
+
+    return jsonify({
+        "success": False,
+        "error": result.get("error", "Failed to fetch PR"),
+        "owner": my_user,
+    })
+
+
+@bp.route("/api/oss/approve-fork-pr", methods=["POST"])
+def api_oss_approve_fork_pr():
+    """Approve a PR on a fork."""
+    data = request.json
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+
+    if not all([repo, pr_number]):
+        return jsonify({"success": False, "error": "Missing required fields"})
+
+    # Normalize: if caller passes "owner/repo", extract just the repo name
+    if "/" in str(repo):
+        repo = repo.split("/")[-1]
+
+    my_user = get_authenticated_user()
+
+    result = run_gh_command([
+        "pr", "review", str(pr_number),
+        "-R", f"{my_user}/{repo}",
+        "--approve",
+        "-b", "Approved"
+    ])
+
+    if result["success"]:
+        return jsonify({
+            "success": True,
+            "message": f"PR #{pr_number} approved!",
+            "owner": my_user,
+        })
+    return jsonify({
+        "success": False,
+        "error": result.get("error", "Failed to approve PR"),
+        "owner": my_user,
+    })
+
+
+def _check_remaining_pr_conflicts(my_user, repo, merged_pr_number):
+    """After merging a PR, check if remaining open PRs now have merge conflicts."""
+    result = run_gh_command([
+        "pr", "list", "-R", f"{my_user}/{repo}",
+        "--json", "number,title,mergeable"
+    ])
+    if not result["success"]:
+        return []
+    try:
+        prs = json.loads(result["output"])
+    except (json.JSONDecodeError, KeyError):
+        return []
+    return [
+        {"number": pr["number"], "title": pr["title"], "mergeable": pr.get("mergeable", "UNKNOWN")}
+        for pr in prs
+        if pr["number"] != int(merged_pr_number) and pr.get("mergeable") == "CONFLICTING"
+    ]
+
+
+@bp.route("/api/oss/merge-fork-pr", methods=["POST"])
+def api_oss_merge_fork_pr():
+    """Merge a PR on a fork. Captures branch info and transitions to Stage 5."""
+    data = request.json
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    origin_slug = data.get("origin_slug")
+
+    if not all([repo, pr_number, origin_slug]):
+        return jsonify({"success": False, "error": "Missing required fields"})
+
+    # Normalize: if caller passes "owner/repo", extract just the repo name
+    if "/" in str(repo):
+        repo = repo.split("/")[-1]
+
+    my_user = get_authenticated_user()
+    svc = OSSService()
+
+    # Capture branch name + draft status in a single call (can't read after merge)
+    pr_info = run_gh_command([
+        "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
+        "--json", "headRefName,title,baseRefName,isDraft"
+    ])
+    pr_data = {}
+    if pr_info["success"]:
+        try:
+            pr_data = json.loads(pr_info["output"])
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Mark draft as ready before merge
+    if pr_data.get("isDraft", False):
+        run_gh_command([
+            "pr", "ready", str(pr_number),
+            "-R", f"{my_user}/{repo}"
+        ])
+
+    # Merge on fork
+    result = run_gh_command([
+        "pr", "merge", str(pr_number),
+        "-R", f"{my_user}/{repo}",
+        "--squash"
+    ], timeout=60)
+
+    if result["success"]:
+        # Look up assignment for issue_number, default_branch, fork_issue_number
+        assignments = svc.get_assigned_issues()
+        assignment = next(
+            (a for a in assignments
+             if a.get("origin_slug") == origin_slug and a.get("repo") == repo),
+            None
+        )
+        upstream_issue_number = assignment.get("issue_number", 0) if assignment else 0
+        stored_default = assignment.get("default_branch", "main") if assignment else "main"
+        fork_issue_number = assignment.get("fork_issue_number") if assignment else None
+        copilot_branch = pr_data.get("headRefName", "")
+        pr_title = pr_data.get("title", "")
+        base_branch = pr_data.get("baseRefName", stored_default)
+
+        # --- Stage 4.5: Clean & Prepare ---
+        # Rewrite the squash commit with user's identity, create a clean branch,
+        # delete the Copilot branch, and close the fork context issue.
+        sanitization_log = {}
+
+        # 4.5.1: Get the squash commit SHA from fork's default branch HEAD
+        head_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/ref/heads/{base_branch}",
+            "--jq", ".object.sha"
+        ])
+        squash_sha = head_result["output"].strip() if head_result["success"] else None
+
+        if squash_sha:
+            # 4.5.2: Generate clean branch name
+            title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
+            clean_branch = f"fix/{upstream_issue_number}-{title_slug}"
+
+            # 4.5.3: Create re-authored commit + clean branch
+            clean_commit_msg = pr_title
+            clean_result = svc.create_clean_branch(
+                my_user, repo, squash_sha, clean_branch, clean_commit_msg
+            )
+            sanitization_log["create_clean_branch"] = clean_result
+
+            if clean_result.get("success"):
+                # 4.5.4: Delete Copilot's feature branch
+                if copilot_branch:
+                    del_result = svc.delete_branch(my_user, repo, copilot_branch)
+                    sanitization_log["delete_copilot_branch"] = {
+                        "branch": copilot_branch,
+                        "success": del_result.get("success", False),
+                    }
+
+                # 4.5.5: Close the fork context issue
+                if fork_issue_number:
+                    close_result = svc.close_fork_issue(my_user, repo, fork_issue_number)
+                    sanitization_log["close_fork_issue"] = {
+                        "issue": fork_issue_number,
+                        "success": close_result.get("success", False),
+                    }
+
+                # Save with CLEAN branch name
+                svc.save_ready_to_submit(
+                    origin_slug=origin_slug,
+                    repo=repo,
+                    branch=clean_branch,
+                    title=pr_title,
+                    base_branch=base_branch,
+                    issue_number=upstream_issue_number,
+                )
+
+                # Check remaining PRs for merge conflicts
+                conflict_warnings = _check_remaining_pr_conflicts(my_user, repo, pr_number)
+
+                return jsonify({
+                    "success": True,
+                    "message": f"PR #{pr_number} merged and sanitized!",
+                    "owner": my_user,
+                    "sanitization": sanitization_log,
+                    "clean_branch": clean_branch,
+                    "conflict_warnings": conflict_warnings,
+                })
+
+        # Fallback: sanitization failed or no squash SHA — save with original branch
+        svc.save_ready_to_submit(
+            origin_slug=origin_slug,
+            repo=repo,
+            branch=copilot_branch,
+            title=pr_title,
+            base_branch=base_branch,
+            issue_number=upstream_issue_number,
+        )
+        conflict_warnings = _check_remaining_pr_conflicts(my_user, repo, pr_number)
+        return jsonify({
+            "success": True,
+            "message": f"PR #{pr_number} merged! (sanitization skipped)",
+            "owner": my_user,
+            "sanitization": sanitization_log,
+            "warning": "Could not sanitize — saved with original branch name",
+            "conflict_warnings": conflict_warnings,
+        })
+
+    return jsonify({
+        "success": False,
+        "error": result.get("error", "Failed to merge PR"),
+        "owner": my_user,
+    })

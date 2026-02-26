@@ -31,7 +31,7 @@ def disable_cache(monkeypatch):
 @pytest.fixture(autouse=True)
 def reset_dedup_sets():
     """Clear module-level dedup sets between tests."""
-    from routes.oss_routes import _notified_go_issues
+    from routes.oss_routes_stage2 import _notified_go_issues
     _notified_go_issues.clear()
     yield
     _notified_go_issues.clear()
@@ -49,9 +49,9 @@ class TestPollSubmittedPRsIntegration:
 
     @patch("helpers.notifications.requests.post")
     @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.run_gh_command")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     def test_poll_detects_merge_and_sends_discord_notification(
         self, _mock_user, mock_svc_cls, mock_gh, mock_discord_post, client
     ):
@@ -109,9 +109,9 @@ class TestPollSubmittedPRsIntegration:
 
     @patch("helpers.notifications.requests.post")
     @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.run_gh_command")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     def test_poll_detects_review_feedback_and_sends_notification(
         self, _mock_user, mock_svc_cls, mock_gh, mock_discord_post, client
     ):
@@ -155,9 +155,9 @@ class TestPollSubmittedPRsIntegration:
 
     @patch("helpers.notifications.requests.post")
     @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.run_gh_command")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     def test_no_notification_when_state_unchanged(
         self, _mock_user, mock_svc_cls, mock_gh, mock_discord_post, client
     ):
@@ -193,9 +193,9 @@ class TestPollSubmittedPRsIntegration:
         mock_discord_post.assert_not_called()
 
     @patch("helpers.notifications.requests.post")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.run_gh_command")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     def test_no_notification_when_webhook_url_empty(
         self, _mock_user, mock_svc_cls, mock_gh, mock_discord_post, client
     ):
@@ -233,9 +233,9 @@ class TestPollSubmittedPRsIntegration:
 
     @patch("helpers.notifications.requests.post")
     @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage5.run_gh_command")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     def test_multiple_prs_produce_separate_notifications(
         self, _mock_user, mock_svc_cls, mock_gh, mock_discord_post, client
     ):
@@ -313,10 +313,10 @@ class TestGoTierNotificationIntegration:
 
     @patch("helpers.notifications.requests.post")
     @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("routes.oss_routes.score_issue_fallback")
-    @patch("routes.oss_routes.run_gh_command")
-    @patch("routes.oss_routes.OSSService")
-    @patch("routes.oss_routes.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage2.score_issue_fallback")
+    @patch("routes.oss_routes_stage2.run_gh_command")
+    @patch("routes.oss_routes_stage2.OSSService")
+    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
     def test_go_tier_issue_sends_discord_notification(
         self, _mock_user, mock_svc_cls, mock_gh, mock_score, mock_discord_post, client
     ):

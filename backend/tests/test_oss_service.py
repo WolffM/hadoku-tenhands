@@ -270,21 +270,21 @@ class TestReadyToSubmit:
 class TestForkManagement:
     """Tests for fork_repo, sync_fork, check_fork_exists, wait_for_fork."""
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_check_fork_exists_true(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": '{"name": "fastify"}'}
         svc = OSSService()
 
         assert svc.check_fork_exists("testuser", "fastify") is True
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_check_fork_exists_false(self, mock_gh):
         mock_gh.return_value = {"success": False, "error": "Not found"}
         svc = OSSService()
 
         assert svc.check_fork_exists("testuser", "fastify") is False
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_wait_for_fork_succeeds_immediately(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": "{}"}
         svc = OSSService()
@@ -292,8 +292,8 @@ class TestForkManagement:
         result = svc.wait_for_fork("testuser", "fastify", timeout=6, interval=1)
         assert result is True
 
-    @patch("services.oss_service.time.sleep")
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.time.sleep")
+    @patch("services.oss_fork.run_gh_command")
     def test_wait_for_fork_retries_then_succeeds(self, mock_gh, mock_sleep):
         mock_gh.side_effect = [
             {"success": False, "error": "Not found"},
@@ -306,8 +306,8 @@ class TestForkManagement:
         assert result is True
         assert mock_sleep.call_count == 2
 
-    @patch("services.oss_service.time.sleep")
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.time.sleep")
+    @patch("services.oss_fork.run_gh_command")
     def test_wait_for_fork_timeout(self, mock_gh, mock_sleep):
         mock_gh.return_value = {"success": False, "error": "Not found"}
         svc = OSSService()
@@ -319,7 +319,7 @@ class TestForkManagement:
 class TestBuildAgentContext:
     """Tests for build_agent_context — markdown body generation for fork issues."""
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_basic_context_without_dossier(self, mock_gh):
         # First call: issue view, second call: CONTRIBUTING.md
         mock_gh.side_effect = [
@@ -339,7 +339,7 @@ class TestBuildAgentContext:
         # Must NOT contain issue number reference (would trigger GitHub cross-reference)
         assert "#42" not in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_context_with_contributing_md(self, mock_gh):
         import base64
         contrib_content = base64.b64encode(b"# Contributing\nPlease follow our style guide.").decode()
@@ -355,7 +355,7 @@ class TestBuildAgentContext:
         assert "CONTRIBUTING.md" in body
         assert "style guide" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_context_with_dossier_contribution_rules(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
         svc = OSSService()
@@ -370,7 +370,7 @@ class TestBuildAgentContext:
         # Should NOT fetch CONTRIBUTING.md when dossier is provided
         assert mock_gh.call_count == 1  # Only the issue view call
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_context_with_dossier_quirks(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
         svc = OSSService()
@@ -391,7 +391,7 @@ class TestBuildAgentContext:
         assert "CLA required" in body
         assert "Evidence: CONTRIBUTING.md line 5" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_contributing_md_truncated_at_3000_chars(self, mock_gh):
         """CONTRIBUTING.md content longer than 3000 chars should be truncated."""
         import base64
@@ -411,7 +411,7 @@ class TestBuildAgentContext:
         assert "x" * 3000 in body
         assert "x" * 3001 not in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_context_with_empty_dossier(self, mock_gh):
         """Dossier with no relevant fields should not add extra sections."""
         mock_gh.side_effect = [
@@ -500,7 +500,7 @@ class TestIssueBrief:
         assert "Brief rules" in body
         assert "Dossier rules" not in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_context_falls_back_to_dossier_when_brief_missing(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})}
         svc = OSSService()
@@ -594,7 +594,7 @@ class TestToolDetection:
 class TestTDDInstructions:
     """Tests for TDD workflow instructions in build_agent_context."""
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_tool_specific_reproduce_step(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": json.dumps({"body": "| Tool | `ruff` |", "labels": []})},
@@ -607,7 +607,7 @@ class TestTDDInstructions:
         assert "Run `ruff`" in body
         assert "Re-run `ruff`" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_generic_reproduce_when_no_tool_detected(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": json.dumps({"body": "Just a plain bug.", "labels": []})},
@@ -620,7 +620,7 @@ class TestTDDInstructions:
         assert "Write a failing test" in body
         assert "Re-run the test or tool" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_tdd_workflow_section_present(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
@@ -637,7 +637,7 @@ class TestTDDInstructions:
         assert "Do NOT proceed to Phase 2" in body
         assert "Do NOT commit until all tests pass" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_rules_section_present(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
@@ -653,7 +653,7 @@ class TestTDDInstructions:
         assert "GitHub MCP tools" in body
         assert "__pycache__" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_failure_reporting_section_present(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
@@ -667,7 +667,7 @@ class TestTDDInstructions:
         assert "Add a comment on this issue" in body
         assert "Do **NOT** create a PR with no meaningful changes" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_self_owned_pr_target_text(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
@@ -679,7 +679,7 @@ class TestTDDInstructions:
 
         assert "reviewed as a PR on" in body
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_context.run_gh_command")
     def test_third_party_pr_target_text(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": json.dumps({"body": "Issue body", "labels": []})},
@@ -905,7 +905,7 @@ class TestCIWorkflow:
         workflow = OSSService._build_ci_workflow(None)
         assert "No language-specific CI configured" in workflow
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_ensure_ci_workflow_creates_new_file(self, mock_gh):
         mock_gh.side_effect = [
             # Language detection skipped (language provided)
@@ -923,7 +923,7 @@ class TestCIWorkflow:
         assert "ci.yml" in " ".join(cmd)
         assert "sha=" not in " ".join(cmd)
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_ensure_ci_workflow_updates_existing_file(self, mock_gh):
         mock_gh.side_effect = [
             # Check if workflow exists — found with sha
@@ -939,7 +939,7 @@ class TestCIWorkflow:
         cmd = put_call[0][0]
         assert "sha=abc123sha" in " ".join(cmd)
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_ensure_ci_workflow_detects_language_from_marker_file(self, mock_gh):
         mock_gh.side_effect = [
             # Marker file checks: go.mod found
@@ -961,7 +961,7 @@ class TestCIWorkflow:
         cmd = put_call[0][0]
         assert "ci.yml" in " ".join(cmd)
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_ensure_ci_workflow_falls_back_to_api_language(self, mock_gh):
         mock_gh.side_effect = [
             # Marker file checks: all miss (9 markers)
@@ -988,7 +988,7 @@ class TestCIWorkflow:
         api_call = mock_gh.call_args_list[9]
         assert ".language" in " ".join(api_call[0][0])
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_detect_repo_language_prefers_marker_over_api(self, mock_gh):
         """Marker file detection should short-circuit on first match."""
         mock_gh.side_effect = [
@@ -1010,7 +1010,7 @@ class TestCIWorkflow:
 class TestForkSettings:
     """Tests for configure_fork_settings and approve_pending_workflow_runs."""
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_configure_fork_settings_enables_issues(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": "{}"}
         svc = OSSService()
@@ -1023,7 +1023,7 @@ class TestForkSettings:
         assert "PATCH" in cmd
         assert "has_issues=true" in cmd
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_configure_fork_settings_enables_actions(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": "{}"}
         svc = OSSService()
@@ -1037,7 +1037,7 @@ class TestForkSettings:
         assert "enabled=true" in cmd
         assert "allowed_actions=all" in cmd
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_approve_pending_workflow_runs_approves_action_required(self, mock_gh):
         mock_gh.side_effect = [
             # List runs with action_required
@@ -1059,7 +1059,28 @@ class TestForkSettings:
             cmd = " ".join(approve_call[0][0])
             assert f"actions/runs/{run_id}/approve" in cmd
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
+    def test_approve_falls_back_to_rerun_on_403(self, mock_gh):
+        mock_gh.side_effect = [
+            # List runs with action_required
+            {"success": True, "output": "111\n222\n"},
+            # Approve run 111 fails (403 — not a fork PR)
+            {"success": False, "error": "HTTP 403"},
+            # Rerun run 111 succeeds
+            {"success": True, "output": "{}"},
+            # Approve run 222 succeeds directly
+            {"success": True, "output": "{}"},
+        ]
+        svc = OSSService()
+        unblocked = svc.approve_pending_workflow_runs("myuser", "myrepo")
+
+        assert unblocked == 2
+        # run 111: approve failed, then rerun
+        rerun_call = mock_gh.call_args_list[2]
+        cmd = " ".join(rerun_call[0][0])
+        assert "actions/runs/111/rerun" in cmd
+
+    @patch("services.oss_fork.run_gh_command")
     def test_approve_pending_workflow_runs_returns_zero_on_no_pending(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": "\n"}
         svc = OSSService()
@@ -1068,7 +1089,7 @@ class TestForkSettings:
         assert approved == 0
         assert mock_gh.call_count == 1  # Only the list call
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_approve_pending_workflow_runs_returns_zero_on_failure(self, mock_gh):
         mock_gh.return_value = {"success": False, "output": ""}
         svc = OSSService()
@@ -1080,7 +1101,7 @@ class TestForkSettings:
 class TestCopilotReview:
     """Tests for request_copilot_review and review helpers."""
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_request_copilot_review_calls_correct_api(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": "{}"}
         svc = OSSService()
@@ -1092,7 +1113,7 @@ class TestCopilotReview:
         assert "repos/myuser/myrepo/pulls/42/requested_reviewers" in " ".join(cmd)
         assert "copilot-pull-request-reviewer[bot]" in " ".join(cmd)
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_get_pr_check_runs_returns_checks(self, mock_gh):
         mock_gh.side_effect = [
             # Get head SHA
@@ -1109,14 +1130,14 @@ class TestCopilotReview:
         assert checks[1]["name"] == "CodeQL"
         assert checks[1]["conclusion"] == "failure"
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_get_pr_check_runs_returns_empty_on_failure(self, mock_gh):
         mock_gh.return_value = {"success": False, "output": ""}
         svc = OSSService()
         checks = svc.get_pr_check_runs("myuser", "myrepo", 42)
         assert checks == []
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_get_pr_reviews_returns_reviews(self, mock_gh):
         mock_gh.return_value = {
             "success": True,
@@ -1129,9 +1150,49 @@ class TestCopilotReview:
         assert reviews[0]["user"] == "copilot-pull-request-reviewer[bot]"
         assert reviews[0]["state"] == "APPROVED"
 
-    @patch("services.oss_service.run_gh_command")
+    @patch("services.oss_fork.run_gh_command")
     def test_get_pr_reviews_returns_empty_on_failure(self, mock_gh):
         mock_gh.return_value = {"success": False, "output": ""}
         svc = OSSService()
         reviews = svc.get_pr_reviews("myuser", "myrepo", 42)
         assert reviews == []
+
+
+class TestAssignmentUpdate:
+    """Tests for find_assignment and update_assignment."""
+
+    def test_find_by_fork_issue_returns_match(self, clean_watchlist):
+        svc = OSSService()
+        svc.save_assignment("org", "myrepo", 42, 1,
+                            "https://github.com/me/myrepo/issues/1")
+        result = svc.find_assignment_by_fork_issue("myrepo", 1)
+        assert result is not None
+        assert result["issue_number"] == 42
+        assert result["fork_issue_number"] == 1
+
+    def test_find_by_fork_issue_returns_none_for_missing(self, clean_watchlist):
+        svc = OSSService()
+        result = svc.find_assignment_by_fork_issue("myrepo", 999)
+        assert result is None
+
+    def test_update_assignment_merges_fields(self, clean_watchlist):
+        svc = OSSService()
+        svc.save_assignment("org", "myrepo", 42, 1,
+                            "https://github.com/me/myrepo/issues/1")
+
+        updated = svc.update_assignment("myrepo", 1, {
+            "stage4_status": "swe_agent_done",
+            "stage4_pr_number": 5,
+        })
+        assert updated is True
+
+        item = svc.find_assignment_by_fork_issue("myrepo", 1)
+        assert item["stage4_status"] == "swe_agent_done"
+        assert item["stage4_pr_number"] == 5
+        # Original fields preserved
+        assert item["issue_number"] == 42
+
+    def test_update_assignment_returns_false_for_missing(self, clean_watchlist):
+        svc = OSSService()
+        updated = svc.update_assignment("myrepo", 999, {"stage4_status": "done"})
+        assert updated is False
