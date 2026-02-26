@@ -16,11 +16,17 @@ State transitions:
     remediation_done → retrospective_complete
 """
 
+import json
+import logging
+import os
+import subprocess
 import time
 
 from .dispatchers import create_default_registry
 from .github_api import run_gh_command
 from .oss_service import _sanitize_upstream_refs
+
+logger = logging.getLogger(__name__)
 
 
 # Valid pipeline states in order
@@ -100,10 +106,12 @@ class PipelineOrchestrator:
         result = dispatcher.check_status(job_id, ctx)
 
         if result.get("done"):
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             updates = {
                 "stage4_status": "swe_agent_done",
                 "stage4_pr_number": result.get("pr_number"),
                 "stage4_pr_branch": result.get("pr_branch"),
+                "stage4_swe_done_at": now,
             }
             self._update_assignment(assignment, updates)
             return {"success": True, "status": "swe_agent_done",
@@ -140,10 +148,12 @@ class PipelineOrchestrator:
         result = dispatcher.check_status(job_id, ctx)
 
         if result.get("done"):
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             updates = {
                 "stage4_status": "static_analysis_done",
                 "stage4_sa_run_id": result.get("run_id"),
                 "stage4_sa_conclusion": result.get("conclusion"),
+                "stage4_sa_done_at": now,
             }
             self._update_assignment(assignment, updates)
             return {"success": True, "status": "static_analysis_done",
@@ -185,7 +195,11 @@ class PipelineOrchestrator:
         result = dispatcher.check_status(job_id, ctx)
 
         if result.get("done"):
-            updates = {"stage4_status": "review_complete"}
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            updates = {
+                "stage4_status": "review_complete",
+                "stage4_review_done_at": now,
+            }
             self._update_assignment(assignment, updates)
             return {"success": True, "status": "review_complete",
                     "advanced": True, "details": result}
@@ -350,6 +364,18 @@ class PipelineOrchestrator:
             "fork_issue_number": fork_issue,
         }
 
+        # Pipeline configuration — what model/dispatcher/tools ran each stage
+        retro["pipeline"] = {
+            "swe_agent": type(self.dispatchers.get("swe", None)).__name__,
+            "static_analysis": type(
+                self.dispatchers.get("static_analysis", None)).__name__,
+            "review_agent": type(self.dispatchers.get("review", None)).__name__,
+            "remediation_agent": type(
+                self.dispatchers.get("remediation", None)).__name__,
+            "language": assignment.get("language"),
+            "toolchain_profile": assignment.get("toolchain_profile"),
+        }
+
         # SWE metrics
         swe_data = {"pr_number": pr_number,
                      "pr_branch": assignment.get("stage4_pr_branch")}
@@ -382,13 +408,89 @@ class PipelineOrchestrator:
             if remed_results.get("success"):
                 retro["remediation"].update(remed_results["outputs"])
 
-        # Timing
+        # Data quality — how complete was the aggregator data for this run?
+        retro["data_quality"] = {
+            "context_tier": assignment.get("context_tier"),
+            "context_sources": assignment.get("context_sources", []),
+            "dossier_completeness": assignment.get("dossier_completeness"),
+            "aggregator_meta": assignment.get("aggregator_meta"),
+        }
+
+        # Copilot session workflow analysis
+        retro["workflow"] = self._fetch_workflow_analysis(
+            ctx.get("my_user", ""), repo, pr_number)
+
+        # Timing — per-stage timestamps from assignment record
         retro["timing"] = {
             "assigned_at": assignment.get("assigned_at"),
+            "swe_done_at": assignment.get("stage4_swe_done_at"),
+            "sa_done_at": assignment.get("stage4_sa_done_at"),
+            "review_done_at": assignment.get("stage4_review_done_at"),
+            "remediation_done_at": assignment.get("stage4d_done_at"),
             "completed_at": now,
         }
 
         return retro
+
+    # ---- Copilot session analysis ----
+
+    def _fetch_workflow_analysis(self, my_user, repo, pr_number):
+        """Fetch Copilot agent workflow analysis for a PR.
+
+        Calls scripts/copilot-sessions.py compare --json to get
+        reproduced/verified/tools/step_count data. Returns a dict
+        with workflow metrics, or an empty dict on failure.
+        """
+        if not pr_number or not my_user or not repo:
+            return {}
+
+        script = os.path.join(
+            os.path.dirname(__file__), "..", "..", "scripts", "copilot-sessions.py"
+        )
+        script = os.path.normpath(script)
+
+        if not os.path.exists(script):
+            logger.warning("copilot-sessions.py not found at %s", script)
+            return {}
+
+        try:
+            result = subprocess.run(
+                ["python", script, "compare",
+                 "-R", f"{my_user}/{repo}",
+                 "--prs", str(pr_number),
+                 "--json"],
+                capture_output=True, text=True, timeout=120,
+                encoding="utf-8", errors="replace",
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            logger.warning("Workflow analysis failed for PR #%s: %s", pr_number, exc)
+            return {}
+
+        # The JSON block is printed after the table — find it
+        output = result.stdout
+        json_start = output.rfind("[")
+        if json_start == -1:
+            return {}
+
+        try:
+            entries = json.loads(output[json_start:])
+        except (json.JSONDecodeError, ValueError):
+            return {}
+
+        if not entries or "error" in entries[0]:
+            return {}
+
+        analysis = entries[0]
+        return {
+            "reproduced": analysis.get("reproduced", False),
+            "verified": analysis.get("verified", False),
+            "tool_installed": analysis.get("tool_installed", False),
+            "code_review": analysis.get("code_review", False),
+            "codeql": analysis.get("codeql", False),
+            "self_corrected": analysis.get("self_corrected", False),
+            "tools_used": analysis.get("tools_used", []),
+            "step_count": analysis.get("step_count", 0),
+        }
 
     # ---- Context builders ----
 

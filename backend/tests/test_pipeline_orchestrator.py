@@ -241,15 +241,18 @@ class TestOrchestratorEdgeCases:
         assignment = _make_assignment()
         orch.advance(assignment, {"my_user": "me"})
 
-        mock_svc.update_assignment.assert_called_once_with(
-            "repo", 1,
-            {"stage4_status": "swe_agent_done",
-             "stage4_pr_number": 2,
-             "stage4_pr_branch": "fix/x"},
-        )
+        mock_svc.update_assignment.assert_called_once()
+        call_args = mock_svc.update_assignment.call_args
+        assert call_args[0][0] == "repo"
+        assert call_args[0][1] == 1
+        updates = call_args[0][2]
+        assert updates["stage4_status"] == "swe_agent_done"
+        assert updates["stage4_pr_number"] == 2
+        assert updates["stage4_pr_branch"] == "fix/x"
 
+    @patch.object(PipelineOrchestrator, "_fetch_workflow_analysis", return_value={})
     @patch("services.pipeline_orchestrator.run_gh_command")
-    def test_full_pipeline_walk_with_skip(self, mock_gh):
+    def test_full_pipeline_walk_with_skip(self, mock_gh, _mock_wf):
         """Walk through pipeline with 4d skipped (no inline comments)."""
         # inline comments count → 0
         mock_gh.return_value = {"success": True, "output": "0\n"}
@@ -442,8 +445,13 @@ class TestOrchestratorRemediation:
 class TestOrchestratorRetrospective:
     """Tests for retrospective logging (4.5)."""
 
+    @patch.object(PipelineOrchestrator, "_fetch_workflow_analysis", return_value={
+        "reproduced": True, "verified": True, "tool_installed": False,
+        "code_review": True, "codeql": False, "self_corrected": False,
+        "tools_used": ["ruff"], "step_count": 25,
+    })
     @patch("services.pipeline_orchestrator.run_gh_command")
-    def test_logs_retrospective_and_finalizes(self, mock_gh):
+    def test_logs_retrospective_and_finalizes(self, mock_gh, _mock_wf):
         """Retrospective collects metrics and advances to complete."""
         # Mock for _count_inline_comments in retrospective
         mock_gh.return_value = {"success": True, "output": "2\n"}
@@ -483,9 +491,18 @@ class TestOrchestratorRetrospective:
         assert retro["swe"]["pr_number"] == 14
         assert retro["review"]["actionable"] is True
         assert retro["remediation"]["skipped"] is False
+        # Verify workflow analysis is included
+        assert retro["workflow"]["reproduced"] is True
+        assert retro["workflow"]["code_review"] is True
+        assert retro["workflow"]["step_count"] == 25
+        # Verify data_quality section exists
+        assert "data_quality" in retro
+        assert "context_tier" in retro["data_quality"]
+        assert "context_sources" in retro["data_quality"]
 
+    @patch.object(PipelineOrchestrator, "_fetch_workflow_analysis", return_value={})
     @patch("services.pipeline_orchestrator.run_gh_command")
-    def test_retrospective_without_service(self, mock_gh):
+    def test_retrospective_without_service(self, mock_gh, _mock_wf):
         """Retrospective works without oss_service (no persistence)."""
         mock_gh.return_value = {"success": True, "output": "0\n"}
         orch = PipelineOrchestrator(
@@ -505,3 +522,32 @@ class TestOrchestratorRetrospective:
         assert result["status"] == "retrospective_complete"
         retro = result["retrospective"]
         assert retro["remediation"]["skipped"] is True
+        assert retro["workflow"] == {}
+
+    @patch.object(PipelineOrchestrator, "_fetch_workflow_analysis", return_value={})
+    @patch("services.pipeline_orchestrator.run_gh_command")
+    def test_retrospective_includes_data_quality(self, mock_gh, _mock_wf):
+        """Retrospective data_quality section reflects assignment metadata."""
+        mock_gh.return_value = {"success": True, "output": "0\n"}
+        orch = PipelineOrchestrator(
+            dispatchers={"swe": MockDispatcher(),
+                         "static_analysis": MockDispatcher(),
+                         "review": MockDispatcher(),
+                         "remediation": MockDispatcher()},
+        )
+        assignment = _make_assignment(
+            stage4_status="remediation_done",
+            stage4_pr_number=14,
+            stage4d_skipped=True,
+            context_tier=2,
+            context_sources=["aggregator-dossier", "gh-issue-view"],
+            dossier_completeness={"score": 5, "total": 6},
+            aggregator_meta={"dossier": {"scraped_at": "2026-02-24T00:00:00Z"}},
+        )
+        result = orch.advance(assignment, {"my_user": "me"})
+        retro = result["retrospective"]
+        dq = retro["data_quality"]
+        assert dq["context_tier"] == 2
+        assert "aggregator-dossier" in dq["context_sources"]
+        assert dq["dossier_completeness"]["score"] == 5
+        assert dq["aggregator_meta"]["dossier"]["scraped_at"] == "2026-02-24T00:00:00Z"

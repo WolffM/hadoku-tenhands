@@ -321,7 +321,7 @@ class TestGoTierNotificationIntegration:
         self, _mock_user, mock_svc_cls, mock_gh, mock_score, mock_discord_post, client
     ):
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = []
+        svc.get_scored_issues.return_value = ([], None)
         svc.get_local_watchlist.return_value = [
             {"owner": "fastify", "repo": "fastify", "slug": "fastify-fastify"}
         ]

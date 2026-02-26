@@ -119,9 +119,12 @@ def api_oss_stage2_issues():
     svc = OSSService()
 
     # Try aggregator first
-    aggregator_issues = svc.get_scored_issues()
+    aggregator_issues, issues_meta = svc.get_scored_issues(include_meta=True)
     if aggregator_issues:
-        return {"success": True, "issues": aggregator_issues, "owner": my_user}
+        resp = {"success": True, "issues": aggregator_issues, "owner": my_user}
+        if issues_meta:
+            resp["_meta"] = issues_meta
+        return resp
 
     # Fallback: fetch from gh CLI for each target in local watchlist
     local_watchlist = svc.get_local_watchlist()

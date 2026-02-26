@@ -13,10 +13,8 @@ from . import bp
 
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
-    from ..services.oss_service import _call_aggregator
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
-    from services.oss_service import _call_aggregator
 
 
 def _enrich_target_via_gh(entry):
@@ -56,16 +54,19 @@ def api_oss_stage1_targets():
         targets = []
         for slug in aggregator_slugs:
             target = {"slug": slug}
-            health_resp = _call_aggregator(f"/recon/{slug}/health")
-            # Unwrap: { success, data: { maintainerHealthScore, ... } }
-            health = health_resp.get("data", health_resp) if isinstance(health_resp, dict) else None
+            health, health_meta = svc.get_health(slug, include_meta=True)
             if health:
                 target["health"] = {
                     "maintainerHealthScore": health.get("maintainerHealthScore", 0),
                     "mergeAccessibilityScore": health.get("mergeAccessibilityScore", 0),
                     "availabilityScore": health.get("availabilityScore", 0),
                     "overallViability": health.get("overallViability", 0),
+                    "prPatterns": health.get("prPatterns"),
+                    "detectedQuirks": health.get("detectedQuirks"),
+                    "analyzedAt": health.get("analyzedAt"),
                 }
+                if health_meta:
+                    target["_meta"] = health_meta
             targets.append(target)
         return {"success": True, "targets": targets, "owner": my_user}
 

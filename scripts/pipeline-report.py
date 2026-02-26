@@ -30,11 +30,14 @@ def render_table(entries):
         print("No retrospective logs found.")
         return
 
+    yn = lambda v: "YES" if v else "no "
+
     # Header
     cols = [
         ("Issue", 7), ("PR", 5), ("+/-", 10), ("Files", 5),
-        ("Commits", 7), ("SA", 10), ("Review", 12),
-        ("Remed", 8),
+        ("SA", 8), ("Review", 8), ("Remed", 6),
+        ("Repro", 5), ("Verify", 6), ("SelfFx", 6), ("Steps", 5),
+        ("Tier", 4), ("Agent", 12),
     ]
     header = "  ".join(name.ljust(width) for name, width in cols)
     print(header)
@@ -48,27 +51,39 @@ def render_table(entries):
         additions = swe.get("additions", 0)
         deletions = swe.get("deletions", 0)
         diff = f"+{additions}/-{deletions}"
-        files = str(swe.get("changed_files", swe.get("commit_count", "?")))
-        commits = str(swe.get("commit_count", "?"))
+        files = str(swe.get("changed_files", "?"))
 
         sa = e.get("static_analysis", {})
-        sa_text = sa.get("conclusion", "?")
+        sa_text = sa.get("conclusion", "?")[:8]
 
         review = e.get("review", {})
         review_count = review.get("inline_comment_count", 0)
-        review_text = f"{review_count} comments"
+        review_text = f"{review_count} cmts"
 
         remed = e.get("remediation", {})
         if remed.get("skipped"):
             remed_text = "skip"
         else:
             new = remed.get("new_commits", "?")
-            remed_text = f"{new} commit" if new != "?" else "done"
+            remed_text = f"+{new}" if new != "?" else "done"
+
+        wf = e.get("workflow", {})
+        repro = yn(wf.get("reproduced"))
+        verify = yn(wf.get("verified"))
+        selffix = yn(wf.get("self_corrected"))
+        steps = str(wf.get("step_count", "?"))
+
+        pl = e.get("pipeline", {})
+        agent = pl.get("swe_agent", "?").replace("Dispatcher", "")[:12]
+
+        dq = e.get("data_quality", {})
+        tier = str(dq.get("context_tier", "?"))
 
         row = [
             issue.ljust(7), pr.ljust(5), diff.ljust(10), files.ljust(5),
-            commits.ljust(7), sa_text.ljust(10), review_text.ljust(12),
-            remed_text.ljust(8),
+            sa_text.ljust(8), review_text.ljust(8), remed_text.ljust(6),
+            repro.ljust(5), verify.ljust(6), selffix.ljust(6), steps.ljust(5),
+            tier.ljust(4), agent.ljust(12),
         ]
         print("  ".join(row))
 
