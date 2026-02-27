@@ -466,11 +466,13 @@ class PipelineOrchestrator:
             logger.warning("Workflow analysis failed for PR #%s: %s", pr_number, exc)
             return {}
 
-        # The JSON block is printed after the table — find it
+        # The JSON block is printed after the table — find the top-level array
+        # Use "\n[" to avoid matching "[" inside JSON values (e.g. empty arrays)
         output = result.stdout
-        json_start = output.rfind("[")
+        json_start = output.rfind("\n[")
         if json_start == -1:
             return {}
+        json_start += 1  # skip the newline itself
 
         try:
             entries = json.loads(output[json_start:])

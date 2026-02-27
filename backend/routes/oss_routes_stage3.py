@@ -121,6 +121,13 @@ def api_oss_fork_and_assign():
             "context_sources": [],
         })
 
+    # Extract language and toolchain from issue brief (used for workflows + assignment metadata)
+    language = None
+    toolchain_profile = None
+    if issue_brief and issue_brief.get("repoHealth"):
+        language = issue_brief["repoHealth"].get("language")
+        toolchain_profile = issue_brief["repoHealth"].get("toolchainProfile")
+
     if is_self_owned:
         # Self-owned repo — no fork needed, create issue directly on the repo
         pass
@@ -154,15 +161,9 @@ def api_oss_fork_and_assign():
         svc.ensure_copilot_instructions(my_user, repo)
 
         # 3d. Ensure CI workflow exists on fork for deterministic quality checks
-        language = None
-        if issue_brief and issue_brief.get("repoHealth"):
-            language = issue_brief["repoHealth"].get("language")
         svc.ensure_ci_workflow(my_user, repo, language=language)
 
         # 3e. Ensure static analysis workflow exists on fork for Stage 4b
-        toolchain_profile = None
-        if issue_brief and issue_brief.get("repoHealth"):
-            toolchain_profile = issue_brief["repoHealth"].get("toolchainProfile")
         svc.ensure_static_analysis_workflow(my_user, repo,
                                             toolchain_profile=toolchain_profile,
                                             language=language)
@@ -232,6 +233,10 @@ def api_oss_fork_and_assign():
         "context_tier": context_metadata.get("context_tier"),
         "context_sources": context_metadata.get("sources", []),
     }
+    if language:
+        meta_updates["language"] = language
+    if toolchain_profile:
+        meta_updates["toolchain_profile"] = toolchain_profile
     if aggregator_meta:
         meta_updates["aggregator_meta"] = aggregator_meta
     if dossier_completeness:
