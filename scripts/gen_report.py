@@ -2,10 +2,15 @@
 """Generate pipeline-report.html from retrospective-logs.json + assignments.json."""
 import json
 import os
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from glob import glob
 
 BASE = os.path.join(os.path.dirname(__file__), "..")
 LOG_PATH = os.path.join(BASE, "backend", ".cache", "oss", "retrospective-logs.json")
 ASSIGN_PATH = os.path.join(BASE, "backend", ".cache", "oss", "assignments.json")
+CACHE_DIR = os.path.join(BASE, "backend", ".cache")
 OUT_PATH = os.path.join(BASE, "pipeline-report.html")
 
 with open(LOG_PATH, "r", encoding="utf-8") as f:
@@ -13,41 +18,222 @@ with open(LOG_PATH, "r", encoding="utf-8") as f:
 with open(ASSIGN_PATH, "r", encoding="utf-8") as f:
     assignments = json.load(f)
 
-ev = [e for e in logs if e.get("repo") == "email-verifier"]
-ev_assign = [a for a in assignments if a.get("repo") == "email-verifier"]
 
-run1 = [e for e in ev if e.get("created_at", "") < "2026-02-26T20:00"]
-run2 = [e for e in ev if "2026-02-26T23:00" <= e.get("created_at", "") < "2026-02-27T00:00"]
-run3 = [e for e in ev if e.get("created_at", "") >= "2026-02-27T01:00"]
+# ---------------------------------------------------------------------------
+# Auto-detect target repo (CLI arg or most recent retro entry)
+# ---------------------------------------------------------------------------
+if len(sys.argv) > 1:
+    REPO_NAME = sys.argv[1]
+else:
+    # Pick the repo with the most retrospective entries
+    repo_counts = {}
+    for e in logs:
+        r = e.get("repo", "")
+        if r:
+            repo_counts[r] = repo_counts.get(r, 0) + 1
+    REPO_NAME = max(repo_counts, key=lambda r: repo_counts[r]) if repo_counts else None
+    if not REPO_NAME:
+        print("No retrospective entries found.")
+        sys.exit(1)
 
-# Stage 1 health data (embedded from last known fetch)
+print(f"Generating report for: {REPO_NAME}")
+ev = [e for e in logs if e.get("repo") == REPO_NAME]
+ev_assign = [a for a in assignments if a.get("repo") == REPO_NAME]
+
+
+# ---------------------------------------------------------------------------
+# Derive slugs from assignment data
+# ---------------------------------------------------------------------------
+FORK_SLUG = None
+ORIGIN_SLUG = None
+for a in ev_assign:
+    if not ORIGIN_SLUG and a.get("origin_slug"):
+        ORIGIN_SLUG = a["origin_slug"]
+    if not FORK_SLUG:
+        url = a.get("fork_issue_url", "")
+        if "github.com/" in url:
+            parts = url.split("github.com/")[1].split("/")
+            if len(parts) >= 2:
+                FORK_SLUG = f"{parts[0]}/{parts[1]}"
+    if FORK_SLUG and ORIGIN_SLUG:
+        break
+
+if not ORIGIN_SLUG:
+    ORIGIN_SLUG = REPO_NAME  # fallback
+
+
+# ---------------------------------------------------------------------------
+# Auto-detect runs by clustering entries with >1hr gaps
+# ---------------------------------------------------------------------------
+ev_sorted = sorted(ev, key=lambda e: e.get("created_at", ""))
+runs = []
+current_run = []
+for entry in ev_sorted:
+    ts = entry.get("created_at", "")
+    if not ts:
+        current_run.append(entry)
+        continue
+    if current_run:
+        prev_ts = current_run[-1].get("created_at", "")
+        if prev_ts:
+            try:
+                t_prev = datetime.fromisoformat(prev_ts.replace("Z", "+00:00"))
+                t_curr = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if (t_curr - t_prev) > timedelta(hours=1):
+                    runs.append(current_run)
+                    current_run = []
+            except ValueError:
+                pass
+    current_run.append(entry)
+if current_run:
+    runs.append(current_run)
+
+# Build run labels from timestamps
+run_defs = []
+for i, run_entries in enumerate(runs):
+    first_ts = run_entries[0].get("created_at", "")
+    try:
+        dt = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
+        tag = dt.strftime("%b %d, %H:%M")
+    except (ValueError, TypeError):
+        tag = "?"
+    run_defs.append({
+        "label": f"Run {i + 1}",
+        "tag": tag,
+        "entries": run_entries,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Load health data from Stage 1 targets cache
+# ---------------------------------------------------------------------------
+def load_health_from_cache():
+    """Find health data in the file-based cache."""
+    for cache_file in glob(os.path.join(CACHE_DIR, "*.json")):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            if d.get("key") != "oss-stage1-targets":
+                continue
+            targets = d.get("data", {}).get("targets", [])
+            for t in targets:
+                slug = t.get("slug", "")
+                # Match: reisepass-email-verifier vs email-verifier
+                if slug.endswith(f"-{REPO_NAME}") or slug == REPO_NAME:
+                    return t.get("health", {})
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return {}
+
+
+cached_health = load_health_from_cache()
+
+# Merge assignment fields (language, default_branch) with cached health
+health_language = None
+health_branch = None
+for a in ev_assign:
+    if not health_language and a.get("language"):
+        health_language = a["language"]
+    if not health_branch and a.get("default_branch"):
+        health_branch = a["default_branch"]
+    if health_language and health_branch:
+        break
+
 health_data = {
-    "slug": "reisepass-email-verifier",
-    "defaultBranch": "master",
-    "language": "Python",
-    "maintainerHealthScore": 15,
-    "mergeAccessibilityScore": 15,
-    "availabilityScore": 70,
-    "overallViability": 29,
-    "killed": False,
-    "prPatterns": {
-        "medianFilesChanged": 1.5,
-        "medianAdditions": 17.5,
-        "medianTimeToMergeDays": 5.8,
-        "mergeStyle": "squash",
-        "externalContributorMergeRate": 1,
-    },
+    "language": health_language,
+    "defaultBranch": health_branch or "main",
+    "maintainerHealthScore": cached_health.get("maintainerHealthScore", 0),
+    "mergeAccessibilityScore": cached_health.get("mergeAccessibilityScore", 0),
+    "availabilityScore": cached_health.get("availabilityScore", 0),
+    "overallViability": cached_health.get("overallViability", 0),
+    "prPatterns": cached_health.get("prPatterns", {}),
 }
 
+
+# ---------------------------------------------------------------------------
+# Fetch SA job-level details + annotations from GitHub Actions API
+# ---------------------------------------------------------------------------
+def _gh_json(args):
+    """Run gh command and return parsed JSON, or None on failure."""
+    try:
+        r = subprocess.run(
+            ["gh"] + args,
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return json.loads(r.stdout)
+    except Exception:
+        pass
+    return None
+
+
+def fetch_sa_details(run_id):
+    """Fetch per-job conclusions and per-job annotations for a SA run."""
+    if not run_id or not FORK_SLUG:
+        return None
+
+    jobs_data = _gh_json([
+        "api", f"repos/{FORK_SLUG}/actions/runs/{run_id}/jobs",
+        "--jq", ".jobs",
+    ])
+    if not jobs_data:
+        return None
+
+    result = {"jobs": [], "total_annotations": 0}
+    for job in jobs_data:
+        job_info = {
+            "name": job.get("name", "unknown"),
+            "conclusion": job.get("conclusion", "unknown"),
+        }
+        annotations = _gh_json([
+            "api", f"repos/{FORK_SLUG}/check-runs/{job['id']}/annotations",
+        ])
+        if annotations:
+            findings = [
+                {
+                    "path": a.get("path", ""),
+                    "line": a.get("start_line", 0),
+                    "level": a.get("annotation_level", ""),
+                    "message": a.get("message", ""),
+                }
+                for a in annotations
+                if a.get("path", "") != ".github"
+            ]
+            job_info["annotations"] = findings
+            result["total_annotations"] += len(findings)
+        else:
+            job_info["annotations"] = []
+        result["jobs"].append(job_info)
+
+    return result
+
+
+# Collect unique SA run IDs across all entries, fetch once per run
+all_entries = [e for run in runs for e in run]
+sa_cache = {}
+print("Fetching SA job details from GitHub API...")
+for entry in all_entries:
+    rid = entry.get("static_analysis", {}).get("run_id")
+    if rid and rid not in sa_cache:
+        print(f"  Fetching run {rid}...")
+        sa_cache[rid] = fetch_sa_details(rid)
+
+# Attach SA detail to each entry
+for entry in all_entries:
+    rid = entry.get("static_analysis", {}).get("run_id")
+    if rid and sa_cache.get(rid):
+        entry["static_analysis"]["jobs"] = sa_cache[rid]["jobs"]
+        entry["static_analysis"]["total_annotations"] = sa_cache[rid]["total_annotations"]
+
+
+# ---------------------------------------------------------------------------
+# Build report data
+# ---------------------------------------------------------------------------
 report_data = {
-    "repo": "reisepass/email-verifier",
+    "repo": ORIGIN_SLUG,
     "health": health_data,
     "assignments": ev_assign,
-    "runs": [
-        {"label": "Run 1 \u2014 Baseline", "tag": "Feb 26, 18:39", "entries": run1},
-        {"label": "Run 2 \u2014 Buggy", "tag": "Feb 26, 23:53", "entries": run2},
-        {"label": "Run 3 \u2014 Fixed", "tag": "Feb 27, 01:07", "entries": run3},
-    ],
+    "runs": run_defs,
 }
 
 json_blob = json.dumps(report_data)
@@ -57,7 +243,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pipeline Report — reisepass/email-verifier</title>
+<title>Pipeline Report</title>
 <style>
 :root {
   --bg: #0d1117; --surface: #161b22; --surface2: #1c2129; --border: #30363d;
@@ -162,6 +348,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .b-muted { background: rgba(139,148,158,0.1); color: var(--muted); }
 
 .empty-detail { padding: 48px; text-align: center; color: var(--muted); font-size: 0.9em; }
+
+.sa-findings { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
+.sa-finding { display: flex; gap: 8px; font-size: 0.78em; padding: 2px 0; align-items: baseline; }
+.sf-file { color: var(--blue); font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 0.85em; white-space: nowrap; flex-shrink: 0; }
+.sf-msg { color: var(--text2); }
 
 details { margin-top: 16px; }
 details summary { cursor: pointer; color: var(--blue); font-size: 0.82em; font-weight: 500; }
@@ -334,9 +525,17 @@ function renderDetail() {
           <div class="d-row"><span class="label">Commits</span><span class="val">${swe.commit_count||0}</span></div>
         </div>
         <div class="detail-section">
-          <div class="detail-section-title">Static Analysis</div>
-          <div class="d-row"><span class="label">Conclusion</span><span class="val">${saBadge}</span></div>
-          <div class="d-row"><span class="label">Run ID</span><span class="val" style="font-family:monospace;font-size:0.8em">${sa.run_id || '\u2014'}</span></div>
+          <div class="detail-section-title">Static Analysis ${saBadge}</div>
+          ${(sa.jobs || []).length ? sa.jobs.map(j => {
+            const jb = j.conclusion === 'success' ? badge('pass','green') : j.conclusion === 'failure' ? badge('fail','red') : badge(j.conclusion||'?','yellow');
+            const count = (j.annotations || []).length;
+            return `<div class="d-row"><span class="label" style="font-weight:600">${j.name}</span><span class="val">${jb}${count ? ' <span style=\"color:var(--muted);font-size:0.8em\">' + count + ' finding' + (count>1?'s':'') + '</span>' : ''}</span></div>`;
+          }).join('') : `<div class="d-row"><span class="label">Run</span><span class="val" style="font-family:monospace;font-size:0.8em">${sa.run_id || '\u2014'}</span></div>`}
+          ${(sa.jobs || []).some(j => j.annotations?.length) ? '<div class="sa-findings">' + sa.jobs.filter(j => j.annotations?.length).map(j =>
+            j.annotations.map(a =>
+              `<div class="sa-finding"><span class="sf-file">${a.path}:${a.line}</span><span class="sf-msg">${a.message.split('\\n')[0]}</span></div>`
+            ).join('')
+          ).join('') + '</div>' : ''}
         </div>
         <div class="detail-section">
           <div class="detail-section-title">Code Review</div>
@@ -403,18 +602,23 @@ function renderContent() {
   const sample = entries[0] || {};
   const dq = sample.data_quality || {};
   const dc = dq.dossier_completeness || {};
+  const tierColor = dq.context_tier === 1 ? 'green' : dq.context_tier === 2 ? 'yellow' : 'red';
+  const tierLabel = dq.context_tier === 1 ? 'Tier 1 \u2014 Issue Brief' : dq.context_tier === 2 ? 'Tier 2 \u2014 Dossier Only' : 'Tier 3 \u2014 Fallback';
+  const dossierScore = (dc.score != null ? dc.score : '?') + '/' + (dc.total != null ? dc.total : '6');
+  const ck = (v) => v ? '\u2705' : '\u274c';
   html += `<div class="stage-card s2">
     <div class="stage-label">Stage 2 \u2014 Scored Issues</div>
     <div class="stage-title">${n} Issues Selected</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      ${badge(tip(tierLabel, 'Quality tier of context given to the agent. Tier 1 = full aggregator issue brief (best). Tier 2 = dossier sections only. Tier 3 = CONTRIBUTING.md fallback via gh CLI.'), tierColor)}
+    </div>
     <div class="stage-grid">
-      <div><div class="sg-label">${tip('Context Tier', 'Quality tier of context given to the agent. Tier 1 = full aggregator issue brief (best). Tier 2 = dossier sections only. Tier 3 = CONTRIBUTING.md fallback via gh CLI.')}</div><div class="sg-value">${dq.context_tier || '?'}</div></div>
-      <div><div class="sg-label">Source</div><div class="sg-value">${(dq.context_sources||[]).join(', ') || '\u2014'}</div></div>
-      <div><div class="sg-label">Overview</div><div class="sg-value">${dc.overview ? '\u2705' : '\u274c'}</div></div>
-      <div><div class="sg-label">Issue Board</div><div class="sg-value">${dc.issueBoard ? '\u2705' : '\u274c'}</div></div>
-      <div><div class="sg-label">Contrib Rules</div><div class="sg-value">${dc.contributionRules ? '\u2705' : '\u274c'}</div></div>
-      <div><div class="sg-label">Anti-Patterns</div><div class="sg-value">${dc.antiPatterns ? '\u2705' : '\u274c'}</div></div>
-      <div><div class="sg-label">Env Setup</div><div class="sg-value">${dc.environmentSetup ? '\u2705' : '\u274c'}</div></div>
-      <div><div class="sg-label">Success Pat.</div><div class="sg-value">${dc.successPatterns ? '\u2705' : '\u274c'}</div></div>
+      <div><div class="sg-label">Overview</div><div class="sg-value">${ck(dc.overview)}</div></div>
+      <div><div class="sg-label">Issue Board</div><div class="sg-value">${ck(dc.issueBoard)}</div></div>
+      <div><div class="sg-label">Contrib Rules</div><div class="sg-value">${ck(dc.contributionRules)}</div></div>
+      <div><div class="sg-label">Anti-Patterns</div><div class="sg-value">${ck(dc.antiPatterns)}</div></div>
+      <div><div class="sg-label">Env Setup</div><div class="sg-value">${ck(dc.environmentSetup)}</div></div>
+      <div><div class="sg-label">Success Pat.</div><div class="sg-value">${ck(dc.successPatterns)}</div></div>
     </div>
   </div>`;
 
@@ -422,16 +626,20 @@ function renderContent() {
   const firstTiming = (entries[0]?.timing || {});
   const assignStart = firstTiming.assigned_at ? new Date(firstTiming.assigned_at).toLocaleTimeString() : '\u2014';
   const firstLang = entries[0]?.pipeline?.language;
+  const shortName = (s) => {
+    if (!s) return '\u2014';
+    return s.replace('CopilotSWEDispatcher','Copilot SWE').replace('CopilotReviewDispatcher','Copilot Review').replace('CopilotRemediationDispatcher','Copilot Remed.').replace('GitHubActionsDispatcher','GH Actions');
+  };
   html += `<div class="stage-card s3">
     <div class="stage-label">Stage 3 \u2014 Fork & Assign</div>
     <div class="stage-title">Copilot SWE Agent</div>
     <div class="stage-grid">
       <div><div class="sg-label">Language</div><div class="sg-value" style="color:${firstLang ? 'var(--green)' : 'var(--red)'}">${firstLang || 'null'}</div></div>
       <div><div class="sg-label">Assigned At</div><div class="sg-value">${assignStart}</div></div>
-      <div><div class="sg-label">SWE Agent</div><div class="sg-value">${entries[0]?.pipeline?.swe_agent || '\u2014'}</div></div>
-      <div><div class="sg-label">Review Agent</div><div class="sg-value">${entries[0]?.pipeline?.review_agent || '\u2014'}</div></div>
-      <div><div class="sg-label">SA Engine</div><div class="sg-value">${entries[0]?.pipeline?.static_analysis || '\u2014'}</div></div>
-      <div><div class="sg-label">Remed Agent</div><div class="sg-value">${entries[0]?.pipeline?.remediation_agent || '\u2014'}</div></div>
+      <div><div class="sg-label">SWE</div><div class="sg-value">${shortName(entries[0]?.pipeline?.swe_agent)}</div></div>
+      <div><div class="sg-label">Review</div><div class="sg-value">${shortName(entries[0]?.pipeline?.review_agent)}</div></div>
+      <div><div class="sg-label">SA</div><div class="sg-value">${shortName(entries[0]?.pipeline?.static_analysis)}</div></div>
+      <div><div class="sg-label">Remediation</div><div class="sg-value">${shortName(entries[0]?.pipeline?.remediation_agent)}</div></div>
     </div>
   </div>`;
 
@@ -485,4 +693,5 @@ with open(OUT_PATH, "w", encoding="utf-8") as f:
     f.write(html)
 
 print(f"Written {OUT_PATH}")
-print(f"  Run 1: {len(run1)} entries, Run 2: {len(run2)} entries, Run 3: {len(run3)} entries")
+for rd in run_defs:
+    print(f"  {rd['label']} ({rd['tag']}): {len(rd['entries'])} entries")
