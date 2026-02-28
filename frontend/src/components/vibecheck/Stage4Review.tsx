@@ -14,6 +14,7 @@ import { isPRReady } from '../../utils'
 import { useReviewActions } from '../../hooks'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
+import { SectionHeader } from '../common/SectionHeader'
 import { PRRow } from '../review/PRRow'
 import { PRModal } from '../review/PRModal'
 
@@ -143,12 +144,7 @@ export function Stage4Review() {
       {/* Ready for Review Section */}
       {readyPRs.length > 0 ? (
         <div className="stage-section stage-section--ready">
-          <div className="stage-section__header">
-            <h3 className="stage-section__title">
-              <span className="stage-section__icon">✅</span>
-              Ready for Review ({readyPRs.length})
-            </h3>
-          </div>
+          <SectionHeader icon="✅" title="Ready for Review" count={readyPRs.length} />
 
           <div className="table-container">
             <table className="data-table">
@@ -194,12 +190,7 @@ export function Stage4Review() {
         <>
           <hr className="stage-divider" />
           <div className="stage-section">
-            <div className="stage-section__header">
-              <h3 className="stage-section__title">
-                <span className="stage-section__icon">⏳</span>
-                In Progress / Draft ({inProgressPRs.length})
-              </h3>
-            </div>
+            <SectionHeader icon="⏳" title="In Progress / Draft" count={inProgressPRs.length} />
 
             <div className="table-container">
               <table className="data-table">
