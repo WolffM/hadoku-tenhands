@@ -1,6 +1,6 @@
 {
   "name": "@wolffm/vibedispatch",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "VibeDispatch UI - Task dispatch and management interface",
   "type": "module",
   "repository": {
@@ -29,10 +29,14 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "prepare": "husky",
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed",
-    "test:debug": "playwright test --debug"
+    "test": "playwright test --project=chromium",
+    "test:ui": "playwright test --project=chromium --ui",
+    "test:headed": "playwright test --project=chromium --headed",
+    "test:debug": "playwright test --project=chromium --debug",
+    "test:prod": "playwright test --project=prod",
+    "test:prod:ui": "playwright test --project=prod --ui",
+    "test:prod:headed": "playwright test --project=prod --headed",
+    "test:prod:debug": "playwright test --project=prod --debug"
   },
   "peerDependencies": {
     "@wolffm/task-ui-components": ">=1.0.0",

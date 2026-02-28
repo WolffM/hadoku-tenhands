@@ -21,7 +21,22 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: '**/prod/**',
       use: { ...devices['Desktop Chrome'] }
+    },
+    {
+      name: 'prod',
+      testDir: './e2e/prod',
+      timeout: 60_000,
+      retries: 0,
+      fullyParallel: false,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:5175',
+        trace: 'on',
+        screenshot: 'on',
+        video: 'on'
+      }
     }
   ],
 
