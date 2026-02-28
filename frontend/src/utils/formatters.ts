@@ -37,3 +37,21 @@ export function escapeHtml(text: string): string {
   div.textContent = text
   return div.innerHTML
 }
+
+/**
+ * Convert aggregator hyphenated slug to canonical slashed format.
+ * "facebook-react" → "facebook/react"
+ * Only replaces the first hyphen (aggregator convention: owner-repo).
+ */
+export function hyphenatedToSlashed(slug: string): string {
+  const idx = slug.indexOf('-')
+  return idx === -1 ? slug : slug.substring(0, idx) + '/' + slug.substring(idx + 1)
+}
+
+/**
+ * Convert canonical slashed slug to aggregator hyphenated format.
+ * "facebook/react" → "facebook-react"
+ */
+export function slashedToHyphenated(slug: string): string {
+  return slug.replace('/', '-')
+}

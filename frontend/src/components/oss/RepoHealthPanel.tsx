@@ -10,6 +10,7 @@ import { marked } from 'marked'
 import { usePipelineStore } from '../../store'
 import { refreshOSSTarget, computeOSSTarget } from '../../api/endpoints'
 import type { RepoHealthTarget, DossierSections } from '../../api/types'
+import { hyphenatedToSlashed } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
 
@@ -83,6 +84,7 @@ export function RepoHealthPanel() {
   const ossStage1 = usePipelineStore(state => state.ossStage1)
   const loadOSSStage1 = usePipelineStore(state => state.loadOSSStage1)
   const addLog = usePipelineStore(state => state.addLog)
+  const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
 
   const [refreshingSlug, setRefreshingSlug] = useState<string | null>(null)
   const [computingSlug, setComputingSlug] = useState<string | null>(null)
@@ -119,9 +121,13 @@ export function RepoHealthPanel() {
     }
   }
 
-  const targets = ossStage1.items as RepoHealthTarget[]
+  const allTargets = ossStage1.items as RepoHealthTarget[]
+  const targets = useMemo(
+    () => allTargets.filter(t => !excludedRepos.has(hyphenatedToSlashed(t.slug))),
+    [allTargets, excludedRepos]
+  )
 
-  if (ossStage1.loading && targets.length === 0) {
+  if (ossStage1.loading && allTargets.length === 0) {
     return <LoadingState text="Loading repos..." />
   }
 

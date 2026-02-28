@@ -27,50 +27,27 @@ export function ForkAssignPanel() {
   const ossStage2 = usePipelineStore(state => state.ossStage2)
   const loadOSSPipelineRuns = usePipelineStore(state => state.loadOSSPipelineRuns)
 
+  const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
+
   // Filter state
   const [tierFilter, setTierFilter] = useState<string>('all')
   const [complexityFilter, setComplexityFilter] = useState<string>('all')
   const [lifecycleFilter, setLifecycleFilter] = useState<string>('all')
 
-  // Repo filter state
-  const [enabledRepos, setEnabledRepos] = useState<Set<string> | null>(null)
-
   // Dossier panel state
   const [dossierSlug, setDossierSlug] = useState<string | null>(null)
-
-  // Unique repos from scored issues
-  const allRepos = useMemo(() => {
-    const repos = new Set<string>()
-    for (const issue of ossStage2.items) {
-      if (issue.repo) repos.add(issue.repo)
-    }
-    return Array.from(repos).sort()
-  }, [ossStage2.items])
-
-  // Initialize enabledRepos to all repos on first render
-  const activeRepos = enabledRepos ?? new Set(allRepos)
-
-  const toggleRepo = (repo: string) => {
-    const next = new Set(activeRepos)
-    if (next.has(repo)) {
-      next.delete(repo)
-    } else {
-      next.add(repo)
-    }
-    setEnabledRepos(next)
-  }
 
   // Filter + sort logic
   const filteredIssues = useMemo(() => {
     let issues = [...ossStage2.items]
-    // Repo filter
-    issues = issues.filter(i => activeRepos.has(i.repo))
+    // Global repo filter
+    issues = issues.filter(i => !excludedRepos.has(i.repo))
     if (tierFilter !== 'all') issues = issues.filter(i => i.cvsTier === tierFilter)
     if (complexityFilter !== 'all') issues = issues.filter(i => i.complexity === complexityFilter)
     if (lifecycleFilter !== 'all') issues = issues.filter(i => i.lifecycleStage === lifecycleFilter)
     issues.sort((a, b) => b.cvs - a.cvs)
     return issues
-  }, [ossStage2.items, activeRepos, tierFilter, complexityFilter, lifecycleFilter])
+  }, [ossStage2.items, excludedRepos, tierFilter, complexityFilter, lifecycleFilter])
 
   // Top 5 recommended issues (highest CVS from filtered repos)
   const recommended = useMemo(() => {
@@ -133,30 +110,6 @@ export function ForkAssignPanel() {
 
   return (
     <div className="stage-panel">
-      {/* Repo Filter */}
-      {allRepos.length > 1 && (
-        <div className="stage-section">
-          <div className="stage-section__header">
-            <h3 className="stage-section__title">
-              <span className="stage-section__icon">{'\u{1F50D}'}</span>
-              Filter by Repo
-            </h3>
-          </div>
-          <div className="repo-filter">
-            {allRepos.map(repo => (
-              <label key={repo} className="repo-filter__item">
-                <input
-                  type="checkbox"
-                  checked={activeRepos.has(repo)}
-                  onChange={() => toggleRepo(repo)}
-                />
-                <span>{repo}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section">

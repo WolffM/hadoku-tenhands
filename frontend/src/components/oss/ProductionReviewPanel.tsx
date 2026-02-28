@@ -32,11 +32,17 @@ export function ProductionReviewPanel() {
   const ossSubmittedPRs = usePipelineStore(state => state.ossSubmittedPRs)
   const loadOSSSubmittedPRs = usePipelineStore(state => state.loadOSSSubmittedPRs)
   const addLog = usePipelineStore(state => state.addLog)
+  const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
 
-  const submitted = ossSubmittedPRs.items as (SubmittedPR & {
+  const allSubmitted = ossSubmittedPRs.items as (SubmittedPR & {
     comment_count?: number
     labels?: string[]
   })[]
+
+  const submitted = useMemo(
+    () => allSubmitted.filter(pr => !excludedRepos.has(pr.originSlug)),
+    [allSubmitted, excludedRepos]
+  )
 
   // Summary counts
   const counts = useMemo(() => {
@@ -57,11 +63,11 @@ export function ProductionReviewPanel() {
     }
   }
 
-  if (ossSubmittedPRs.loading && submitted.length === 0) {
+  if (ossSubmittedPRs.loading && allSubmitted.length === 0) {
     return <LoadingState text="Polling upstream PR statuses..." />
   }
 
-  if (submitted.length === 0) {
+  if (allSubmitted.length === 0) {
     return (
       <div className="stage-panel">
         <EmptyState

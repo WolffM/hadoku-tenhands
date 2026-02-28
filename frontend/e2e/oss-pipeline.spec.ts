@@ -149,24 +149,25 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
     await expect(page.locator('.badge').filter({ hasText: /^go$/i }).first()).toBeVisible()
   })
 
-  test('renders repo filter checkboxes', async ({ page }) => {
-    // There are 2 unique repos: fastify/fastify and vercel/next.js
-    const repoFilters = page.locator('.repo-filter__item')
-    await expect(repoFilters).toHaveCount(2)
-    await expect(repoFilters.filter({ hasText: 'fastify/fastify' })).toBeVisible()
-    await expect(repoFilters.filter({ hasText: 'vercel/next.js' })).toBeVisible()
-  })
-
-  test('toggling repo checkbox filters the issue list', async ({ page }) => {
+  test('global repo filter hides issues from excluded repos', async ({ page }) => {
     // Initially all 3 issues visible
     await expect(page.locator('text=All Issues (3)')).toBeVisible()
 
+    // Open the global filter popover
+    const trigger = page.locator('.repo-filter-trigger')
+    await expect(trigger).toBeVisible()
+    await trigger.click()
+    await expect(page.locator('.repo-filter-popover__panel')).toBeVisible()
+
     // Uncheck vercel/next.js
     const nextjsCheckbox = page
-      .locator('.repo-filter__item')
+      .locator('.repo-filter-popover__item')
       .filter({ hasText: 'vercel/next.js' })
       .locator('input')
     await nextjsCheckbox.uncheck()
+
+    // Close popover by clicking trigger again
+    await trigger.click()
 
     // Should only show 2 fastify issues
     await expect(page.locator('text=All Issues (2)')).toBeVisible()
@@ -564,6 +565,110 @@ test.describe('OSS Pipeline - Navigation', () => {
     await refreshBtn.click()
     // Should not crash
     await expect(page.locator('text=VibeDispatch')).toBeVisible()
+  })
+})
+
+// ============ Global Repo Filter ============
+
+test.describe('OSS Pipeline - Global Repo Filter', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAPIs(page)
+    await page.goto('/?key=test-key')
+    // Navigate to OSS view (default tab is Pipeline Runs)
+    const ossCard = page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+    await ossCard.click()
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
+    ).toBeVisible()
+  })
+
+  test('filter popover opens and closes', async ({ page }) => {
+    const trigger = page.locator('.repo-filter-trigger')
+    await expect(trigger).toBeVisible()
+
+    await trigger.click()
+    await expect(page.locator('.repo-filter-popover__panel')).toBeVisible()
+
+    // Click trigger again to close
+    await trigger.click()
+    await expect(page.locator('.repo-filter-popover__panel')).not.toBeVisible()
+  })
+
+  test('filter trigger shows count', async ({ page }) => {
+    const trigger = page.locator('.repo-filter-trigger')
+    // Should show count like "Repos (X of Y)"
+    await expect(trigger).toContainText('Repos')
+    await expect(trigger).toContainText('of')
+  })
+
+  test('search filters the repo list', async ({ page }) => {
+    const trigger = page.locator('.repo-filter-trigger')
+    await trigger.click()
+
+    const searchInput = page.locator('.repo-filter-popover__search input')
+    await searchInput.fill('fastify')
+
+    // Only fastify repos should show
+    const items = page.locator('.repo-filter-popover__item')
+    const count = await items.count()
+    expect(count).toBeGreaterThan(0)
+    for (let i = 0; i < count; i++) {
+      await expect(items.nth(i)).toContainText('fastify')
+    }
+  })
+
+  test('All/None buttons work', async ({ page }) => {
+    const trigger = page.locator('.repo-filter-trigger')
+    await trigger.click()
+
+    // Click None
+    await page
+      .locator('.repo-filter-popover__actions')
+      .getByRole('button', { name: 'None' })
+      .click()
+
+    // All checkboxes should be unchecked
+    const checkboxes = page.locator('.repo-filter-popover__item input[type="checkbox"]')
+    const count = await checkboxes.count()
+    for (let i = 0; i < count; i++) {
+      await expect(checkboxes.nth(i)).not.toBeChecked()
+    }
+
+    // Click All
+    await page.locator('.repo-filter-popover__actions').getByRole('button', { name: 'All' }).click()
+
+    // All checkboxes should be checked
+    for (let i = 0; i < count; i++) {
+      await expect(checkboxes.nth(i)).toBeChecked()
+    }
+  })
+
+  test('filter applies across tabs', async ({ page }) => {
+    // Open filter and exclude vercel/next.js
+    const trigger = page.locator('.repo-filter-trigger')
+    await trigger.click()
+
+    const nextjsCheckbox = page
+      .locator('.repo-filter-popover__item')
+      .filter({ hasText: 'vercel/next.js' })
+      .locator('input')
+    await nextjsCheckbox.uncheck()
+    await trigger.click() // close
+
+    // Tab 3 (Pipeline Runs) — vercel/next.js assignment should be hidden
+    await expect(
+      page.locator('.data-table td').filter({ hasText: 'vercel/next.js' })
+    ).not.toBeVisible()
+    await expect(
+      page.locator('.data-table td').filter({ hasText: 'fastify/fastify' }).first()
+    ).toBeVisible()
+
+    // Tab 2 (Fork & Assign) — vercel issues should be hidden
+    await page.locator('.stage-tab').filter({ hasText: 'Fork & Assign' }).click()
+    await expect(page.locator('text=Fix hydration warning')).not.toBeVisible()
+    await expect(page.locator('text=Fix memory leak').first()).toBeVisible()
   })
 })
 
