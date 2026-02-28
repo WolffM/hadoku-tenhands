@@ -13,6 +13,9 @@ import type { Stage2Repo } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
+import { Badge, WORKFLOW_STATUS_VARIANT } from '../common/Badge'
+import { SectionHeader } from '../common/SectionHeader'
+import { BatchActionBar } from '../common/BatchActionBar'
 
 export function Stage2Run() {
   const stage2 = usePipelineStore(state => state.stage2)
@@ -126,12 +129,7 @@ export function Stage2Run() {
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section stage-section--recommended">
-          <div className="stage-section__header">
-            <h3 className="stage-section__title">
-              <span className="stage-section__icon">⭐</span>
-              Recommended ({recommended.length} repos need VibeCheck)
-            </h3>
-            <div className="stage-section__actions">
+          <SectionHeader icon="⭐" title="Recommended" count={recommended.length}>
               <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
                 Select All
               </button>
@@ -144,8 +142,7 @@ export function Stage2Run() {
               >
                 ▶️ Run Selected ({selectedCount})
               </button>
-            </div>
-          </div>
+          </SectionHeader>
 
           <div className="table-container">
             <table className="data-table">
@@ -182,28 +179,16 @@ export function Stage2Run() {
 
       {/* All Repos / Other Repos Section */}
       <div className="stage-section">
-        <div className="stage-section__header">
-          <h3 className="stage-section__title">
-            {recommended.length > 0 ? 'Other Repos' : 'All Repos'}
-          </h3>
-          <div className="stage-section__actions">
-            <button className="btn btn--secondary btn--sm" onClick={() => selectAll(others)}>
-              Select All
-            </button>
-            <button className="btn btn--secondary btn--sm" onClick={selectNone}>
-              Select None
-            </button>
-            <button
-              className="btn btn--primary btn--sm"
-              onClick={() => {
-                void processSelected(others)
-              }}
-              disabled={running || updating || selectedCount === 0}
-            >
-              Run Selected ({selectedCount})
-            </button>
-          </div>
-        </div>
+        <SectionHeader title={recommended.length > 0 ? 'Other Repos' : 'All Repos'}>
+          <BatchActionBar
+            onSelectAll={() => selectAll(others)}
+            onSelectNone={selectNone}
+            onProcess={() => { void processSelected(others) }}
+            selectedCount={selectedCount}
+            processLabel="Run Selected"
+            processing={running || updating}
+          />
+        </SectionHeader>
 
         <div className="table-container">
           <table className="data-table">
@@ -319,7 +304,7 @@ function RepoRow({ repo, checked, onChange, onRun, disabled }: RepoRowProps) {
       </td>
       <td className="text-secondary">{lastRunTime}</td>
       <td>
-        <StatusBadge status={status} />
+        <Badge variant={WORKFLOW_STATUS_VARIANT[status] ?? 'secondary'}>{status}</Badge>
       </td>
       <td>
         {commits > 0 ? (
@@ -342,21 +327,3 @@ function RepoRow({ repo, checked, onChange, onRun, disabled }: RepoRowProps) {
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const getClass = () => {
-    switch (status) {
-      case 'success':
-        return 'badge--success'
-      case 'failure':
-        return 'badge--danger'
-      case 'in_progress':
-      case 'queued':
-      case 'triggered':
-        return 'badge--info'
-      default:
-        return 'badge--secondary'
-    }
-  }
-
-  return <span className={`badge ${getClass()}`}>{status}</span>
-}

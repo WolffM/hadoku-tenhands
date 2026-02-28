@@ -13,13 +13,9 @@ import type { RepoHealthTarget, DossierSections } from '../../api/types'
 import { hyphenatedToSlashed } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
+import { Badge, getHealthBadgeVariant } from '../common/Badge'
 
 marked.setOptions({ breaks: true, gfm: true })
-
-function HealthBadge({ score }: { score: number }) {
-  const cls = score > 70 ? 'badge--success' : score >= 40 ? 'badge--warning' : 'badge--danger'
-  return <span className={`badge ${cls}`}>{score}</span>
-}
 
 const DOSSIER_SECTION_LABELS: Record<keyof DossierSections, string> = {
   overview: 'Overview',
@@ -156,7 +152,11 @@ export function RepoHealthPanel() {
             <div key={target.slug} className="repo-health-card">
               <div className="repo-health-card__header">
                 <span className="repo-health-card__slug">{target.slug}</span>
-                {health && <HealthBadge score={health.overallViability} />}
+                {health && (
+                  <Badge variant={getHealthBadgeVariant(health.overallViability)}>
+                    {health.overallViability}
+                  </Badge>
+                )}
               </div>
 
               <div className="repo-health-card__scores">

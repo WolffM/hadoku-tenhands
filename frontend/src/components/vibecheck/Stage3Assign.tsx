@@ -13,6 +13,9 @@ import type { Issue } from '../../api/types'
 import { getSeverity, getSeverityClass, formatTimeAgo } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
+import { SectionHeader } from '../common/SectionHeader'
+import { FilterBar, type FilterDefinition } from '../common/FilterBar'
+import { BatchActionBar } from '../common/BatchActionBar'
 
 export function Stage3Assign() {
   const stage3 = usePipelineStore(state => state.stage3)
@@ -116,47 +119,36 @@ export function Stage3Assign() {
   return (
     <div className="stage-panel">
       {/* Filters */}
-      <div className="filter-bar">
-        <div className="filter-group">
-          <label className="filter-label">Severity</label>
-          <select
-            className="filter-select"
-            value={severityFilter}
-            onChange={e => setSeverityFilter(e.target.value)}
-          >
-            <option value="all">All Severities</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-        </div>
-        <div className="filter-group">
-          <label className="filter-label">Label</label>
-          <select
-            className="filter-select"
-            value={labelFilter}
-            onChange={e => setLabelFilter(e.target.value)}
-          >
-            <option value="all">All Labels</option>
-            {availableLabels.map(label => (
-              <option key={label} value={label}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <FilterBar
+        filters={[
+          {
+            label: 'Severity',
+            value: severityFilter,
+            onChange: setSeverityFilter,
+            options: [
+              { value: 'all', label: 'All Severities' },
+              { value: 'critical', label: 'Critical' },
+              { value: 'high', label: 'High' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'low', label: 'Low' },
+            ],
+          },
+          {
+            label: 'Label',
+            value: labelFilter,
+            onChange: setLabelFilter,
+            options: [
+              { value: 'all', label: 'All Labels' },
+              ...availableLabels.map(l => ({ value: l, label: l })),
+            ],
+          },
+        ] satisfies FilterDefinition[]}
+      />
 
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section stage-section--recommended">
-          <div className="stage-section__header">
-            <h3 className="stage-section__title">
-              <span className="stage-section__icon">⭐</span>
-              Recommended (1 per repo, no active Copilot PRs)
-            </h3>
-            <div className="stage-section__actions">
+          <SectionHeader icon="⭐" title="Recommended" count={recommended.length}>
               <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
                 Select All
               </button>
@@ -169,8 +161,7 @@ export function Stage3Assign() {
               >
                 Assign Recommended ({selectedCount})
               </button>
-            </div>
-          </div>
+          </SectionHeader>
 
           <div className="table-container">
             <table className="data-table">
@@ -206,29 +197,16 @@ export function Stage3Assign() {
 
       {/* All Issues Section */}
       <div className="stage-section">
-        <div className="stage-section__header">
-          <h3 className="stage-section__title">All Issues</h3>
-          <div className="stage-section__actions">
-            <button
-              className="btn btn--secondary btn--sm"
-              onClick={() => selectAll(filteredIssues)}
-            >
-              Select All
-            </button>
-            <button className="btn btn--secondary btn--sm" onClick={selectNone}>
-              Select None
-            </button>
-            <button
-              className="btn btn--primary btn--sm"
-              onClick={() => {
-                void processSelected(filteredIssues)
-              }}
-              disabled={assigning || selectedCount === 0}
-            >
-              Assign Selected ({selectedCount})
-            </button>
-          </div>
-        </div>
+        <SectionHeader title="All Issues">
+          <BatchActionBar
+            onSelectAll={() => selectAll(filteredIssues)}
+            onSelectNone={selectNone}
+            onProcess={() => { void processSelected(filteredIssues) }}
+            selectedCount={selectedCount}
+            processLabel="Assign Selected"
+            processing={assigning}
+          />
+        </SectionHeader>
 
         {filteredIssues.length === 0 ? (
           <p className="text-secondary text-center">No issues found matching filters</p>

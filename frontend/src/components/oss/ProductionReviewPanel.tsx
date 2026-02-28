@@ -11,22 +11,8 @@ import type { SubmittedPR } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
-
-function getStatusBadge(pr: SubmittedPR) {
-  if (pr.state === 'merged') {
-    return <span className="badge badge--success">Merged</span>
-  }
-  if (pr.state === 'closed') {
-    return <span className="badge badge--danger">Closed</span>
-  }
-  if (pr.reviewDecision === 'APPROVED') {
-    return <span className="badge badge--success">Approved</span>
-  }
-  if (pr.reviewDecision === 'CHANGES_REQUESTED') {
-    return <span className="badge badge--warning">Changes Requested</span>
-  }
-  return <span className="badge badge--primary">Open</span>
-}
+import { Badge, getSubmittedPRBadge } from '../common/Badge'
+import { SectionHeader } from '../common/SectionHeader'
 
 export function ProductionReviewPanel() {
   const ossSubmittedPRs = usePipelineStore(state => state.ossSubmittedPRs)
@@ -103,12 +89,7 @@ export function ProductionReviewPanel() {
 
       {/* Submitted PRs Table */}
       <div className="stage-section">
-        <div className="stage-section__header">
-          <h3 className="stage-section__title">
-            <span className="stage-section__icon">{'\u{1F4CA}'}</span>
-            Upstream PRs ({submitted.length})
-          </h3>
-          <div className="action-buttons">
+        <SectionHeader icon={'\u{1F4CA}'} title="Upstream PRs" count={submitted.length}>
             <button
               className="btn btn--secondary btn--sm"
               onClick={() => {
@@ -118,8 +99,7 @@ export function ProductionReviewPanel() {
             >
               {ossSubmittedPRs.loading ? 'Refreshing...' : 'Refresh Status'}
             </button>
-          </div>
-        </div>
+        </SectionHeader>
 
         <div className="table-container">
           <table className="data-table">
@@ -158,7 +138,12 @@ export function ProductionReviewPanel() {
                     )}
                   </td>
                   <td>{pr.title}</td>
-                  <td>{getStatusBadge(pr)}</td>
+                  <td>
+                    {(() => {
+                      const b = getSubmittedPRBadge(pr)
+                      return <Badge variant={b.variant}>{b.label}</Badge>
+                    })()}
+                  </td>
                   <td className="text-light">{pr.comment_count ?? 0}</td>
                   <td className="text-light">
                     {(pr.labels ?? []).length > 0 ? (pr.labels ?? []).join(', ') : '\u2014'}

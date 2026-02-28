@@ -13,15 +13,11 @@ import type { ScoredIssue } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
+import { Badge, CVS_TIER_VARIANT } from '../common/Badge'
+import { SectionHeader } from '../common/SectionHeader'
+import { FilterBar, type FilterDefinition } from '../common/FilterBar'
+import { BatchActionBar } from '../common/BatchActionBar'
 import { OSSDossierPanel } from './OSSDossierPanel'
-
-const TIER_BADGE_CLASS: Record<string, string> = {
-  go: 'badge--success',
-  likely: 'badge--primary',
-  maybe: 'badge--warning',
-  risky: 'badge--danger',
-  skip: 'badge--secondary'
-}
 
 export function ForkAssignPanel() {
   const ossStage2 = usePipelineStore(state => state.ossStage2)
@@ -113,11 +109,7 @@ export function ForkAssignPanel() {
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section">
-          <div className="stage-section__header">
-            <h3 className="stage-section__title">
-              <span className="stage-section__icon">{'\u2B50'}</span>
-              Recommended ({recommended.length})
-            </h3>
+          <SectionHeader icon={'\u2B50'} title="Recommended" count={recommended.length}>
             <button
               className="btn btn--primary btn--sm"
               onClick={() => {
@@ -127,7 +119,7 @@ export function ForkAssignPanel() {
             >
               {assigning ? 'Assigning...' : 'Assign All Recommended'}
             </button>
-          </div>
+          </SectionHeader>
           <div className="table-container">
             <table className="data-table">
               <thead>
@@ -163,11 +155,9 @@ export function ForkAssignPanel() {
                       <strong>{issue.cvs}</strong>
                     </td>
                     <td>
-                      <span
-                        className={`badge ${TIER_BADGE_CLASS[issue.cvsTier] || 'badge--secondary'}`}
-                      >
+                      <Badge variant={CVS_TIER_VARIANT[issue.cvsTier] ?? 'secondary'}>
                         {issue.cvsTier}
-                      </span>
+                      </Badge>
                     </td>
                   </tr>
                 ))}
@@ -180,78 +170,58 @@ export function ForkAssignPanel() {
       <hr className="stage-divider" />
 
       {/* Filter Bar */}
-      <div className="filter-bar">
-        <div className="filter-group">
-          <label className="filter-label">CVS Tier</label>
-          <select
-            className="filter-select"
-            value={tierFilter}
-            onChange={e => setTierFilter(e.target.value)}
-          >
-            <option value="all">All Tiers</option>
-            <option value="go">Go</option>
-            <option value="likely">Likely</option>
-            <option value="maybe">Maybe</option>
-            <option value="risky">Risky</option>
-          </select>
-        </div>
-        <div className="filter-group">
-          <label className="filter-label">Complexity</label>
-          <select
-            className="filter-select"
-            value={complexityFilter}
-            onChange={e => setComplexityFilter(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </div>
-        <div className="filter-group">
-          <label className="filter-label">Lifecycle</label>
-          <select
-            className="filter-select"
-            value={lifecycleFilter}
-            onChange={e => setLifecycleFilter(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="fresh">Fresh</option>
-            <option value="triaged">Triaged</option>
-            <option value="accepted">Accepted</option>
-            <option value="stale">Stale</option>
-          </select>
-        </div>
-      </div>
+      <FilterBar
+        filters={[
+          {
+            label: 'CVS Tier',
+            value: tierFilter,
+            onChange: setTierFilter,
+            options: [
+              { value: 'all', label: 'All Tiers' },
+              { value: 'go', label: 'Go' },
+              { value: 'likely', label: 'Likely' },
+              { value: 'maybe', label: 'Maybe' },
+              { value: 'risky', label: 'Risky' },
+            ],
+          },
+          {
+            label: 'Complexity',
+            value: complexityFilter,
+            onChange: setComplexityFilter,
+            options: [
+              { value: 'all', label: 'All' },
+              { value: 'low', label: 'Low' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'high', label: 'High' },
+            ],
+          },
+          {
+            label: 'Lifecycle',
+            value: lifecycleFilter,
+            onChange: setLifecycleFilter,
+            options: [
+              { value: 'all', label: 'All' },
+              { value: 'fresh', label: 'Fresh' },
+              { value: 'triaged', label: 'Triaged' },
+              { value: 'accepted', label: 'Accepted' },
+              { value: 'stale', label: 'Stale' },
+            ],
+          },
+        ] satisfies FilterDefinition[]}
+      />
 
       {/* Issues Table */}
       <div className="stage-section">
-        <div className="stage-section__header">
-          <h3 className="stage-section__title">
-            <span className="stage-section__icon">{'\u{1F4CB}'}</span>
-            All Issues ({filteredIssues.length})
-          </h3>
-          <div className="stage-section__actions">
-            <button
-              className="btn btn--secondary btn--sm"
-              onClick={() => selectAll(filteredIssues)}
-            >
-              Select All
-            </button>
-            <button className="btn btn--secondary btn--sm" onClick={selectNone}>
-              Select None
-            </button>
-            <button
-              className="btn btn--primary btn--sm"
-              onClick={() => {
-                void processSelected(filteredIssues)
-              }}
-              disabled={assigning || selectedCount === 0}
-            >
-              Assign Selected ({selectedCount})
-            </button>
-          </div>
-        </div>
+        <SectionHeader icon={'\u{1F4CB}'} title="All Issues" count={filteredIssues.length}>
+          <BatchActionBar
+            onSelectAll={() => selectAll(filteredIssues)}
+            onSelectNone={selectNone}
+            onProcess={() => { void processSelected(filteredIssues) }}
+            selectedCount={selectedCount}
+            processLabel="Assign Selected"
+            processing={assigning}
+          />
+        </SectionHeader>
 
         {filteredIssues.length === 0 ? (
           <EmptyState
@@ -316,11 +286,9 @@ export function ForkAssignPanel() {
                         <strong>{issue.cvs}</strong>
                       </td>
                       <td>
-                        <span
-                          className={`badge ${TIER_BADGE_CLASS[issue.cvsTier] || 'badge--secondary'}`}
-                        >
+                        <Badge variant={CVS_TIER_VARIANT[issue.cvsTier] ?? 'secondary'}>
                           {issue.cvsTier}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="text-light">
                         {issue.labels.slice(0, 3).join(', ')}

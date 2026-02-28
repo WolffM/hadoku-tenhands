@@ -12,6 +12,8 @@ import type { PipelineAssignment, Stage4Status } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
+import { Badge, getStage4BadgeVariant } from '../common/Badge'
+import { SectionHeader } from '../common/SectionHeader'
 
 /** Map stage4Status to progress bar segments (0-5 filled). */
 const STAGE_PROGRESS: Record<Stage4Status, number> = {
@@ -42,17 +44,6 @@ function ProgressBar({ status }: { status: Stage4Status }) {
       ))}
     </div>
   )
-}
-
-function StatusBadge({ status }: { status: Stage4Status }) {
-  const s = status || 'swe_agent_working'
-  const label = s.replace(/_/g, ' ')
-  let cls = 'badge--secondary'
-  if (s === 'retrospective_complete') cls = 'badge--success'
-  else if (s.includes('running') || s.includes('working') || s.includes('in_progress'))
-    cls = 'badge--primary'
-  else if (s.includes('done') || s.includes('complete')) cls = 'badge--warning'
-  return <span className={`badge ${cls}`}>{label}</span>
 }
 
 export function PipelineRunsPanel() {
@@ -164,12 +155,7 @@ export function PipelineRunsPanel() {
 
       {/* Assignments Table */}
       <div className="stage-section">
-        <div className="stage-section__header">
-          <h3 className="stage-section__title">
-            <span className="stage-section__icon">{'\u{2699}\u{FE0F}'}</span>
-            Pipeline Assignments ({assignments.length})
-          </h3>
-        </div>
+        <SectionHeader icon={'\u{2699}\u{FE0F}'} title="Pipeline Assignments" count={assignments.length} />
 
         <div className="table-container">
           <table className="data-table">
@@ -199,7 +185,9 @@ export function PipelineRunsPanel() {
                       <ProgressBar status={a.stage4Status} />
                     </td>
                     <td>
-                      <StatusBadge status={a.stage4Status} />
+                      <Badge variant={getStage4BadgeVariant(a.stage4Status || 'swe_agent_working')}>
+                        {(a.stage4Status || 'swe_agent_working').replace(/_/g, ' ')}
+                      </Badge>
                     </td>
                     <td className="text-light">{formatTimeAgo(a.assignedAt)}</td>
                     <td>
