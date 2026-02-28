@@ -18,6 +18,7 @@ import type {
   ForkPR,
   ReadyToSubmit,
   PipelineAssignment,
+  RepoHealthTarget,
   RetrospectiveEntry,
   SubmittedPR
 } from '../api/types'
@@ -40,7 +41,8 @@ import {
   getSeverityFromLabels,
   getErrorMessage,
   normalizePipelineAssignment,
-  normalizeSubmittedPR
+  normalizeSubmittedPR,
+  hyphenatedToSlashed
 } from '../utils'
 
 // ============ Types ============
@@ -89,6 +91,9 @@ interface PipelineState {
   ossRetrospectiveLogs: StageData<RetrospectiveEntry>
   ossSubmittedPRs: StageData<SubmittedPR>
 
+  // Global repo filter (exclusion model: empty = all visible)
+  ossExcludedRepos: Set<string>
+
   // Pipeline items (derived from stage data)
   pipelineItems: PipelineItem[]
 
@@ -135,6 +140,11 @@ interface PipelineState {
   loadOSSPipelineRuns: () => Promise<void>
   loadOSSRetrospectiveLogs: () => Promise<void>
   loadOSSSubmittedPRs: () => Promise<void>
+
+  // Global repo filter actions
+  toggleOSSRepoFilter: (repo: string) => void
+  setOSSRepoFilterAll: () => void
+  setOSSRepoFilterNone: (allRepos: string[]) => void
 }
 
 // ============ Helpers ============
@@ -373,6 +383,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   ossPipelineRuns: { items: [], loading: false, error: null, lastFetched: null },
   ossRetrospectiveLogs: { items: [], loading: false, error: null, lastFetched: null },
   ossSubmittedPRs: { items: [], loading: false, error: null, lastFetched: null },
+  ossExcludedRepos: new Set<string>(),
   pipelineItems: [],
   expandedRows: new Set(),
   selectedItems: new Set(),
@@ -667,6 +678,23 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     })
 
     set({ pipelineItems: items })
+  },
+
+  // Global repo filter actions
+  toggleOSSRepoFilter: (repo: string) => {
+    const next = new Set(get().ossExcludedRepos)
+    if (next.has(repo)) {
+      next.delete(repo)
+    } else {
+      next.add(repo)
+    }
+    set({ ossExcludedRepos: next })
+  },
+  setOSSRepoFilterAll: () => {
+    set({ ossExcludedRepos: new Set<string>() })
+  },
+  setOSSRepoFilterNone: (allRepos: string[]) => {
+    set({ ossExcludedRepos: new Set(allRepos) })
   }
 }))
 
@@ -684,3 +712,21 @@ export const selectIsOSSLoading = (state: PipelineState) =>
   state.ossPipelineRuns.loading ||
   state.ossRetrospectiveLogs.loading ||
   state.ossSubmittedPRs.loading
+
+export function selectAllOSSRepos(state: PipelineState): string[] {
+  const repos = new Set<string>()
+  for (const t of state.ossStage1.items) {
+    const slug = (t as RepoHealthTarget).slug
+    if (slug) repos.add(hyphenatedToSlashed(slug))
+  }
+  for (const i of state.ossStage2.items) {
+    if (i.repo) repos.add(i.repo)
+  }
+  for (const a of state.ossPipelineRuns.items) {
+    if (a.originSlug) repos.add(a.originSlug)
+  }
+  for (const p of state.ossSubmittedPRs.items) {
+    if (p.originSlug) repos.add(p.originSlug)
+  }
+  return Array.from(repos).sort()
+}

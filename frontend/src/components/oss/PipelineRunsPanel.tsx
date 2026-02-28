@@ -60,11 +60,15 @@ export function PipelineRunsPanel() {
   const loadOSSPipelineRuns = usePipelineStore(state => state.loadOSSPipelineRuns)
   const loadOSSSubmittedPRs = usePipelineStore(state => state.loadOSSSubmittedPRs)
   const addLog = usePipelineStore(state => state.addLog)
+  const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
   const [signingOff, setSigningOff] = useState<string | null>(null)
   const [advancing, setAdvancing] = useState<string | null>(null)
   const [reportUrl, setReportUrl] = useState<string | null>(null)
 
-  const assignments = ossPipelineRuns.items
+  const assignments = useMemo(
+    () => ossPipelineRuns.items.filter(a => !excludedRepos.has(a.originSlug)),
+    [ossPipelineRuns.items, excludedRepos]
+  )
 
   // Summary metrics
   const metrics = useMemo(() => {
@@ -124,11 +128,11 @@ export function PipelineRunsPanel() {
     setReportUrl(url)
   }
 
-  if (ossPipelineRuns.loading && assignments.length === 0) {
+  if (ossPipelineRuns.loading && ossPipelineRuns.items.length === 0) {
     return <LoadingState text="Loading pipeline runs..." />
   }
 
-  if (assignments.length === 0) {
+  if (ossPipelineRuns.items.length === 0) {
     return (
       <div className="stage-panel">
         <EmptyState

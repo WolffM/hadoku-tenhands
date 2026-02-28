@@ -10,10 +10,12 @@
 
 import { useEffect, useRef } from 'react'
 import { usePipelineStore, selectIsOSSLoading } from '../store'
+import { hyphenatedToSlashed } from '../utils'
 import { RepoHealthPanel } from '../components/oss/RepoHealthPanel'
 import { ForkAssignPanel } from '../components/oss/ForkAssignPanel'
 import { PipelineRunsPanel } from '../components/oss/PipelineRunsPanel'
 import { ProductionReviewPanel } from '../components/oss/ProductionReviewPanel'
+import { RepoFilterPopover } from '../components/oss/RepoFilterPopover'
 import { ProgressLog, StageTabView, type StageTabConfig } from '../components/common'
 
 export function OSSView() {
@@ -24,6 +26,7 @@ export function OSSView() {
   const ossStage2 = usePipelineStore(state => state.ossStage2)
   const ossPipelineRuns = usePipelineStore(state => state.ossPipelineRuns)
   const ossSubmittedPRs = usePipelineStore(state => state.ossSubmittedPRs)
+  const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
 
   // Load all OSS stages on mount
   const initialLoadDoneRef = useRef(false)
@@ -39,28 +42,38 @@ export function OSSView() {
       label: 'Repo Health',
       icon: '\u{1F3E5}',
       component: RepoHealthPanel,
-      getCount: () => ossStage1.items.length
+      getCount: () =>
+        ossStage1.items.filter(
+          t => !excludedRepos.has(hyphenatedToSlashed((t as { slug: string }).slug ?? ''))
+        ).length
     },
     {
       id: 'assign',
       label: 'Fork & Assign',
       icon: '\u{1F531}',
       component: ForkAssignPanel,
-      getCount: () => ossStage2.items.length
+      getCount: () =>
+        ossStage2.items.filter(i => !excludedRepos.has((i as { repo: string }).repo)).length
     },
     {
       id: 'pipeline',
       label: 'Pipeline Runs',
       icon: '\u{2699}\u{FE0F}',
       component: PipelineRunsPanel,
-      getCount: () => ossPipelineRuns.items.length
+      getCount: () =>
+        ossPipelineRuns.items.filter(
+          a => !excludedRepos.has((a as { originSlug: string }).originSlug)
+        ).length
     },
     {
       id: 'review',
       label: 'Review',
       icon: '\u{1F4CA}',
       component: ProductionReviewPanel,
-      getCount: () => ossSubmittedPRs.items.length
+      getCount: () =>
+        ossSubmittedPRs.items.filter(
+          p => !excludedRepos.has((p as { originSlug: string }).originSlug)
+        ).length
     }
   ]
 
@@ -73,6 +86,7 @@ export function OSSView() {
           void loadAllOSSStages()
         }}
         defaultStageId="pipeline"
+        extraActions={<RepoFilterPopover />}
       />
       <ProgressLog />
     </div>

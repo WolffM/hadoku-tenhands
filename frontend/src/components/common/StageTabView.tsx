@@ -6,7 +6,7 @@
  * to avoid duplicating tab switching logic.
  */
 
-import { useState, type ComponentType } from 'react'
+import { useState, type ComponentType, type ReactNode } from 'react'
 
 export interface StageTabConfig {
   id: string
@@ -21,13 +21,15 @@ interface StageTabViewProps {
   isLoading: boolean
   onRefreshAll: () => void
   defaultStageId?: string
+  extraActions?: ReactNode
 }
 
 export function StageTabView({
   stages,
   isLoading,
   onRefreshAll,
-  defaultStageId
+  defaultStageId,
+  extraActions
 }: StageTabViewProps) {
   const [activeStageId, setActiveStageId] = useState(defaultStageId ?? stages[0]?.id ?? '')
 
@@ -50,6 +52,7 @@ export function StageTabView({
           </button>
         ))}
         <div className="stage-tabs__actions">
+          {extraActions}
           <button className="btn btn--primary btn--sm" onClick={onRefreshAll} disabled={isLoading}>
             {isLoading ? 'Refreshing...' : 'Refresh All'}
           </button>
