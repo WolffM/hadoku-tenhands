@@ -265,8 +265,8 @@ export function HealthCheckView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRuns.map(run => (
-                    <tr key={`${run.repo}-${run.id}`} className={getStatusClass(run)}>
+                  {filteredRuns.map((run, idx) => (
+                    <tr key={`${run.repo}-${run.id ?? idx}`} className={getStatusClass(run)}>
                       <td>
                         <span className="repo-link">{run.repo}</span>
                       </td>

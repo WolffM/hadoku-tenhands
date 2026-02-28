@@ -195,6 +195,47 @@ test.describe('Prod: OSS Navigation', () => {
     await page.getByRole('button', { name: /^Home$/i }).click()
     await expect(page.locator('text=Select a Pipeline')).toBeVisible({ timeout: LOAD_TIMEOUT })
   })
+
+  test('Vibecheck Pipeline card navigates to vibecheck view', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    const vibecheckCard = page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'Vibecheck Pipeline' })
+    await expect(vibecheckCard).toBeVisible()
+    await vibecheckCard.click()
+
+    // Should leave the select view (no longer showing "Select a Pipeline")
+    await expect(page.locator('text=Select a Pipeline')).not.toBeVisible({ timeout: 5000 })
+    // Should show navigation with Home button
+    await expect(page.getByRole('button', { name: /^Home$/i })).toBeVisible()
+  })
+
+  test('global nav tabs navigate to Review Queue and Health views', async ({ page }) => {
+    await navigateToOSSTab(page, 'Pipeline Runs')
+
+    // Click Review Queue tab
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'Review Queue' }).click()
+    await page.waitForTimeout(2000)
+    // Should show the review queue view
+    await expect(page.locator('.review-queue-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Click Health tab
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
+    await page.waitForTimeout(2000)
+    // Should show the health view
+    await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Navigate back to OSS Contrib
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+    await page.waitForTimeout(2000)
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
+    ).toBeVisible({
+      timeout: LOAD_TIMEOUT
+    })
+  })
 })
 
 // ============ Tab 1: Repo Health ============
@@ -473,6 +514,183 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       expect(classList).toMatch(/badge--(success|primary|warning|danger|secondary)/)
     }
   })
+
+  test('issue title links have valid href and target attributes', async ({ page }) => {
+    await navigateToOSSTab(page, 'Fork & Assign')
+
+    const state = await waitForPanelState(
+      page,
+      '.data-table',
+      'No scored issues',
+      'Loading scored issues...'
+    )
+    if (state !== 'data') return
+
+    const issueLinks = page.locator('.data-table .issue-link')
+    const count = await issueLinks.count()
+    if (count === 0) return
+
+    // Validate up to 3 links
+    for (let i = 0; i < Math.min(count, 3); i++) {
+      const link = issueLinks.nth(i)
+      const href = await link.getAttribute('href')
+      expect(href).toMatch(/^https:\/\/github\.com\//)
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+  })
+
+  test('Show More pagination button loads additional rows', async ({ page }) => {
+    await navigateToOSSTab(page, 'Fork & Assign')
+
+    const state = await waitForPanelState(
+      page,
+      '.data-table',
+      'No scored issues',
+      'Loading scored issues...'
+    )
+    if (state !== 'data') return
+
+    // Find the All Issues section
+    const allIssuesSection = page.locator('.stage-section').filter({ hasText: 'All Issues' })
+    if (!(await allIssuesSection.isVisible({ timeout: 3000 }).catch(() => false))) return
+
+    const showMoreBtn = page.getByRole('button', { name: /Show More/i })
+    if (!(await showMoreBtn.isVisible({ timeout: 3000 }).catch(() => false))) return
+
+    // Count rows before clicking Show More
+    const rowsBefore = await allIssuesSection.locator('.data-table tbody tr').count()
+
+    // Click Show More
+    await showMoreBtn.click()
+    await page.waitForTimeout(1000)
+
+    // Should have more rows now
+    const rowsAfter = await allIssuesSection.locator('.data-table tbody tr').count()
+    expect(rowsAfter).toBeGreaterThan(rowsBefore)
+  })
+
+  test('Dossier panel tabs are clickable and switch content', async ({ page }) => {
+    await navigateToOSSTab(page, 'Fork & Assign')
+
+    const state = await waitForPanelState(
+      page,
+      '.data-table',
+      'No scored issues',
+      'Loading scored issues...'
+    )
+    if (state !== 'data') return
+
+    const dossierBtn = page.getByRole('button', { name: /Dossier/i }).first()
+    if (!(await dossierBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    await dossierBtn.click()
+    await expect(page.locator('.dossier-panel')).toBeVisible({ timeout: ACTION_TIMEOUT })
+
+    // Wait for loading to finish
+    const tabsContainer = page.locator('.dossier-panel__tabs')
+    await expect(tabsContainer.or(page.locator('.dossier-panel__error'))).toBeVisible({
+      timeout: ACTION_TIMEOUT
+    })
+
+    // If error (aggregator down), close and return
+    if (
+      await page
+        .locator('.dossier-panel__error')
+        .isVisible()
+        .catch(() => false)
+    ) {
+      await page.locator('.dossier-panel').getByRole('button', { name: /Close/i }).click()
+      return
+    }
+
+    // Get all available tabs
+    const tabs = page.locator('.dossier-tab')
+    const tabCount = await tabs.count()
+    if (tabCount === 0) return
+
+    // Click each tab and verify it becomes active
+    for (let i = 0; i < tabCount; i++) {
+      await tabs.nth(i).click()
+      await expect(tabs.nth(i)).toHaveClass(/dossier-tab--active/)
+      // Content area should be visible
+      await expect(page.locator('.dossier-panel__content')).toBeVisible()
+    }
+
+    // Close the panel
+    await page.locator('.dossier-panel').getByRole('button', { name: /Close/i }).click()
+    await expect(page.locator('.dossier-panel')).not.toBeVisible()
+  })
+
+  test('Dossier panel closes when clicking overlay background', async ({ page }) => {
+    await navigateToOSSTab(page, 'Fork & Assign')
+
+    const state = await waitForPanelState(
+      page,
+      '.data-table',
+      'No scored issues',
+      'Loading scored issues...'
+    )
+    if (state !== 'data') return
+
+    const dossierBtn = page.getByRole('button', { name: /Dossier/i }).first()
+    if (!(await dossierBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    await dossierBtn.click()
+    await expect(page.locator('.dossier-panel')).toBeVisible({ timeout: ACTION_TIMEOUT })
+
+    // Click the overlay (outside the panel) to close
+    await page.locator('.dossier-overlay').click({ position: { x: 10, y: 10 } })
+    await expect(page.locator('.dossier-panel')).not.toBeVisible({ timeout: 5000 })
+  })
+
+  test('all three filter dropdowns cycle through options without errors', async ({ page }) => {
+    await navigateToOSSTab(page, 'Fork & Assign')
+
+    const state = await waitForPanelState(
+      page,
+      '.data-table',
+      'No scored issues',
+      'Loading scored issues...'
+    )
+    if (state !== 'data') return
+
+    const filterSelects = page.locator('.filter-select')
+    const filterCount = await filterSelects.count()
+    if (filterCount < 3) return
+
+    // Cycle CVS Tier filter
+    await filterSelects.nth(0).selectOption('likely')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(0).selectOption('maybe')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(0).selectOption('risky')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(0).selectOption('all')
+    await page.waitForTimeout(300)
+
+    // Cycle Complexity filter
+    await filterSelects.nth(1).selectOption('low')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(1).selectOption('medium')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(1).selectOption('high')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(1).selectOption('all')
+    await page.waitForTimeout(300)
+
+    // Cycle Lifecycle filter
+    await filterSelects.nth(2).selectOption('fresh')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(2).selectOption('triaged')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(2).selectOption('accepted')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(2).selectOption('stale')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(2).selectOption('all')
+    await page.waitForTimeout(300)
+  })
 })
 
 // ============ Tab 3: Pipeline Runs ============
@@ -595,6 +813,76 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
     // Issue number displayed as #N
     await expect(firstRow.locator('td', { hasText: /^#\d+$/ })).toBeVisible()
   })
+
+  test('Advance button triggers advance API when non-complete assignment exists', async ({
+    page
+  }) => {
+    await navigateToOSSTab(page, 'Pipeline Runs')
+
+    const state = await waitForPanelState(
+      page,
+      '.metric-card',
+      'No pipeline runs',
+      'Loading pipeline runs...'
+    )
+    if (state !== 'data') return
+
+    const advanceBtn = page.getByRole('button', { name: /^Advance$/i }).first()
+    if (!(await advanceBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    const requestPromise = page.waitForRequest(
+      req => req.url().includes('/dispatch/api/oss/advance-pipeline') && req.method() === 'POST',
+      { timeout: ACTION_TIMEOUT }
+    )
+    await advanceBtn.click()
+    const req = await requestPromise
+    expect(req).toBeTruthy()
+  })
+
+  test('Signoff button triggers signoff API when complete assignment exists', async ({ page }) => {
+    await navigateToOSSTab(page, 'Pipeline Runs')
+
+    const state = await waitForPanelState(
+      page,
+      '.metric-card',
+      'No pipeline runs',
+      'Loading pipeline runs...'
+    )
+    if (state !== 'data') return
+
+    const signoffBtn = page.getByRole('button', { name: /^Signoff$/i }).first()
+    if (!(await signoffBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    const requestPromise = page.waitForRequest(
+      req => req.url().includes('/dispatch/api/oss/signoff') && req.method() === 'POST',
+      { timeout: ACTION_TIMEOUT }
+    )
+    await signoffBtn.click()
+    const req = await requestPromise
+    expect(req).toBeTruthy()
+  })
+
+  test('Report modal closes when clicking overlay background', async ({ page }) => {
+    await navigateToOSSTab(page, 'Pipeline Runs')
+
+    const state = await waitForPanelState(
+      page,
+      '.metric-card',
+      'No pipeline runs',
+      'Loading pipeline runs...'
+    )
+    if (state !== 'data') return
+
+    const reportBtn = page.getByRole('button', { name: /^Report$/i }).first()
+    if (!(await reportBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    await reportBtn.click()
+    await expect(page.locator('.report-modal')).toBeVisible({ timeout: ACTION_TIMEOUT })
+
+    // Click the modal overlay (outside the content) to close
+    await page.locator('.report-modal').click({ position: { x: 10, y: 10 } })
+    await expect(page.locator('.report-modal')).not.toBeVisible({ timeout: 5000 })
+  })
 })
 
 // ============ Tab 4: Review ============
@@ -689,6 +977,31 @@ test.describe('Prod: Tab 4 — Review', () => {
     const req = await requestPromise
     expect(req).toBeTruthy()
   })
+
+  test('PR number links have valid href and target attributes', async ({ page }) => {
+    await navigateToOSSTab(page, 'Review')
+
+    const state = await waitForPanelState(
+      page,
+      '.metric-card',
+      'No submitted PRs',
+      'Polling upstream PR statuses...'
+    )
+    if (state !== 'data') return
+
+    const prLinks = page.locator('.data-table .issue-link')
+    const count = await prLinks.count()
+    if (count === 0) return
+
+    // Validate up to 3 PR links
+    for (let i = 0; i < Math.min(count, 3); i++) {
+      const link = prLinks.nth(i)
+      const href = await link.getAttribute('href')
+      expect(href).toMatch(/^https:\/\/github\.com\//)
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+  })
 })
 
 // ============ Global Repo Filter ============
@@ -774,6 +1087,236 @@ test.describe('Prod: Global Repo Filter', () => {
     await expect(footer).toBeVisible()
     await expect(footer).toContainText('of')
     await expect(footer).toContainText('selected')
+  })
+
+  test('individual repo checkbox toggles correctly', async ({ page }) => {
+    await navigateToOSSTab(page, 'Pipeline Runs')
+
+    const trigger = page.locator('.repo-filter-trigger')
+    if (!(await trigger.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    await trigger.click()
+
+    const checkboxes = page.locator('.repo-filter-popover__item input[type="checkbox"]')
+    const count = await checkboxes.count()
+    if (count === 0) return
+
+    const firstCheckbox = checkboxes.first()
+    const wasChecked = await firstCheckbox.isChecked()
+
+    // Toggle it
+    await firstCheckbox.click()
+    if (wasChecked) {
+      await expect(firstCheckbox).not.toBeChecked()
+    } else {
+      await expect(firstCheckbox).toBeChecked()
+    }
+
+    // Toggle back
+    await firstCheckbox.click()
+    if (wasChecked) {
+      await expect(firstCheckbox).toBeChecked()
+    } else {
+      await expect(firstCheckbox).not.toBeChecked()
+    }
+  })
+})
+
+// ============ Progress Log ============
+
+test.describe('Prod: Progress Log', () => {
+  test('activity log appears after triggering an action and Clear button works', async ({
+    page
+  }) => {
+    await navigateToOSSTab(page, 'Pipeline Runs')
+
+    // Trigger an action that produces a log entry — Refresh All
+    const refreshBtn = page.getByRole('button', { name: 'Refresh All' })
+    await expect(refreshBtn).toBeVisible()
+    await refreshBtn.click()
+
+    // Wait for refresh to complete (log entries appear during/after)
+    await expect(page.getByRole('button', { name: 'Refresh All' })).toBeVisible({
+      timeout: 50_000
+    })
+
+    // The progress log might be visible if any actions were taken in this session
+    const progressLog = page.locator('.progress-log')
+    if (!(await progressLog.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    // Should show Activity Log title
+    await expect(progressLog.locator('.progress-log-title')).toContainText('Activity Log')
+
+    // Clear button should exist and work
+    const clearBtn = progressLog.locator('.progress-log-clear')
+    await expect(clearBtn).toBeVisible()
+    await clearBtn.click()
+
+    // After clearing, the progress log should disappear (renders null when empty)
+    await expect(progressLog).not.toBeVisible({ timeout: 5000 })
+  })
+})
+
+// ============ Health View ============
+
+test.describe('Prod: Health View', () => {
+  test('Health view loads with stats cards', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Navigate to OSS first to get nav tabs, then click Health
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
+    ).toBeVisible({
+      timeout: LOAD_TIMEOUT
+    })
+
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
+    await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Stats cards should be present (they render immediately with count=0, then update)
+    await expect(page.locator('.stat-card__label').filter({ hasText: 'Total Runs' })).toBeVisible({
+      timeout: LOAD_TIMEOUT
+    })
+    await expect(page.locator('.stat-card__label').filter({ hasText: 'Successful' })).toBeVisible()
+    await expect(page.locator('.stat-card__label').filter({ hasText: 'Failed' })).toBeVisible()
+    await expect(page.locator('.stat-card__label').filter({ hasText: 'In Progress' })).toBeVisible()
+  })
+
+  test('Health view Refresh button works', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
+    ).toBeVisible({
+      timeout: LOAD_TIMEOUT
+    })
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
+    await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Wait for initial load
+    const refreshBtn = page.locator('.health-view').getByRole('button', { name: /Refresh/i })
+    await expect(refreshBtn).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Wait until button is not disabled (initial load finished)
+    await expect(refreshBtn).toBeEnabled({ timeout: LOAD_TIMEOUT })
+
+    await refreshBtn.click()
+    // Should show "Refreshing..." then go back to "Refresh"
+    await expect(
+      page.locator('.health-view').getByRole('button', { name: /Refreshing/i })
+    ).toBeVisible({ timeout: 5000 })
+    await expect(
+      page.locator('.health-view').getByRole('button', { name: /^Refresh$/i })
+    ).toBeVisible({ timeout: LOAD_TIMEOUT })
+  })
+
+  test('Health view filter dropdowns work', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
+    ).toBeVisible({
+      timeout: LOAD_TIMEOUT
+    })
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
+    await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Wait for data
+    await expect(page.locator('.stat-card').first()).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    const filterSelects = page.locator('.health-view .filter-select')
+    const filterCount = await filterSelects.count()
+    if (filterCount < 2) return
+
+    // Cycle VibeCheck Status filter
+    await filterSelects.nth(0).selectOption('vc-installed')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(0).selectOption('vc-not-installed')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(0).selectOption('all')
+    await page.waitForTimeout(300)
+
+    // Cycle Run Status filter
+    await filterSelects.nth(1).selectOption('success')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(1).selectOption('failure')
+    await page.waitForTimeout(300)
+    await filterSelects.nth(1).selectOption('all')
+    await page.waitForTimeout(300)
+  })
+
+  test('Health view Show Failed quick filter button works', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
+    ).toBeVisible({
+      timeout: LOAD_TIMEOUT
+    })
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
+    await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Wait for data
+    await expect(page.locator('.stat-card').first()).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    const showFailedBtn = page.locator('.health-view').getByRole('button', { name: /Show Failed/i })
+    if (!(await showFailedBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
+
+    await showFailedBtn.click()
+    await page.waitForTimeout(500)
+
+    // Run Status filter should now be set to "failure"
+    const statusFilter = page.locator('.health-view .filter-select').nth(1)
+    await expect(statusFilter).toHaveValue('failure')
+  })
+
+  test('Health view workflow table links have valid href', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
+    await expect(
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
+    ).toBeVisible({
+      timeout: LOAD_TIMEOUT
+    })
+    await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
+    await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
+
+    // Wait for table
+    const table = page.locator('.health-view .data-table')
+    if (!(await table.isVisible({ timeout: LOAD_TIMEOUT }).catch(() => false))) return
+
+    const actionLinks = table.locator('a.btn--ghost')
+    const count = await actionLinks.count()
+    if (count === 0) return
+
+    // Validate up to 3 links
+    for (let i = 0; i < Math.min(count, 3); i++) {
+      const link = actionLinks.nth(i)
+      const href = await link.getAttribute('href')
+      expect(href).toMatch(/^https:\/\/github\.com\//)
+      await expect(link).toHaveAttribute('target', '_blank')
+    }
   })
 })
 
