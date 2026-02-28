@@ -49,9 +49,9 @@ async function navigateToOSSTab(page: Page, tabLabel: string): Promise<void> {
   const refreshingBtn = page.getByRole('button', { name: 'Refreshing...' })
   await expect(refreshAllBtn.or(refreshingBtn)).toBeVisible({ timeout: LOAD_TIMEOUT })
 
-  // If still refreshing, wait for it to finish
+  // If still refreshing, wait for it to finish (can take 45s+ with many repos)
   if (await refreshingBtn.isVisible().catch(() => false)) {
-    await expect(refreshAllBtn).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(refreshAllBtn).toBeVisible({ timeout: 50_000 })
   }
 
   // Navigate to the requested tab
@@ -347,7 +347,9 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
     await page.waitForTimeout(500)
   })
 
-  test('Select All / Select None buttons work when issues present', async ({ page }) => {
+  test('Select All / Select None buttons work when recommended issues present', async ({
+    page
+  }) => {
     await navigateToOSSTab(page, 'Fork & Assign')
 
     const state = await waitForPanelState(
@@ -358,7 +360,11 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
     )
     if (state !== 'data') return
 
-    const checkboxes = page.locator('.data-table input[type="checkbox"]')
+    // Select All/None are in the Recommended section
+    const recommendedSection = page.locator('.stage-section').filter({ hasText: 'Recommended' })
+    if (!(await recommendedSection.isVisible({ timeout: 3000 }).catch(() => false))) return
+
+    const checkboxes = recommendedSection.locator('.data-table input[type="checkbox"]')
     const checkboxCount = await checkboxes.count()
     if (checkboxCount === 0) return
 
@@ -386,7 +392,11 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
     )
     if (state !== 'data') return
 
-    const checkboxes = page.locator('.data-table input[type="checkbox"]')
+    // Checkboxes are in the Recommended section
+    const recommendedSection = page.locator('.stage-section').filter({ hasText: 'Recommended' })
+    if (!(await recommendedSection.isVisible({ timeout: 3000 }).catch(() => false))) return
+
+    const checkboxes = recommendedSection.locator('.data-table input[type="checkbox"]')
     if ((await checkboxes.count()) === 0) return
 
     const firstCheckbox = checkboxes.first()
@@ -414,7 +424,9 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
     await expect(page.locator('.dossier-panel')).toBeVisible({ timeout: ACTION_TIMEOUT })
   })
 
-  test('recommended section renders when high-tier issues exist', async ({ page }) => {
+  test('recommended section renders with batch controls when high-tier issues exist', async ({
+    page
+  }) => {
     await navigateToOSSTab(page, 'Fork & Assign')
 
     const state = await waitForPanelState(
@@ -426,14 +438,19 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
     if (state !== 'data') return
 
     // Recommended section is conditional
-    const recommendedSection = page.locator('text=Recommended').first()
-    if (await recommendedSection.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const recTable = page
-        .locator('.stage-section')
-        .filter({ hasText: 'Recommended' })
-        .locator('.data-table')
-      await expect(recTable).toBeVisible()
-    }
+    const recommendedSection = page.locator('.stage-section').filter({ hasText: 'Recommended' })
+    if (!(await recommendedSection.isVisible({ timeout: 3000 }).catch(() => false))) return
+
+    // Should have a table with checkboxes
+    const recTable = recommendedSection.locator('.data-table')
+    await expect(recTable).toBeVisible()
+    const checkboxes = recTable.locator('input[type="checkbox"]')
+    expect(await checkboxes.count()).toBeGreaterThan(0)
+
+    // Should have Select All/None/Assign Selected buttons
+    await expect(page.getByRole('button', { name: /^Select All$/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Select None$/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Assign Selected/i })).toBeVisible()
   })
 
   test('tier badges have valid CSS modifier classes', async ({ page }) => {

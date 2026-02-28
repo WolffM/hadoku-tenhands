@@ -180,12 +180,15 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
     await expect(page.locator('text=Fix memory leak').first()).toBeVisible()
   })
 
-  test('Assign All Recommended button triggers fork-and-assign API', async ({ page }) => {
+  test('Assign Selected in Recommended section triggers fork-and-assign API', async ({ page }) => {
+    // Select all recommended issues first
+    await page.getByRole('button', { name: /^Select All$/i }).click()
+
     const [request] = await Promise.all([
       page.waitForRequest(
         req => req.url().includes('/dispatch/api/oss/fork-and-assign') && req.method() === 'POST'
       ),
-      page.getByRole('button', { name: /Assign All Recommended/i }).click()
+      page.getByRole('button', { name: /Assign Selected/i }).click()
     ])
 
     expect(request).toBeTruthy()
@@ -201,7 +204,9 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
   })
 
   test('select issues via checkbox and batch assign', async ({ page }) => {
-    const checkbox = page.locator('.data-table input[type="checkbox"]').first()
+    // Checkboxes are in the Recommended section table
+    const recommendedSection = page.locator('.stage-section').filter({ hasText: 'Recommended' })
+    const checkbox = recommendedSection.locator('.data-table input[type="checkbox"]').first()
     await checkbox.check()
 
     await expect(page.getByRole('button', { name: /Assign Selected \(1\)/i })).toBeVisible()
@@ -219,8 +224,11 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
   })
 
   test('Select All / Select None buttons work', async ({ page }) => {
+    // Select All/None are in the Recommended section
+    const recommendedSection = page.locator('.stage-section').filter({ hasText: 'Recommended' })
+    const checkboxes = recommendedSection.locator('.data-table input[type="checkbox"]')
+
     await page.getByRole('button', { name: /^Select All$/i }).click()
-    const checkboxes = page.locator('.data-table input[type="checkbox"]')
     const count = await checkboxes.count()
     expect(count).toBeGreaterThan(0)
     for (let i = 0; i < count; i++) {
