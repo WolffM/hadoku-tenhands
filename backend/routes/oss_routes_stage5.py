@@ -113,7 +113,7 @@ def _poll_single_pr(pr):
 
     result = run_gh_command([
         "pr", "view", pr_number, "-R", f"{repo_owner}/{repo_name}",
-        "--json", "state,reviewDecision,mergedAt,closedAt"
+        "--json", "state,reviewDecision,mergedAt,closedAt,comments,labels"
     ])
 
     if not result["success"]:
@@ -140,6 +140,12 @@ def _poll_single_pr(pr):
     pr["merged_at"] = gh_data.get("mergedAt")
     pr["closed_at"] = gh_data.get("closedAt")
     pr["last_polled_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # Enhanced fields: comment count + labels
+    comments = gh_data.get("comments", [])
+    pr["comment_count"] = len(comments) if isinstance(comments, list) else 0
+    labels = gh_data.get("labels", [])
+    pr["labels"] = [lb.get("name", "") for lb in labels] if isinstance(labels, list) else []
 
     # Trigger notifications on state changes
     if old_state == "open" and pr["state"] == "merged":

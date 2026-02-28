@@ -25,7 +25,10 @@ import type {
   OSSForkAssignResponse,
   OSSSubmitResponse,
   OSSBaseResponse,
-  OSSDossierResponse
+  OSSDossierResponse,
+  PipelineStatusResponse,
+  RetrospectiveLogsResponse,
+  SignoffResponse
 } from './types'
 
 // ============ Stage APIs ============
@@ -403,4 +406,46 @@ export async function submitToOrigin(
 
 export async function pollSubmittedPRs(): Promise<OSSStage5TrackingResponse> {
   return apiClient.post<OSSStage5TrackingResponse>('/api/oss/poll-submitted-prs', {})
+}
+
+// --- Pipeline Runs (Redesigned Tab 3) ---
+
+export async function getPipelineStatus(): Promise<PipelineStatusResponse> {
+  return apiClient.get<PipelineStatusResponse>('/api/oss/pipeline-status')
+}
+
+export async function getRetrospectiveLogs(): Promise<RetrospectiveLogsResponse> {
+  return apiClient.get<RetrospectiveLogsResponse>('/api/oss/retrospective-logs')
+}
+
+export async function advancePipeline(
+  repo: string,
+  forkIssueNumber: number
+): Promise<OSSBaseResponse & { error?: string }> {
+  return apiClient.post<OSSBaseResponse & { error?: string }>('/api/oss/advance-pipeline', {
+    repo,
+    fork_issue_number: forkIssueNumber
+  })
+}
+
+export async function signoffIssue(
+  repo: string,
+  prNumber: number,
+  originSlug: string
+): Promise<SignoffResponse> {
+  return apiClient.post<SignoffResponse>('/api/oss/signoff', {
+    repo,
+    pr_number: prNumber,
+    origin_slug: originSlug
+  })
+}
+
+// --- Repo Health (Redesigned Tab 1) ---
+
+export async function computeOSSTarget(
+  slug: string
+): Promise<OSSBaseResponse & { message?: string }> {
+  return apiClient.post<OSSBaseResponse & { message?: string }>('/api/oss/compute-target', {
+    slug
+  })
 }

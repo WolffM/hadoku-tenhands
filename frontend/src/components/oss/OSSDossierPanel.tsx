@@ -5,10 +5,13 @@
  * When the aggregator is unavailable, shows a graceful "not available" message.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { marked } from 'marked'
 import { getOSSDossier } from '../../api/endpoints'
 import type { Dossier, DossierSections } from '../../api/types'
 import { LoadingState } from '../common/LoadingState'
+
+marked.setOptions({ breaks: true, gfm: true })
 
 const DOSSIER_TAB_LABELS: Record<keyof DossierSections, string> = {
   overview: 'Overview',
@@ -31,6 +34,50 @@ const TAB_ORDER: (keyof DossierSections)[] = [
 interface OSSDossierPanelProps {
   slug: string
   onClose: () => void
+}
+
+function DossierContent({
+  dossier,
+  activeTab,
+  setActiveTab
+}: {
+  dossier: Dossier
+  activeTab: keyof DossierSections
+  setActiveTab: (t: keyof DossierSections) => void
+}) {
+  const renderedHtml = useMemo(() => {
+    const md = dossier.sections[activeTab]
+    if (!md) return ''
+    return marked.parse(md) as string
+  }, [dossier, activeTab])
+
+  return (
+    <>
+      <div className="dossier-panel__tabs">
+        {TAB_ORDER.map(key =>
+          dossier.sections[key] ? (
+            <button
+              key={key}
+              className={`dossier-tab ${activeTab === key ? 'dossier-tab--active' : ''}`}
+              onClick={() => setActiveTab(key)}
+            >
+              {DOSSIER_TAB_LABELS[key]}
+            </button>
+          ) : null
+        )}
+      </div>
+      <div className="dossier-panel__content">
+        {renderedHtml ? (
+          <div
+            className="dossier-panel__markdown markdown-content"
+            dangerouslySetInnerHTML={{ __html: renderedHtml }}
+          />
+        ) : (
+          <p className="text-light">No content available for this section.</p>
+        )}
+      </div>
+    </>
+  )
 }
 
 export function OSSDossierPanel({ slug, onClose }: OSSDossierPanelProps) {
@@ -74,26 +121,7 @@ export function OSSDossierPanel({ slug, onClose }: OSSDossierPanelProps) {
         {error && <div className="dossier-panel__error">{error}</div>}
 
         {dossier && (
-          <>
-            <div className="dossier-panel__tabs">
-              {TAB_ORDER.map(key =>
-                dossier.sections[key] ? (
-                  <button
-                    key={key}
-                    className={`dossier-tab ${activeTab === key ? 'dossier-tab--active' : ''}`}
-                    onClick={() => setActiveTab(key)}
-                  >
-                    {DOSSIER_TAB_LABELS[key]}
-                  </button>
-                ) : null
-              )}
-            </div>
-            <div className="dossier-panel__content">
-              <pre className="dossier-panel__markdown">
-                {dossier.sections[activeTab] || 'No content available for this section.'}
-              </pre>
-            </div>
-          </>
+          <DossierContent dossier={dossier} activeTab={activeTab} setActiveTab={setActiveTab} />
         )}
       </div>
     </div>

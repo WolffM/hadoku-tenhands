@@ -16,7 +16,10 @@ import type {
   ScoredIssue,
   OSSAssignment,
   ForkPR,
-  ReadyToSubmit
+  ReadyToSubmit,
+  PipelineAssignment,
+  RetrospectiveEntry,
+  SubmittedPR
 } from '../api/types'
 import {
   getStage1Repos,
@@ -27,9 +30,18 @@ import {
   getOSSScoredIssues,
   getOSSAssigned,
   getOSSForkPRs,
-  getOSSReadyToSubmit
+  getOSSReadyToSubmit,
+  getPipelineStatus,
+  getRetrospectiveLogs,
+  pollSubmittedPRs
 } from '../api/endpoints'
-import { isPRReady, getSeverityFromLabels, getErrorMessage } from '../utils'
+import {
+  isPRReady,
+  getSeverityFromLabels,
+  getErrorMessage,
+  normalizePipelineAssignment,
+  normalizeSubmittedPR
+} from '../utils'
 
 // ============ Types ============
 
@@ -72,6 +84,11 @@ interface PipelineState {
   ossStage4: StageData<ForkPR>
   ossStage5: StageData<ReadyToSubmit>
 
+  // OSS pipeline redesign data
+  ossPipelineRuns: StageData<PipelineAssignment>
+  ossRetrospectiveLogs: StageData<RetrospectiveEntry>
+  ossSubmittedPRs: StageData<SubmittedPR>
+
   // Pipeline items (derived from stage data)
   pipelineItems: PipelineItem[]
 
@@ -113,6 +130,11 @@ interface PipelineState {
   loadAllOSSStages: () => Promise<void>
   removeOSSForkPR: (repo: string, prNumber: number) => void
   removeOSSReadyToSubmit: (originSlug: string, branch: string) => void
+
+  // OSS pipeline redesign actions
+  loadOSSPipelineRuns: () => Promise<void>
+  loadOSSRetrospectiveLogs: () => Promise<void>
+  loadOSSSubmittedPRs: () => Promise<void>
 }
 
 // ============ Helpers ============
@@ -169,6 +191,9 @@ interface StageLoaderConfig<R> {
     | 'ossStage3'
     | 'ossStage4'
     | 'ossStage5'
+    | 'ossPipelineRuns'
+    | 'ossRetrospectiveLogs'
+    | 'ossSubmittedPRs'
   fetchFn: () => Promise<R>
   mapResponse: (response: R) => { items: unknown[]; extra?: Record<string, unknown> }
 }
@@ -345,6 +370,9 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   ossStage3: { items: [], loading: false, error: null, lastFetched: null },
   ossStage4: { items: [], loading: false, error: null, lastFetched: null },
   ossStage5: { items: [], loading: false, error: null, lastFetched: null },
+  ossPipelineRuns: { items: [], loading: false, error: null, lastFetched: null },
+  ossRetrospectiveLogs: { items: [], loading: false, error: null, lastFetched: null },
+  ossSubmittedPRs: { items: [], loading: false, error: null, lastFetched: null },
   pipelineItems: [],
   expandedRows: new Set(),
   selectedItems: new Set(),
@@ -549,9 +577,9 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     await Promise.all([
       get().loadOSSStage1(),
       get().loadOSSStage2(),
-      get().loadOSSStage3(),
-      get().loadOSSStage4(),
-      get().loadOSSStage5()
+      get().loadOSSPipelineRuns(),
+      get().loadOSSRetrospectiveLogs(),
+      get().loadOSSSubmittedPRs()
     ])
   },
 
@@ -577,6 +605,43 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     }))
     get().refreshPipelineItems()
   },
+
+  // OSS pipeline redesign loaders
+  loadOSSPipelineRuns: createStageLoader(
+    {
+      stageKey: 'ossPipelineRuns',
+      fetchFn: getPipelineStatus,
+      mapResponse: r => ({
+        items: (r.statuses || []).map(s =>
+          normalizePipelineAssignment(s as unknown as Record<string, unknown>)
+        )
+      })
+    },
+    set,
+    get
+  ),
+  loadOSSRetrospectiveLogs: createStageLoader(
+    {
+      stageKey: 'ossRetrospectiveLogs',
+      fetchFn: getRetrospectiveLogs,
+      mapResponse: r => ({ items: r.logs })
+    },
+    set,
+    get
+  ),
+  loadOSSSubmittedPRs: createStageLoader(
+    {
+      stageKey: 'ossSubmittedPRs',
+      fetchFn: pollSubmittedPRs,
+      mapResponse: r => ({
+        items: (r.submitted || []).map(s =>
+          normalizeSubmittedPR(s as unknown as Record<string, unknown>)
+        )
+      })
+    },
+    set,
+    get
+  ),
 
   refreshPipelineItems: () => {
     const state = get()
@@ -616,6 +681,6 @@ export const selectIsLoading = (state: PipelineState) =>
 export const selectIsOSSLoading = (state: PipelineState) =>
   state.ossStage1.loading ||
   state.ossStage2.loading ||
-  state.ossStage3.loading ||
-  state.ossStage4.loading ||
-  state.ossStage5.loading
+  state.ossPipelineRuns.loading ||
+  state.ossRetrospectiveLogs.loading ||
+  state.ossSubmittedPRs.loading

@@ -29,6 +29,72 @@ from .oss_service import _sanitize_upstream_refs
 logger = logging.getLogger(__name__)
 
 
+def _gh_json(args):
+    """Run gh CLI command and return parsed JSON, or None on failure."""
+    try:
+        r = subprocess.run(
+            ["gh"] + args,
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return json.loads(r.stdout)
+    except Exception:
+        pass
+    return None
+
+
+def fetch_sa_details(run_id, fork_slug):
+    """Fetch per-job conclusions and annotations for a SA workflow run.
+
+    Called at retrospective write time so the data is captured once and
+    persisted in retrospective-logs.json for later report rendering.
+
+    Args:
+        run_id: GitHub Actions workflow run ID.
+        fork_slug: Fork repo slug (e.g. "WolffM/email-verifier").
+
+    Returns:
+        list of job dicts [{name, conclusion, annotations: [{path, line, level, message}]}],
+        or empty list on failure.
+    """
+    if not run_id or not fork_slug:
+        return []
+
+    jobs_data = _gh_json([
+        "api", f"repos/{fork_slug}/actions/runs/{run_id}/jobs",
+        "--jq", ".jobs",
+    ])
+    if not jobs_data:
+        return []
+
+    jobs = []
+    for job in jobs_data:
+        job_info = {
+            "name": job.get("name", "unknown"),
+            "conclusion": job.get("conclusion", "unknown"),
+        }
+        annotations = _gh_json([
+            "api", f"repos/{fork_slug}/check-runs/{job['id']}/annotations",
+        ])
+        if annotations:
+            findings = [
+                {
+                    "path": a.get("path", ""),
+                    "line": a.get("start_line", 0),
+                    "level": a.get("annotation_level", ""),
+                    "message": a.get("message", ""),
+                }
+                for a in annotations
+                if a.get("path", "") != ".github"
+            ]
+            job_info["annotations"] = findings
+        else:
+            job_info["annotations"] = []
+        jobs.append(job_info)
+
+    return jobs
+
+
 # Valid pipeline states in order
 PIPELINE_STATES = [
     "swe_agent_working",
@@ -386,10 +452,15 @@ class PipelineOrchestrator:
                 swe_data.update(swe_results["outputs"])
         retro["swe"] = swe_data
 
-        # SA metrics
+        # SA metrics — fetch per-job details at write time so they're
+        # persisted in retrospective-logs.json for report rendering
+        sa_run_id = assignment.get("stage4_sa_run_id")
+        fork_slug = f"{ctx.get('my_user', '')}/{repo}" if repo else None
+        sa_jobs = fetch_sa_details(sa_run_id, fork_slug) if sa_run_id else []
         retro["static_analysis"] = {
-            "run_id": assignment.get("stage4_sa_run_id"),
+            "run_id": sa_run_id,
             "conclusion": assignment.get("stage4_sa_conclusion"),
+            "jobs": sa_jobs,
         }
 
         # Review metrics

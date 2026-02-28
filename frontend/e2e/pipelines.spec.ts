@@ -4,7 +4,7 @@
  * Tests for the 4-stage vibecheck pipeline view.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/base'
 import { mockAllAPIs } from './fixtures/api-mocks'
 
 test.describe('Pipelines View', () => {

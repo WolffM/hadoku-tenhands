@@ -18,8 +18,8 @@ const pipelines = [
   {
     id: 'oss' as const,
     title: 'OSS Contribution Pipeline',
-    description: 'Target repos, score issues, fork & assign, review, submit upstream',
-    stages: ['Target Repos', 'Select Issues', 'Fork & Assign', 'Review on Fork', 'Submit Upstream'],
+    description: 'Repo health, issue selection, pipeline runs, upstream review',
+    stages: ['Repo Health', 'Fork & Assign', 'Pipeline Runs', 'Review'],
     icon: '\u{1F310}'
   }
 ]

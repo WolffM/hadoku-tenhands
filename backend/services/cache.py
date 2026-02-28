@@ -193,19 +193,29 @@ def get_cache_stats() -> dict:
 
 # ============ Decorator ============
 
-def cached_endpoint(cache_key):
+def cached_endpoint(cache_key, normalize=None):
     """Decorator that adds caching to a Flask route handler.
 
     The decorated function should return a plain dict.
     The decorator handles cache lookup, storage, and jsonify.
+
+    Args:
+        cache_key: Unique identifier for the cached data.
+        normalize: Optional callable applied to the "issues" list in the
+                   response dict.  Runs on both cached and fresh results so
+                   that schema changes take effect without a cache bust.
     """
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             cached = get_cached(cache_key)
             if cached:
+                if normalize and isinstance(cached.get("issues"), list):
+                    normalize(cached["issues"])
                 return jsonify(cached)
             result = fn(*args, **kwargs)
+            if normalize and isinstance(result.get("issues"), list):
+                normalize(result["issues"])
             set_cached(cache_key, result)
             return jsonify(result)
         return wrapper

@@ -5,7 +5,7 @@
  * choose between Vibecheck and OSS Contribution pipelines.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/base'
 import { mockAllAPIs } from './fixtures/api-mocks'
 
 test.describe('Pipeline Selection View', () => {
@@ -40,7 +40,7 @@ test.describe('Pipeline Selection View', () => {
     // Vibecheck card has description
     await expect(page.locator('text=Install, run, assign, and review')).toBeVisible()
     // OSS card has description
-    await expect(page.locator('text=Target repos, score issues')).toBeVisible()
+    await expect(page.locator('text=Repo health, issue selection, pipeline runs')).toBeVisible()
   })
 
   test('pipeline cards show stage labels', async ({ page }) => {
@@ -62,10 +62,10 @@ test.describe('Pipeline Selection View', () => {
       .locator('.pipeline-select-card')
       .filter({ hasText: 'OSS Contribution Pipeline' })
       .locator('.pipeline-select-card__stage')
-    await expect(ossStages.filter({ hasText: 'Target Repos' })).toBeVisible()
-    await expect(ossStages.filter({ hasText: 'Select Issues' })).toBeVisible()
+    await expect(ossStages.filter({ hasText: 'Repo Health' })).toBeVisible()
     await expect(ossStages.filter({ hasText: 'Fork & Assign' })).toBeVisible()
-    await expect(ossStages.filter({ hasText: 'Submit Upstream' })).toBeVisible()
+    await expect(ossStages.filter({ hasText: 'Pipeline Runs' })).toBeVisible()
+    await expect(ossStages.filter({ hasText: 'Review' })).toBeVisible()
   })
 
   test('clicking Vibecheck card navigates to vibecheck view', async ({ page }) => {
@@ -94,16 +94,15 @@ test.describe('Pipeline Selection View', () => {
 
     // Pipeline selection should be gone
     await expect(page.locator('text=Select a Pipeline')).not.toBeVisible()
-    // OSS stage tabs should be visible
-    await expect(
-      page.locator('.stage-tab__label').filter({ hasText: 'Target Repos' })
-    ).toBeVisible()
+    // OSS stage tabs should be visible (4-tab redesign)
+    await expect(page.locator('.stage-tab__label').filter({ hasText: 'Repo Health' })).toBeVisible()
     await expect(
       page.locator('.stage-tab__label').filter({ hasText: 'Fork & Assign' })
     ).toBeVisible()
     await expect(
-      page.locator('.stage-tab__label').filter({ hasText: 'Submit Upstream' })
+      page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
     ).toBeVisible()
+    await expect(page.locator('.stage-tab__label').filter({ hasText: 'Review' })).toBeVisible()
   })
 
   test('only global tabs visible on select view', async ({ page }) => {
@@ -112,7 +111,7 @@ test.describe('Pipeline Selection View', () => {
 
     // Global tabs should be visible
     await expect(page.getByRole('button', { name: /Review Queue/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Health/i })).toBeVisible()
+    await expect(page.locator('.nav-tabs__tab').filter({ hasText: /^Health$/ })).toBeVisible()
 
     // Pipeline-specific nav tabs should NOT be visible (use nav-tabs__tab selector to avoid matching pipeline cards)
     await expect(page.locator('.nav-tabs__tab--home')).not.toBeVisible()
@@ -185,8 +184,11 @@ test.describe('Pipeline Selection View', () => {
     await page.goto('/?key=test-key')
     await expect(page.locator('text=Select a Pipeline')).toBeVisible()
 
-    // Click Health
-    await page.getByRole('button', { name: /Health/i }).click()
+    // Click Health (use nav-tabs selector to avoid matching OSS card containing "Repo Health")
+    await page
+      .locator('.nav-tabs__tab')
+      .filter({ hasText: /^Health$/ })
+      .click()
 
     // Pipeline selection should be gone
     await expect(page.locator('text=Select a Pipeline')).not.toBeVisible()

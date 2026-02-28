@@ -4,7 +4,7 @@
  * Tests for the Health Check view showing workflow status.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/base'
 import { mockAllAPIs } from './fixtures/api-mocks'
 
 test.describe('Health View', () => {
@@ -12,7 +12,10 @@ test.describe('Health View', () => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
     // Navigate to Health view
-    await page.getByRole('button', { name: /Health/i }).click()
+    await page
+      .locator('.nav-tabs__tab')
+      .filter({ hasText: /^Health$/ })
+      .click()
   })
 
   test('displays health check title and subtitle', async ({ page }) => {
@@ -87,7 +90,10 @@ test.describe('Health View Filters', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
     await page.goto('/?key=test-key')
-    await page.getByRole('button', { name: /Health/i }).click()
+    await page
+      .locator('.nav-tabs__tab')
+      .filter({ hasText: /^Health$/ })
+      .click()
   })
 
   test('can filter by VibeCheck status', async ({ page }) => {
@@ -157,7 +163,10 @@ test.describe('Health View Loading States', () => {
     })
 
     await page.goto('/?key=test-key')
-    await page.getByRole('button', { name: /Health/i }).click()
+    await page
+      .locator('.nav-tabs__tab')
+      .filter({ hasText: /^Health$/ })
+      .click()
 
     // Should show refreshing state on button
     await expect(page.getByRole('button', { name: /Refreshing/i })).toBeVisible()
