@@ -182,7 +182,29 @@ export const mockOSSTargets = [
       maintainerHealthScore: 85,
       mergeAccessibilityScore: 72,
       availabilityScore: 90,
-      overallViability: 82
+      overallViability: 82,
+      analyzedAt: new Date(Date.now() - 86400000).toISOString()
+    },
+    dossier: {
+      sections: {
+        overview: 'Popular Node.js framework for building web applications.',
+        contributionRules: 'Follow the style guide and add tests.',
+        successPatterns: 'Small focused PRs with clear descriptions.',
+        antiPatterns: 'Avoid large refactors without prior discussion.',
+        issueBoard: 'Check the good first issue label.',
+        environmentSetup: 'Run npm install && npm test.'
+      },
+      completeness: {
+        overview: true,
+        contributionRules: true,
+        successPatterns: true,
+        antiPatterns: true,
+        issueBoard: true,
+        environmentSetup: true
+      }
+    },
+    _meta: {
+      computedAt: new Date(Date.now() - 43200000).toISOString()
     },
     meta: {
       stars: 31000,
@@ -194,6 +216,22 @@ export const mockOSSTargets = [
   },
   {
     slug: 'vercel-next.js',
+    health: {
+      maintainerHealthScore: 60,
+      mergeAccessibilityScore: 45,
+      availabilityScore: 70,
+      overallViability: 58
+    },
+    dossier: {
+      sections: {
+        overview: 'The React Framework for the Web.',
+        contributionRules: 'See CONTRIBUTING.md for detailed guidelines.',
+        successPatterns: 'Include repro steps in bug fixes.',
+        antiPatterns: 'Do not submit large PRs without an RFC.',
+        issueBoard: 'Look for area: labels.',
+        environmentSetup: 'pnpm install && pnpm build'
+      }
+    },
     meta: {
       stars: 120000,
       language: 'TypeScript',
@@ -351,8 +389,83 @@ export const mockOSSSubmittedPRs = [
     prNumber: 9876,
     title: 'Fix memory leak in request handler',
     state: 'open',
+    reviewDecision: null,
+    comment_count: 3,
+    labels: ['bug', 'good first issue'],
     submittedAt: new Date(Date.now() - 86400000).toISOString(),
     lastPolledAt: new Date(Date.now() - 600000).toISOString()
+  },
+  {
+    originSlug: 'vercel/next.js',
+    prUrl: 'https://github.com/vercel/next.js/pull/5555',
+    prNumber: 5555,
+    title: 'Fix hydration warning in dev mode',
+    state: 'merged',
+    reviewDecision: 'APPROVED',
+    comment_count: 7,
+    labels: ['hydration'],
+    submittedAt: new Date(Date.now() - 172800000).toISOString(),
+    lastPolledAt: new Date(Date.now() - 300000).toISOString()
+  }
+]
+
+// Pipeline assignment mock data for Tab 3 (Pipeline Runs)
+export const mockPipelineStatuses = [
+  {
+    originSlug: 'fastify/fastify',
+    repo: 'fastify',
+    issueNumber: 1234,
+    forkIssueNumber: 1,
+    forkIssueUrl: 'https://github.com/test-user/fastify/issues/1',
+    assignedAt: new Date(Date.now() - 7200000).toISOString(),
+    stage4Status: 'retrospective_complete',
+    stage4PrNumber: 10,
+    stage4PrBranch: 'fix/memory-leak',
+    stage4ReviewRequested: true,
+    stage4SweDoneAt: new Date(Date.now() - 5400000).toISOString(),
+    stage4SaRunId: 'sa-run-1',
+    stage4SaDoneAt: new Date(Date.now() - 3600000).toISOString(),
+    stage4ReviewDoneAt: new Date(Date.now() - 1800000).toISOString(),
+    stage4RemediationDoneAt: new Date(Date.now() - 900000).toISOString(),
+    language: 'JavaScript',
+    contextTier: 'full',
+    dossierCompleteness: 1.0
+  },
+  {
+    originSlug: 'vercel/next.js',
+    repo: 'next.js',
+    issueNumber: 9999,
+    forkIssueNumber: 2,
+    forkIssueUrl: 'https://github.com/test-user/next.js/issues/2',
+    assignedAt: new Date(Date.now() - 3600000).toISOString(),
+    stage4Status: 'static_analysis_running',
+    stage4PrNumber: null,
+    stage4PrBranch: null,
+    stage4ReviewRequested: false,
+    stage4SweDoneAt: new Date(Date.now() - 1800000).toISOString(),
+    stage4SaRunId: null,
+    stage4SaDoneAt: null,
+    stage4ReviewDoneAt: null,
+    stage4RemediationDoneAt: null,
+    language: 'TypeScript',
+    contextTier: 'partial',
+    dossierCompleteness: 0.8
+  }
+]
+
+export const mockRetrospectiveLogs = [
+  {
+    repo: 'fastify',
+    issue_number: 1234,
+    timestamp: new Date(Date.now() - 900000).toISOString(),
+    swe: { reproduced: true, verified: true, tool_installed: true },
+    static_analysis: { ran: true, passed: true },
+    review: { requested: true, decision: 'approved' },
+    remediation: { ran: true, fixes_applied: 2 },
+    workflow: { compliant: true },
+    timing: { total_seconds: 3600 },
+    data_quality: { completeness: 1.0 },
+    pipeline: { status: 'retrospective_complete' }
   }
 ]
 
@@ -671,6 +784,100 @@ export async function mockOSSAPIs(page: Page): Promise<void> {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ success: true, submitted: mockOSSSubmittedPRs, owner: mockOwner })
+    })
+  })
+
+  // Pipeline Runs (redesigned Tab 3)
+  await page.route('**/dispatch/api/oss/pipeline-status', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, statuses: mockPipelineStatuses, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/retrospective-logs', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, logs: mockRetrospectiveLogs, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/issue-report/**', async route => {
+    // Realistic mock: self-contained HTML report with JS that mirrors the real template.
+    // Tests that the report handles empty runs gracefully (no JS errors).
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Pipeline Report</title>
+<style>body{font-family:sans-serif;background:#0d1117;color:#e6edf3;display:flex;justify-content:center;}
+.shell{width:90%;max-width:900px;}.header{padding:20px 0;}.header h1{font-size:1.3em;}
+.header .sub{color:#8b949e;font-size:0.85em;}.content{padding:16px 0;}
+.empty-detail{padding:48px;text-align:center;color:#8b949e;font-size:0.9em;}
+.run-tabs{display:flex;border-bottom:1px solid #30363d;}
+.run-tab{padding:10px 24px;cursor:pointer;color:#8b949e;font-size:0.85em;border-bottom:2px solid transparent;}
+.run-tab.active{color:#58a6ff;border-bottom-color:#58a6ff;}.run-tab .tag{font-size:0.75em;margin-left:6px;}
+</style></head>
+<body><div class="shell">
+<div class="header"><h1>Pipeline Report</h1><div class="sub" id="headerSub"></div></div>
+<div class="run-tabs" id="runTabs"></div>
+<div class="content" id="app"></div>
+</div>
+<script>
+const DATA = {"repo":"test-repo","health":{},"runs":[{"label":"Run 1","tag":"Feb 27","entries":[{"issue_number":1234,"swe":{"pr_number":10,"title":"Fix bug","pr_branch":"fix/bug","additions":5,"deletions":2,"changed_files":1,"commit_count":1},"static_analysis":{"conclusion":"success","run_id":"sa-1","jobs":[]},"review":{"inline_comment_count":1,"actionable":true},"remediation":{"skipped":false,"new_commits":1},"workflow":{"reproduced":true,"verified":true,"self_corrected":false,"codeql":false,"code_review":true,"tool_installed":true,"step_count":15,"tools_used":["bash","editor"]},"timing":{"assigned_at":"2026-02-27T10:00:00Z","swe_done_at":"2026-02-27T10:15:00Z","sa_done_at":"2026-02-27T10:20:00Z","review_done_at":"2026-02-27T10:25:00Z","remediation_done_at":"2026-02-27T10:28:00Z","completed_at":"2026-02-27T10:30:00Z"},"data_quality":{"context_tier":1,"dossier_completeness":{"score":6,"total":6,"overview":true,"contributionRules":true,"successPatterns":true,"antiPatterns":true,"issueBoard":true,"environmentSetup":true}},"pipeline":{"language":"JavaScript","swe_agent":"CopilotSWEDispatcher","review_agent":"CopilotReviewDispatcher","static_analysis":"GitHubActionsDispatcher","remediation_agent":"CopilotRemediationDispatcher"}}]}]};
+let activeRun = Math.max(0, DATA.runs.length - 1);
+let activeIssue = 0;
+function renderTabs() {
+  document.getElementById('runTabs').innerHTML = DATA.runs.map((r, i) =>
+    '<div class="run-tab '+(i===activeRun?'active':'')+'">' + r.label + '<span class="tag">'+r.tag+'</span></div>'
+  ).join('');
+}
+function renderContent() {
+  const run = DATA.runs[activeRun];
+  if (!run) {
+    document.getElementById('headerSub').textContent = DATA.repo + ' — No retrospective data yet';
+    document.getElementById('app').innerHTML = '<div class="empty-detail">No retrospective logs found for this issue.</div>';
+    return;
+  }
+  const entries = run.entries;
+  document.getElementById('headerSub').textContent = DATA.repo + ' — ' + entries.length + ' issues — ' + run.tag;
+  document.getElementById('app').innerHTML = '<div class="empty-detail">Report loaded successfully with ' + entries.length + ' entries.</div>';
+}
+renderTabs();
+renderContent();
+</script></body></html>`
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/signoff', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        pr_url: 'https://github.com/fastify/fastify/pull/5555',
+        clean_branch: 'clean/memory-leak',
+        owner: mockOwner
+      })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/compute-target', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, message: 'Compute triggered', owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/advance-pipeline', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, owner: mockOwner })
     })
   })
 

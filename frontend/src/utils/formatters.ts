@@ -5,8 +5,10 @@
 /**
  * Format a date as a relative time string (e.g., "2 hours ago")
  */
-export function formatTimeAgo(dateString: string | Date): string {
+export function formatTimeAgo(dateString: string | Date | null | undefined): string {
+  if (!dateString) return '\u2014'
   const date = typeof dateString === 'string' ? new Date(dateString) : dateString
+  if (isNaN(date.getTime())) return '\u2014'
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffSeconds = Math.floor(diffMs / 1000)

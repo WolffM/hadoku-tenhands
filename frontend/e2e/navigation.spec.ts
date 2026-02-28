@@ -4,7 +4,7 @@
  * Tests for navigating between views in VibeDispatch.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/base'
 import { mockAllAPIs } from './fixtures/api-mocks'
 
 test.describe('Navigation', () => {
@@ -55,14 +55,17 @@ test.describe('Navigation', () => {
     await page.goto('/?key=test-key')
     await expect(page.locator('text=VibeDispatch')).toBeVisible()
 
-    // Click Health button
-    await page.getByRole('button', { name: /Health/i }).click()
+    // Click Health nav tab (use specific selector to avoid matching OSS "Repo Health" card)
+    await page
+      .locator('.nav-tabs__tab')
+      .filter({ hasText: /^Health$/ })
+      .click()
 
     // Pipeline selection should disappear
     await expect(page.locator('text=Select a Pipeline')).not.toBeVisible()
 
-    // Health button should still be visible
-    await expect(page.getByRole('button', { name: /Health/i })).toBeVisible()
+    // Health nav tab should still be visible
+    await expect(page.locator('.nav-tabs__tab').filter({ hasText: /^Health$/ })).toBeVisible()
   })
 
   test('can navigate between Pipelines and Health', async ({ page }) => {
@@ -73,7 +76,10 @@ test.describe('Navigation', () => {
     await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
 
     // Go to Health
-    await page.getByRole('button', { name: /Health/i }).click()
+    await page
+      .locator('.nav-tabs__tab')
+      .filter({ hasText: /^Health$/ })
+      .click()
     await expect(page.getByRole('button', { name: /Install VibeCheck/i })).not.toBeVisible()
 
     // Go back to Pipelines via the Pipelines tab (visible since Health is a global view)

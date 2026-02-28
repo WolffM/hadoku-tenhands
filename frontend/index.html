@@ -30,6 +30,11 @@
 <body>
   <div id="app"></div>
   <script type="module">
+    // In production, parent app provides these CSS files.
+    // In dev mode, we load them here.
+    import '@wolffm/themes/style.css'
+    import '@wolffm/task-ui-components/theme-picker.css'
+
     import { mount } from './src/entry.tsx'
 
     // Get params from URL

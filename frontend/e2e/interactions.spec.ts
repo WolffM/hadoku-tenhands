@@ -8,7 +8,7 @@
  * verifies button-to-API-call connections.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/base'
 import { mockAllAPIs } from './fixtures/api-mocks'
 
 test.describe('Vibecheck Pipeline — Button Interactions', () => {

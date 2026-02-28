@@ -4,7 +4,7 @@
  * Tests for the Review Queue view functionality.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/base'
 import { mockAllAPIs } from './fixtures/api-mocks'
 
 test.describe('Review Queue View', () => {
@@ -223,7 +223,10 @@ test.describe('Review Queue Empty State', () => {
 })
 
 test.describe('Review Queue Error Handling', () => {
-  test('handles API error gracefully', async ({ page }) => {
+  test('handles API error gracefully', async ({ page, consoleErrors }) => {
+    // This test intentionally triggers API errors — clear collected errors at the end
+    // so the console-error fixture doesn't fail the test.
+
     // Mock API error for stage4
     await page.route('**/dispatch/api/stage4-prs', async route => {
       await route.fulfill({
@@ -260,5 +263,8 @@ test.describe('Review Queue Error Handling', () => {
 
     // Page should not crash - title should still be visible
     await expect(page.locator('.vibedispatch__title')).toBeVisible()
+
+    // Clear expected console errors so the base fixture doesn't fail this test
+    consoleErrors.length = 0
   })
 })

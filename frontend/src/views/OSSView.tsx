@@ -1,18 +1,19 @@
 /**
  * OSSView
  *
- * Main view for the 5-stage OSS contribution pipeline.
- * Stages 1-2 are stubs (aggregator integration in M2).
- * Stages 3-5 are fully functional.
+ * Main view for the 4-tab OSS contribution pipeline.
+ * Tab 1: Repo Health — dossier sections, health scores, scrape/compute actions
+ * Tab 2: Fork & Assign — repo filter, recommended issues, batch assign
+ * Tab 3: Pipeline Runs — progress bars, report detail, signoff
+ * Tab 4: Review — production PR command center
  */
 
 import { useEffect, useRef } from 'react'
 import { usePipelineStore, selectIsOSSLoading } from '../store'
-import { OSSTargetList } from '../components/oss/OSSTargetList'
-import { OSSIssueList } from '../components/oss/OSSIssueList'
-import { OSSAssignPanel } from '../components/oss/OSSAssignPanel'
-import { OSSReviewPanel } from '../components/oss/OSSReviewPanel'
-import { OSSSubmitPanel } from '../components/oss/OSSSubmitPanel'
+import { RepoHealthPanel } from '../components/oss/RepoHealthPanel'
+import { ForkAssignPanel } from '../components/oss/ForkAssignPanel'
+import { PipelineRunsPanel } from '../components/oss/PipelineRunsPanel'
+import { ProductionReviewPanel } from '../components/oss/ProductionReviewPanel'
 import { ProgressLog, StageTabView, type StageTabConfig } from '../components/common'
 
 export function OSSView() {
@@ -21,9 +22,8 @@ export function OSSView() {
 
   const ossStage1 = usePipelineStore(state => state.ossStage1)
   const ossStage2 = usePipelineStore(state => state.ossStage2)
-  const ossStage3 = usePipelineStore(state => state.ossStage3)
-  const ossStage4 = usePipelineStore(state => state.ossStage4)
-  const ossStage5 = usePipelineStore(state => state.ossStage5)
+  const ossPipelineRuns = usePipelineStore(state => state.ossPipelineRuns)
+  const ossSubmittedPRs = usePipelineStore(state => state.ossSubmittedPRs)
 
   // Load all OSS stages on mount
   const initialLoadDoneRef = useRef(false)
@@ -35,39 +35,32 @@ export function OSSView() {
 
   const stages: StageTabConfig[] = [
     {
-      id: 'target',
-      label: 'Target Repos',
-      icon: '\u{1F3AF}',
-      component: OSSTargetList,
+      id: 'health',
+      label: 'Repo Health',
+      icon: '\u{1F3E5}',
+      component: RepoHealthPanel,
       getCount: () => ossStage1.items.length
-    },
-    {
-      id: 'select',
-      label: 'Select Issues',
-      icon: '\u{1F4CB}',
-      component: OSSIssueList,
-      getCount: () => ossStage2.items.length
     },
     {
       id: 'assign',
       label: 'Fork & Assign',
       icon: '\u{1F531}',
-      component: OSSAssignPanel,
-      getCount: () => ossStage3.items.length
+      component: ForkAssignPanel,
+      getCount: () => ossStage2.items.length
+    },
+    {
+      id: 'pipeline',
+      label: 'Pipeline Runs',
+      icon: '\u{2699}\u{FE0F}',
+      component: PipelineRunsPanel,
+      getCount: () => ossPipelineRuns.items.length
     },
     {
       id: 'review',
-      label: 'Review on Fork',
-      icon: '\u{1F441}',
-      component: OSSReviewPanel,
-      getCount: () => ossStage4.items.length
-    },
-    {
-      id: 'submit',
-      label: 'Submit Upstream',
-      icon: '\u{1F4E4}',
-      component: OSSSubmitPanel,
-      getCount: () => ossStage5.items.length
+      label: 'Review',
+      icon: '\u{1F4CA}',
+      component: ProductionReviewPanel,
+      getCount: () => ossSubmittedPRs.items.length
     }
   ]
 
@@ -79,7 +72,7 @@ export function OSSView() {
         onRefreshAll={() => {
           void loadAllOSSStages()
         }}
-        defaultStageId="assign"
+        defaultStageId="pipeline"
       />
       <ProgressLog />
     </div>

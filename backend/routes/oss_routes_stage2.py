@@ -107,8 +107,52 @@ def _fetch_repo_issues_fallback(entry):
     return scored
 
 
+def _normalize_aggregator_issues(issues):
+    """Normalize aggregator-provided issues to match the frontend ScoredIssue shape.
+
+    The aggregator uses 'project' (owner/repo) and 'repoSlug' (owner-repo) but
+    the frontend expects 'repo' (owner/repo) and 'number' (int).  Mutates in-place.
+    """
+    for issue in issues:
+        # repo: prefer 'project' (already owner/repo), else derive from repoSlug
+        if not issue.get("repo"):
+            project = issue.get("project")
+            if project:
+                issue["repo"] = project
+            else:
+                slug = issue.get("repoSlug", "")
+                # repoSlug is owner-repo; extract owner/repo from the issue URL
+                url = issue.get("url", "")
+                if "github.com/" in url:
+                    parts = url.split("github.com/")[1].split("/")
+                    if len(parts) >= 2:
+                        issue["repo"] = f"{parts[0]}/{parts[1]}"
+                elif slug:
+                    issue["repo"] = slug  # last resort
+
+        # number: parse from URL or id
+        if not issue.get("number"):
+            url = issue.get("url", "")
+            if "/issues/" in url:
+                try:
+                    issue["number"] = int(url.rstrip("/").split("/")[-1])
+                except (ValueError, IndexError):
+                    pass
+            if not issue.get("number"):
+                # id format: github-owner-repo-NUMBER
+                issue_id = issue.get("id", "")
+                parts = issue_id.rsplit("-", 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    issue["number"] = int(parts[1])
+
+        # Defaults for optional list/scalar fields the frontend expects
+        issue.setdefault("assignees", [])
+        issue.setdefault("likelyFiles", [])
+        issue.setdefault("relatedIssues", [])
+
+
 @bp.route("/api/oss/stage2-issues", methods=["GET"])
-@cached_endpoint("oss-stage2-issues")
+@cached_endpoint("oss-stage2-issues", normalize=_normalize_aggregator_issues)
 def api_oss_stage2_issues():
     """Get scored issues across all target repos.
 

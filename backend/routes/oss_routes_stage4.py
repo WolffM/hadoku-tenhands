@@ -15,9 +15,11 @@ from . import bp
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.pipeline_orchestrator import PipelineOrchestrator
+    from ..helpers.oss_helpers import format_upstream_pr_body
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
+    from helpers.oss_helpers import format_upstream_pr_body
 
 
 @bp.route("/api/oss/advance-pipeline", methods=["POST"])
@@ -53,31 +55,61 @@ def api_oss_advance_pipeline():
     return jsonify(result)
 
 
+def _normalize_assignment(a):
+    """Normalize an assignment record to camelCase for frontend consumption."""
+    return {
+        "originSlug": a.get("origin_slug", ""),
+        "repo": a.get("repo", ""),
+        "issueNumber": a.get("issue_number", 0),
+        "forkIssueNumber": a.get("fork_issue_number", 0),
+        "forkIssueUrl": a.get("fork_issue_url", ""),
+        "assignedAt": a.get("assigned_at", ""),
+        "stage4Status": a.get("stage4_status", "swe_agent_working"),
+        "stage4PrNumber": a.get("stage4_pr_number"),
+        "stage4PrBranch": a.get("stage4_pr_branch"),
+        "stage4ReviewRequested": a.get("stage4_review_requested", False),
+        "stage4SweDoneAt": a.get("stage4_swe_done_at"),
+        "stage4SaRunId": a.get("stage4_sa_run_id"),
+        "stage4SaConclusion": a.get("stage4_sa_conclusion"),
+        "stage4SaDoneAt": a.get("stage4_sa_done_at"),
+        "stage4ReviewDoneAt": a.get("stage4_review_done_at"),
+        "stage4dSkipped": a.get("stage4d_skipped"),
+        "stage4dPreCommitCount": a.get("stage4d_pre_commit_count"),
+        "stage4dDoneAt": a.get("stage4d_done_at"),
+        "language": a.get("language"),
+        "contextTier": a.get("context_tier"),
+        "contextSources": a.get("context_sources"),
+        "dossierCompleteness": a.get("dossier_completeness"),
+    }
+
+
 @bp.route("/api/oss/pipeline-status", methods=["GET"])
 def api_oss_pipeline_status():
     """Get Stage 4 pipeline status for all assignments.
 
-    Returns each assignment's current pipeline state so the frontend
-    can display progress indicators.
+    Returns the full assignment record with pipeline state, timing, and
+    context data so the frontend can display progress indicators and details.
     """
     my_user = get_authenticated_user()
     svc = OSSService()
     assignments = svc.get_assigned_issues()
 
-    statuses = []
-    for a in assignments:
-        statuses.append({
-            "origin_slug": a.get("origin_slug"),
-            "repo": a.get("repo"),
-            "issue_number": a.get("issue_number"),
-            "fork_issue_number": a.get("fork_issue_number"),
-            "stage4_status": a.get("stage4_status", "swe_agent_working"),
-            "stage4_pr_number": a.get("stage4_pr_number"),
-            "stage4_pr_branch": a.get("stage4_pr_branch"),
-            "stage4_review_requested": a.get("stage4_review_requested", False),
-        })
+    statuses = [_normalize_assignment(a) for a in assignments]
 
     return jsonify({"success": True, "statuses": statuses, "owner": my_user})
+
+
+@bp.route("/api/oss/retrospective-logs", methods=["GET"])
+def api_oss_retrospective_logs():
+    """Get all retrospective log entries for pipeline report display.
+
+    Returns raw retrospective data (snake_case) matching the structure
+    used by pipeline-report.html and gen_report.py.
+    """
+    my_user = get_authenticated_user()
+    svc = OSSService()
+    logs = svc.get_retrospective_logs()
+    return jsonify({"success": True, "logs": logs, "owner": my_user})
 
 
 def _get_fork_prs(my_user, repo, origin_slug):
@@ -371,3 +403,185 @@ def api_oss_merge_fork_pr():
         "error": result.get("error", "Failed to merge PR"),
         "owner": my_user,
     })
+
+
+@bp.route("/api/oss/signoff", methods=["POST"])
+def api_oss_signoff():
+    """One-click signoff: merge fork PR, sanitize, create upstream PR.
+
+    Combines the merge-fork-pr flow (Stage 4.5) with the submit-to-origin
+    flow (Stage 5) into a single idempotent action.
+
+    Input: { "repo": "email-verifier", "pr_number": 2, "origin_slug": "reisepass/email-verifier" }
+    """
+    data = request.json
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    origin_slug = data.get("origin_slug")
+
+    if not all([repo, pr_number, origin_slug]):
+        return jsonify({"success": False, "error": "Missing required fields"})
+
+    if "/" in str(repo):
+        repo = repo.split("/")[-1]
+
+    my_user = get_authenticated_user()
+    svc = OSSService()
+    steps = {}
+
+    # --- Step 1: Look up assignment ---
+    assignments = svc.get_assigned_issues()
+    assignment = next(
+        (a for a in assignments
+         if a.get("origin_slug") == origin_slug and a.get("repo") == repo),
+        None
+    )
+    if not assignment:
+        return jsonify({"success": False, "error": "Assignment not found"})
+
+    upstream_issue_number = assignment.get("issue_number", 0)
+    stored_default = assignment.get("default_branch", "main")
+    fork_issue_number = assignment.get("fork_issue_number")
+
+    # --- Step 2: Get PR info before merge (can't read after) ---
+    pr_info = run_gh_command([
+        "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
+        "--json", "headRefName,title,baseRefName,isDraft,state"
+    ])
+    pr_data = {}
+    if pr_info["success"]:
+        try:
+            pr_data = json.loads(pr_info["output"])
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    copilot_branch = pr_data.get("headRefName", "")
+    pr_title = pr_data.get("title", "")
+    base_branch = pr_data.get("baseRefName", stored_default)
+    pr_state = pr_data.get("state", "").upper()
+
+    # --- Step 3: Merge the fork PR (if not already merged) ---
+    if pr_state == "MERGED":
+        steps["merge"] = {"skipped": True, "reason": "PR already merged"}
+    else:
+        # Mark draft as ready
+        if pr_data.get("isDraft", False):
+            run_gh_command([
+                "pr", "ready", str(pr_number), "-R", f"{my_user}/{repo}"
+            ])
+
+        merge_result = run_gh_command([
+            "pr", "merge", str(pr_number), "-R", f"{my_user}/{repo}",
+            "--squash"
+        ], timeout=60)
+
+        if not merge_result["success"]:
+            return jsonify({
+                "success": False,
+                "error": f"Merge failed: {merge_result.get('error', 'unknown')}",
+                "owner": my_user,
+                "steps": steps,
+            })
+        steps["merge"] = {"success": True}
+
+    # --- Step 4: Stage 4.5 sanitization ---
+    head_result = run_gh_command([
+        "api", f"repos/{my_user}/{repo}/git/ref/heads/{base_branch}",
+        "--jq", ".object.sha"
+    ])
+    squash_sha = head_result["output"].strip() if head_result["success"] else None
+
+    clean_branch = copilot_branch  # fallback
+    if squash_sha:
+        title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
+        clean_branch = f"fix/{upstream_issue_number}-{title_slug}"
+        clean_result = svc.create_clean_branch(
+            my_user, repo, squash_sha, clean_branch, pr_title
+        )
+        steps["sanitize"] = clean_result
+
+        if clean_result.get("success"):
+            if copilot_branch:
+                svc.delete_branch(my_user, repo, copilot_branch)
+            if fork_issue_number:
+                svc.close_fork_issue(my_user, repo, fork_issue_number)
+        else:
+            clean_branch = copilot_branch
+            steps["sanitize"]["warning"] = "Fallback to original branch"
+    else:
+        steps["sanitize"] = {"skipped": True, "reason": "No squash SHA"}
+
+    # --- Step 5: Create upstream PR ---
+    body = format_upstream_pr_body(origin_slug, upstream_issue_number, pr_title, clean_branch)
+
+    submit_result = run_gh_command([
+        "pr", "create",
+        "-R", origin_slug,
+        "--head", f"{my_user}:{clean_branch}",
+        "--base", base_branch,
+        "--title", pr_title,
+        "--body", body
+    ], timeout=60)
+
+    if submit_result["success"]:
+        pr_url = submit_result["output"].strip()
+        svc.save_submitted_pr(origin_slug, pr_url, pr_title)
+        # Clean up ready-to-submit if it exists
+        svc.remove_ready_to_submit(origin_slug, clean_branch)
+        steps["submit"] = {"success": True, "pr_url": pr_url}
+
+        conflict_warnings = _check_remaining_pr_conflicts(my_user, repo, pr_number)
+
+        return jsonify({
+            "success": True,
+            "pr_url": pr_url,
+            "clean_branch": clean_branch,
+            "owner": my_user,
+            "steps": steps,
+            "conflict_warnings": conflict_warnings,
+        })
+
+    steps["submit"] = {"success": False, "error": submit_result.get("error", "")}
+
+    # Merge succeeded but submit failed — save as ready-to-submit for manual retry
+    svc.save_ready_to_submit(
+        origin_slug=origin_slug,
+        repo=repo,
+        branch=clean_branch,
+        title=pr_title,
+        base_branch=base_branch,
+        issue_number=upstream_issue_number,
+    )
+
+    return jsonify({
+        "success": False,
+        "error": f"Merged but upstream submit failed: {submit_result.get('error', '')}",
+        "owner": my_user,
+        "steps": steps,
+    })
+
+
+@bp.route("/api/oss/issue-report/<repo>/<int:issue_number>", methods=["GET"])
+def api_oss_issue_report(repo, issue_number):
+    """Generate a self-contained pipeline report HTML for a single issue.
+
+    Returns Content-Type: text/html suitable for embedding in an iframe.
+    """
+    from flask import make_response
+
+    try:
+        from ..helpers.report_generator import generate_issue_report_html
+    except ImportError:
+        from helpers.report_generator import generate_issue_report_html
+
+    svc = OSSService()
+    try:
+        html = generate_issue_report_html(svc, repo, issue_number)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+    response = make_response(html)
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    return response

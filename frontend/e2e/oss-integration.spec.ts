@@ -10,7 +10,7 @@
  *   cd frontend && pnpm exec playwright test e2e/oss-integration.spec.ts
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures/base'
 
 const BASE_URL = process.env.BACKEND_URL || 'http://localhost:5000'
 
