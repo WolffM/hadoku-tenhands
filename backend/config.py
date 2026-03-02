@@ -15,8 +15,10 @@ GITHUB_NOREPLY_EMAIL_TEMPLATE = "{uid}+{login}@users.noreply.github.com"
 # VibeCheck source repo — override with VIBECHECK_REPO env var (owner/repo format)
 VIBECHECK_REPO = os.environ.get("VIBECHECK_REPO", "WolffM/vibecheck")
 
-# VibeCheck workflow template
-VIBECHECK_WORKFLOW = """name: vibeCheck
+# VibeCheck workflow template — uses VIBECHECK_REPO so the action reference
+# stays in sync with the env-var override.
+_VIBECHECK_WORKFLOW_TEMPLATE = """\
+name: vibeCheck
 on:
   workflow_dispatch:
 
@@ -38,9 +40,9 @@ jobs:
           fetch-depth: 0
 
       - name: Run vibeCheck
-        uses: WolffM/vibecheck@main
+        uses: {vibecheck_repo}@main
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{{{ secrets.GITHUB_TOKEN }}}}
           cadence: weekly
           severity_threshold: medium
           confidence_threshold: medium
@@ -56,3 +58,8 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 """
+
+
+def get_vibecheck_workflow() -> str:
+    """Return the vibecheck workflow YAML with the current VIBECHECK_REPO."""
+    return _VIBECHECK_WORKFLOW_TEMPLATE.format(vibecheck_repo=VIBECHECK_REPO)

@@ -1,237 +1,191 @@
 # VibeDispatch
 
-A central dashboard and workflow orchestration platform for managing GitHub repositories at scale with automated code quality checks and AI-powered remediation.
-
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![Flask](https://img.shields.io/badge/Flask-3.0-green.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-
-## Overview
-
-VibeDispatch orchestrates a multi-stage pipeline that combines automated code analysis ([VibeCheck](https://github.com/WolffM/vibecheck)) with GitHub Copilot for automated fixes, all managed through a unified web dashboard. It's designed for organizations managing multiple repositories that want automated quality checks coupled with human-controlled remediation.
-
-### Core Workflow
-
-```
-Install VibeCheck -> Run Analysis -> Assign Copilot -> Review & Merge
-     Stage 1            Stage 2         Stage 3          Stage 4
-```
-
-## Features
-
-### Pipeline-Based Workflow
-
-VibeDispatch organizes repository management into a 4-stage pipeline:
-
-1. **Stage 1: Install** - Repos that need VibeCheck workflow installed
-2. **Stage 2: Run** - Repos with VibeCheck installed, showing run status and commits since last run
-3. **Stage 3: Assign** - VibeCheck issues ready to be assigned to GitHub Copilot (sorted by severity)
-4. **Stage 4: Review** - Open PRs ready for review and merge (with inline diff viewing)
-
-### Key Capabilities
-
-- **Batch Operations** - Install VibeCheck, run workflows, or assign issues across multiple repos at once
-- **GitHub Copilot Integration** - Automatically assign Copilot to fix VibeCheck-discovered issues
-- **PR Management** - Review, approve, and merge PRs with inline diff viewing
-- **Real-time Monitoring** - Track workflow runs and health status across all repositories
-- **Smart Caching** - 5-minute TTL cache for efficient API usage
-- **Parallel Execution** - ThreadPoolExecutor for concurrent API requests (up to 10 parallel)
-- **URL Prefix Support** - Deploy behind edge routers (e.g., `hadoku.me/dispatch/*`)
+An orchestration layer for automated open-source contributions. VibeDispatch identifies high-value issues across repositories, scores them using a Contribution Viability Score (CVS) engine, and orchestrates an agent pipeline: fork, assign agent, review, and submit upstream.
 
 ## Architecture
 
-### Technology Stack
+VibeDispatch is the orchestration layer in a three-repo pipeline:
 
-**Backend:**
+```
+scraper (daily cron)
+  -> indexes repo metadata, writes to KV store
 
-- Flask 3.0.0 (Python web framework)
+aggregator (scoring + analysis)
+  -> reads KV, computes CVS scores, builds dossiers and issue briefs
+  -> serves scoring API
+
+vibedispatch (this repo -- orchestration + UI)
+  -> calls aggregator API for scored data
+  -> orchestrates: forking, agent context, agent assignment, PR review, upstream submission
+```
+
+The scraper and aggregator are separate repositories. VibeDispatch consumes the aggregator API and includes fallback heuristics for graceful degradation when the aggregator is unreachable.
+
+### Responsibility Boundaries
+
+| Concern | Owner |
+|---|---|
+| Repo scraping and indexing | scraper |
+| Issue scoring (CVS) | aggregator |
+| Reaction and sentiment analysis | aggregator |
+| Dossier and issue brief generation | aggregator |
+| Repo health scores | aggregator |
+| Fork management | vibedispatch |
+| Agent context building | vibedispatch |
+| Agent assignment | vibedispatch |
+| PR review orchestration | vibedispatch |
+| Upstream PR submission | vibedispatch |
+| Pipeline UI | vibedispatch |
+
+## Pipeline Stages
+
+### Stage 1: Target Repos
+
+Watchlist management and repo health overview. The aggregator provides a watchlist and health scores for each repository. Fallback: local watchlist file with metadata fetched via `gh` CLI.
+
+### Stage 2: Scored Issues
+
+CVS-scored issues with tier classification. Issues are ranked into tiers -- GO, LIKELY, MAYBE, RISKY, SKIP -- based on contribution viability factors (maintainer responsiveness, issue clarity, codebase complexity, community health). The aggregator computes all scores; vibedispatch only displays and filters them.
+
+### Stage 3: Fork and Assign
+
+Fork the target repository, build agent context from the aggregator's dossier and issue brief, create a context issue on the fork, and assign a coding agent. All upstream references are sanitized before posting to the fork to prevent cross-linking.
+
+### Stage 4: Review on Fork
+
+Automated review pipeline on the fork: SWE agent produces a draft PR, static analysis workflows run, code review is requested, and any remediation is handled. The pipeline orchestrator tracks sub-stage progress and dispatches work through a pluggable dispatcher interface.
+
+### Stage 5: Submit Upstream
+
+Create a pull request from the fork to the upstream repository and track its status (open, merged, closed). Only at this stage are upstream cross-references (e.g., `Fixes #N`) included.
+
+## Tech Stack
+
+**Backend**
+- Python / Flask 3.0 with blueprint-based routing
 - GitHub CLI (`gh`) for all GitHub operations
-- ThreadPoolExecutor for parallelization
-- In-memory caching with TTL
+- File-based caching with configurable TTL
+- ThreadPoolExecutor for concurrent API requests
 
-**Frontend:**
+**Frontend**
+- React 19 + TypeScript (Vite build, published as npm package)
+- Zustand for state management
+- Playwright for E2E testing
 
-- Bootstrap 5.3.2 with dark theme
-- Vanilla JavaScript (ES6, no build tools)
-- Jinja2 templates
+**Agent Integration**
+- GitHub Copilot coding agent (default)
+- Pluggable via `StageDispatcher` interface -- implement `dispatch()`, `check_status()`, and `collect_results()` to add new agent backends
 
-**Integrations:**
+**CI**
+- GitHub Actions for static analysis workflows (VibeCheck)
 
-- [VibeCheck](https://github.com/WolffM/vibecheck) - GitHub Action for code quality analysis
-- GitHub Copilot - AI-powered issue fixing
-- GitHub API - Repository, issue, PR, and workflow management
+## Getting Started
 
-### Project Structure
+### Prerequisites
 
-```
-vibedispatch/
-%%% app.py                    # Main Flask application (~660 lines)
-%                             # Routes: dashboard, repo_detail, global_actions, healthcheck
-%                             # 20+ API endpoints for pipeline management
-%%% config.py                 # Configuration constants
-%                             # CACHE_TTL, MAX_REPOS, VIBECHECK_WORKFLOW template
-%%% requirements.txt          # Python dependencies
-%%% services/
-%   %%% __init__.py          # Service exports
-%   %%% cache.py             # In-memory caching with TTL
-%   %%% github_api.py        # GitHub CLI wrapper functions
-%%% static/
-%   %%% css/styles.css       # Dark theme styles
-%   %%% js/
-%       %%% utils.js         # Shared utilities (API calls, formatting, diff rendering)
-%       %%% actions.js       # Common action functions
-%       %%% global-actions.js # Pipeline stage logic
-%%% templates/
-%   %%% base.html            # Base layout with navigation
-%   %%% dashboard.html       # Main repo grid view
-%   %%% repo_detail.html     # Single repo dashboard
-%   %%% global_actions.html  # Pipeline management interface
-%   %%% healthcheck.html     # Workflow monitoring
-%%% docs/planning/           # Vision and planning documents
+- Python 3.8+
+- Node.js 18+ and pnpm
+- [GitHub CLI (`gh`)](https://cli.github.com/) authenticated via `gh auth login`
+
+### Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+cp ../.env.example ../.env   # configure environment variables
+python ../app.py
 ```
 
-## Prerequisites
+The API server starts on `http://localhost:5000` by default.
 
-- **Python 3.8+**
-- **GitHub CLI (`gh`)** - [Install Guide](https://cli.github.com/)
-- **GitHub Account** with Copilot access (for Copilot features)
+### Frontend
 
-## Installation
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
 
-1. **Clone the repository**
+The dev server starts on `http://localhost:5175` and proxies API requests to the backend.
 
-   ```bash
-   git clone https://github.com/WolffM/vibedispatch.git
-   cd vibedispatch
-   ```
+## Project Structure
 
-2. **Create virtual environment**
-
-   ```bash
-   python -m venv .venv
-
-   # Windows
-   .venv\Scripts\activate
-
-   # macOS/Linux
-   source .venv/bin/activate
-   ```
-
-3. **Install dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Authenticate with GitHub CLI**
-
-   ```bash
-   gh auth login
-   ```
-
-5. **Run the application**
-
-   ```bash
-   python app.py
-   ```
-
-6. **Open in browser**
-   ```
-   http://localhost:5000
-   ```
-
-## Usage
-
-### Dashboard (`/`)
-
-The main dashboard shows all your repositories with their VibeCheck installation status. Click any repo to view details including issues, PRs, workflows, and run history.
-
-### Global Actions (`/global-actions`)
-
-The pipeline management interface with stage tabs:
-
-- **Stage 1**: Select repos and click "Install VibeCheck" to add the workflow
-- **Stage 2**: Run VibeCheck on repos, especially those with commits since the last run
-- **Stage 3**: Assign Copilot to fix issues discovered by VibeCheck (sorted by severity)
-- **Stage 4**: Review PRs created by Copilot, approve and merge them
-
-### Health Check (`/healthcheck`)
-
-Monitor workflow runs across all repositories with status indicators.
-
-## API Endpoints
-
-### Stage Management
-
-| Endpoint             | Method | Description                                |
-| -------------------- | ------ | ------------------------------------------ |
-| `/api/stage1-repos`  | GET    | Get repos needing VibeCheck                |
-| `/api/stage2-repos`  | GET    | Get repos with run status                  |
-| `/api/stage3-issues` | GET    | Get assignable issues (sorted by severity) |
-| `/api/stage4-prs`    | GET    | Get reviewable PRs                         |
-
-### Workflow Control
-
-| Endpoint                    | Method | Description                   |
-| --------------------------- | ------ | ----------------------------- |
-| `/api/install-vibecheck`    | POST   | Install VibeCheck workflow    |
-| `/api/run-vibecheck`        | POST   | Trigger VibeCheck workflow    |
-| `/api/run-full-pipeline`    | POST   | Install + trigger in sequence |
-| `/api/workflow-status`      | POST   | Check latest run status       |
-| `/api/global-workflow-runs` | GET    | Recent runs across all repos  |
-
-### Issue & PR Management
-
-| Endpoint              | Method | Description                   |
-| --------------------- | ------ | ----------------------------- |
-| `/api/assign-copilot` | POST   | Assign Copilot to an issue    |
-| `/api/approve-pr`     | POST   | Approve a pull request        |
-| `/api/mark-pr-ready`  | POST   | Mark draft PR as ready        |
-| `/api/merge-pr`       | POST   | Merge a pull request (squash) |
-| `/api/pr-details`     | POST   | Get full PR info + diff       |
-
-### Utilities
-
-| Endpoint           | Method | Description                  |
-| ------------------ | ------ | ---------------------------- |
-| `/api/clear-cache` | POST   | Clear vibecheck status cache |
+```
+backend/
+  routes/              Flask route blueprints
+    oss_routes_stage1    Stage 1: target repos and watchlist
+    oss_routes_stage2    Stage 2: scored issues
+    oss_routes_stage3    Stage 3: fork and assign
+    oss_routes_stage4    Stage 4: review on fork
+    oss_routes_stage5    Stage 5: upstream submission
+    pipeline_routes      Pipeline orchestration endpoints
+    workflow_routes      VibeCheck workflow management
+    oss_debug_routes     Debug and diagnostics
+    health_routes        Health check
+    action_routes        Batch actions
+  services/            Business logic
+    oss_service          Aggregator API client, data transforms
+    oss_fork             Fork creation and management
+    oss_context          Agent context building, upstream ref sanitization
+    dispatchers          Pluggable agent dispatcher interface
+    pipeline_orchestrator  Multi-stage pipeline state machine
+    oss_state            Local JSON state management
+    cache                File-based caching with TTL
+    github_api           GitHub CLI wrapper
+    workflow_templates   VibeCheck workflow YAML generation
+  helpers/             Pure functions
+    oss_helpers          CVS fallback scoring heuristic
+    notifications        Discord webhook notifications
+    report_generator     Pipeline report generation
+    stage_helpers        Stage utility functions
+  tests/               Pytest test suite
+frontend/
+  src/
+    api/               Typed API client (client, endpoints, types)
+    components/
+      oss/             OSS pipeline panels (health, issues, fork, review, runs)
+      common/          Shared UI components (Badge, SectionHeader, FilterBar)
+      pipeline/        Pipeline management components
+      review/          PR review components
+      vibecheck/       VibeCheck workflow components
+    views/             Page-level views (OSS, HealthCheck, Pipeline, Review)
+    store/             Zustand stores (pipeline, review queue)
+    hooks/             React hooks (batch actions, review actions, theme)
+    utils/             Formatters, diff renderer, severity helpers
+  e2e/                 Playwright E2E tests
+scripts/               Utility scripts (Copilot session inspector, report generation)
+```
 
 ## Configuration
 
-Edit `config.py` to customize:
+Copy `.env.example` to `.env` and configure:
 
-```python
-CACHE_TTL = 300                    # Cache duration in seconds (5 min)
-MAX_REPOS = 100                    # Max repos to fetch
-MAX_CONCURRENT_REQUESTS = 10       # Parallel API requests
-MAX_REPOS_FOR_STAGE = 15           # Max repos shown per stage
+| Variable | Description | Default |
+|---|---|---|
+| `AGGREGATOR_API_URL` | Base URL for the aggregator scoring API. Leave empty for offline/fallback mode. | (none) |
+| `FLASK_ENV` | Set to `development` for debug mode and extended cache TTL. | `production` |
+| `PORT` | Port the Flask backend listens on. | `5000` |
+| `URL_PREFIX` | URL prefix for all API routes. Set to `""` for local dev without prefix. | `/dispatch` |
+| `DISCORD_WEBHOOK_URL` | Webhook URL for pipeline event notifications. Leave empty to disable. | (none) |
+| `BACKEND_PORT` | Backend port for Vite dev proxy. Must match `PORT`. | `5000` |
+
+## Testing
+
+### Backend (pytest)
+
+```bash
+cd backend && python -m pytest tests/ -v
 ```
 
-### Environment Variables
+### Frontend (Playwright E2E)
 
-| Variable     | Description                         | Default      |
-| ------------ | ----------------------------------- | ------------ |
-| `URL_PREFIX` | URL prefix for proxied deployment   | `/dispatch`  |
-| `FLASK_ENV`  | Set to `development` for debug mode | `production` |
-
-## What is VibeCheck?
-
-[VibeCheck](https://github.com/WolffM/vibecheck) is a GitHub Action that performs automated code quality analysis on your repositories. It creates issues with severity labels (`severity-high`, `severity-medium`, `severity-low`) that can then be assigned to GitHub Copilot for automated fixes.
-
-## Future Vision
-
-VibeDispatch is evolving toward a full **agentic workflow orchestration platform**. See [docs/planning/objective-to-task-pipeline.md](docs/planning/objective-to-task-pipeline.md) for the vision, which includes:
-
-- **Objective to Task Pipeline**: Break high-level goals into atomic, agent-executable tasks
-- **Multi-Agent Support**: Route work to the right agent (Copilot, Claude Code, Cursor, custom agents)
-- **Context Bundling**: Package tasks with all necessary context so agents don't need to fetch more
-- **Configurable Review Gates**: Different workflows for different task types
-- **Cross-Repo Coordination**: Handle objectives spanning multiple repositories
+```bash
+cd frontend
+pnpm test              # run against local dev
+pnpm test:prod         # run against production
+pnpm test:ui           # interactive UI mode
+```
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+MIT License -- see [LICENSE](LICENSE) for details.

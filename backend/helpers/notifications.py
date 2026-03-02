@@ -5,8 +5,12 @@ Best-effort — all functions silently no-op when DISCORD_WEBHOOK_URL is unset
 or when the request fails.
 """
 
+import logging
 import os
+
 import requests
+
+logger = logging.getLogger(__name__)
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
@@ -42,8 +46,8 @@ def send_discord_notification(title, description, color=None, fields=None):
             json={"embeds": [embed]},
             timeout=5,
         )
-    except Exception:
-        pass  # Best-effort — never fail the caller
+    except Exception as e:
+        logger.debug("Discord notification failed: %s", e)
 
 
 def notify_go_tier_issue(repo, issue_number, title, cvs):

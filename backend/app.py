@@ -5,6 +5,7 @@ This Flask app serves as the API backend for the VibeDispatch React frontend.
 All page rendering has been moved to the React microfrontend.
 """
 
+import logging
 import os
 import signal
 import socket
@@ -13,6 +14,9 @@ import sys
 import time
 
 from flask import Flask, request, jsonify
+
+logging.basicConfig()
+logger = logging.getLogger(__name__)
 
 
 def _port_in_use(port: int) -> bool:
@@ -31,7 +35,7 @@ def _kill_port(port: int) -> None:
     if not _port_in_use(port):
         return  # port is free
 
-    print(f"[startup] Port {port} is in use — killing existing process...")
+    logger.info("Port %d is in use — killing existing process...", port)
 
     def _kill_once_win() -> int:
         killed = set()
@@ -49,7 +53,7 @@ def _kill_port(port: int) -> None:
                     # Try os.kill first (same-user, no elevation needed)
                     try:
                         os.kill(pid_num, signal.SIGTERM)
-                        print(f"[startup] Killed PID {pid_str} via SIGTERM")
+                        logger.debug("Killed PID %s via SIGTERM", pid_str)
                         killed.add(pid_str)
                         continue
                     except (PermissionError, OSError):
@@ -60,11 +64,11 @@ def _kill_port(port: int) -> None:
                             ["taskkill", "/F", "/PID", pid_str],
                             capture_output=True, text=True, check=True,
                         )
-                        print(f"[startup] Killed PID {pid_str} via taskkill")
+                        logger.debug("Killed PID %s via taskkill", pid_str)
                         killed.add(pid_str)
                     except (subprocess.CalledProcessError, OSError) as e:
                         stderr = getattr(e, "stderr", "") or ""
-                        print(f"[startup] WARNING: Failed to kill PID {pid_str}: {stderr.strip()}")
+                        logger.warning("Failed to kill PID %s: %s", pid_str, stderr.strip())
         except subprocess.CalledProcessError:
             pass
         return len(killed)
@@ -81,7 +85,7 @@ def _kill_port(port: int) -> None:
                     continue
                 try:
                     os.kill(int(pid_str), signal.SIGKILL)
-                    print(f"[startup] Killed PID {pid_str}")
+                    logger.debug("Killed PID %s", pid_str)
                     count += 1
                 except (PermissionError, ProcessLookupError):
                     pass
@@ -96,19 +100,19 @@ def _kill_port(port: int) -> None:
         time.sleep(0.5)
         if not _port_in_use(port):
             if attempt > 0:
-                print(f"[startup] Port {port} cleared after {attempt + 1} passes")
+                logger.info("Port %d cleared after %d passes", port, attempt + 1)
             return
-        print(f"[startup] Port {port} still busy, retrying ({attempt + 1}/3)...")
+        logger.info("Port %d still busy, retrying (%d/3)...", port, attempt + 1)
 
     # All attempts failed
-    print(f"\n[startup] ERROR: Port {port} is STILL in use after 3 kill attempts.")
-    print(f"[startup] Another process owns it and cannot be killed (access denied?).")
-    print(f"[startup] Fix: close the other terminal running the backend, or run:")
-    if sys.platform == "win32":
-        print(f"[startup]   taskkill /F /PID <pid>  (as Administrator)")
-    else:
-        print(f"[startup]   sudo kill -9 <pid>")
-    print(f"[startup] Or use a different port:  PORT=5001 python app.py")
+    fix_cmd = "taskkill /F /PID <pid>  (as Administrator)" if sys.platform == "win32" else "sudo kill -9 <pid>"
+    logger.error(
+        "Port %d is STILL in use after 3 kill attempts. "
+        "Another process owns it and cannot be killed (access denied?). "
+        "Fix: close the other terminal running the backend, or run: %s  "
+        "Or use a different port: PORT=5001 python app.py",
+        port, fix_cmd,
+    )
     sys.exit(1)
 
 # Import the blueprint with all routes registered
@@ -117,7 +121,7 @@ try:
 except ImportError:
     from routes import bp
 
-# URL prefix for deployment behind edge-router at hadoku.me/dispatch/*
+# URL prefix for deployment behind edge-router (e.g. /dispatch/*)
 # Set URL_PREFIX="" for local development without prefix
 URL_PREFIX = os.environ.get("URL_PREFIX", "/dispatch")
 
@@ -131,7 +135,7 @@ def add_cors_headers(response):
     # In production, the React app is served from the same origin
     # In development, React runs on localhost:5173
     origin = request.headers.get('Origin', '')
-    if origin in ['http://localhost:5175', 'http://127.0.0.1:5175', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5176', 'http://127.0.0.1:5176']:
+    if origin.startswith('http://localhost:') or origin.startswith('http://127.0.0.1:'):
         response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-User-Key'
