@@ -20,7 +20,7 @@ export function BatchActionBar({
   onProcess,
   selectedCount,
   processLabel,
-  processing,
+  processing
 }: BatchActionBarProps) {
   return (
     <>

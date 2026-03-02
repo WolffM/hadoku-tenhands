@@ -120,47 +120,49 @@ export function Stage3Assign() {
     <div className="stage-panel">
       {/* Filters */}
       <FilterBar
-        filters={[
-          {
-            label: 'Severity',
-            value: severityFilter,
-            onChange: setSeverityFilter,
-            options: [
-              { value: 'all', label: 'All Severities' },
-              { value: 'critical', label: 'Critical' },
-              { value: 'high', label: 'High' },
-              { value: 'medium', label: 'Medium' },
-              { value: 'low', label: 'Low' },
-            ],
-          },
-          {
-            label: 'Label',
-            value: labelFilter,
-            onChange: setLabelFilter,
-            options: [
-              { value: 'all', label: 'All Labels' },
-              ...availableLabels.map(l => ({ value: l, label: l })),
-            ],
-          },
-        ] satisfies FilterDefinition[]}
+        filters={
+          [
+            {
+              label: 'Severity',
+              value: severityFilter,
+              onChange: setSeverityFilter,
+              options: [
+                { value: 'all', label: 'All Severities' },
+                { value: 'critical', label: 'Critical' },
+                { value: 'high', label: 'High' },
+                { value: 'medium', label: 'Medium' },
+                { value: 'low', label: 'Low' }
+              ]
+            },
+            {
+              label: 'Label',
+              value: labelFilter,
+              onChange: setLabelFilter,
+              options: [
+                { value: 'all', label: 'All Labels' },
+                ...availableLabels.map(l => ({ value: l, label: l }))
+              ]
+            }
+          ] satisfies FilterDefinition[]
+        }
       />
 
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section stage-section--recommended">
           <SectionHeader icon="⭐" title="Recommended" count={recommended.length}>
-              <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
-                Select All
-              </button>
-              <button
-                className="btn btn--warning btn--sm"
-                onClick={() => {
-                  void processSelected(recommended)
-                }}
-                disabled={assigning || selectedCount === 0}
-              >
-                Assign Recommended ({selectedCount})
-              </button>
+            <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
+              Select All
+            </button>
+            <button
+              className="btn btn--warning btn--sm"
+              onClick={() => {
+                void processSelected(recommended)
+              }}
+              disabled={assigning || selectedCount === 0}
+            >
+              Assign Recommended ({selectedCount})
+            </button>
           </SectionHeader>
 
           <div className="table-container">
@@ -201,7 +203,9 @@ export function Stage3Assign() {
           <BatchActionBar
             onSelectAll={() => selectAll(filteredIssues)}
             onSelectNone={selectNone}
-            onProcess={() => { void processSelected(filteredIssues) }}
+            onProcess={() => {
+              void processSelected(filteredIssues)
+            }}
             selectedCount={selectedCount}
             processLabel="Assign Selected"
             processing={assigning}

@@ -26,7 +26,7 @@ export const WORKFLOW_STATUS_VARIANT: Record<string, BadgeVariant> = {
   failure: 'danger',
   in_progress: 'info',
   queued: 'info',
-  triggered: 'info',
+  triggered: 'info'
 }
 
 /** Pipeline Stage4Status → badge variant */
@@ -39,10 +39,10 @@ export function getStage4BadgeVariant(status: string): BadgeVariant {
 }
 
 /** Submitted PR state/reviewDecision → badge variant + label */
-export function getSubmittedPRBadge(pr: {
-  state: string
-  reviewDecision?: string | null
-}): { variant: BadgeVariant; label: string } {
+export function getSubmittedPRBadge(pr: { state: string; reviewDecision?: string | null }): {
+  variant: BadgeVariant
+  label: string
+} {
   if (pr.state === 'merged') return { variant: 'success', label: 'Merged' }
   if (pr.state === 'closed') return { variant: 'danger', label: 'Closed' }
   if (pr.reviewDecision === 'APPROVED') return { variant: 'success', label: 'Approved' }
@@ -57,7 +57,7 @@ export const CVS_TIER_VARIANT: Record<string, BadgeVariant> = {
   likely: 'primary',
   maybe: 'warning',
   risky: 'danger',
-  skip: 'secondary',
+  skip: 'secondary'
 }
 
 /** Health score → badge variant */
