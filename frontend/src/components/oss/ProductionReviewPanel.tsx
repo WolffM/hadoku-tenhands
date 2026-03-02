@@ -90,15 +90,15 @@ export function ProductionReviewPanel() {
       {/* Submitted PRs Table */}
       <div className="stage-section">
         <SectionHeader icon={'\u{1F4CA}'} title="Upstream PRs" count={submitted.length}>
-            <button
-              className="btn btn--secondary btn--sm"
-              onClick={() => {
-                void handleRefresh()
-              }}
-              disabled={ossSubmittedPRs.loading}
-            >
-              {ossSubmittedPRs.loading ? 'Refreshing...' : 'Refresh Status'}
-            </button>
+          <button
+            className="btn btn--secondary btn--sm"
+            onClick={() => {
+              void handleRefresh()
+            }}
+            disabled={ossSubmittedPRs.loading}
+          >
+            {ossSubmittedPRs.loading ? 'Refreshing...' : 'Refresh Status'}
+          </button>
         </SectionHeader>
 
         <div className="table-container">

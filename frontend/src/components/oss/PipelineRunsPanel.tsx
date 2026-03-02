@@ -155,7 +155,11 @@ export function PipelineRunsPanel() {
 
       {/* Assignments Table */}
       <div className="stage-section">
-        <SectionHeader icon={'\u{2699}\u{FE0F}'} title="Pipeline Assignments" count={assignments.length} />
+        <SectionHeader
+          icon={'\u{2699}\u{FE0F}'}
+          title="Pipeline Assignments"
+          count={assignments.length}
+        />
 
         <div className="table-container">
           <table className="data-table">
