@@ -62,7 +62,7 @@ class TestAggregatorHealth:
     """Tests for GET /api/oss/debug/aggregator-health."""
 
     @patch("routes.oss_debug_routes._call_aggregator")
-    @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "https://hadoku.me/oss/api")
+    @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "https://test-aggregator.example.com/oss/api")
     @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
     def test_aggregator_reachable(self, mock_user, mock_agg, client):
         mock_agg.return_value = {"slugs": ["fastify-fastify", "vercel-next.js"]}
@@ -83,7 +83,7 @@ class TestAggregatorHealth:
         assert data["error"] == "AGGREGATOR_API_URL not configured"
 
     @patch("routes.oss_debug_routes._call_aggregator")
-    @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "https://hadoku.me/oss/api")
+    @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "https://test-aggregator.example.com/oss/api")
     @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
     def test_aggregator_unreachable(self, mock_user, mock_agg, client):
         mock_agg.return_value = None

@@ -5,17 +5,22 @@ Endpoints for fetching scored issues, dossiers, and issue briefs.
 """
 
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import jsonify
 
 from . import bp
 
+logger = logging.getLogger(__name__)
+
 try:
+    from ..config import PLATFORM_PREFIX
     from ..services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint
     from ..helpers.oss_helpers import score_issue_fallback
     from ..helpers.notifications import notify_go_tier_issue
 except ImportError:
+    from config import PLATFORM_PREFIX
     from services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint
     from helpers.oss_helpers import score_issue_fallback
     from helpers.notifications import notify_go_tier_issue
@@ -68,7 +73,7 @@ def _fetch_repo_issues_fallback(entry):
         if isinstance(comments, list):
             comments = len(comments)
 
-        issue_id = f"github-{owner}-{repo}-{issue['number']}"
+        issue_id = f"{PLATFORM_PREFIX}-{owner}-{repo}-{issue['number']}"
 
         # Notify on GO-tier issues (only once per issue)
         if score_data["cvs"] >= 85 and issue_id not in _notified_go_issues:
@@ -181,8 +186,8 @@ def api_oss_stage2_issues():
         for future in as_completed(futures):
             try:
                 all_issues.extend(future.result())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to fetch fallback issues for a target repo: %s", e)
 
     # Sort by CVS score descending
     all_issues.sort(key=lambda x: x["cvs"], reverse=True)

@@ -11,6 +11,10 @@ and register it in the dispatcher registry.
 
 import json
 
+try:
+    from ..config import COPILOT_REVIEWER, COPILOT_MENTION, COPILOT_CHECK_RUN_NAME
+except ImportError:
+    from config import COPILOT_REVIEWER, COPILOT_MENTION, COPILOT_CHECK_RUN_NAME
 from .github_api import run_gh_command
 
 
@@ -171,7 +175,7 @@ class CopilotSWEDispatcher(StageDispatcher):
                 "api",
                 f"repos/{my_user}/{repo}/commits/{head_sha}/check-runs",
                 "--jq",
-                '.check_runs[] | select(.name=="Running Copilot coding agent") | .status',
+                f'.check_runs[] | select(.name=="{COPILOT_CHECK_RUN_NAME}") | .status',
             ])
             if checks_result["success"]:
                 status = checks_result["output"].strip()
@@ -400,7 +404,7 @@ class CopilotReviewDispatcher(StageDispatcher):
         review_result = run_gh_command([
             "api", "-X", "POST",
             f"repos/{my_user}/{repo}/pulls/{pr_number}/requested_reviewers",
-            "-f", "reviewers[]=copilot-pull-request-reviewer[bot]",
+            "-f", f"reviewers[]={COPILOT_REVIEWER}",
         ])
 
         return {
@@ -481,7 +485,7 @@ class CopilotRemediationDispatcher(StageDispatcher):
                 pass
 
         # Post remediation comment tagging @copilot
-        comment_body = f"@copilot Please address the following feedback:\n\n{remediation_body}"
+        comment_body = f"{COPILOT_MENTION} Please address the following feedback:\n\n{remediation_body}"
         comment_result = run_gh_command([
             "pr", "comment", str(pr_number),
             "-R", f"{my_user}/{repo}",
@@ -543,7 +547,7 @@ class CopilotRemediationDispatcher(StageDispatcher):
                 "api",
                 f"repos/{my_user}/{repo}/commits/{head_sha}/check-runs",
                 "--jq",
-                '.check_runs[] | select(.name=="Running Copilot coding agent") | .status',
+                f'.check_runs[] | select(.name=="{COPILOT_CHECK_RUN_NAME}") | .status',
             ])
             if checks_result["success"]:
                 status = checks_result["output"].strip()

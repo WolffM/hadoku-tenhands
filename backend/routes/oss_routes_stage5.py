@@ -5,12 +5,15 @@ Endpoints for submitting PRs to upstream repos and tracking their status.
 """
 
 import json
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import request, jsonify
 
 from . import bp
+
+logger = logging.getLogger(__name__)
 
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
@@ -180,8 +183,8 @@ def api_oss_poll_submitted_prs():
             for future in as_completed(futures):
                 try:
                     updated_open.append(future.result())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to poll submitted PR: %s", e)
             items = updated_open + closed_prs
 
     svc.update_submitted_prs(items)

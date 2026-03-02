@@ -5,11 +5,14 @@ Endpoints for managing the watchlist of target repositories.
 """
 
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import request, jsonify
 
 from . import bp
+
+logger = logging.getLogger(__name__)
 
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
@@ -110,7 +113,8 @@ def api_oss_stage1_targets():
             for future in as_completed(futures):
                 try:
                     targets.append(future.result())
-                except Exception:
+                except Exception as e:
+                    logger.warning("Failed to enrich target %s from aggregator: %s", futures[future], e)
                     targets.append({"slug": futures[future]})
 
         # Sort by overallViability descending (repos with health first)
@@ -131,8 +135,8 @@ def api_oss_stage1_targets():
             for future in as_completed(futures):
                 try:
                     targets.append(future.result())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to enrich target via gh CLI: %s", e)
 
     return {"success": True, "targets": targets, "owner": my_user}
 

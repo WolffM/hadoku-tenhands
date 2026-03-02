@@ -119,7 +119,7 @@ export function Stage2Run() {
               void updateAllWorkflows()
             }}
             disabled={updating || running || repos.length === 0}
-            title="Update all repos to latest vibecheck workflow from WolffM/vibecheck"
+            title="Update all repos to latest vibecheck workflow"
           >
             {updating ? 'Updating...' : `🔄 Refresh Workflows (${repos.length})`}
           </button>
@@ -130,18 +130,18 @@ export function Stage2Run() {
       {recommended.length > 0 && (
         <div className="stage-section stage-section--recommended">
           <SectionHeader icon="⭐" title="Recommended" count={recommended.length}>
-              <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
-                Select All
-              </button>
-              <button
-                className="btn btn--primary btn--sm"
-                onClick={() => {
-                  void processSelected(recommended)
-                }}
-                disabled={running || updating || selectedCount === 0}
-              >
-                ▶️ Run Selected ({selectedCount})
-              </button>
+            <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
+              Select All
+            </button>
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={() => {
+                void processSelected(recommended)
+              }}
+              disabled={running || updating || selectedCount === 0}
+            >
+              ▶️ Run Selected ({selectedCount})
+            </button>
           </SectionHeader>
 
           <div className="table-container">
@@ -183,7 +183,9 @@ export function Stage2Run() {
           <BatchActionBar
             onSelectAll={() => selectAll(others)}
             onSelectNone={selectNone}
-            onProcess={() => { void processSelected(others) }}
+            onProcess={() => {
+              void processSelected(others)
+            }}
             selectedCount={selectedCount}
             processLabel="Run Selected"
             processing={running || updating}
@@ -326,4 +328,3 @@ function RepoRow({ repo, checked, onChange, onRun, disabled }: RepoRowProps) {
     </tr>
   )
 }
-

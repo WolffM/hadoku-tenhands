@@ -14,11 +14,13 @@ from flask import request, jsonify
 from . import bp
 
 try:
+    from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from ..helpers.oss_helpers import score_issue_with_breakdown
     from .oss_routes_stage2 import _notified_go_issues
 except ImportError:
+    from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from helpers.oss_helpers import score_issue_with_breakdown
@@ -237,7 +239,7 @@ def api_oss_debug_build_context():
     dossier_data = svc.get_dossier(f"{origin_owner}-{repo}")
     dossier = dossier_data.get("sections") if dossier_data else None
 
-    issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
+    issue_id = f"{PLATFORM_PREFIX}-{origin_owner}-{repo}-{issue_number}"
     issue_brief = svc.get_issue_brief(f"{origin_owner}-{repo}", issue_id)
 
     context_body, metadata = svc.build_agent_context(
@@ -302,7 +304,7 @@ def api_oss_debug_assign_copilot():
     result = run_gh_command([
         "issue", "edit", str(issue_number),
         "-R", f"{my_user}/{repo}",
-        "--add-assignee", "@Copilot"
+        "--add-assignee", COPILOT_ASSIGNEE
     ])
 
     return jsonify({

@@ -3,10 +3,13 @@ Workflow routes - vibecheck installation, updates, and triggering.
 """
 
 import base64
+import logging
 
 from flask import request, jsonify
 
 from . import bp
+
+logger = logging.getLogger(__name__)
 
 try:
     from ..services import (
@@ -15,7 +18,7 @@ try:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from ..config import VIBECHECK_WORKFLOW
+    from ..config import VIBECHECK_WORKFLOW, VIBECHECK_REPO
 except ImportError:
     from services import (
         run_gh_command,
@@ -23,7 +26,7 @@ except ImportError:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from config import VIBECHECK_WORKFLOW
+    from config import VIBECHECK_WORKFLOW, VIBECHECK_REPO
 
 
 @bp.route("/api/install-vibecheck", methods=["POST"])
@@ -54,7 +57,7 @@ def api_install_vibecheck():
 def api_vibecheck_template():
     """Fetch the latest vibecheck workflow template from the vibecheck repo."""
     result = run_gh_command(
-        ["api", "repos/WolffM/vibecheck/contents/examples/vibecheck.yml", "--jq", ".content"],
+        ["api", f"repos/{VIBECHECK_REPO}/contents/examples/vibecheck.yml", "--jq", ".content"],
         timeout=30
     )
 
@@ -96,13 +99,14 @@ def api_update_vibecheck():
         workflow_content = template
     else:
         template_result = run_gh_command(
-            ["api", "repos/WolffM/vibecheck/contents/examples/vibecheck.yml", "--jq", ".content"],
+            ["api", f"repos/{VIBECHECK_REPO}/contents/examples/vibecheck.yml", "--jq", ".content"],
             timeout=30
         )
         if template_result["success"]:
             try:
                 workflow_content = base64.b64decode(template_result["output"].strip()).decode()
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to decode vibecheck template: %s", e)
                 workflow_content = VIBECHECK_WORKFLOW
         else:
             workflow_content = VIBECHECK_WORKFLOW

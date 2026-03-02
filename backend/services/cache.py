@@ -7,10 +7,13 @@ Caches are stored in .cache/ directory and persist between server restarts.
 
 import hashlib
 import json
+import logging
 import os
 import time
 from functools import wraps
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from flask import jsonify
 
@@ -89,10 +92,10 @@ def get_cached(cache_key: str, ttl: int | None = None) -> Any | None:
         effective_ttl = ttl if ttl is not None else _get_ttl()
 
         if time.time() - cached_time < effective_ttl:
-            print(f"[CACHE] HIT: {cache_key} (TTL: {effective_ttl}s)")
+            logger.debug("[CACHE] HIT: %s (TTL: %ds)", cache_key, effective_ttl)
             return cached.get("data")
         else:
-            print(f"[CACHE] EXPIRED: {cache_key}")
+            logger.debug("[CACHE] EXPIRED: %s", cache_key)
             return None
     except (json.JSONDecodeError, IOError, KeyError):
         return None
@@ -119,9 +122,9 @@ def set_cached(cache_key: str, data: Any) -> None:
                 "key": cache_key,
                 "data": data
             }, f, indent=2)
-        print(f"[CACHE] SET: {cache_key} (TTL: {_get_ttl()}s)")
+        logger.debug("[CACHE] SET: %s (TTL: %ds)", cache_key, _get_ttl())
     except (IOError, TypeError) as e:
-        print(f"[CACHE] ERROR setting {cache_key}: {e}")
+        logger.debug("[CACHE] ERROR setting %s: %s", cache_key, e)
 
 
 def clear_cache(cache_key: str | None = None) -> int:
@@ -142,14 +145,14 @@ def clear_cache(cache_key: str | None = None) -> int:
         if os.path.exists(cache_path):
             os.remove(cache_path)
             cleared = 1
-            print(f"[CACHE] CLEARED: {cache_key}")
+            logger.debug("[CACHE] CLEARED: %s", cache_key)
     else:
         # Clear all cache files
         for filename in os.listdir(CACHE_DIR):
             if filename.endswith(".json"):
                 os.remove(os.path.join(CACHE_DIR, filename))
                 cleared += 1
-        print(f"[CACHE] CLEARED ALL: {cleared} entries")
+        logger.debug("[CACHE] CLEARED ALL: %d entries", cleared)
 
     return cleared
 

@@ -8,9 +8,12 @@ brief → dossier → CONTRIBUTING.md.
 
 import json
 import base64
+import logging
 
 from .github_api import run_gh_command
 from .oss_service import _sanitize_upstream_refs, _detect_tool_from_issue
+
+logger = logging.getLogger(__name__)
 
 
 class OSSContextMixin:
@@ -143,8 +146,8 @@ class OSSContextMixin:
                     body += f"\n---\n## CONTRIBUTING.md\n<details><summary>Expand</summary>\n\n{contrib_text}\n\n</details>\n"
                     metadata["contributing_fetched"] = True
                     metadata["sources"].append("gh-contributing-md")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to fetch CONTRIBUTING.md for %s/%s: %s", origin_owner, repo, e)
 
         # Quirk warnings — sourced from health (via issue_brief), applies to all tiers
         quirks = None

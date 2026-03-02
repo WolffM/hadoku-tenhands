@@ -9,9 +9,12 @@ are in separate mixin modules (oss_fork, oss_state, oss_context).
 import os
 import re
 import json
+import logging
 import requests
 
 from .cache import CACHE_DIR
+
+logger = logging.getLogger(__name__)
 
 # ============ Helpers ============
 
@@ -80,7 +83,8 @@ def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
         if resp.ok:
             return resp.json()
         return None
-    except Exception:
+    except Exception as e:
+        logger.warning("Aggregator call failed for %s: %s", endpoint, e)
         return None
 
 
@@ -153,7 +157,7 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
     """
 
     def __init__(self):
-        self.data_dir = OSS_DATA_DIR
+        pass
 
     # --- Aggregator API (proxied when available, returns empty/None otherwise) ---
 

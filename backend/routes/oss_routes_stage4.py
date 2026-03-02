@@ -4,6 +4,7 @@ Stage 4 routes — Review on Fork.
 Endpoints for pipeline advancement, fork PR listing, review, approval, and merge.
 """
 
+import logging
 import re
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,6 +12,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import request, jsonify
 
 from . import bp
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_repo_name(repo):
+    """Extract repo name from a full slug (owner/repo -> repo)."""
+    repo = str(repo)
+    return repo.split("/")[-1] if "/" in repo else repo
+
 
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
@@ -38,8 +48,7 @@ def api_oss_advance_pipeline():
     if not all([repo, fork_issue_number]):
         return jsonify({"success": False, "error": "Missing required fields"})
 
-    if "/" in str(repo):
-        repo = repo.split("/")[-1]
+    repo = _normalize_repo_name(repo)
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -173,9 +182,7 @@ def api_oss_fork_pr_details():
     if not all([repo, pr_number]):
         return jsonify({"success": False, "error": "Missing required fields"})
 
-    # Normalize: if caller passes "owner/repo", extract just the repo name
-    if "/" in str(repo):
-        repo = repo.split("/")[-1]
+    repo = _normalize_repo_name(repo)
 
     my_user = get_authenticated_user()
 
@@ -212,9 +219,7 @@ def api_oss_approve_fork_pr():
     if not all([repo, pr_number]):
         return jsonify({"success": False, "error": "Missing required fields"})
 
-    # Normalize: if caller passes "owner/repo", extract just the repo name
-    if "/" in str(repo):
-        repo = repo.split("/")[-1]
+    repo = _normalize_repo_name(repo)
 
     my_user = get_authenticated_user()
 
@@ -268,9 +273,7 @@ def api_oss_merge_fork_pr():
     if not all([repo, pr_number, origin_slug]):
         return jsonify({"success": False, "error": "Missing required fields"})
 
-    # Normalize: if caller passes "owner/repo", extract just the repo name
-    if "/" in str(repo):
-        repo = repo.split("/")[-1]
+    repo = _normalize_repo_name(repo)
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -422,8 +425,7 @@ def api_oss_signoff():
     if not all([repo, pr_number, origin_slug]):
         return jsonify({"success": False, "error": "Missing required fields"})
 
-    if "/" in str(repo):
-        repo = repo.split("/")[-1]
+    repo = _normalize_repo_name(repo)
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -578,8 +580,7 @@ def api_oss_issue_report(repo, issue_number):
     try:
         html = generate_issue_report_html(svc, repo, issue_number)
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Failed to generate issue report for %s#%d", repo, issue_number)
         return jsonify({"success": False, "error": str(exc)}), 500
 
     response = make_response(html)

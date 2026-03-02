@@ -11,8 +11,10 @@ from flask import request, jsonify
 from . import bp
 
 try:
+    from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from ..services import run_gh_command, get_authenticated_user, OSSService
 except ImportError:
+    from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
 
 
@@ -85,7 +87,7 @@ def api_oss_fork_and_assign():
 
     # Auto-fetch dossier and issue-brief from aggregator
     hyphenated_slug = f"{origin_owner}-{repo}"
-    issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
+    issue_id = f"{PLATFORM_PREFIX}-{origin_owner}-{repo}-{issue_number}"
 
     dossier_meta = None
     brief_meta = None
@@ -128,10 +130,7 @@ def api_oss_fork_and_assign():
         language = issue_brief["repoHealth"].get("language")
         toolchain_profile = issue_brief["repoHealth"].get("toolchainProfile")
 
-    if is_self_owned:
-        # Self-owned repo — no fork needed, create issue directly on the repo
-        pass
-    else:
+    if not is_self_owned:
         # Third-party repo — fork, wait, and sync
         # 1. Fork if needed
         if not svc.check_fork_exists(my_user, repo):
@@ -211,7 +210,7 @@ def api_oss_fork_and_assign():
     run_gh_command([
         "issue", "edit", fork_issue_number,
         "-R", f"{my_user}/{repo}",
-        "--add-assignee", "@Copilot"
+        "--add-assignee", COPILOT_ASSIGNEE
     ])
 
     # 8. Track locally
@@ -244,7 +243,7 @@ def api_oss_fork_and_assign():
     svc.update_assignment(repo, int(fork_issue_number), meta_updates)
 
     # 9. Report claim to aggregator (best-effort)
-    issue_id = f"github-{origin_owner}-{repo}-{issue_number}"
+    issue_id = f"{PLATFORM_PREFIX}-{origin_owner}-{repo}-{issue_number}"
     svc.report_claim(origin_slug, issue_id, my_user, fork_issue_url)
 
     response = {
