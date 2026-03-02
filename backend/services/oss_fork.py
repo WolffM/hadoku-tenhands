@@ -11,6 +11,10 @@ import json
 import time
 import base64
 
+try:
+    from ..config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
+except ImportError:
+    from config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
 from .github_api import run_gh_command
 from .oss_service import _parse_jsonl
 
@@ -145,7 +149,7 @@ class OSSForkMixin:
             login = data.get("login", "")
             name = data.get("name") or login
             uid = data.get("id", "")
-            email = f"{uid}+{login}@users.noreply.github.com"
+            email = GITHUB_NOREPLY_EMAIL_TEMPLATE.format(uid=uid, login=login)
             return {"name": name, "email": email, "login": login}
         return None
 
@@ -386,7 +390,7 @@ class OSSForkMixin:
         return run_gh_command([
             "api", "-X", "POST",
             f"repos/{my_user}/{repo}/pulls/{pr_number}/requested_reviewers",
-            "-f", "reviewers[]=copilot-pull-request-reviewer[bot]"
+            "-f", f"reviewers[]={COPILOT_REVIEWER}"
         ])
 
     def get_pr_check_runs(self, my_user, repo, pr_number):

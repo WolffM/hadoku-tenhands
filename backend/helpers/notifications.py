@@ -14,7 +14,6 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 COLOR_SUCCESS = 0x2ECC71  # Green
 COLOR_INFO = 0x3498DB     # Blue
 COLOR_WARNING = 0xF39C12  # Orange
-COLOR_DANGER = 0xE74C3C   # Red
 
 
 def send_discord_notification(title, description, color=None, fields=None):
@@ -56,19 +55,6 @@ def notify_go_tier_issue(repo, issue_number, title, cvs):
         fields=[
             {"name": "CVS Score", "value": str(cvs), "inline": True},
             {"name": "Repository", "value": repo, "inline": True},
-        ],
-    )
-
-
-def notify_pr_ready_for_review(repo, pr_number, title):
-    """Notify when an agent completes a PR on a fork (ready for review)."""
-    send_discord_notification(
-        title="Agent PR Ready for Review",
-        description=f"**{repo}#{pr_number}**: {title}",
-        color=COLOR_INFO,
-        fields=[
-            {"name": "Fork Repo", "value": repo, "inline": True},
-            {"name": "PR", "value": f"#{pr_number}", "inline": True},
         ],
     )
 

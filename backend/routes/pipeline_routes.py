@@ -3,10 +3,13 @@ Pipeline routes - stage-based APIs and cache/monitoring endpoints.
 """
 
 import json
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import request, jsonify
+
+logger = logging.getLogger(__name__)
 
 from . import bp
 
@@ -98,7 +101,7 @@ def api_global_workflow_runs():
     start_total = time.time()
     owner, repos, status_dict = get_repo_context()
 
-    print(f"[PERF] Fetching workflow runs for {min(len(repos), 15)} repos in parallel...")
+    logger.debug("[PERF] Fetching workflow runs for %d repos in parallel...", min(len(repos), 15))
     start = time.time()
 
     all_runs = []
@@ -125,11 +128,11 @@ def api_global_workflow_runs():
         for future in as_completed(futures):
             all_runs.extend(future.result())
 
-    print(f"[PERF] Fetched workflow runs in {time.time() - start:.2f}s")
+    logger.debug("[PERF] Fetched workflow runs in %.2fs", time.time() - start)
 
     all_runs.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
 
-    print(f"[PERF] Total global-workflow-runs: {time.time() - start_total:.2f}s")
+    logger.debug("[PERF] Total global-workflow-runs: %.2fs", time.time() - start_total)
 
     return {"success": True, "runs": all_runs[:50], "owner": owner}
 
@@ -183,7 +186,7 @@ def api_stage2_repos():
 
     result.sort(key=lambda x: (x["lastRun"] is None, -x["commitsSinceLastRun"]), reverse=True)
 
-    print(f"[PERF] stage2-repos: {time.time() - start:.2f}s")
+    logger.debug("[PERF] stage2-repos: %.2fs", time.time() - start)
     return {"success": True, "repos": result, "owner": owner}
 
 
@@ -247,7 +250,7 @@ def api_stage3_issues():
     # Sort by severity
     all_issues.sort(key=lambda i: get_severity_score(i))
 
-    print(f"[PERF] stage3-issues: {time.time() - start:.2f}s")
+    logger.debug("[PERF] stage3-issues: %.2fs", time.time() - start)
     return {
         "success": True,
         "issues": all_issues,
@@ -273,7 +276,7 @@ def api_stage4_prs():
 
     all_prs.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
 
-    print(f"[PERF] stage4-prs: {time.time() - start:.2f}s")
+    logger.debug("[PERF] stage4-prs: %.2fs", time.time() - start)
     return {"success": True, "prs": all_prs, "owner": owner}
 
 

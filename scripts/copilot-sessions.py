@@ -9,19 +9,19 @@ Usage:
     python scripts/copilot-sessions.py list
 
     # List sessions for a specific repo
-    python scripts/copilot-sessions.py list --repo WolffM/hadoku-watchparty
+    python scripts/copilot-sessions.py list --repo owner/repo-name
 
     # View full session log for a PR
-    python scripts/copilot-sessions.py log --repo WolffM/hadoku-watchparty --pr 123
+    python scripts/copilot-sessions.py log --repo owner/repo-name --pr 123
 
     # View thinking summary only (strips file content noise)
-    python scripts/copilot-sessions.py summary --repo WolffM/hadoku-watchparty --pr 123
+    python scripts/copilot-sessions.py summary --repo owner/repo-name --pr 123
 
     # Compare sessions across multiple PRs
-    python scripts/copilot-sessions.py compare --repo WolffM/hadoku-watchparty --prs 95,115,123
+    python scripts/copilot-sessions.py compare --repo owner/repo-name --prs 95,115,123
 
     # Bulk summary for a range of PRs
-    python scripts/copilot-sessions.py batch --repo WolffM/hadoku-watchparty --prs 107,109,111,114,115,117,119,121
+    python scripts/copilot-sessions.py batch --repo owner/repo-name --prs 107,109,111
 """
 
 import argparse

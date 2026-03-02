@@ -1,19 +1,15 @@
 """Tests for Discord notification helpers."""
 
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 from helpers.notifications import (
     send_discord_notification,
     notify_go_tier_issue,
-    notify_pr_ready_for_review,
     notify_upstream_merged,
     notify_upstream_feedback,
     COLOR_SUCCESS,
     COLOR_INFO,
     COLOR_WARNING,
-    COLOR_DANGER,
 )
 
 
@@ -76,7 +72,6 @@ class TestSendDiscordNotification:
         mock_post.assert_called_once()
 
 
-
 class TestNotifyGoTierIssue:
     """Tests for notify_go_tier_issue."""
 
@@ -93,23 +88,6 @@ class TestNotifyGoTierIssue:
         assert "fastify/fastify#42" in embed["description"]
         assert embed["color"] == COLOR_SUCCESS
         assert any(f["value"] == "92" for f in embed["fields"])
-
-
-class TestNotifyPRReadyForReview:
-    """Tests for notify_pr_ready_for_review."""
-
-    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("helpers.notifications.requests.post")
-    def test_sends_pr_ready_notification(self, mock_post):
-        notify_pr_ready_for_review("my-user/fastify", 7, "Fix memory leak")
-
-        call_kwargs = mock_post.call_args
-        payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-        embed = payload["embeds"][0]
-
-        assert "Ready for Review" in embed["title"]
-        assert "my-user/fastify#7" in embed["description"]
-        assert embed["color"] == COLOR_INFO
 
 
 class TestNotifyUpstreamMerged:

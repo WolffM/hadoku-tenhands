@@ -38,8 +38,8 @@ def _gh_json(args):
         )
         if r.returncode == 0 and r.stdout.strip():
             return json.loads(r.stdout)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("gh command failed: %s", e)
     return None
 
 
@@ -51,7 +51,7 @@ def fetch_sa_details(run_id, fork_slug):
 
     Args:
         run_id: GitHub Actions workflow run ID.
-        fork_slug: Fork repo slug (e.g. "WolffM/email-verifier").
+        fork_slug: Fork repo slug (e.g. "user/some-repo").
 
     Returns:
         list of job dicts [{name, conclusion, annotations: [{path, line, level, message}]}],

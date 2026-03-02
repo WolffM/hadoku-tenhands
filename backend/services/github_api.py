@@ -4,9 +4,12 @@ GitHub API Service - Wrapper functions for GitHub CLI commands
 
 import subprocess
 import json
+import logging
 import time
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logger = logging.getLogger(__name__)
 from .cache import get_cached_vibecheck_status, set_cached_vibecheck_status
 
 # On Windows, prevent subprocess from opening console windows
@@ -97,10 +100,10 @@ def check_vibecheck_installed_batch(owner, repos, max_workers=10):
     # Check cache first
     cached = get_cached_vibecheck_status()
     if cached:
-        print(f"[PERF] Using cached vibecheck status for {len(cached)} repos")
+        logger.debug("[PERF] Using cached vibecheck status for %d repos", len(cached))
         return cached
     
-    print(f"[PERF] Checking vibecheck status for {len(repos)} repos in parallel...")
+    logger.debug("[PERF] Checking vibecheck status for %d repos in parallel...", len(repos))
     start = time.time()
     
     status_dict = {}
@@ -116,7 +119,7 @@ def check_vibecheck_installed_batch(owner, repos, max_workers=10):
             status_dict[repo_name] = installed
     
     elapsed = time.time() - start
-    print(f"[PERF] Checked {len(repos)} repos in {elapsed:.2f}s")
+    logger.debug("[PERF] Checked %d repos in %.2fs", len(repos), elapsed)
     
     # Cache the results
     set_cached_vibecheck_status(status_dict)
