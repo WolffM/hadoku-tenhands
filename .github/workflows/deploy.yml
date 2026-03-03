@@ -41,7 +41,7 @@ jobs:
           status_code=$(curl -sS \
             -o /dev/null \
             -w "%{http_code}" \
-            -X POST "https://api.github.com/repos/WolffM/hadoku_site/dispatches" \
+            -X POST "https://api.github.com/repos/${{ vars.DEPLOY_TARGET_REPO || 'WolffM/hadoku_site' }}/dispatches" \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
             -H "X-GitHub-Api-Version: 2022-11-28" \

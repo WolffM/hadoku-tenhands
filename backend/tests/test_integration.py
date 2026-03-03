@@ -12,14 +12,17 @@ from unittest.mock import patch
 import pytest
 
 from app import app
+from extensions import limiter
 
 
 @pytest.fixture
 def client():
     """Create a Flask test client."""
     app.config["TESTING"] = True
+    limiter.enabled = False
     with app.test_client() as c:
         yield c
+    limiter.enabled = True
 
 
 @pytest.fixture(autouse=True)

@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
+import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { getOSSDossier } from '../../api/endpoints'
 import type { Dossier, DossierSections } from '../../api/types'
@@ -48,7 +49,7 @@ function DossierContent({
   const renderedHtml = useMemo(() => {
     const md = dossier.sections[activeTab]
     if (!md) return ''
-    return marked.parse(md) as string
+    return DOMPurify.sanitize(marked.parse(md) as string)
   }, [dossier, activeTab])
 
   return (

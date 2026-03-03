@@ -7,14 +7,17 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from app import app
+from extensions import limiter
 
 
 @pytest.fixture
 def client():
     """Create a Flask test client."""
     app.config["TESTING"] = True
+    limiter.enabled = False
     with app.test_client() as client:
         yield client
+    limiter.enabled = True
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +27,61 @@ def disable_cache(monkeypatch):
 
 
 PREFIX = "/dispatch"
+
+
+# ============ Admin Key Gating ============
+
+
+class TestAdminKeyGating:
+    """Tests for require_admin_key decorator on debug endpoints."""
+
+    def test_no_gating_when_admin_key_unset(self, client, monkeypatch):
+        """When ADMIN_KEY is not set, debug endpoints are accessible without auth."""
+        monkeypatch.delenv("ADMIN_KEY", raising=False)
+        with patch("routes.oss_debug_routes.run_gh_command") as mock_gh, \
+             patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser"):
+            mock_gh.return_value = {"success": True, "output": "testuser"}
+            resp = client.get(f"{PREFIX}/api/oss/debug/gh-health")
+            assert resp.status_code == 200
+
+    def test_401_when_admin_key_set_but_not_provided(self, client, monkeypatch):
+        """When ADMIN_KEY is set, requests without the key get 401."""
+        monkeypatch.setenv("ADMIN_KEY", "secret123")
+        resp = client.get(f"{PREFIX}/api/oss/debug/gh-health")
+        assert resp.status_code == 401
+        data = resp.get_json()
+        assert data["success"] is False
+        assert data["error"] == "Unauthorized"
+
+    def test_401_when_admin_key_wrong(self, client, monkeypatch):
+        """When ADMIN_KEY is set, wrong key gets 401."""
+        monkeypatch.setenv("ADMIN_KEY", "secret123")
+        resp = client.get(
+            f"{PREFIX}/api/oss/debug/gh-health",
+            headers={"X-Admin-Key": "wrong"}
+        )
+        assert resp.status_code == 401
+
+    def test_success_with_correct_header(self, client, monkeypatch):
+        """When correct X-Admin-Key header is provided, request succeeds."""
+        monkeypatch.setenv("ADMIN_KEY", "secret123")
+        with patch("routes.oss_debug_routes.run_gh_command") as mock_gh, \
+             patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser"):
+            mock_gh.return_value = {"success": True, "output": "testuser"}
+            resp = client.get(
+                f"{PREFIX}/api/oss/debug/gh-health",
+                headers={"X-Admin-Key": "secret123"}
+            )
+            assert resp.status_code == 200
+
+    def test_success_with_query_param(self, client, monkeypatch):
+        """admin_key query param also works."""
+        monkeypatch.setenv("ADMIN_KEY", "secret123")
+        with patch("routes.oss_debug_routes.run_gh_command") as mock_gh, \
+             patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser"):
+            mock_gh.return_value = {"success": True, "output": "testuser"}
+            resp = client.get(f"{PREFIX}/api/oss/debug/gh-health?admin_key=secret123")
+            assert resp.status_code == 200
 
 
 # ============ Group A: Health Checks ============

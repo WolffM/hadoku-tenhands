@@ -19,10 +19,14 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback
+    from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message
+    from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.notifications import notify_upstream_merged, notify_upstream_feedback
+    from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message
+    from extensions import limiter
 
 
 @bp.route("/api/oss/stage5-submit", methods=["GET"])
@@ -35,9 +39,14 @@ def api_oss_stage5_submit():
 
 
 @bp.route("/api/oss/submit-to-origin", methods=["POST"])
+@limiter.limit("5 per minute")
 def api_oss_submit_to_origin():
     """Submit a PR from fork to upstream origin repo."""
     data = request.json
+    req_err = validate_required_fields(data, ["origin_slug", "repo", "branch", "title"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     origin_slug = data.get("origin_slug")
     repo = data.get("repo")
     branch = data.get("branch")
@@ -45,8 +54,12 @@ def api_oss_submit_to_origin():
     body = data.get("body")
     base_branch = data.get("base_branch", "main")
 
-    if not all([origin_slug, repo, branch, title]):
-        return jsonify({"success": False, "error": "Missing required fields"})
+    slug_err = validate_slug(origin_slug)
+    if slug_err:
+        return jsonify({"success": False, "error": slug_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     my_user = get_authenticated_user()
 
@@ -85,7 +98,7 @@ def api_oss_submit_to_origin():
 
     return jsonify({
         "success": False,
-        "error": result.get("error", "Failed to create PR"),
+        "error": safe_error_message(result.get("error"), "Failed to create PR"),
         "owner": my_user,
     })
 
@@ -163,6 +176,7 @@ def _poll_single_pr(pr):
 
 
 @bp.route("/api/oss/poll-submitted-prs", methods=["POST"])
+@limiter.limit("10 per minute")
 def api_oss_poll_submitted_prs():
     """Poll all submitted PRs for status changes and update tracking."""
     my_user = get_authenticated_user()

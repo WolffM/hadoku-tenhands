@@ -8,22 +8,43 @@ stepping and validation without going through the monolithic stage endpoints.
 import json
 import os
 import time
+from functools import wraps
 
 from flask import request, jsonify
 
 from . import bp
+
+
+def require_admin_key(fn):
+    """Gate debug endpoints behind ADMIN_KEY when set.
+
+    When ADMIN_KEY env var is set, requests must provide the key via
+    X-Admin-Key header or admin_key query param. When unset (local dev),
+    no gating — zero friction.
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        admin_key = os.environ.get("ADMIN_KEY")
+        if admin_key:
+            provided = request.headers.get("X-Admin-Key") or request.args.get("admin_key")
+            if provided != admin_key:
+                return jsonify({"success": False, "error": "Unauthorized"}), 401
+        return fn(*args, **kwargs)
+    return wrapper
 
 try:
     from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from ..helpers.oss_helpers import score_issue_with_breakdown
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from .oss_routes_stage2 import _notified_go_issues
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from helpers.oss_helpers import score_issue_with_breakdown
+    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from routes.oss_routes_stage2 import _notified_go_issues
 
 
@@ -31,6 +52,7 @@ except ImportError:
 
 
 @bp.route("/api/oss/debug/gh-health", methods=["GET"])
+@require_admin_key
 def api_oss_debug_gh_health():
     """Check gh CLI health: authentication, API access, rate limits."""
     my_user = get_authenticated_user()
@@ -70,6 +92,7 @@ def api_oss_debug_gh_health():
 
 
 @bp.route("/api/oss/debug/aggregator-health", methods=["GET"])
+@require_admin_key
 def api_oss_debug_aggregator_health():
     """Check aggregator API availability and response time."""
     my_user = get_authenticated_user()
@@ -100,6 +123,7 @@ def api_oss_debug_aggregator_health():
 
 
 @bp.route("/api/oss/debug/state-dump", methods=["GET"])
+@require_admin_key
 def api_oss_debug_state_dump():
     """Dump all local pipeline state (JSON files) with counts."""
     my_user = get_authenticated_user()
@@ -146,6 +170,7 @@ def api_oss_debug_state_dump():
 
 
 @bp.route("/api/oss/debug/fork-exists", methods=["GET"])
+@require_admin_key
 def api_oss_debug_fork_exists():
     """Check if a fork exists for the authenticated user."""
     my_user = get_authenticated_user()
@@ -153,6 +178,9 @@ def api_oss_debug_fork_exists():
 
     if not repo:
         return jsonify({"success": False, "error": "Missing 'repo' query param", "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     svc = OSSService()
     exists = svc.check_fork_exists(my_user, repo)
@@ -162,6 +190,7 @@ def api_oss_debug_fork_exists():
 
 
 @bp.route("/api/oss/debug/fork-repo", methods=["POST"])
+@require_admin_key
 def api_oss_debug_fork_repo():
     """Fork a repo (just fork, don't wait or sync)."""
     data = request.json
@@ -171,6 +200,12 @@ def api_oss_debug_fork_repo():
 
     if not origin_owner or not repo:
         return jsonify({"success": False, "error": "Missing origin_owner or repo", "owner": my_user})
+    owner_err = validate_owner(origin_owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err, "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     svc = OSSService()
     result = svc.fork_repo(origin_owner, repo)
@@ -178,12 +213,13 @@ def api_oss_debug_fork_repo():
     return jsonify({
         "success": True,
         "forked": result["success"],
-        "message": "Fork initiated — poll /api/oss/debug/fork-ready to check status" if result["success"] else result.get("error", "Fork failed"),
+        "message": "Fork initiated — poll /api/oss/debug/fork-ready to check status" if result["success"] else safe_error_message(result.get("error"), "Fork failed"),
         "owner": my_user,
     })
 
 
 @bp.route("/api/oss/debug/fork-ready", methods=["GET"])
+@require_admin_key
 def api_oss_debug_fork_ready():
     """Single poll check for fork readiness (no blocking loop)."""
     my_user = get_authenticated_user()
@@ -191,6 +227,9 @@ def api_oss_debug_fork_ready():
 
     if not repo:
         return jsonify({"success": False, "error": "Missing 'repo' query param", "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     svc = OSSService()
     ready = svc.check_fork_exists(my_user, repo)
@@ -199,6 +238,7 @@ def api_oss_debug_fork_ready():
 
 
 @bp.route("/api/oss/debug/sync-fork", methods=["POST"])
+@require_admin_key
 def api_oss_debug_sync_fork():
     """Sync a fork with its upstream."""
     data = request.json
@@ -207,6 +247,9 @@ def api_oss_debug_sync_fork():
 
     if not repo:
         return jsonify({"success": False, "error": "Missing repo", "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     svc = OSSService()
     result = svc.sync_fork(my_user, repo)
@@ -220,27 +263,36 @@ def api_oss_debug_sync_fork():
 
 
 @bp.route("/api/oss/debug/build-context", methods=["POST"])
+@require_admin_key
 def api_oss_debug_build_context():
     """Build agent context markdown and return it for inspection (does NOT create an issue)."""
     data = request.json
+    my_user = get_authenticated_user()
+    req_err = validate_required_fields(data, ["origin_owner", "repo", "issue_number", "issue_title", "issue_url"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err, "owner": my_user})
+
     origin_owner = data.get("origin_owner", "").strip()
     repo = data.get("repo", "").strip()
     issue_number = data.get("issue_number")
     issue_title = data.get("issue_title", "").strip()
     issue_url = data.get("issue_url", "").strip()
-    my_user = get_authenticated_user()
 
-    if not all([origin_owner, repo, issue_number, issue_title, issue_url]):
-        return jsonify({"success": False, "error": "Missing required fields", "owner": my_user})
+    owner_err = validate_owner(origin_owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err, "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     svc = OSSService()
 
     # Try to get dossier and issue-brief for context building
-    dossier_data = svc.get_dossier(f"{origin_owner}-{repo}")
+    dossier_data = svc.get_dossier(to_aggregator_slug(f"{origin_owner}/{repo}"))
     dossier = dossier_data.get("sections") if dossier_data else None
 
     issue_id = f"{PLATFORM_PREFIX}-{origin_owner}-{repo}-{issue_number}"
-    issue_brief = svc.get_issue_brief(f"{origin_owner}-{repo}", issue_id)
+    issue_brief = svc.get_issue_brief(to_aggregator_slug(f"{origin_owner}/{repo}"), issue_id)
 
     context_body, metadata = svc.build_agent_context(
         origin_owner, repo, issue_number, issue_title, issue_url,
@@ -256,16 +308,18 @@ def api_oss_debug_build_context():
 
 
 @bp.route("/api/oss/debug/create-context-issue", methods=["POST"])
+@require_admin_key
 def api_oss_debug_create_context_issue():
     """Create an issue on a fork (does NOT assign Copilot or track in JSON)."""
     data = request.json
+    my_user = get_authenticated_user()
+    req_err = validate_required_fields(data, ["repo", "title", "body"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err, "owner": my_user})
+
     repo = data.get("repo", "").strip()
     title = data.get("title", "").strip()
     body = data.get("body", "").strip()
-    my_user = get_authenticated_user()
-
-    if not all([repo, title, body]):
-        return jsonify({"success": False, "error": "Missing repo, title, or body", "owner": my_user})
 
     result = run_gh_command([
         "issue", "create", "-R", f"{my_user}/{repo}",
@@ -285,12 +339,13 @@ def api_oss_debug_create_context_issue():
 
     return jsonify({
         "success": False,
-        "error": result.get("error", "Failed to create issue"),
+        "error": safe_error_message(result.get("error"), "Failed to create issue"),
         "owner": my_user,
     })
 
 
 @bp.route("/api/oss/debug/assign-copilot", methods=["POST"])
+@require_admin_key
 def api_oss_debug_assign_copilot():
     """Assign Copilot to an issue on a fork."""
     data = request.json
@@ -300,6 +355,9 @@ def api_oss_debug_assign_copilot():
 
     if not repo or not issue_number:
         return jsonify({"success": False, "error": "Missing repo or issue_number", "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     result = run_gh_command([
         "issue", "edit", str(issue_number),
@@ -319,15 +377,24 @@ def api_oss_debug_assign_copilot():
 
 
 @bp.route("/api/oss/debug/score-issue", methods=["GET"])
+@require_admin_key
 def api_oss_debug_score_issue():
     """Score a single issue with full breakdown."""
     my_user = get_authenticated_user()
+    req_err = validate_required_fields(request.args, ["owner", "repo", "issue_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err, "owner": my_user})
+
     owner = request.args.get("owner", "").strip()
     repo = request.args.get("repo", "").strip()
     issue_number = request.args.get("issue_number", "").strip()
 
-    if not all([owner, repo, issue_number]):
-        return jsonify({"success": False, "error": "Missing owner, repo, or issue_number", "owner": my_user})
+    owner_err = validate_owner(owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err, "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     # Fetch issue data via gh CLI
     result = run_gh_command([
@@ -338,7 +405,7 @@ def api_oss_debug_score_issue():
     if not result["success"]:
         return jsonify({
             "success": False,
-            "error": f"Failed to fetch issue: {result.get('error', 'Unknown')}",
+            "error": safe_error_message(result.get("error"), "Failed to fetch issue"),
             "owner": my_user,
         })
 
@@ -362,6 +429,7 @@ def api_oss_debug_score_issue():
 
 
 @bp.route("/api/oss/debug/fork-pr-status", methods=["GET"])
+@require_admin_key
 def api_oss_debug_fork_pr_status():
     """Get status of a single fork PR."""
     my_user = get_authenticated_user()
@@ -370,6 +438,9 @@ def api_oss_debug_fork_pr_status():
 
     if not repo or not pr_number:
         return jsonify({"success": False, "error": "Missing repo or pr_number", "owner": my_user})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err, "owner": my_user})
 
     result = run_gh_command([
         "pr", "view", pr_number, "-R", f"{my_user}/{repo}",
@@ -392,6 +463,7 @@ def api_oss_debug_fork_pr_status():
 
 
 @bp.route("/api/oss/debug/poll-submitted-pr", methods=["GET"])
+@require_admin_key
 def api_oss_debug_poll_submitted_pr():
     """Poll a single submitted PR for status changes (read-only preview, no updates)."""
     my_user = get_authenticated_user()
@@ -477,6 +549,7 @@ def api_oss_debug_poll_submitted_pr():
 
 
 @bp.route("/api/oss/debug/notification-preview", methods=["GET"])
+@require_admin_key
 def api_oss_debug_notification_preview():
     """Preview what notifications would fire based on current state."""
     my_user = get_authenticated_user()

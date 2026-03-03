@@ -18,7 +18,7 @@ try:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from ..config import VIBECHECK_WORKFLOW, VIBECHECK_REPO
+    from ..config import get_vibecheck_workflow, VIBECHECK_REPO
 except ImportError:
     from services import (
         run_gh_command,
@@ -26,7 +26,7 @@ except ImportError:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from config import VIBECHECK_WORKFLOW, VIBECHECK_REPO
+    from config import get_vibecheck_workflow, VIBECHECK_REPO
 
 
 @bp.route("/api/install-vibecheck", methods=["POST"])
@@ -39,7 +39,7 @@ def api_install_vibecheck():
     if not owner or not repo:
         return jsonify({"success": False, "error": "Missing owner or repo"})
 
-    content_b64 = base64.b64encode(VIBECHECK_WORKFLOW.encode()).decode()
+    content_b64 = base64.b64encode(get_vibecheck_workflow().encode()).decode()
 
     result = run_gh_command([
         "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml",
@@ -69,7 +69,7 @@ def api_vibecheck_template():
             return jsonify({"success": False, "error": f"Failed to decode template: {e}"})
 
     # Fallback to local template
-    return jsonify({"success": True, "template": VIBECHECK_WORKFLOW, "source": "local"})
+    return jsonify({"success": True, "template": get_vibecheck_workflow(), "source": "local"})
 
 
 @bp.route("/api/update-vibecheck", methods=["POST"])
@@ -107,9 +107,9 @@ def api_update_vibecheck():
                 workflow_content = base64.b64decode(template_result["output"].strip()).decode()
             except Exception as e:
                 logger.warning("Failed to decode vibecheck template: %s", e)
-                workflow_content = VIBECHECK_WORKFLOW
+                workflow_content = get_vibecheck_workflow()
         else:
-            workflow_content = VIBECHECK_WORKFLOW
+            workflow_content = get_vibecheck_workflow()
 
     content_b64 = base64.b64encode(workflow_content.encode()).decode()
 

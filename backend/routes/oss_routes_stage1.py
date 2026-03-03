@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
+    from ..helpers.validation import validate_slug, validate_owner, validate_repo_name, to_aggregator_slug
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService, cached_endpoint, clear_cache
+    from helpers.validation import validate_slug, validate_owner, validate_repo_name, to_aggregator_slug
 
 
 def _fetch_dossier_for_target(svc, slug):
@@ -152,14 +154,12 @@ def api_oss_add_target():
     slug = data.get("slug", "").strip()
     my_user = get_authenticated_user()
 
-    if "/" not in slug:
-        return jsonify({"success": False, "error": "Format must be owner/repo", "owner": my_user})
+    slug_err = validate_slug(slug)
+    if slug_err:
+        return jsonify({"success": False, "error": slug_err, "owner": my_user})
 
     parts = slug.split("/", 1)
     owner, repo = parts[0].strip(), parts[1].strip()
-
-    if not owner or not repo:
-        return jsonify({"success": False, "error": "Invalid owner/repo format", "owner": my_user})
 
     # Validate repo exists
     validate_result = run_gh_command([
@@ -174,7 +174,7 @@ def api_oss_add_target():
     svc.add_to_local_watchlist(owner, repo)
 
     # Proxy to aggregator (best-effort)
-    hyphenated_slug = f"{owner}-{repo}"
+    hyphenated_slug = to_aggregator_slug(slug)
     svc.add_to_watchlist(hyphenated_slug)
     svc.trigger_refresh(hyphenated_slug)
     # Trigger pre-computation so scored issues/dossier are available
@@ -197,6 +197,9 @@ def api_oss_remove_target():
     svc = OSSService()
 
     if "/" in slug:
+        slug_err = validate_slug(slug)
+        if slug_err:
+            return jsonify({"success": False, "error": slug_err, "owner": my_user})
         owner, repo = slug.split("/", 1)
     else:
         # Look up in local watchlist by hyphenated slug
@@ -210,7 +213,7 @@ def api_oss_remove_target():
     svc.remove_from_local_watchlist(owner, repo)
 
     # Proxy to aggregator (best-effort)
-    hyphenated_slug = f"{owner}-{repo}"
+    hyphenated_slug = to_aggregator_slug(f"{owner}/{repo}")
     svc.remove_from_watchlist(hyphenated_slug)
 
     # Invalidate cache
@@ -227,13 +230,13 @@ def api_oss_refresh_target():
     slug = data.get("slug", "").strip()
     my_user = get_authenticated_user()
 
+    if not slug:
+        return jsonify({"success": False, "error": "Slug is required", "owner": my_user})
+
     svc = OSSService()
 
     # Convert to hyphenated format for aggregator
-    if "/" in slug:
-        hyphenated_slug = slug.replace("/", "-")
-    else:
-        hyphenated_slug = slug
+    hyphenated_slug = to_aggregator_slug(slug) if "/" in slug else slug
 
     svc.trigger_refresh(hyphenated_slug)
     # Trigger pre-computation so scored issues/dossier are available
@@ -253,13 +256,13 @@ def api_oss_compute_target():
     slug = data.get("slug", "").strip()
     my_user = get_authenticated_user()
 
+    if not slug:
+        return jsonify({"success": False, "error": "Slug is required", "owner": my_user})
+
     svc = OSSService()
 
     # Convert to hyphenated format for aggregator
-    if "/" in slug:
-        hyphenated_slug = slug.replace("/", "-")
-    else:
-        hyphenated_slug = slug
+    hyphenated_slug = to_aggregator_slug(slug) if "/" in slug else slug
 
     svc.trigger_compute(hyphenated_slug)
 

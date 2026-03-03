@@ -6,6 +6,7 @@ OSSService class. Fork management, local state, and context building
 are in separate mixin modules (oss_fork, oss_state, oss_context).
 """
 
+import fcntl
 import os
 import re
 import json
@@ -13,6 +14,11 @@ import logging
 import requests
 
 from .cache import CACHE_DIR
+
+try:
+    from ..helpers.validation import validate_aggregator_url
+except ImportError:
+    from helpers.validation import validate_aggregator_url
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,12 @@ def _parse_jsonl(text):
 OSS_DATA_DIR = os.path.join(CACHE_DIR, "oss")
 AGGREGATOR_API_URL = os.environ.get("AGGREGATOR_API_URL", "")
 
+# Validate aggregator URL at import time
+_agg_url_err = validate_aggregator_url(AGGREGATOR_API_URL)
+if _agg_url_err:
+    logger.warning("Invalid AGGREGATOR_API_URL: %s", _agg_url_err)
+    AGGREGATOR_API_URL = ""
+
 # Pattern: https://github.com/owner/repo/issues/123 or /pull/123
 _GITHUB_ISSUE_URL_RE = re.compile(
     r'https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:issues|pull)/\d+'
@@ -54,20 +66,37 @@ _AUTOCLOSE_RE = re.compile(
 # ============ Private Helpers ============
 
 def _load_json(filename):
-    """Load a JSON file from the OSS data directory. Returns [] if missing."""
+    """Load a JSON file from the OSS data directory. Returns [] if missing.
+
+    Uses a shared (read) file lock to prevent reading partial writes.
+    """
     path = os.path.join(OSS_DATA_DIR, filename)
     if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, encoding="utf-8") as f:
+                fcntl.flock(f, fcntl.LOCK_SH)
+                try:
+                    return json.load(f)
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+        except OSError:
+            return []
     return []
 
 
 def _save_json(filename, data):
-    """Save data as JSON to the OSS data directory."""
+    """Save data as JSON to the OSS data directory.
+
+    Uses an exclusive (write) file lock to prevent concurrent writes.
+    """
     os.makedirs(OSS_DATA_DIR, exist_ok=True)
     path = os.path.join(OSS_DATA_DIR, filename)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            json.dump(data, f, indent=2)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
