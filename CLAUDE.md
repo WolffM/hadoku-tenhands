@@ -87,11 +87,14 @@ cd backend && python -m pytest tests/ -v
 
 ### Key directories
 
-- `backend/routes/` — Flask route blueprints (oss_routes.py, oss_debug_routes.py)
-- `backend/services/` — Business logic (oss_service.py, cache.py, github_api.py)
-- `backend/helpers/` — Pure functions (oss_helpers.py — fallback scoring, PR templates)
+- `backend/routes/` — Flask route blueprints (`oss_routes_stage1-5.py`, `oss_debug_routes.py`, `action_routes.py`, `pipeline_routes.py`)
+- `backend/services/` — Business logic (`oss_service.py`, `oss_fork.py`, `oss_context.py`, `cache.py`, `github_api.py`)
+- `backend/helpers/` — Pure functions (`validation.py` — input validation/sanitization, `oss_helpers.py` — fallback scoring)
+- `backend/extensions.py` — Shared Flask extensions (rate limiter)
 - `backend/tests/` — Pytest test suite
 - `frontend/src/` — React frontend
+- `frontend/e2e/local/` — Local E2E tests (mocked APIs)
+- `frontend/e2e/prod/` — Production smoke tests (real APIs)
 
 ## Copilot Agent Behavior
 
