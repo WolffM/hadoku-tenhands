@@ -26,6 +26,7 @@ try:
         cached_endpoint,
     )
     from ..helpers.stage_helpers import is_demo_pr, get_severity_score, check_copilot_completed
+    from ..helpers.validation import validate_required_fields
 except ImportError:
     from services import (
         run_gh_command,
@@ -39,6 +40,7 @@ except ImportError:
         cached_endpoint,
     )
     from helpers.stage_helpers import is_demo_pr, get_severity_score, check_copilot_completed
+    from helpers.validation import validate_required_fields
 
 
 # --- Module-level helpers for ThreadPoolExecutor usage ---
@@ -284,12 +286,13 @@ def api_stage4_prs():
 def api_pr_details():
     """Get detailed info about a specific PR."""
     data = request.json
+    req_err = validate_required_fields(data, ["owner", "repo", "pr_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     owner = data.get("owner")
     repo = data.get("repo")
     pr_number = data.get("pr_number")
-
-    if not all([owner, repo, pr_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
 
     result = run_gh_command([
         "pr", "view", str(pr_number), "-R", f"{owner}/{repo}",

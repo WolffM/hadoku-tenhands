@@ -1372,3 +1372,34 @@ class TestAssignmentUpdate:
         svc = OSSService()
         updated = svc.update_assignment("myrepo", 999, {"stage4_status": "done"})
         assert updated is False
+
+
+class TestFileLocking:
+    """Tests for concurrent file access safety in _load_json/_save_json."""
+
+    def test_concurrent_writes_produce_valid_json(self, clean_watchlist):
+        """Multiple threads writing simultaneously should not corrupt the file."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def write_item(i):
+            _save_json("concurrent.json", [{"id": i, "value": f"item-{i}"}])
+            return i
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(write_item, i) for i in range(20)]
+            for f in as_completed(futures):
+                f.result()  # Raise any exceptions
+
+        # File should contain valid JSON (one of the writes)
+        data = _load_json("concurrent.json")
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert "id" in data[0]
+
+    def test_load_returns_empty_on_missing_file(self, clean_watchlist):
+        assert _load_json("nonexistent.json") == []
+
+    def test_save_then_load_roundtrip(self, clean_watchlist):
+        _save_json("roundtrip.json", [{"a": 1}, {"b": 2}])
+        data = _load_json("roundtrip.json")
+        assert data == [{"a": 1}, {"b": 2}]

@@ -10,20 +10,30 @@ from . import bp
 
 try:
     from ..services import run_gh_command, get_workflow_runs
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message
 except ImportError:
     from services import run_gh_command, get_workflow_runs
+    from helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message
 
 
 @bp.route("/api/assign-copilot", methods=["POST"])
 def api_assign_copilot():
     """Assign GitHub Copilot to an issue."""
     data = request.json
+    req_err = validate_required_fields(data, ["owner", "repo", "issue_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     owner = data.get("owner")
     repo = data.get("repo")
     issue_number = data.get("issue_number")
 
-    if not all([owner, repo, issue_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
+    owner_err = validate_owner(owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     result = run_gh_command([
         "issue", "edit", str(issue_number),
@@ -33,19 +43,27 @@ def api_assign_copilot():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"Copilot assigned to issue #{issue_number}!"})
-    return jsonify({"success": False, "error": result.get("error", "Failed to assign Copilot")})
+    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Failed to assign Copilot")})
 
 
 @bp.route("/api/approve-pr", methods=["POST"])
 def api_approve_pr():
     """Approve a pull request."""
     data = request.json
+    req_err = validate_required_fields(data, ["owner", "repo", "pr_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     owner = data.get("owner")
     repo = data.get("repo")
     pr_number = data.get("pr_number")
 
-    if not all([owner, repo, pr_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
+    owner_err = validate_owner(owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     result = run_gh_command([
         "pr", "review", str(pr_number),
@@ -56,19 +74,27 @@ def api_approve_pr():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"PR #{pr_number} approved!"})
-    return jsonify({"success": False, "error": result.get("error", "Unknown error")})
+    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Operation failed")})
 
 
 @bp.route("/api/mark-pr-ready", methods=["POST"])
 def api_mark_pr_ready():
     """Mark a draft PR as ready for review."""
     data = request.json
+    req_err = validate_required_fields(data, ["owner", "repo", "pr_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     owner = data.get("owner")
     repo = data.get("repo")
     pr_number = data.get("pr_number")
 
-    if not all([owner, repo, pr_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
+    owner_err = validate_owner(owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     result = run_gh_command([
         "pr", "ready", str(pr_number),
@@ -77,19 +103,27 @@ def api_mark_pr_ready():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"PR #{pr_number} marked as ready!"})
-    return jsonify({"success": False, "error": result.get("error", "Failed to mark PR as ready")})
+    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Failed to mark PR as ready")})
 
 
 @bp.route("/api/merge-pr", methods=["POST"])
 def api_merge_pr():
     """Merge a pull request."""
     data = request.json
+    req_err = validate_required_fields(data, ["owner", "repo", "pr_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     owner = data.get("owner")
     repo = data.get("repo")
     pr_number = data.get("pr_number")
 
-    if not all([owner, repo, pr_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
+    owner_err = validate_owner(owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     # Check if PR is a draft and mark it as ready first
     check_result = run_gh_command([
@@ -107,7 +141,7 @@ def api_merge_pr():
                     "-R", f"{owner}/{repo}"
                 ])
                 if not ready_result["success"]:
-                    return jsonify({"success": False, "error": f"Failed to mark PR as ready: {ready_result.get('error')}"})
+                    return jsonify({"success": False, "error": safe_error_message(ready_result.get("error"), "Failed to mark PR as ready")})
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
@@ -121,7 +155,7 @@ def api_merge_pr():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"PR #{pr_number} merged!"})
-    return jsonify({"success": False, "error": result.get("error", "Unknown error")})
+    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Operation failed")})
 
 
 @bp.route("/api/workflow-status", methods=["POST"])
@@ -130,6 +164,13 @@ def api_workflow_status():
     data = request.json
     owner = data.get("owner")
     repo = data.get("repo")
+
+    owner_err = validate_owner(owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     runs = get_workflow_runs(owner, repo, "vibeCheck")
     if runs:

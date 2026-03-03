@@ -15,21 +15,18 @@ from . import bp
 
 logger = logging.getLogger(__name__)
 
-
-def _normalize_repo_name(repo):
-    """Extract repo name from a full slug (owner/repo -> repo)."""
-    repo = str(repo)
-    return repo.split("/")[-1] if "/" in repo else repo
-
-
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.pipeline_orchestrator import PipelineOrchestrator
     from ..helpers.oss_helpers import format_upstream_pr_body
+    from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, safe_error_message
+    from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
     from helpers.oss_helpers import format_upstream_pr_body
+    from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, safe_error_message
+    from extensions import limiter
 
 
 @bp.route("/api/oss/advance-pipeline", methods=["POST"])
@@ -42,13 +39,15 @@ def api_oss_advance_pipeline():
     Input: { "repo": "email-verifier", "fork_issue_number": 1 }
     """
     data = request.json
-    repo = data.get("repo")
+    req_err = validate_required_fields(data, ["repo", "fork_issue_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
+    repo = _normalize_repo_name(data.get("repo"))
     fork_issue_number = data.get("fork_issue_number")
-
-    if not all([repo, fork_issue_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
-
-    repo = _normalize_repo_name(repo)
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -176,13 +175,15 @@ def api_oss_stage4_fork_prs():
 def api_oss_fork_pr_details():
     """Get detailed info about a PR on a fork, including diff."""
     data = request.json
-    repo = data.get("repo")
+    req_err = validate_required_fields(data, ["repo", "pr_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
+    repo = _normalize_repo_name(data.get("repo"))
     pr_number = data.get("pr_number")
-
-    if not all([repo, pr_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
-
-    repo = _normalize_repo_name(repo)
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     my_user = get_authenticated_user()
 
@@ -204,7 +205,7 @@ def api_oss_fork_pr_details():
 
     return jsonify({
         "success": False,
-        "error": result.get("error", "Failed to fetch PR"),
+        "error": safe_error_message(result.get("error"), "Failed to fetch PR"),
         "owner": my_user,
     })
 
@@ -213,13 +214,15 @@ def api_oss_fork_pr_details():
 def api_oss_approve_fork_pr():
     """Approve a PR on a fork."""
     data = request.json
-    repo = data.get("repo")
+    req_err = validate_required_fields(data, ["repo", "pr_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
+    repo = _normalize_repo_name(data.get("repo"))
     pr_number = data.get("pr_number")
-
-    if not all([repo, pr_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
-
-    repo = _normalize_repo_name(repo)
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
 
     my_user = get_authenticated_user()
 
@@ -238,7 +241,7 @@ def api_oss_approve_fork_pr():
         })
     return jsonify({
         "success": False,
-        "error": result.get("error", "Failed to approve PR"),
+        "error": safe_error_message(result.get("error"), "Failed to approve PR"),
         "owner": my_user,
     })
 
@@ -263,17 +266,23 @@ def _check_remaining_pr_conflicts(my_user, repo, merged_pr_number):
 
 
 @bp.route("/api/oss/merge-fork-pr", methods=["POST"])
+@limiter.limit("10 per minute")
 def api_oss_merge_fork_pr():
     """Merge a PR on a fork. Captures branch info and transitions to Stage 5."""
     data = request.json
-    repo = data.get("repo")
+    req_err = validate_required_fields(data, ["repo", "pr_number", "origin_slug"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
+    repo = _normalize_repo_name(data.get("repo"))
     pr_number = data.get("pr_number")
     origin_slug = data.get("origin_slug")
-
-    if not all([repo, pr_number, origin_slug]):
-        return jsonify({"success": False, "error": "Missing required fields"})
-
-    repo = _normalize_repo_name(repo)
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
+    slug_err = validate_slug(origin_slug)
+    if slug_err:
+        return jsonify({"success": False, "error": slug_err})
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -403,12 +412,13 @@ def api_oss_merge_fork_pr():
 
     return jsonify({
         "success": False,
-        "error": result.get("error", "Failed to merge PR"),
+        "error": safe_error_message(result.get("error"), "Failed to merge PR"),
         "owner": my_user,
     })
 
 
 @bp.route("/api/oss/signoff", methods=["POST"])
+@limiter.limit("5 per minute")
 def api_oss_signoff():
     """One-click signoff: merge fork PR, sanitize, create upstream PR.
 
@@ -418,14 +428,19 @@ def api_oss_signoff():
     Input: { "repo": "email-verifier", "pr_number": 2, "origin_slug": "reisepass/email-verifier" }
     """
     data = request.json
-    repo = data.get("repo")
+    req_err = validate_required_fields(data, ["repo", "pr_number", "origin_slug"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
+    repo = _normalize_repo_name(data.get("repo"))
     pr_number = data.get("pr_number")
     origin_slug = data.get("origin_slug")
-
-    if not all([repo, pr_number, origin_slug]):
-        return jsonify({"success": False, "error": "Missing required fields"})
-
-    repo = _normalize_repo_name(repo)
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
+    slug_err = validate_slug(origin_slug)
+    if slug_err:
+        return jsonify({"success": False, "error": slug_err})
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -480,7 +495,7 @@ def api_oss_signoff():
         if not merge_result["success"]:
             return jsonify({
                 "success": False,
-                "error": f"Merge failed: {merge_result.get('error', 'unknown')}",
+                "error": safe_error_message(merge_result.get("error"), "Merge failed"),
                 "owner": my_user,
                 "steps": steps,
             })
@@ -543,7 +558,7 @@ def api_oss_signoff():
             "conflict_warnings": conflict_warnings,
         })
 
-    steps["submit"] = {"success": False, "error": submit_result.get("error", "")}
+    steps["submit"] = {"success": False, "error": safe_error_message(submit_result.get("error"), "Upstream submit failed")}
 
     # Merge succeeded but submit failed — save as ready-to-submit for manual retry
     svc.save_ready_to_submit(
@@ -557,7 +572,7 @@ def api_oss_signoff():
 
     return jsonify({
         "success": False,
-        "error": f"Merged but upstream submit failed: {submit_result.get('error', '')}",
+        "error": safe_error_message(submit_result.get("error"), "Merged but upstream submit failed"),
         "owner": my_user,
         "steps": steps,
     })

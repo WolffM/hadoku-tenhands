@@ -127,6 +127,13 @@ URL_PREFIX = os.environ.get("URL_PREFIX", "/dispatch")
 
 app = Flask(__name__)
 
+# Initialize rate limiter
+try:
+    from .extensions import limiter
+except ImportError:
+    from extensions import limiter
+limiter.init_app(app)
+
 
 # ============ CORS Support ============
 @app.after_request

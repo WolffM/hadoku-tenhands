@@ -4,8 +4,6 @@ Stage 3 routes — Fork & Assign.
 Endpoints for selecting issues, forking repos, and assigning Copilot.
 """
 
-import time
-
 from flask import request, jsonify
 
 from . import bp
@@ -13,9 +11,13 @@ from . import bp
 try:
     from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from ..services import run_gh_command, get_authenticated_user, OSSService
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from ..extensions import limiter
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
+    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from extensions import limiter
 
 
 @bp.route("/api/oss/stage3-assigned", methods=["GET"])
@@ -31,14 +33,25 @@ def api_oss_stage3_assigned():
 def api_oss_select_issue():
     """Mark an issue as selected for work."""
     data = request.json
+    req_err = validate_required_fields(data, ["origin_owner", "repo", "issue_number"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     origin_owner = data.get("origin_owner")
     repo = data.get("repo")
     issue_number = data.get("issue_number")
     issue_title = data.get("issue_title")
     issue_url = data.get("issue_url")
 
-    if not all([origin_owner, repo, issue_number]):
-        return jsonify({"success": False, "error": "Missing required fields"})
+    owner_err = validate_owner(origin_owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
+    num_err = validate_issue_number(issue_number)
+    if num_err:
+        return jsonify({"success": False, "error": num_err})
 
     my_user = get_authenticated_user()
     origin_slug = f"{origin_owner}/{repo}"
@@ -53,6 +66,7 @@ def api_oss_select_issue():
 
 
 @bp.route("/api/oss/fork-and-assign", methods=["POST"])
+@limiter.limit("5 per minute")
 def api_oss_fork_and_assign():
     """Fork a repo, create a context issue, and assign Copilot.
 
@@ -68,6 +82,10 @@ def api_oss_fork_and_assign():
     9. Report claim to aggregator (best-effort)
     """
     data = request.json
+    req_err = validate_required_fields(data, ["origin_owner", "repo", "issue_number", "issue_title", "issue_url"])
+    if req_err:
+        return jsonify({"success": False, "error": req_err})
+
     origin_owner = data.get("origin_owner")
     repo = data.get("repo")
     issue_number = data.get("issue_number")
@@ -75,8 +93,15 @@ def api_oss_fork_and_assign():
     issue_url = data.get("issue_url")
     dossier_context = data.get("dossier")
 
-    if not all([origin_owner, repo, issue_number, issue_title, issue_url]):
-        return jsonify({"success": False, "error": "Missing required fields"})
+    owner_err = validate_owner(origin_owner)
+    if owner_err:
+        return jsonify({"success": False, "error": owner_err})
+    repo_err = validate_repo_name(repo)
+    if repo_err:
+        return jsonify({"success": False, "error": repo_err})
+    num_err = validate_issue_number(issue_number)
+    if num_err:
+        return jsonify({"success": False, "error": num_err})
 
     my_user = get_authenticated_user()
     origin_slug = f"{origin_owner}/{repo}"
@@ -86,7 +111,7 @@ def api_oss_fork_and_assign():
     is_self_owned = (origin_owner.lower() == my_user.lower())
 
     # Auto-fetch dossier and issue-brief from aggregator
-    hyphenated_slug = f"{origin_owner}-{repo}"
+    hyphenated_slug = to_aggregator_slug(origin_slug)
     issue_id = f"{PLATFORM_PREFIX}-{origin_owner}-{repo}-{issue_number}"
 
     dossier_meta = None
@@ -101,15 +126,9 @@ def api_oss_fork_and_assign():
 
     issue_brief, brief_meta = svc.get_issue_brief(hyphenated_slug, issue_id, include_meta=True)
 
-    # If both are missing (pending), trigger compute and retry once
+    # If both are missing (pending), trigger compute and proceed with fallback context
     if not dossier_context and not issue_brief:
         svc.trigger_compute(hyphenated_slug)
-        time.sleep(2)
-        dossier_data, dossier_meta = svc.get_dossier(hyphenated_slug, include_meta=True)
-        if dossier_data and dossier_data.get("sections"):
-            dossier_context = dossier_data["sections"]
-            dossier_completeness = dossier_data.get("completeness")
-        issue_brief, brief_meta = svc.get_issue_brief(hyphenated_slug, issue_id, include_meta=True)
 
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
@@ -138,7 +157,7 @@ def api_oss_fork_and_assign():
             if not fork_result["success"]:
                 return jsonify({
                     "success": False,
-                    "error": f"Failed to fork: {fork_result.get('error', 'Unknown error')}",
+                    "error": safe_error_message(fork_result.get("error"), "Failed to fork"),
                     "owner": my_user,
                 })
 
@@ -199,7 +218,7 @@ def api_oss_fork_and_assign():
     if not create_result["success"]:
         return jsonify({
             "success": False,
-            "error": f"Failed to create issue: {create_result.get('error', 'Unknown error')}",
+            "error": safe_error_message(create_result.get("error"), "Failed to create issue"),
             "owner": my_user,
         })
 

@@ -6,6 +6,7 @@
  */
 
 import { useState, useMemo } from 'react'
+import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { usePipelineStore } from '../../store'
 import { refreshOSSTarget, computeOSSTarget } from '../../api/endpoints'
@@ -43,7 +44,7 @@ function DossierSectionsView({ sections }: { sections: DossierSections }) {
     const out: Partial<Record<keyof DossierSections, string>> = {}
     for (const key of SECTION_ORDER) {
       const md = sections[key]
-      if (md) out[key] = marked.parse(md) as string
+      if (md) out[key] = DOMPurify.sanitize(marked.parse(md) as string)
     }
     return out
   }, [sections])

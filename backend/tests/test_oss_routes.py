@@ -6,14 +6,17 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from app import app
+from extensions import limiter
 
 
 @pytest.fixture
 def client():
     """Create a Flask test client."""
     app.config["TESTING"] = True
+    limiter.enabled = False
     with app.test_client() as client:
         yield client
+    limiter.enabled = True
 
 
 @pytest.fixture(autouse=True)
@@ -785,7 +788,7 @@ class TestForkAndAssign:
         data = resp.get_json()
 
         assert data["success"] is False
-        assert "fork" in data["error"].lower()
+        assert "rate limit" in data["error"].lower()
 
     @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
     @patch("routes.oss_routes_stage3.OSSService")
@@ -990,6 +993,47 @@ class TestForkAndAssign:
         assert data["already_assigned"] is True
         assert data["is_self_owned"] is True
         assert data["context_sources"] == []
+
+
+# ============ Rate Limiting ============
+
+
+class TestRateLimiting:
+    """Verify rate limiting works when enabled."""
+
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
+    @patch("routes.oss_routes_stage3.run_gh_command")
+    def test_fork_and_assign_rate_limit(self, mock_gh, mock_svc_cls, mock_user):
+        """Hitting fork-and-assign more than 5x/min should return 429."""
+        limiter.enabled = True
+        try:
+            with app.test_client() as client:
+                svc = mock_svc_cls.return_value
+                svc.find_assignment.return_value = {"fork_issue_url": "https://github.com/testuser/r/issues/1"}
+                svc.get_dossier.return_value = (None, None)
+                svc.get_issue_brief.return_value = (None, None)
+
+                statuses = []
+                for i in range(6):
+                    resp = client.post(
+                        f"{PREFIX}/api/oss/fork-and-assign",
+                        json={
+                            "origin_owner": "fastify",
+                            "repo": "fastify",
+                            "issue_number": i + 1,
+                            "issue_title": "Fix",
+                            "issue_url": f"https://github.com/fastify/fastify/issues/{i + 1}",
+                        },
+                        content_type="application/json",
+                    )
+                    statuses.append(resp.status_code)
+
+                # First 5 should succeed, 6th should be rate-limited
+                assert statuses[:5] == [200] * 5
+                assert statuses[5] == 429
+        finally:
+            limiter.enabled = False
 
 
 # ============ Stage 4: Review on Fork ============

@@ -3,6 +3,14 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * Playwright configuration for VibeDispatch E2E tests.
  * https://playwright.dev/docs/test-configuration
+ *
+ * Directory structure:
+ *   e2e/local/   — dev/local tests (mocked APIs, fast)
+ *   e2e/prod/    — production smoke tests (real APIs, slower)
+ *   e2e/fixtures/ — shared test fixtures
+ *
+ * Run local:  pnpm exec playwright test --project local
+ * Run prod:   pnpm exec playwright test --project prod
  */
 export default defineConfig({
   testDir: './e2e',
@@ -20,8 +28,8 @@ export default defineConfig({
 
   projects: [
     {
-      name: 'chromium',
-      testIgnore: '**/prod/**',
+      name: 'local',
+      testDir: './e2e/local',
       use: { ...devices['Desktop Chrome'] }
     },
     {
@@ -43,7 +51,7 @@ export default defineConfig({
   // Start both Flask backend and Vite dev server before running tests
   webServer: [
     {
-      command: 'python -m backend.app',
+      command: 'python3 -m backend.app',
       port: 5000,
       reuseExistingServer: !process.env.CI,
       cwd: '..',
