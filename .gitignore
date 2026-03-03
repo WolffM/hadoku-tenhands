@@ -64,11 +64,15 @@ pnpm-debug.log*
 # Testing
 coverage/
 .nyc_output/
+.pytest_cache/
 
 # Playwright
 test-results/
 playwright-report/
 playwright/.cache/
+
+# Generated reports
+pipeline-report.html
 
 # Temporary
 .tmp/

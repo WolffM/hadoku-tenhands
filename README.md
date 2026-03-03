@@ -62,7 +62,7 @@ Create a pull request from the fork to the upstream repository and track its sta
 ## Tech Stack
 
 **Backend**
-- Python / Flask 3.0 with blueprint-based routing
+- Python / Flask 3.1 with blueprint-based routing
 - GitHub CLI (`gh`) for all GitHub operations
 - File-based caching with configurable TTL
 - ThreadPoolExecutor for concurrent API requests
@@ -93,7 +93,7 @@ Create a pull request from the fork to the upstream repository and track its sta
 cd backend
 pip install -r requirements.txt
 cp ../.env.example ../.env   # configure environment variables
-python ../app.py
+cd .. && python3 -m backend.app
 ```
 
 The API server starts on `http://localhost:5000` by default.
@@ -120,7 +120,7 @@ backend/
     oss_routes_stage5    Stage 5: upstream submission
     pipeline_routes      Pipeline orchestration endpoints
     workflow_routes      VibeCheck workflow management
-    oss_debug_routes     Debug and diagnostics
+    oss_debug_routes     Debug and diagnostics (admin-key gated)
     health_routes        Health check
     action_routes        Batch actions
   services/            Business logic
@@ -134,10 +134,12 @@ backend/
     github_api           GitHub CLI wrapper
     workflow_templates   VibeCheck workflow YAML generation
   helpers/             Pure functions
+    validation           Input validation, slug sanitization, error sanitization
     oss_helpers          CVS fallback scoring heuristic
     notifications        Discord webhook notifications
     report_generator     Pipeline report generation
     stage_helpers        Stage utility functions
+  extensions.py        Shared Flask extensions (rate limiter)
   tests/               Pytest test suite
 frontend/
   src/
@@ -152,7 +154,10 @@ frontend/
     store/             Zustand stores (pipeline, review queue)
     hooks/             React hooks (batch actions, review actions, theme)
     utils/             Formatters, diff renderer, severity helpers
-  e2e/                 Playwright E2E tests
+  e2e/
+    local/             Dev/local E2E tests (mocked APIs)
+    prod/              Production smoke tests (real APIs)
+    fixtures/          Shared test fixtures and API mocks
 scripts/               Utility scripts (Copilot session inspector, report generation)
 ```
 
@@ -166,6 +171,7 @@ Copy `.env.example` to `.env` and configure:
 | `FLASK_ENV` | Set to `development` for debug mode and extended cache TTL. | `production` |
 | `PORT` | Port the Flask backend listens on. | `5000` |
 | `URL_PREFIX` | URL prefix for all API routes. Set to `""` for local dev without prefix. | `/dispatch` |
+| `ADMIN_KEY` | When set, all debug endpoints require this key via `X-Admin-Key` header. Leave unset for local dev. | (none) |
 | `DISCORD_WEBHOOK_URL` | Webhook URL for pipeline event notifications. Leave empty to disable. | (none) |
 | `BACKEND_PORT` | Backend port for Vite dev proxy. Must match `PORT`. | `5000` |
 
@@ -181,9 +187,9 @@ cd backend && python -m pytest tests/ -v
 
 ```bash
 cd frontend
-pnpm test              # run against local dev
-pnpm test:prod         # run against production
-pnpm test:ui           # interactive UI mode
+pnpm exec playwright test --project local    # local tests (mocked APIs)
+pnpm exec playwright test --project prod     # production smoke tests (real APIs)
+pnpm exec playwright test --ui               # interactive UI mode
 ```
 
 ## License
