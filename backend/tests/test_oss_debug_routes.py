@@ -123,13 +123,12 @@ class TestAggregatorHealth:
     @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "https://test-aggregator.example.com/oss/api")
     @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
     def test_aggregator_reachable(self, mock_user, mock_agg, client):
-        mock_agg.return_value = {"slugs": ["fastify-fastify", "vercel-next.js"]}
+        mock_agg.return_value = {"success": True, "data": {"issues": []}}
         resp = client.get(f"{PREFIX}/api/oss/debug/aggregator-health")
         data = resp.get_json()
         assert data["success"] is True
         assert data["configured"] is True
         assert data["reachable"] is True
-        assert data["watchlist_count"] == 2
 
     @patch("routes.oss_debug_routes._call_aggregator")
     @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "")
@@ -161,7 +160,6 @@ class TestStateDump:
         assert data["success"] is True
         assert "state" in data
         assert "counts" in data
-        assert "watchlist" in data["counts"]
         assert "assignments" in data["counts"]
         assert "submitted_prs" in data["counts"]
 

@@ -134,7 +134,7 @@ export function RepoHealthPanel() {
         <EmptyState
           icon="\u{1F4ED}"
           title="No target repos"
-          description="Repos appear here from the aggregator watchlist."
+          description="Repos appear here from the aggregator's scored issues."
         />
       </div>
     )

@@ -1,4 +1,4 @@
-"""Tests for OSSService — watchlist, tracking, fork management, agent context, and claims."""
+"""Tests for OSSService — tracking, fork management, agent context, and claims."""
 
 import json
 import os
@@ -11,113 +11,16 @@ from services.oss_service import OSSService, OSS_DATA_DIR, _load_json, _save_jso
 
 
 @pytest.fixture(autouse=True)
-def clean_watchlist(tmp_path, monkeypatch):
+def clean_data_dir(tmp_path, monkeypatch):
     """Point OSS_DATA_DIR to a temp directory for each test."""
     monkeypatch.setattr("services.oss_service.OSS_DATA_DIR", str(tmp_path))
-    # Also patch the instance's data_dir attribute
     yield tmp_path
-
-
-class TestLocalWatchlist:
-    """Tests for get/add/remove_local_watchlist."""
-
-    def test_empty_watchlist_returns_empty_list(self, clean_watchlist):
-        svc = OSSService()
-        svc.data_dir = str(clean_watchlist)
-        assert _load_json("watchlist.json") == []
-
-    def test_add_to_watchlist(self, clean_watchlist):
-        svc = OSSService()
-        svc.add_to_local_watchlist("fastify", "fastify")
-
-        items = svc.get_local_watchlist()
-        assert len(items) == 1
-        assert items[0]["owner"] == "fastify"
-        assert items[0]["repo"] == "fastify"
-        assert items[0]["slug"] == "fastify-fastify"
-        assert "added_at" in items[0]
-
-    def test_add_deduplication(self, clean_watchlist):
-        svc = OSSService()
-        svc.add_to_local_watchlist("vercel", "next.js")
-        svc.add_to_local_watchlist("vercel", "next.js")
-
-        items = svc.get_local_watchlist()
-        assert len(items) == 1
-
-    def test_add_multiple_repos(self, clean_watchlist):
-        svc = OSSService()
-        svc.add_to_local_watchlist("fastify", "fastify")
-        svc.add_to_local_watchlist("vercel", "next.js")
-
-        items = svc.get_local_watchlist()
-        assert len(items) == 2
-        slugs = {i["slug"] for i in items}
-        assert slugs == {"fastify-fastify", "vercel-next.js"}
-
-    def test_remove_existing_repo(self, clean_watchlist):
-        svc = OSSService()
-        svc.add_to_local_watchlist("fastify", "fastify")
-        svc.add_to_local_watchlist("vercel", "next.js")
-
-        svc.remove_from_local_watchlist("fastify", "fastify")
-
-        items = svc.get_local_watchlist()
-        assert len(items) == 1
-        assert items[0]["owner"] == "vercel"
-
-    def test_remove_nonexistent_repo(self, clean_watchlist):
-        svc = OSSService()
-        svc.add_to_local_watchlist("fastify", "fastify")
-
-        # Removing non-existent repo should not error
-        svc.remove_from_local_watchlist("vercel", "next.js")
-
-        items = svc.get_local_watchlist()
-        assert len(items) == 1
-
-    def test_remove_from_empty_watchlist(self, clean_watchlist):
-        svc = OSSService()
-        # Should not error on empty list
-        svc.remove_from_local_watchlist("fastify", "fastify")
-        assert svc.get_local_watchlist() == []
-
-    def test_slug_format_uses_hyphen(self, clean_watchlist):
-        """Slug should use hyphen between owner and repo for aggregator compatibility."""
-        svc = OSSService()
-        svc.add_to_local_watchlist("my-org", "my-repo")
-
-        items = svc.get_local_watchlist()
-        assert items[0]["slug"] == "my-org-my-repo"
-
-    def test_owner_repo_stored_separately(self, clean_watchlist):
-        """Owner and repo stored as separate fields to avoid slug ambiguity."""
-        svc = OSSService()
-        svc.add_to_local_watchlist("vercel", "next.js")
-
-        items = svc.get_local_watchlist()
-        assert items[0]["owner"] == "vercel"
-        assert items[0]["repo"] == "next.js"
-        # Slug is hyphenated — can't be split back to owner/repo unambiguously
-        assert items[0]["slug"] == "vercel-next.js"
-
-    def test_watchlist_persists_to_json_file(self, clean_watchlist):
-        svc = OSSService()
-        svc.add_to_local_watchlist("fastify", "fastify")
-
-        # Read the file directly
-        path = os.path.join(str(clean_watchlist), "watchlist.json")
-        assert os.path.exists(path)
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        assert len(data) == 1
-        assert data[0]["owner"] == "fastify"
 
 
 class TestSubmittedPRs:
     """Tests for submitted PR tracking (M3)."""
 
-    def test_save_submitted_pr_parses_pr_number(self, clean_watchlist):
+    def test_save_submitted_pr_parses_pr_number(self, clean_data_dir):
         svc = OSSService()
         svc.save_submitted_pr(
             "fastify/fastify",
@@ -133,7 +36,7 @@ class TestSubmittedPRs:
         assert items[0]["merged_at"] is None
         assert items[0]["last_polled_at"] is None
 
-    def test_save_submitted_pr_handles_invalid_url(self, clean_watchlist):
+    def test_save_submitted_pr_handles_invalid_url(self, clean_data_dir):
         svc = OSSService()
         svc.save_submitted_pr("org/repo", "not-a-url", "Title")
 
@@ -141,7 +44,7 @@ class TestSubmittedPRs:
         assert len(items) == 1
         assert items[0]["pr_number"] is None
 
-    def test_update_submitted_prs_overwrites(self, clean_watchlist):
+    def test_update_submitted_prs_overwrites(self, clean_data_dir):
         svc = OSSService()
         svc.save_submitted_pr(
             "fastify/fastify",
@@ -160,7 +63,7 @@ class TestSubmittedPRs:
         assert reloaded[0]["state"] == "merged"
         assert reloaded[0]["merged_at"] == "2026-02-19T00:00:00Z"
 
-    def test_multiple_submitted_prs(self, clean_watchlist):
+    def test_multiple_submitted_prs(self, clean_data_dir):
         svc = OSSService()
         svc.save_submitted_pr("a/b", "https://github.com/a/b/pull/1", "PR 1")
         svc.save_submitted_pr("c/d", "https://github.com/c/d/pull/2", "PR 2")
@@ -174,7 +77,7 @@ class TestSubmittedPRs:
 class TestSelectedIssues:
     """Tests for issue selection tracking."""
 
-    def test_select_issue_adds_to_list(self, clean_watchlist):
+    def test_select_issue_adds_to_list(self, clean_data_dir):
         svc = OSSService()
         svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
 
@@ -184,7 +87,7 @@ class TestSelectedIssues:
         assert items[0]["issue_number"] == 42
         assert "selected_at" in items[0]
 
-    def test_select_issue_deduplicates(self, clean_watchlist):
+    def test_select_issue_deduplicates(self, clean_data_dir):
         svc = OSSService()
         svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
         svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
@@ -192,7 +95,7 @@ class TestSelectedIssues:
         items = svc.get_selected_issues()
         assert len(items) == 1
 
-    def test_find_selected_issue_returns_match(self, clean_watchlist):
+    def test_find_selected_issue_returns_match(self, clean_data_dir):
         svc = OSSService()
         svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
 
@@ -200,7 +103,7 @@ class TestSelectedIssues:
         assert found is not None
         assert found["issue_number"] == 42
 
-    def test_find_selected_issue_returns_none(self, clean_watchlist):
+    def test_find_selected_issue_returns_none(self, clean_data_dir):
         svc = OSSService()
         assert svc.find_selected_issue("fastify/fastify", 99) is None
 
@@ -208,7 +111,7 @@ class TestSelectedIssues:
 class TestAssignments:
     """Tests for assignment tracking and dedup."""
 
-    def test_save_assignment(self, clean_watchlist):
+    def test_save_assignment(self, clean_data_dir):
         svc = OSSService()
         svc.save_assignment("fastify", "fastify", 42, 1, "https://github.com/testuser/fastify/issues/1")
 
@@ -219,7 +122,7 @@ class TestAssignments:
         assert items[0]["fork_issue_number"] == 1
         assert "assigned_at" in items[0]
 
-    def test_find_assignment_returns_match(self, clean_watchlist):
+    def test_find_assignment_returns_match(self, clean_data_dir):
         svc = OSSService()
         svc.save_assignment("fastify", "fastify", 42, 1, "https://github.com/testuser/fastify/issues/1")
 
@@ -227,7 +130,7 @@ class TestAssignments:
         assert found is not None
         assert found["fork_issue_number"] == 1
 
-    def test_find_assignment_returns_none(self, clean_watchlist):
+    def test_find_assignment_returns_none(self, clean_data_dir):
         svc = OSSService()
         assert svc.find_assignment("fastify/fastify", 99) is None
 
@@ -235,7 +138,7 @@ class TestAssignments:
 class TestReadyToSubmit:
     """Tests for ready-to-submit tracking."""
 
-    def test_save_ready_to_submit(self, clean_watchlist):
+    def test_save_ready_to_submit(self, clean_data_dir):
         svc = OSSService()
         svc.save_ready_to_submit("fastify/fastify", "fastify", "fix-docs", "Fix docs", "main")
 
@@ -246,7 +149,7 @@ class TestReadyToSubmit:
         assert items[0]["base_branch"] == "main"
         assert "merged_at" in items[0]
 
-    def test_remove_ready_to_submit(self, clean_watchlist):
+    def test_remove_ready_to_submit(self, clean_data_dir):
         svc = OSSService()
         svc.save_ready_to_submit("fastify/fastify", "fastify", "fix-docs", "Fix docs", "main")
         svc.save_ready_to_submit("vercel/next.js", "next.js", "fix-routing", "Fix routing", "canary")
@@ -257,7 +160,7 @@ class TestReadyToSubmit:
         assert len(items) == 1
         assert items[0]["origin_slug"] == "vercel/next.js"
 
-    def test_remove_nonexistent_ready_to_submit(self, clean_watchlist):
+    def test_remove_nonexistent_ready_to_submit(self, clean_data_dir):
         svc = OSSService()
         svc.save_ready_to_submit("fastify/fastify", "fastify", "fix-docs", "Fix docs", "main")
 
@@ -793,7 +696,7 @@ class TestTDDInstructions:
 class TestSelfOwnedAssignment:
     """Tests for is_self_owned field in assignments."""
 
-    def test_save_assignment_with_self_owned_true(self, clean_watchlist):
+    def test_save_assignment_with_self_owned_true(self, clean_data_dir):
         svc = OSSService()
         svc.save_assignment("me", "myrepo", 42, 1, "https://example.com/issues/1", is_self_owned=True)
 
@@ -801,7 +704,7 @@ class TestSelfOwnedAssignment:
         assert len(items) == 1
         assert items[0]["is_self_owned"] is True
 
-    def test_save_assignment_default_is_self_owned_false(self, clean_watchlist):
+    def test_save_assignment_default_is_self_owned_false(self, clean_data_dir):
         svc = OSSService()
         svc.save_assignment("other", "repo", 42, 1, "https://example.com/issues/1")
 
@@ -1337,7 +1240,7 @@ class TestCopilotReview:
 class TestAssignmentUpdate:
     """Tests for find_assignment and update_assignment."""
 
-    def test_find_by_fork_issue_returns_match(self, clean_watchlist):
+    def test_find_by_fork_issue_returns_match(self, clean_data_dir):
         svc = OSSService()
         svc.save_assignment("org", "myrepo", 42, 1,
                             "https://github.com/me/myrepo/issues/1")
@@ -1346,12 +1249,12 @@ class TestAssignmentUpdate:
         assert result["issue_number"] == 42
         assert result["fork_issue_number"] == 1
 
-    def test_find_by_fork_issue_returns_none_for_missing(self, clean_watchlist):
+    def test_find_by_fork_issue_returns_none_for_missing(self, clean_data_dir):
         svc = OSSService()
         result = svc.find_assignment_by_fork_issue("myrepo", 999)
         assert result is None
 
-    def test_update_assignment_merges_fields(self, clean_watchlist):
+    def test_update_assignment_merges_fields(self, clean_data_dir):
         svc = OSSService()
         svc.save_assignment("org", "myrepo", 42, 1,
                             "https://github.com/me/myrepo/issues/1")
@@ -1368,7 +1271,7 @@ class TestAssignmentUpdate:
         # Original fields preserved
         assert item["issue_number"] == 42
 
-    def test_update_assignment_returns_false_for_missing(self, clean_watchlist):
+    def test_update_assignment_returns_false_for_missing(self, clean_data_dir):
         svc = OSSService()
         updated = svc.update_assignment("myrepo", 999, {"stage4_status": "done"})
         assert updated is False
@@ -1377,7 +1280,7 @@ class TestAssignmentUpdate:
 class TestFileLocking:
     """Tests for concurrent file access safety in _load_json/_save_json."""
 
-    def test_concurrent_writes_produce_valid_json(self, clean_watchlist):
+    def test_concurrent_writes_produce_valid_json(self, clean_data_dir):
         """Multiple threads writing simultaneously should not corrupt the file."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1396,10 +1299,10 @@ class TestFileLocking:
         assert len(data) == 1
         assert "id" in data[0]
 
-    def test_load_returns_empty_on_missing_file(self, clean_watchlist):
+    def test_load_returns_empty_on_missing_file(self, clean_data_dir):
         assert _load_json("nonexistent.json") == []
 
-    def test_save_then_load_roundtrip(self, clean_watchlist):
+    def test_save_then_load_roundtrip(self, clean_data_dir):
         _save_json("roundtrip.json", [{"a": 1}, {"b": 2}])
         data = _load_json("roundtrip.json")
         assert data == [{"a": 1}, {"b": 2}]

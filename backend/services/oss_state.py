@@ -2,7 +2,7 @@
 OSSStateMixin — local JSON state management for the OSS pipeline.
 
 Handles reading/writing the local JSON files that track pipeline state:
-watchlist, selected issues, assignments, ready-to-submit, and submitted PRs.
+selected issues, assignments, ready-to-submit, and submitted PRs.
 """
 
 import time
@@ -12,37 +12,6 @@ from .oss_service import _load_json, _save_json
 
 class OSSStateMixin:
     """Local JSON state management for the OSS pipeline."""
-
-    # --- Local watchlist ---
-
-    def get_local_watchlist(self):
-        """Get the local watchlist. Returns list of {owner, repo, slug, added_at}."""
-        return _load_json("watchlist.json")
-
-    def add_to_local_watchlist(self, owner, repo):
-        """Add a repo to the local watchlist. Dedup by owner+repo.
-
-        Stores owner and repo as separate fields to avoid slug ambiguity
-        (e.g., vercel-next-js could be vercel/next-js or vercel/next.js).
-        The slug field is the hyphenated form for aggregator compatibility.
-        """
-        items = self.get_local_watchlist()
-        for item in items:
-            if item["owner"] == owner and item["repo"] == repo:
-                return  # Already exists
-        items.append({
-            "owner": owner,
-            "repo": repo,
-            "slug": f"{owner}-{repo}",
-            "added_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
-        _save_json("watchlist.json", items)
-
-    def remove_from_local_watchlist(self, owner, repo):
-        """Remove a repo from the local watchlist."""
-        items = self.get_local_watchlist()
-        items = [i for i in items if not (i["owner"] == owner and i["repo"] == repo)]
-        _save_json("watchlist.json", items)
 
     # --- Selected issues ---
 
