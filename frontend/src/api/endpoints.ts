@@ -272,14 +272,6 @@ export async function getOSSTargets(): Promise<OSSStage1Response> {
   return apiClient.get<OSSStage1Response>('/api/oss/stage1-targets')
 }
 
-export async function addOSSTarget(slug: string): Promise<OSSBaseResponse & { error?: string }> {
-  return apiClient.post<OSSBaseResponse & { error?: string }>('/api/oss/add-target', { slug })
-}
-
-export async function removeOSSTarget(slug: string): Promise<OSSBaseResponse & { error?: string }> {
-  return apiClient.post<OSSBaseResponse & { error?: string }>('/api/oss/remove-target', { slug })
-}
-
 // --- Stage 2: Scored Issues ---
 
 export async function getOSSScoredIssues(): Promise<OSSStage2Response> {

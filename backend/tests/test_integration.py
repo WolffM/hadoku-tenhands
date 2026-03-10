@@ -31,13 +31,6 @@ def disable_cache(monkeypatch):
     monkeypatch.setenv("CACHE_DISABLED", "1")
 
 
-@pytest.fixture(autouse=True)
-def reset_dedup_sets():
-    """Clear module-level dedup sets between tests."""
-    from routes.oss_routes_stage2 import _notified_go_issues
-    _notified_go_issues.clear()
-    yield
-    _notified_go_issues.clear()
 
 
 PREFIX = "/dispatch"
@@ -308,51 +301,3 @@ class TestPollSubmittedPRsIntegration:
         assert any("Feedback" in t for t in titles)
 
 
-class TestGoTierNotificationIntegration:
-    """
-    Integration: hit stage2-issues endpoint, let scorer + notification chain
-    run, verify Discord webhook payload for GO-tier issues.
-    """
-
-    @patch("helpers.notifications.requests.post")
-    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("routes.oss_routes_stage2.score_issue_fallback")
-    @patch("routes.oss_routes_stage2.run_gh_command")
-    @patch("routes.oss_routes_stage2.OSSService")
-    @patch("routes.oss_routes_stage2.get_authenticated_user", return_value="testuser")
-    def test_go_tier_issue_sends_discord_notification(
-        self, _mock_user, mock_svc_cls, mock_gh, mock_score, mock_discord_post, client
-    ):
-        svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = ([], None)
-        svc.get_local_watchlist.return_value = [
-            {"owner": "fastify", "repo": "fastify", "slug": "fastify-fastify"}
-        ]
-
-        mock_gh.return_value = {
-            "success": True,
-            "output": json.dumps([{
-                "number": 42,
-                "title": "Fix critical bug",
-                "url": "https://github.com/fastify/fastify/issues/42",
-                "labels": [{"name": "good first issue"}],
-                "createdAt": "2026-02-18T00:00:00Z",
-                "updatedAt": "2026-02-18T00:00:00Z",
-                "comments": 0,
-                "assignees": [],
-            }])
-        }
-
-        mock_score.return_value = {"cvs": 92, "cvsTier": "go", "dataCompleteness": "partial"}
-
-        client.get(f"{PREFIX}/api/oss/stage2-issues")
-
-        mock_discord_post.assert_called_once()
-        call_kwargs = mock_discord_post.call_args
-        payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-        embed = payload["embeds"][0]
-
-        assert "GO-tier" in embed["title"]
-        assert "fastify/fastify#42" in embed["description"]
-        assert embed["color"] == 0x2ECC71
-        assert any(f["value"] == "92" for f in embed["fields"])

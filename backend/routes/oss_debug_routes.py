@@ -38,14 +38,12 @@ try:
     from ..services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from ..helpers.oss_helpers import score_issue_with_breakdown
     from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
-    from .oss_routes_stage2 import _notified_go_issues
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from helpers.oss_helpers import score_issue_with_breakdown
     from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
-    from routes.oss_routes_stage2 import _notified_go_issues
 
 
 # ============ Group A: Health Checks ============
@@ -103,17 +101,14 @@ def api_oss_debug_aggregator_health():
         "base_url": AGGREGATOR_API_URL or "(not configured)",
         "reachable": False,
         "response_time_ms": 0,
-        "watchlist_count": 0,
         "error": None,
     }
 
     if AGGREGATOR_API_URL:
-        data = _call_aggregator("/recon/watchlist")
+        data = _call_aggregator("/recon/all-scored-issues")
         result["response_time_ms"] = round((time.time() - start) * 1000)
         if data is not None:
             result["reachable"] = True
-            if isinstance(data, dict) and "slugs" in data:
-                result["watchlist_count"] = len(data["slugs"])
         else:
             result["error"] = "Aggregator unreachable or returned error"
     else:
@@ -129,7 +124,6 @@ def api_oss_debug_state_dump():
     my_user = get_authenticated_user()
 
     files = {
-        "watchlist": "watchlist.json",
         "selected_issues": "selected-issues.json",
         "assignments": "assignments.json",
         "ready_to_submit": "ready-to-submit.json",
@@ -574,7 +568,7 @@ def api_oss_debug_notification_preview():
     return jsonify({
         "success": True,
         "discord_webhook_configured": discord_configured,
-        "go_tier_notified_count": len(_notified_go_issues),
+        "go_tier_notified_count": 0,
         "submitted_pr_count": len(submitted),
         "pr_scenarios": pr_scenarios,
         "owner": my_user,

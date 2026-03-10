@@ -39,8 +39,8 @@ vibedispatch (this repo — orchestration + UI)
 
 ### Data Flow
 
-1. **Stage 1 (Target Repos):** Aggregator provides watchlist + health scores. Fallback: local watchlist + gh CLI metadata.
-2. **Stage 2 (Scored Issues):** Aggregator provides pre-scored issues via `GET /recon/all-scored-issues`. Fallback: gh CLI + simple heuristic.
+1. **Stage 1 (Target Repos):** Repo list is derived from aggregator scored issues. Health scores enriched per repo.
+2. **Stage 2 (Scored Issues):** Aggregator provides pre-scored issues via `GET /recon/all-scored-issues`.
 3. **Stage 3 (Fork & Assign):** vibedispatch forks, builds context (from aggregator dossier/brief), creates issue, assigns Copilot.
 4. **Stage 4 (Review on Fork):** vibedispatch reads fork PRs via gh CLI.
 5. **Stage 5 (Submit Upstream):** vibedispatch creates upstream PR, polls status.
@@ -50,7 +50,6 @@ vibedispatch (this repo — orchestration + UI)
 All calls go through `_call_aggregator()` in `backend/services/oss_service.py`.
 
 ```
-GET  /recon/watchlist                     → { slugs: string[] }
 GET  /recon/{slug}/health                 → RepoHealth scores
 GET  /recon/{slug}/scored-issues          → ScoredIssue[]
 GET  /recon/all-scored-issues             → ScoredIssue[] (all repos)
@@ -59,15 +58,12 @@ GET  /recon/{slug}/issue-brief/{id}       → { success, data: { issue, repoHeal
 POST /recon/{slug}/refresh                → triggers re-scrape
 POST /recon/{slug}/claim                  → report issue claimed
 POST /recon/{slug}/unclaim                → report issue unclaimed
-POST /recon/watchlist/add                 → add repo to watchlist
-POST /recon/watchlist/remove              → remove repo from watchlist
 ```
 
 Slug format for aggregator: `owner-repo` (hyphenated). Internal vibedispatch format: `owner/repo` (slash).
 
 ### Local State (JSON files in backend/cache/oss/)
 
-- `watchlist.json` — repos user has added
 - `selected-issues.json` — issues marked for work
 - `assignments.json` — issues forked and assigned to Copilot
 - `ready-to-submit.json` — merged fork PRs pending upstream submission
@@ -133,7 +129,7 @@ python scripts/copilot-sessions.py batch -R WolffM/hadoku-watchparty --prs 107,1
 
 ## Aggregator Response Envelope
 
-All aggregator API responses are wrapped in `{ success: true, data: { ... } }`. The unwrapping happens in `backend/services/oss_service.py` — each method (get_watchlist, get_scored_issues, get_dossier, get_issue_brief) handles the envelope. If adding new aggregator calls, always unwrap the envelope.
+All aggregator API responses are wrapped in `{ success: true, data: { ... } }`. The unwrapping happens in `backend/services/oss_service.py` — each method (get_scored_issues, get_dossier, get_issue_brief) handles the envelope. If adding new aggregator calls, always unwrap the envelope.
 
 ## Upstream Cross-Linking Prevention — CRITICAL
 

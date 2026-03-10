@@ -41,7 +41,7 @@ The scraper and aggregator are separate repositories. VibeDispatch consumes the 
 
 ### Stage 1: Target Repos
 
-Watchlist management and repo health overview. The aggregator provides a watchlist and health scores for each repository. Fallback: local watchlist file with metadata fetched via `gh` CLI.
+Repo health overview. Target repos are derived from aggregator scored issues, enriched with health scores.
 
 ### Stage 2: Scored Issues
 
@@ -113,7 +113,7 @@ The dev server starts on `http://localhost:5175` and proxies API requests to the
 ```
 backend/
   routes/              Flask route blueprints
-    oss_routes_stage1    Stage 1: target repos and watchlist
+    oss_routes_stage1    Stage 1: target repos
     oss_routes_stage2    Stage 2: scored issues
     oss_routes_stage3    Stage 3: fork and assign
     oss_routes_stage4    Stage 4: review on fork

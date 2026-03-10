@@ -881,23 +881,6 @@ renderContent();
     })
   })
 
-  // Action endpoints
-  await page.route('**/dispatch/api/oss/add-target', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, message: 'Target added!', owner: mockOwner })
-    })
-  })
-
-  await page.route('**/dispatch/api/oss/remove-target', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, message: 'Target removed!', owner: mockOwner })
-    })
-  })
-
   await page.route('**/dispatch/api/oss/refresh-target', async route => {
     await route.fulfill({
       status: 200,

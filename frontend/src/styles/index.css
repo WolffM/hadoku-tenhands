@@ -2321,14 +2321,6 @@ td .pr-link {
   text-align: center;
 }
 
-/* ============ OSS Add Target Form ============ */
-
-.oss-add-target-form {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-end;
-}
-
 /* ============ Pipeline Selection ============ */
 
 .pipeline-select {

@@ -6,7 +6,6 @@ OSSService class. Fork management, local state, and context building
 are in separate mixin modules (oss_fork, oss_state, oss_context).
 """
 
-import fcntl
 import os
 import re
 import json
@@ -65,38 +64,52 @@ _AUTOCLOSE_RE = re.compile(
 
 # ============ Private Helpers ============
 
-def _load_json(filename):
-    """Load a JSON file from the OSS data directory. Returns [] if missing.
+def _lock(f, exclusive=False):
+    """Cross-platform file locking (fcntl on Unix, msvcrt on Windows)."""
+    try:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+    except ImportError:
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if exclusive else msvcrt.LK_NBLCK, 1)
 
-    Uses a shared (read) file lock to prevent reading partial writes.
-    """
+
+def _unlock(f):
+    """Cross-platform file unlock."""
+    try:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_UN)
+    except ImportError:
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _load_json(filename):
+    """Load a JSON file from the OSS data directory. Returns [] if missing."""
     path = os.path.join(OSS_DATA_DIR, filename)
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8") as f:
-                fcntl.flock(f, fcntl.LOCK_SH)
+                _lock(f)
                 try:
                     return json.load(f)
                 finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+                    _unlock(f)
         except OSError:
             return []
     return []
 
 
 def _save_json(filename, data):
-    """Save data as JSON to the OSS data directory.
-
-    Uses an exclusive (write) file lock to prevent concurrent writes.
-    """
+    """Save data as JSON to the OSS data directory."""
     os.makedirs(OSS_DATA_DIR, exist_ok=True)
     path = os.path.join(OSS_DATA_DIR, filename)
     with open(path, "w", encoding="utf-8") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        _lock(f, exclusive=True)
         try:
             json.dump(data, f, indent=2)
         finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+            _unlock(f)
 
 
 def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
@@ -180,7 +193,7 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
     """Service layer for the OSS contribution pipeline.
 
     Composed from mixins:
-    - OSSStateMixin: local JSON state (watchlist, assignments, etc.)
+    - OSSStateMixin: local JSON state (assignments, selected issues, etc.)
     - OSSForkMixin: fork management, CI/workflow setup, PR review helpers
     - OSSContextMixin: agent context building (3-tier strategy)
     """
@@ -189,32 +202,6 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
         pass
 
     # --- Aggregator API (proxied when available, returns empty/None otherwise) ---
-
-    def get_watchlist(self):
-        """Get the watchlist from the aggregator.
-
-        Aggregator returns: { success: true, data: { slugs: [...] } }
-        """
-        result = _call_aggregator("/recon/watchlist")
-        if not result or not isinstance(result, dict):
-            return []
-        # Unwrap: { success, data: { slugs: [...] } }
-        data = result.get("data") or result
-        if isinstance(data, dict) and "slugs" in data:
-            return data["slugs"]
-        if "slugs" in result:
-            return result["slugs"]
-        return []
-
-    def add_to_watchlist(self, slug):
-        """Add a repo to the aggregator watchlist. Stub — returns False."""
-        result = _call_aggregator("/recon/watchlist/add", method="POST", data={"slug": slug})
-        return result is not None
-
-    def remove_from_watchlist(self, slug):
-        """Remove a repo from the aggregator watchlist. Stub — returns False."""
-        result = _call_aggregator("/recon/watchlist/remove", method="POST", data={"slug": slug})
-        return result is not None
 
     def get_scored_issues(self, slug=None, include_meta=False):
         """Get scored issues from the aggregator.
