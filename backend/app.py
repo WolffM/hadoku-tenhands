@@ -12,8 +12,14 @@ import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify
+
+# Load .env from project root (parent of backend/)
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
