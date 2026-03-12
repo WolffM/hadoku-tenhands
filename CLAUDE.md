@@ -75,11 +75,23 @@ File-based caching in `backend/services/cache.py`. TTL: 5min (prod), 1hr (local 
 
 ## Development
 
+### Running the backend locally
+
+```bash
+cd backend && python3 app.py
+```
+
+The app loads `.env` from the project root via `python-dotenv` at startup. This includes `AGGREGATOR_API_URL`, `ADMIN_KEY`, `DISCORD_WEBHOOK_URL`, and other config. Without `.env`, the backend runs in offline/fallback mode (no aggregator, no admin gating).
+
+The Flask app registers routes under `URL_PREFIX` (default: `/dispatch`). Locally, all API calls go to `http://localhost:5000/dispatch/api/oss/...`. Set `URL_PREFIX=""` to remove the prefix.
+
 ### Backend tests
 
 ```bash
-cd backend && python -m pytest tests/ -v
+cd backend && python3 -m pytest tests/ -v
 ```
+
+Note: Use `python3` on Linux/WSL — `python` may not be available.
 
 ### Key directories
 
@@ -149,6 +161,42 @@ GitHub automatically creates cross-reference notifications when:
 - The sanitization function `_sanitize_upstream_refs()` in `oss_service.py` handles this — all content destined for fork issues must pass through it
 
 **If cross-references leak to upstream, the entire stealth workflow is compromised.** This has happened in 3 consecutive runs and must not happen again.
+
+## Dispatch Operations
+
+### Pre-dispatch checklist
+
+Before selecting repos for dispatch:
+
+1. **Check aggregator coverage.** Call `GET /recon/{slug}/dossier` for candidate repos. Repos with dossiers get context_tier 1 (rich context for Copilot). Without it, agents fall back to tier 3 (just the issue body + CONTRIBUTING.md). Prefer repos with aggregator coverage.
+2. **Prioritize Microsoft repos.** They are easy to contribute to and the user has SSO auth configured. Use REST API (`gh api repos/...`) instead of GraphQL (`gh issue view --json`) for issue verification — GraphQL triggers SAML prompts on org repos but REST API works fine.
+3. **Verify issues via REST API.** Use `gh api repos/{owner}/{repo}/issues/{number}` with `--jq '{state, title, pull_request: .pull_request}'`. If `pull_request` is non-null, the "issue" is actually a PR — skip it. If `state` is not `open`, skip it.
+
+### Dispatching via the API
+
+The fork-and-assign endpoint handles the full Stage 3 flow:
+
+```bash
+curl -s -X POST http://localhost:5000/dispatch/api/oss/fork-and-assign \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "origin_owner": "owner",
+    "repo": "repo",
+    "issue_number": 123,
+    "issue_title": "Issue title here",
+    "issue_url": "https://github.com/owner/repo/issues/123"
+  }'
+```
+
+The endpoint will: fork (if needed) → sync → configure settings → push workflows → build context → create issue → assign Copilot → track in assignments.json.
+
+### Context tiers
+
+| Tier | Sources | Quality |
+|------|---------|---------|
+| 1 | Aggregator issue-brief + dossier | Best — structured repo health, contribution rules, issue analysis |
+| 2 | Aggregator dossier only (no brief) | Good — repo context but no issue-specific analysis |
+| 3 | `gh issue view` + CONTRIBUTING.md | Minimal — just the raw issue body and contribution guidelines |
 
 ## Rules
 

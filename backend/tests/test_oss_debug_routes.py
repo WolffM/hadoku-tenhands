@@ -21,9 +21,10 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def disable_cache(monkeypatch):
-    """Disable caching for all route tests."""
+def disable_cache_and_admin_key(monkeypatch):
+    """Disable caching and admin key gating for all route tests."""
     monkeypatch.setenv("CACHE_DISABLED", "1")
+    monkeypatch.delenv("ADMIN_KEY", raising=False)
 
 
 PREFIX = "/dispatch"
