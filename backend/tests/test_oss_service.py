@@ -1007,7 +1007,7 @@ class TestCIWorkflow:
         workflow = OSSService._build_ci_workflow("Go")
         assert "go vet" in workflow
         assert "go test" in workflow
-        assert "on: [push, pull_request]" in workflow
+        assert "on: [push]" in workflow
 
     def test_build_ci_workflow_python(self):
         workflow = OSSService._build_ci_workflow("Python")

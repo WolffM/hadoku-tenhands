@@ -21,8 +21,20 @@ from flask import Flask, request, jsonify
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_env_path)
 
-logging.basicConfig()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
+logging.Formatter.converter = time.gmtime
 logger = logging.getLogger(__name__)
+
+# Initialize pipeline file logging
+try:
+    from .services.pipeline_logger import setup_pipeline_logging
+except ImportError:
+    from services.pipeline_logger import setup_pipeline_logging
+setup_pipeline_logging()
 
 
 def _port_in_use(port: int) -> bool:

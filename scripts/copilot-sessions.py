@@ -445,21 +445,50 @@ def analyze_workflow(log_text):
     }
 
 
+def check_gh_version():
+    """Verify gh CLI is >= 2.80.0 (required for agent-task commands)."""
+    out, ok = run_gh(["--version"])
+    if not ok:
+        print("Error: could not determine gh version", file=sys.stderr)
+        sys.exit(1)
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+    if not match:
+        print(f"Error: could not parse gh version from: {out}", file=sys.stderr)
+        sys.exit(1)
+    major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    if (major, minor) < (2, 80):
+        print(f"Error: gh {major}.{minor}.{patch} is too old. "
+              f"Need >= 2.80.0 for agent-task support. "
+              f"Upgrade: sudo apt-get update && sudo apt-get install gh", file=sys.stderr)
+        sys.exit(1)
+    return f"{major}.{minor}.{patch}"
+
+
 def cmd_list(args):
-    """List Copilot agent sessions."""
+    """List Copilot agent sessions.
+
+    NOTE: gh agent-task list does not support -R (repo filter).
+    Filtering is done client-side after fetching all tasks.
+    Requires OAuth token (gh auth login), not PAT.
+    """
+    check_gh_version()
     gh_args = ["agent-task", "list"]
     if args.limit:
         gh_args += ["-L", str(args.limit)]
     output, ok = run_gh(gh_args)
     if ok:
-        # Filter by repo if specified
+        # Filter by repo if specified (client-side since API doesn't support it)
         if args.repo:
             lines = [l for l in output.split("\n") if args.repo in l]
             print("\n".join(lines))
         else:
             print(output)
     else:
-        print("Failed to list sessions. Is gh >= 2.80.0?", file=sys.stderr)
+        if "OAuth" in output or "Re-authenticate" in output:
+            print("Error: gh agent-task requires OAuth token. Run: gh auth login",
+                  file=sys.stderr)
+        else:
+            print(f"Failed to list sessions: {output}", file=sys.stderr)
 
 
 def cmd_log(args):

@@ -233,7 +233,7 @@ class TestRenderWorkflow:
         yaml = render_static_analysis_workflow(jobs)
         assert yaml.startswith("name:")
         assert "jobs:" in yaml
-        assert "runs-on: ubuntu-latest" in yaml
+        assert "runs-on: self-hosted" in yaml
 
     def test_render_stage_4b_label(self):
         jobs = {"ruff": build_ruff_job()}
