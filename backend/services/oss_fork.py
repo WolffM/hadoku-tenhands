@@ -76,18 +76,188 @@ class OSSForkMixin:
         #    push/PR. We only need our own workflows + copilot-setup-steps.
         self._disable_upstream_workflows(my_user, repo)
 
-        # 4. Disable Copilot coding agent firewall (required for self-hosted runners).
-        #    Best-effort — the API may not exist for all plans.
+        # 4. Register a self-hosted runner (if not already registered)
+        self._ensure_self_hosted_runner(my_user, repo)
+
+        # 5. Disable Copilot coding agent firewall (required for self-hosted runners).
+        #    Try the API first (may not exist), fall back to patchright browser automation.
+        self._disable_copilot_firewall(my_user, repo)
+
+    def _ensure_self_hosted_runner(self, my_user, repo):
+        """Register a self-hosted runner for this repo if one isn't already online.
+
+        Uses the GitHub API to get a registration token, then configures and
+        starts a runner in a background process. Runners are stored in
+        ~/actions-runners/{repo}/.
+        """
+        import logging
+        import subprocess
+        import os
+        import sys
+        _logger = logging.getLogger("pipeline")
+
+        # Check if a runner is already registered and online
+        result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/actions/runners",
+            "--jq", ".runners[] | select(.status==\"online\") | .name"
+        ])
+        if result["success"] and result["output"].strip():
+            _logger.debug("Runner already online for %s/%s: %s",
+                         my_user, repo, result["output"].strip().split("\n")[0])
+            return
+
+        # Get a registration token
+        token_result = run_gh_command([
+            "api", "-X", "POST",
+            f"repos/{my_user}/{repo}/actions/runners/registration-token",
+            "--jq", ".token"
+        ])
+        if not token_result["success"]:
+            _logger.warning("Failed to get runner registration token for %s/%s", my_user, repo)
+            return
+
+        token = token_result["output"].strip()
+        runner_dir = os.path.expanduser(f"~/actions-runners/{repo}")
+        runner_bin = os.path.join(runner_dir, "run.sh")
+
+        # If runner directory doesn't exist, set it up
+        if not os.path.exists(runner_bin):
+            # Find the runner template (first existing runner install to copy from)
+            template_dir = None
+            runners_base = os.path.expanduser("~/actions-runners")
+            os.makedirs(runners_base, exist_ok=True)
+
+            # Look for an existing runner install to symlink/copy from
+            home = os.path.expanduser("~")
+            for candidate in ["actions-runner", "actions-runner-fastify"]:
+                candidate_path = os.path.join(home, candidate)
+                if os.path.exists(os.path.join(candidate_path, "run.sh")):
+                    template_dir = candidate_path
+                    break
+
+            # Also check in the runners directory itself
+            if not template_dir:
+                for entry in os.listdir(runners_base) if os.path.exists(runners_base) else []:
+                    candidate_path = os.path.join(runners_base, entry)
+                    if os.path.exists(os.path.join(candidate_path, "run.sh")):
+                        template_dir = candidate_path
+                        break
+
+            if not template_dir:
+                _logger.warning(
+                    "No runner template found. Please install a GitHub Actions runner at "
+                    "~/actions-runners/template/ first. See: "
+                    "https://github.com/actions/runner/releases"
+                )
+                return
+
+            # Copy the runner (can't symlink — each needs its own config)
+            _logger.info("Setting up runner for %s/%s from %s", my_user, repo, template_dir)
+            _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            try:
+                subprocess.run(
+                    ["cp", "-r", template_dir, runner_dir],
+                    capture_output=True, timeout=30, creationflags=_flags
+                )
+                # Clean old config if copied from another repo's runner
+                for stale in [".runner", ".credentials", ".credentials_rsaparams"]:
+                    stale_path = os.path.join(runner_dir, stale)
+                    if os.path.exists(stale_path):
+                        os.remove(stale_path)
+            except Exception as e:
+                _logger.warning("Failed to copy runner template: %s", e)
+                return
+
+        # Configure the runner
+        _logger.info("Configuring runner for %s/%s", my_user, repo)
+        _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        try:
+            config_proc = subprocess.run(
+                [os.path.join(runner_dir, "config.sh"),
+                 "--url", f"https://github.com/{my_user}/{repo}",
+                 "--token", token,
+                 "--name", f"vd-{repo}",
+                 "--labels", "self-hosted,Linux,X64",
+                 "--unattended", "--replace"],
+                capture_output=True, text=True, timeout=30,
+                cwd=runner_dir, creationflags=_flags
+            )
+            if config_proc.returncode != 0:
+                _logger.warning("Runner config failed for %s/%s: %s",
+                               my_user, repo, config_proc.stderr[:200])
+                return
+        except Exception as e:
+            _logger.warning("Runner config error for %s/%s: %s", my_user, repo, e)
+            return
+
+        # Start the runner in the background
+        _logger.info("Starting runner for %s/%s", my_user, repo)
+        try:
+            subprocess.Popen(
+                [os.path.join(runner_dir, "run.sh")],
+                stdout=open(os.path.join(runner_dir, "runner.log"), "w"),
+                stderr=subprocess.STDOUT,
+                cwd=runner_dir,
+                start_new_session=True,
+            )
+            _logger.info("Runner started for %s/%s (pid in background)", my_user, repo)
+        except Exception as e:
+            _logger.warning("Failed to start runner for %s/%s: %s", my_user, repo, e)
+
+    def _disable_copilot_firewall(self, my_user, repo):
+        """Disable the Copilot coding agent firewall on a repo.
+
+        Tries the REST API first (in case GitHub adds one). Falls back to
+        patchright browser automation via the disable-copilot-firewall.py script.
+        """
+        import logging
+        import subprocess
+        import sys
+        import os
+        _logger = logging.getLogger("pipeline")
+
+        # Try API first (best-effort — endpoint may not exist)
         result = run_gh_command([
             "api", f"repos/{my_user}/{repo}/copilot/coding_agent/settings",
             "-X", "PATCH",
             "-f", "firewall_enabled=false"
         ])
         if result["success"]:
-            _logger.info("Disabled Copilot firewall on %s/%s", my_user, repo)
-        else:
-            _logger.debug("Could not disable Copilot firewall on %s/%s (may need manual toggle)",
-                          my_user, repo)
+            _logger.info("Disabled Copilot firewall via API on %s/%s", my_user, repo)
+            return
+
+        # Fall back to patchright browser automation
+        script_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "scripts", "disable-copilot-firewall.py"
+        )
+        if not os.path.exists(script_path):
+            _logger.warning(
+                "Cannot disable Copilot firewall on %s/%s — no API and script not found at %s. "
+                "Disable manually at: https://github.com/%s/%s/settings/copilot/coding_agent",
+                my_user, repo, script_path, my_user, repo
+            )
+            return
+
+        _logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
+        _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        try:
+            proc = subprocess.run(
+                [sys.executable, script_path, f"{my_user}/{repo}"],
+                capture_output=True, text=True, timeout=60,
+                creationflags=_flags,
+            )
+            if proc.returncode == 0:
+                _logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
+            else:
+                _logger.warning(
+                    "Patchright firewall disable failed on %s/%s: %s",
+                    my_user, repo, proc.stderr[:200]
+                )
+        except subprocess.TimeoutExpired:
+            _logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
+        except Exception as e:
+            _logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
 
     def _disable_upstream_workflows(self, my_user, repo):
         """Disable all inherited workflows except our own and Copilot's.
@@ -662,12 +832,9 @@ class OSSForkMixin:
         """Build copilot-setup-steps.yml for the Copilot coding agent.
 
         This workflow defines the environment the agent runs in.
-        Using runs-on: self-hosted routes the agent to our local runner,
-        avoiding GitHub Actions minute consumption.
-
-        Format requires a job named 'copilot-setup-steps' with runs-on
-        and steps. The repo must also have the Copilot firewall disabled
-        for self-hosted runners to work.
+        Uses self-hosted to route to the local runner, avoiding GitHub
+        Actions minute consumption. Requires per-repo runner registration
+        and Copilot firewall disabled.
         """
         lang = (language or "").lower()
 
