@@ -24,6 +24,8 @@ def run_gh_command(args, capture_output=True, timeout=30):
         capture_output: Whether to capture stdout/stderr
         timeout: Timeout in seconds (default 30s)
     """
+    cmd_summary = " ".join(args[:4])  # first 4 args for log readability
+    start = time.monotonic()
     try:
         result = subprocess.run(
             ["gh"] + args,
@@ -34,12 +36,20 @@ def run_gh_command(args, capture_output=True, timeout=30):
             creationflags=_SUBPROCESS_FLAGS,
             timeout=timeout
         )
+        elapsed = int((time.monotonic() - start) * 1000)
         if result.returncode != 0:
+            logger.debug("gh %s → FAIL (%dms): %s", cmd_summary, elapsed,
+                         result.stderr[:200] if result.stderr else "no stderr")
             return {"success": False, "error": result.stderr}
+        logger.debug("gh %s → OK (%dms)", cmd_summary, elapsed)
         return {"success": True, "output": result.stdout}
     except subprocess.TimeoutExpired:
+        elapsed = int((time.monotonic() - start) * 1000)
+        logger.warning("gh %s → TIMEOUT (%dms)", cmd_summary, elapsed)
         return {"success": False, "error": f"Command timed out after {timeout}s"}
     except Exception as e:
+        elapsed = int((time.monotonic() - start) * 1000)
+        logger.warning("gh %s → ERROR (%dms): %s", cmd_summary, elapsed, e)
         return {"success": False, "error": str(e)}
 
 

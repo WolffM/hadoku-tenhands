@@ -74,6 +74,9 @@ playwright/.cache/
 # Generated reports
 pipeline-report.html
 
+# Billing/usage reports
+*.csv
+
 # Temporary
 .tmp/
 .cache/

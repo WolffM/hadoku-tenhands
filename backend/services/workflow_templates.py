@@ -258,7 +258,7 @@ def render_static_analysis_workflow(jobs):
         safe_name = job_name.replace(".", "-").replace(" ", "-")
         lines.append(f"  {safe_name}:")
         lines.append(f"    name: {job.get('name', job_name)}")
-        lines.append("    runs-on: ubuntu-latest")
+        lines.append("    runs-on: self-hosted")
         lines.append("    steps:")
         for step in job.get("steps", []):
             # Each step may be multi-line (e.g., uses with 'with:')

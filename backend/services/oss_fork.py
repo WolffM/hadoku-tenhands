@@ -50,10 +50,13 @@ class OSSForkMixin:
     def configure_fork_settings(self, my_user, repo):
         """Configure fork repository settings for the pipeline.
 
-        Enables issues, configures Actions permissions, and sets
-        any other repo-level settings needed for automated CI
-        and Copilot agent work.
+        Enables issues, configures Actions permissions, disables inherited
+        upstream workflows (to prevent runaway CI costs), and sets any other
+        repo-level settings needed for the Copilot coding agent.
         """
+        import logging
+        _logger = logging.getLogger("pipeline")
+
         # 1. Enable issues (forks inherit has_issues=false)
         run_gh_command([
             "api", f"repos/{my_user}/{repo}",
@@ -67,6 +70,78 @@ class OSSForkMixin:
             "-f", "enabled=true",
             "-f", "allowed_actions=all"
         ])
+
+        # 3. Disable ALL inherited upstream workflows to prevent cost explosions.
+        #    Large repos (vscode, playwright) have expensive CI that runs on every
+        #    push/PR. We only need our own workflows + copilot-setup-steps.
+        self._disable_upstream_workflows(my_user, repo)
+
+        # 4. Disable Copilot coding agent firewall (required for self-hosted runners).
+        #    Best-effort — the API may not exist for all plans.
+        result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/copilot/coding_agent/settings",
+            "-X", "PATCH",
+            "-f", "firewall_enabled=false"
+        ])
+        if result["success"]:
+            _logger.info("Disabled Copilot firewall on %s/%s", my_user, repo)
+        else:
+            _logger.debug("Could not disable Copilot firewall on %s/%s (may need manual toggle)",
+                          my_user, repo)
+
+    def _disable_upstream_workflows(self, my_user, repo):
+        """Disable all inherited workflows except our own and Copilot's.
+
+        Upstream repos like playwright/vscode have CI that costs $10-70+ per
+        run. Forks inherit all these workflows. We disable them to prevent
+        runaway Actions billing when we push workflow files or the agent
+        creates PRs.
+        """
+        import logging
+        _logger = logging.getLogger("pipeline")
+
+        # Workflows we want to keep enabled
+        keep_patterns = {
+            "ci.yml",                    # our CI
+            "static-analysis.yml",       # our Stage 4b
+            "copilot-setup-steps.yml",   # Copilot agent environment setup
+        }
+
+        result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/actions/workflows",
+            "--jq", ".workflows[] | [.id, .path, .state] | @tsv",
+            "--paginate"
+        ])
+        if not result["success"]:
+            return
+
+        disabled_count = 0
+        for line in result["output"].strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            wf_id, wf_path, wf_state = parts[0], parts[1], parts[2]
+
+            # Keep our workflows and Copilot's setup steps
+            filename = wf_path.split("/")[-1] if "/" in wf_path else wf_path
+            if filename in keep_patterns:
+                continue
+            # Keep dynamic workflows (Copilot agent, Copilot code review)
+            if wf_path.startswith("dynamic/"):
+                continue
+
+            if wf_state == "active":
+                disable_result = run_gh_command([
+                    "api", f"repos/{my_user}/{repo}/actions/workflows/{wf_id}/disable",
+                    "-X", "PUT"
+                ])
+                if disable_result["success"]:
+                    disabled_count += 1
+
+        if disabled_count:
+            _logger.info("Disabled %d upstream workflows on %s/%s", disabled_count, my_user, repo)
 
     def approve_pending_workflow_runs(self, my_user, repo):
         """Unblock any workflow runs waiting for approval on the fork.
@@ -227,16 +302,32 @@ class OSSForkMixin:
     def _push_file_to_repo(self, my_user, repo, file_path, content, commit_message):
         """Push a file to a repo via the GitHub Contents API (create or update).
 
-        Handles checking for an existing file (to get its sha for updates),
-        base64-encoding the content, and executing the PUT.
+        Skips the push if the file already exists with identical content
+        to avoid creating unnecessary commits on the default branch.
         """
-        existing_sha = None
+        import logging
+        _logger = logging.getLogger("pipeline")
+
         check = run_gh_command([
             "api", f"repos/{my_user}/{repo}/contents/{file_path}",
-            "--jq", ".sha"
+            "--jq", "{sha: .sha, content: .content, encoding: .encoding}"
         ])
+
         if check["success"] and check["output"].strip():
-            existing_sha = check["output"].strip()
+            try:
+                existing = json.loads(check["output"])
+                existing_sha = existing.get("sha", "")
+                # Compare content — GitHub returns base64 with newlines
+                existing_content = base64.b64decode(
+                    existing.get("content", "").replace("\n", "")
+                ).decode("utf-8")
+                if existing_content == content:
+                    _logger.debug("Skip push %s (unchanged) on %s/%s", file_path, my_user, repo)
+                    return {"success": True, "output": "unchanged", "skipped": True}
+            except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
+                existing_sha = check["output"].strip()
+        else:
+            existing_sha = None
 
         encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
         cmd = [
@@ -249,15 +340,203 @@ class OSSForkMixin:
             cmd.extend(["-f", f"sha={existing_sha}"])
         return run_gh_command(cmd)
 
-    def ensure_copilot_instructions(self, my_user, repo):
-        """Write .github/copilot-instructions.md on the fork.
+    def _push_files_as_single_commit(self, my_user, repo, files, commit_message):
+        """Push multiple files in a single commit via the Git Data API.
 
-        This file is read by the Copilot coding agent BEFORE the issue body,
-        so it's the best place for workflow enforcement. Always overwrites any
-        existing file (including one inherited from upstream) to ensure our
-        quality gates and cross-linking rules are applied consistently.
-        Best-effort — failures are silently ignored.
+        This avoids creating N separate commits (and triggering N CI runs)
+        when pushing N workflow files. Uses the low-level tree/commit API:
+        1. Get current HEAD commit and its tree
+        2. Create blobs for each file
+        3. Create a new tree with the blobs
+        4. Create a commit pointing to the new tree
+        5. Update the branch ref
+
+        Args:
+            files: list of (path, content) tuples
         """
+        import logging
+        _logger = logging.getLogger("pipeline")
+
+        # Get default branch and its HEAD
+        branch_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}", "--jq", ".default_branch"
+        ])
+        if not branch_result["success"]:
+            _logger.warning("Failed to get default branch for %s/%s", my_user, repo)
+            return {"success": False, "error": "could not get default branch"}
+
+        branch = branch_result["output"].strip()
+        ref_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/ref/heads/{branch}",
+            "--jq", ".object.sha"
+        ])
+        if not ref_result["success"]:
+            _logger.warning("Failed to get HEAD ref for %s/%s:%s", my_user, repo, branch)
+            return {"success": False, "error": "could not get HEAD ref"}
+
+        head_sha = ref_result["output"].strip()
+
+        # Get the current tree
+        commit_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/commits/{head_sha}",
+            "--jq", ".tree.sha"
+        ])
+        if not commit_result["success"]:
+            return {"success": False, "error": "could not get HEAD tree"}
+
+        base_tree = commit_result["output"].strip()
+
+        # Check which files actually need updating
+        files_to_push = []
+        for path, content in files:
+            check = run_gh_command([
+                "api", f"repos/{my_user}/{repo}/contents/{path}",
+                "--jq", ".content"
+            ])
+            if check["success"] and check["output"].strip():
+                try:
+                    existing = base64.b64decode(
+                        check["output"].strip().replace("\n", "")
+                    ).decode("utf-8")
+                    if existing == content:
+                        _logger.debug("Skip %s (unchanged)", path)
+                        continue
+                except (UnicodeDecodeError, Exception):
+                    pass
+            files_to_push.append((path, content))
+
+        if not files_to_push:
+            _logger.debug("All files unchanged on %s/%s, skipping commit", my_user, repo)
+            return {"success": True, "output": "all unchanged", "skipped": True}
+
+        # Create blobs and tree entries
+        tree_entries = []
+        for path, content in files_to_push:
+            encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            blob_result = run_gh_command([
+                "api", f"repos/{my_user}/{repo}/git/blobs",
+                "-X", "POST",
+                "-f", f"content={encoded}",
+                "-f", "encoding=base64",
+            ])
+            if not blob_result["success"]:
+                _logger.warning("Failed to create blob for %s", path)
+                continue
+            blob_sha = json.loads(blob_result["output"]).get("sha")
+            tree_entries.append({
+                "path": path, "mode": "100644", "type": "blob", "sha": blob_sha
+            })
+
+        if not tree_entries:
+            return {"success": False, "error": "no blobs created"}
+
+        # Create new tree — uses subprocess directly because gh api --input
+        # doesn't handle nested JSON tree entries correctly via -f flags
+        import subprocess
+        import sys
+        _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        tree_body = json.dumps({"base_tree": base_tree, "tree": tree_entries})
+        try:
+            proc = subprocess.run(
+                ["gh", "api", f"repos/{my_user}/{repo}/git/trees",
+                 "-X", "POST", "--input", "-"],
+                input=tree_body, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                creationflags=_flags, timeout=30
+            )
+            if proc.returncode != 0:
+                _logger.warning("Failed to create tree: %s", proc.stderr[:200])
+                return {"success": False, "error": "tree creation failed"}
+            new_tree_sha = json.loads(proc.stdout).get("sha")
+        except Exception as e:
+            _logger.warning("Tree creation error: %s", e)
+            return {"success": False, "error": str(e)}
+
+        # Create commit
+        commit_body = json.dumps({
+            "message": commit_message,
+            "tree": new_tree_sha,
+            "parents": [head_sha],
+        })
+        try:
+            proc = subprocess.run(
+                ["gh", "api", f"repos/{my_user}/{repo}/git/commits",
+                 "-X", "POST", "--input", "-"],
+                input=commit_body, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                creationflags=_flags, timeout=30
+            )
+            if proc.returncode != 0:
+                _logger.warning("Failed to create commit: %s", proc.stderr[:200])
+                return {"success": False, "error": "commit creation failed"}
+            new_commit_sha = json.loads(proc.stdout).get("sha")
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+        # Update branch ref
+        update_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/git/refs/heads/{branch}",
+            "-X", "PATCH",
+            "-f", f"sha={new_commit_sha}",
+        ])
+        if not update_result["success"]:
+            return {"success": False, "error": "ref update failed"}
+
+        pushed = [p for p, _ in files_to_push]
+        _logger.info("Pushed %d files in 1 commit to %s/%s: %s",
+                      len(pushed), my_user, repo, pushed)
+        return {"success": True, "output": new_commit_sha, "files": pushed}
+
+    def ensure_pipeline_files(self, my_user, repo, language=None, toolchain_profile=None):
+        """Push all pipeline files (copilot instructions + workflows) in a single commit.
+
+        This replaces the separate ensure_copilot_instructions, ensure_ci_workflow,
+        and ensure_static_analysis_workflow calls. A single commit means a single
+        push event, which means upstream CI only triggers once (and we disable it
+        anyway via _disable_upstream_workflows).
+        """
+        from .workflow_templates import build_jobs_from_toolchain, render_static_analysis_workflow
+
+        copilot_instructions = (
+            "# Copilot Coding Agent Instructions\n\n"
+            "## Mandatory Workflow (MUST follow in order)\n\n"
+            "### Phase 1: Reproduce (MUST complete before Phase 2)\n"
+            "- Read the issue description and understand the problem.\n"
+            "- Write a failing test or run the existing test suite to confirm the bug.\n"
+            "- **Do NOT proceed to Phase 2 until you have a confirmed failure.**\n\n"
+            "### Phase 2: Implement (MUST complete before Phase 3)\n"
+            "- Make the minimal code change to fix the bug.\n"
+            "- Do NOT refactor unrelated code or add features.\n\n"
+            "### Phase 3: Verify (MUST complete before committing)\n"
+            "- Re-run the specific test from Phase 1 and confirm it passes.\n"
+            "- Run the full test suite to check for regressions.\n"
+            "- **Do NOT commit until all tests pass.**\n\n"
+            "## Rules\n"
+            "- DO NOT reference, close, or link any external issues. "
+            "No Closes, Fixes, or Resolves directives.\n"
+            "- DO NOT use GitHub MCP tools to look up issues on other repositories.\n"
+            "- DO NOT modify or weaken a test to make it pass.\n"
+            "- DO NOT commit __pycache__/ directories. Add to .gitignore if missing.\n"
+            "- Keep changes minimal and focused.\n"
+        )
+
+        ci_yaml = self._build_ci_workflow(language)
+
+        jobs = build_jobs_from_toolchain(toolchain_profile, language)
+        sa_yaml = render_static_analysis_workflow(jobs)
+
+        setup_steps_yaml = self._build_copilot_setup_steps(language)
+
+        return self._push_files_as_single_commit(my_user, repo, [
+            (".github/copilot-instructions.md", copilot_instructions),
+            (".github/workflows/ci.yml", ci_yaml),
+            (".github/workflows/static-analysis.yml", sa_yaml),
+            (".github/workflows/copilot-setup-steps.yml", setup_steps_yaml),
+        ], "Configure pipeline: copilot instructions, CI, and static analysis")
+
+    # Keep individual methods for backward compatibility / targeted updates
+    def ensure_copilot_instructions(self, my_user, repo):
+        """Write .github/copilot-instructions.md on the fork. Prefer ensure_pipeline_files()."""
         content = (
             "# Copilot Coding Agent Instructions\n\n"
             "## Mandatory Workflow (MUST follow in order)\n\n"
@@ -288,7 +567,7 @@ class OSSForkMixin:
         )
 
     def ensure_ci_workflow(self, my_user, repo, language=None):
-        """Push a CI workflow to the fork that runs on every push."""
+        """Push a CI workflow to the fork. Prefer ensure_pipeline_files()."""
         workflow_yaml = self._build_ci_workflow(language)
         self._push_file_to_repo(
             my_user, repo,
@@ -299,12 +578,7 @@ class OSSForkMixin:
 
     def ensure_static_analysis_workflow(self, my_user, repo, toolchain_profile=None,
                                          language=None):
-        """Push a static-analysis workflow to the fork for Stage 4b.
-
-        Unlike ci.yml (which triggers on push), this workflow uses
-        workflow_dispatch so vibedispatch controls when it runs —
-        specifically after the SWE agent finishes.
-        """
+        """Push a static-analysis workflow to the fork. Prefer ensure_pipeline_files()."""
         from .workflow_templates import build_jobs_from_toolchain, render_static_analysis_workflow
 
         jobs = build_jobs_from_toolchain(toolchain_profile, language)
@@ -325,10 +599,10 @@ class OSSForkMixin:
         if lang == "go":
             return (
                 "name: CI\n"
-                "on: [push, pull_request]\n"
+                "on: [push]\n"
                 "jobs:\n"
                 "  test:\n"
-                "    runs-on: ubuntu-latest\n"
+                "    runs-on: self-hosted\n"
                 "    steps:\n"
                 "      - uses: actions/checkout@v4\n"
                 "      - uses: actions/setup-go@v5\n"
@@ -340,10 +614,10 @@ class OSSForkMixin:
         elif lang == "python":
             return (
                 "name: CI\n"
-                "on: [push, pull_request]\n"
+                "on: [push]\n"
                 "jobs:\n"
                 "  test:\n"
-                "    runs-on: ubuntu-latest\n"
+                "    runs-on: self-hosted\n"
                 "    steps:\n"
                 "      - uses: actions/checkout@v4\n"
                 "      - uses: actions/setup-python@v5\n"
@@ -357,10 +631,10 @@ class OSSForkMixin:
         elif lang in ("javascript", "typescript"):
             return (
                 "name: CI\n"
-                "on: [push, pull_request]\n"
+                "on: [push]\n"
                 "jobs:\n"
                 "  test:\n"
-                "    runs-on: ubuntu-latest\n"
+                "    runs-on: self-hosted\n"
                 "    steps:\n"
                 "      - uses: actions/checkout@v4\n"
                 "      - uses: actions/setup-node@v4\n"
@@ -374,14 +648,68 @@ class OSSForkMixin:
             # Generic fallback — just checkout and list files
             return (
                 "name: CI\n"
-                "on: [push, pull_request]\n"
+                "on: [push]\n"
                 "jobs:\n"
                 "  test:\n"
-                "    runs-on: ubuntu-latest\n"
+                "    runs-on: self-hosted\n"
                 "    steps:\n"
                 "      - uses: actions/checkout@v4\n"
                 "      - run: echo 'No language-specific CI configured'\n"
             )
+
+    @staticmethod
+    def _build_copilot_setup_steps(language):
+        """Build copilot-setup-steps.yml for the Copilot coding agent.
+
+        This workflow defines the environment the agent runs in.
+        Using runs-on: self-hosted routes the agent to our local runner,
+        avoiding GitHub Actions minute consumption.
+
+        Format requires a job named 'copilot-setup-steps' with runs-on
+        and steps. The repo must also have the Copilot firewall disabled
+        for self-hosted runners to work.
+        """
+        lang = (language or "").lower()
+
+        header = (
+            "name: \"Copilot Setup Steps\"\n"
+            "\n"
+            "on:\n"
+            "  workflow_dispatch:\n"
+            "  push:\n"
+            "    paths:\n"
+            "      - .github/workflows/copilot-setup-steps.yml\n"
+            "\n"
+            "jobs:\n"
+            "  copilot-setup-steps:\n"
+            "    runs-on: self-hosted\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v4\n"
+        )
+
+        if lang == "go":
+            return header + (
+                "      - uses: actions/setup-go@v5\n"
+                "        with:\n"
+                "          go-version: 'stable'\n"
+                "      - run: go mod download 2>/dev/null || true\n"
+            )
+        elif lang == "python":
+            return header + (
+                "      - uses: actions/setup-python@v5\n"
+                "        with:\n"
+                "          python-version: '3.x'\n"
+                "      - run: pip install -r requirements.txt 2>/dev/null || true\n"
+            )
+        elif lang in ("javascript", "typescript"):
+            return header + (
+                "      - uses: actions/setup-node@v4\n"
+                "        with:\n"
+                "          node-version: '20'\n"
+                "      - run: npm ci 2>/dev/null || true\n"
+            )
+        else:
+            return header
 
     # --- PR review helpers ---
 

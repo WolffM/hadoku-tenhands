@@ -115,18 +115,21 @@ def _save_json(filename, data):
 def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
     """Call aggregator API with graceful failure. Returns None on any error."""
     if not AGGREGATOR_API_URL:
+        logger.warning("Aggregator call skipped (no AGGREGATOR_API_URL): %s %s", method, endpoint)
         return None
+    url = f"{AGGREGATOR_API_URL}{endpoint}"
     try:
-        url = f"{AGGREGATOR_API_URL}{endpoint}"
         if method == "GET":
             resp = requests.get(url, timeout=timeout)
         else:
             resp = requests.post(url, json=data, timeout=timeout)
         if resp.ok:
+            logger.debug("Aggregator %s %s → %d", method, endpoint, resp.status_code)
             return resp.json()
+        logger.warning("Aggregator %s %s → HTTP %d", method, endpoint, resp.status_code)
         return None
     except Exception as e:
-        logger.warning("Aggregator call failed for %s: %s", endpoint, e)
+        logger.warning("Aggregator call failed for %s %s: %s", method, endpoint, e)
         return None
 
 

@@ -13,11 +13,13 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from ..extensions import limiter
+    from ..services.pipeline_logger import logger as plog, log_event, StepTimer
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
     from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from extensions import limiter
+    from services.pipeline_logger import logger as plog, log_event, StepTimer
 
 
 @bp.route("/api/oss/stage3-assigned", methods=["GET"])
@@ -70,16 +72,8 @@ def api_oss_select_issue():
 def api_oss_fork_and_assign():
     """Fork a repo, create a context issue, and assign Copilot.
 
-    This is the critical Stage 3 endpoint. The flow:
-    1. Dedup guard — don't create duplicate context issues
-    2. Fork the upstream repo (if not already forked)
-    3. Wait for fork to be ready (GitHub fork creation is async)
-    4. Sync fork with upstream
-    5. Build agent context (issue body + CONTRIBUTING.md + dossier)
-    6. Create context issue on fork
-    7. Assign Copilot to the fork issue
-    8. Track locally in assignments.json
-    9. Report claim to aggregator (best-effort)
+    This is the critical Stage 3 endpoint. Every step is logged to
+    pipeline-events.jsonl for post-mortem diagnosis.
     """
     data = request.json
     req_err = validate_required_fields(data, ["origin_owner", "repo", "issue_number", "issue_title", "issue_url"])
@@ -107,6 +101,8 @@ def api_oss_fork_and_assign():
     origin_slug = f"{origin_owner}/{repo}"
     svc = OSSService()
 
+    plog.info("fork-and-assign START: %s #%s", origin_slug, issue_number)
+
     # Detect self-owned repos (can't fork your own repo)
     is_self_owned = (origin_owner.lower() == my_user.lower())
 
@@ -118,21 +114,34 @@ def api_oss_fork_and_assign():
     brief_meta = None
     dossier_completeness = None
 
-    if not dossier_context:
-        dossier_data, dossier_meta = svc.get_dossier(hyphenated_slug, include_meta=True)
-        if dossier_data and dossier_data.get("sections"):
-            dossier_context = dossier_data["sections"]
-            dossier_completeness = dossier_data.get("completeness")
+    with StepTimer("stage3", "fetch_dossier", origin_slug, issue_number) as t:
+        if not dossier_context:
+            dossier_data, dossier_meta = svc.get_dossier(hyphenated_slug, include_meta=True)
+            if dossier_data and dossier_data.get("sections"):
+                dossier_context = dossier_data["sections"]
+                dossier_completeness = dossier_data.get("completeness")
+                t.detail = "dossier fetched"
+            else:
+                t.detail = "no dossier available"
+        else:
+            t.detail = "dossier provided in request"
 
-    issue_brief, brief_meta = svc.get_issue_brief(hyphenated_slug, issue_id, include_meta=True)
+    with StepTimer("stage3", "fetch_brief", origin_slug, issue_number) as t:
+        issue_brief, brief_meta = svc.get_issue_brief(hyphenated_slug, issue_id, include_meta=True)
+        t.detail = "brief fetched" if issue_brief else "no brief available"
 
     # If both are missing (pending), trigger compute and proceed with fallback context
     if not dossier_context and not issue_brief:
-        svc.trigger_compute(hyphenated_slug)
+        with StepTimer("stage3", "trigger_compute", origin_slug, issue_number) as t:
+            svc.trigger_compute(hyphenated_slug)
+            t.detail = "compute triggered (both dossier and brief missing)"
 
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
     if existing:
+        log_event("stage3", "dedup", origin_slug, issue_number, status="skip",
+                  detail="already assigned")
+        plog.info("fork-and-assign SKIP (dedup): %s #%s", origin_slug, issue_number)
         return jsonify({
             "success": True,
             "fork_issue_url": existing["fork_issue_url"],
@@ -152,42 +161,64 @@ def api_oss_fork_and_assign():
     if not is_self_owned:
         # Third-party repo — fork, wait, and sync
         # 1. Fork if needed
-        if not svc.check_fork_exists(my_user, repo):
-            fork_result = svc.fork_repo(origin_owner, repo)
-            if not fork_result["success"]:
-                return jsonify({
-                    "success": False,
-                    "error": safe_error_message(fork_result.get("error"), "Failed to fork"),
-                    "owner": my_user,
-                })
+        with StepTimer("stage3", "fork", origin_slug, issue_number) as t:
+            if not svc.check_fork_exists(my_user, repo):
+                fork_result = svc.fork_repo(origin_owner, repo)
+                if not fork_result["success"]:
+                    t.status = "error"
+                    t.detail = fork_result.get("error", "fork failed")
+                    plog.error("fork-and-assign FAIL at fork: %s #%s — %s",
+                               origin_slug, issue_number, t.detail)
+                    return jsonify({
+                        "success": False,
+                        "error": safe_error_message(fork_result.get("error"), "Failed to fork"),
+                        "owner": my_user,
+                    })
+                t.detail = "fork created"
+            else:
+                t.detail = "fork already exists"
 
         # 2. Wait for fork to be ready
-        if not svc.wait_for_fork(my_user, repo, timeout=60, interval=3):
-            return jsonify({
-                "success": False,
-                "error": "Fork creation timed out",
-                "owner": my_user,
-            })
+        with StepTimer("stage3", "wait_for_fork", origin_slug, issue_number) as t:
+            if not svc.wait_for_fork(my_user, repo, timeout=60, interval=3):
+                t.status = "timeout"
+                t.detail = "fork not ready after 60s"
+                plog.error("fork-and-assign FAIL at wait: %s #%s — timeout",
+                           origin_slug, issue_number)
+                return jsonify({
+                    "success": False,
+                    "error": "Fork creation timed out",
+                    "owner": my_user,
+                })
+            t.detail = "fork ready"
 
         # 3. Sync fork
-        svc.sync_fork(my_user, repo)
+        with StepTimer("stage3", "sync", origin_slug, issue_number) as t:
+            sync_result = svc.sync_fork(my_user, repo)
+            t.detail = "synced" if sync_result.get("success") else f"sync issue: {sync_result.get('error', 'unknown')}"
 
-        # 3b. Configure fork settings (issues, Actions permissions)
-        svc.configure_fork_settings(my_user, repo)
+        # 3b. Configure fork settings (issues, Actions, disable upstream workflows)
+        with StepTimer("stage3", "configure", origin_slug, issue_number) as t:
+            svc.configure_fork_settings(my_user, repo)
+            t.detail = "settings configured + upstream workflows disabled"
 
-        # 3c. Ensure .github/copilot-instructions.md exists on fork
-        svc.ensure_copilot_instructions(my_user, repo)
+        # 3c. Push all pipeline files in a single commit (copilot instructions + CI + SA)
+        with StepTimer("stage3", "pipeline_files", origin_slug, issue_number) as t:
+            push_result = svc.ensure_pipeline_files(
+                my_user, repo, language=language, toolchain_profile=toolchain_profile
+            )
+            if push_result.get("skipped"):
+                t.detail = "all files unchanged, no commit needed"
+            elif push_result.get("success"):
+                t.detail = f"pushed {len(push_result.get('files', []))} files in 1 commit"
+            else:
+                t.status = "error"
+                t.detail = f"push failed: {push_result.get('error', 'unknown')}"
 
-        # 3d. Ensure CI workflow exists on fork for deterministic quality checks
-        svc.ensure_ci_workflow(my_user, repo, language=language)
-
-        # 3e. Ensure static analysis workflow exists on fork for Stage 4b
-        svc.ensure_static_analysis_workflow(my_user, repo,
-                                            toolchain_profile=toolchain_profile,
-                                            language=language)
-
-        # 3f. Approve any pending workflow runs from previous setups
-        svc.approve_pending_workflow_runs(my_user, repo)
+        # 3d. Approve any pending workflow runs from previous setups
+        with StepTimer("stage3", "approve_workflows", origin_slug, issue_number) as t:
+            unblocked = svc.approve_pending_workflow_runs(my_user, repo)
+            t.detail = f"{unblocked} runs approved"
 
     # 4. Check for same-repo overlap with existing assignments
     existing_assignments = svc.get_assigned_issues()
@@ -200,46 +231,74 @@ def api_oss_fork_and_assign():
             f"Warning: {len(same_repo)} other issue(s) from {origin_slug} "
             f"already assigned. Parallel work on the same repo may cause merge conflicts."
         )
+        log_event("stage3", "overlap_check", origin_slug, issue_number, status="warn",
+                  detail=overlap_warning)
 
     # 5. Build agent context (issue_brief takes priority over dossier)
-    context_body, context_metadata = svc.build_agent_context(
-        origin_owner, repo, issue_number, issue_title, issue_url,
-        dossier_context, issue_brief, return_metadata=True,
-        is_self_owned=is_self_owned, dossier_completeness=dossier_completeness
-    )
+    with StepTimer("stage3", "build_context", origin_slug, issue_number) as t:
+        context_body, context_metadata = svc.build_agent_context(
+            origin_owner, repo, issue_number, issue_title, issue_url,
+            dossier_context, issue_brief, return_metadata=True,
+            is_self_owned=is_self_owned, dossier_completeness=dossier_completeness
+        )
+        tier = context_metadata.get("context_tier")
+        sources = context_metadata.get("sources", [])
+        t.detail = f"tier={tier} sources={sources}"
+        t.extra = {"context_tier": tier, "context_sources": sources}
 
     # 6. Create context issue on target repo (fork or self-owned)
-    create_result = run_gh_command([
-        "issue", "create", "-R", f"{my_user}/{repo}",
-        "--title", f"[OSS] Fix: {issue_title}",
-        "--body", context_body
-    ])
+    with StepTimer("stage3", "create_issue", origin_slug, issue_number) as t:
+        create_result = run_gh_command([
+            "issue", "create", "-R", f"{my_user}/{repo}",
+            "--title", f"[OSS] Fix: {issue_title}",
+            "--body", context_body
+        ])
 
-    if not create_result["success"]:
-        return jsonify({
-            "success": False,
-            "error": safe_error_message(create_result.get("error"), "Failed to create issue"),
-            "owner": my_user,
-        })
+        if not create_result["success"]:
+            t.status = "error"
+            t.detail = create_result.get("error", "issue creation failed")
+            plog.error("fork-and-assign FAIL at create_issue: %s #%s — %s",
+                       origin_slug, issue_number, t.detail)
+            return jsonify({
+                "success": False,
+                "error": safe_error_message(create_result.get("error"), "Failed to create issue"),
+                "owner": my_user,
+            })
+        fork_issue_url = create_result["output"].strip()
+        fork_issue_number = fork_issue_url.split("/")[-1]
+        t.detail = f"created fork issue #{fork_issue_number}"
 
-    # 7. Assign Copilot
-    fork_issue_url = create_result["output"].strip()
-    fork_issue_number = fork_issue_url.split("/")[-1]
-
-    run_gh_command([
-        "issue", "edit", fork_issue_number,
-        "-R", f"{my_user}/{repo}",
-        "--add-assignee", COPILOT_ASSIGNEE
-    ])
+    # 7. Assign Copilot (retry once — GraphQL lags behind issue creation)
+    with StepTimer("stage3", "assign_copilot", origin_slug, issue_number) as t:
+        import time as _time
+        assign_result = run_gh_command([
+            "issue", "edit", fork_issue_number,
+            "-R", f"{my_user}/{repo}",
+            "--add-assignee", COPILOT_ASSIGNEE
+        ])
+        if not assign_result.get("success"):
+            _time.sleep(3)
+            assign_result = run_gh_command([
+                "issue", "edit", fork_issue_number,
+                "-R", f"{my_user}/{repo}",
+                "--add-assignee", COPILOT_ASSIGNEE
+            ])
+        if assign_result.get("success"):
+            t.detail = f"assigned {COPILOT_ASSIGNEE} to #{fork_issue_number}"
+        else:
+            t.status = "error"
+            t.detail = f"assign failed: {assign_result.get('error', 'unknown')}"
 
     # 8. Track locally
-    default_branch = svc.get_default_branch(
-        origin_owner, repo, issue_brief=issue_brief, dossier_context=dossier_context
-    )
-    svc.save_assignment(
-        origin_owner, repo, issue_number, fork_issue_number, fork_issue_url,
-        is_self_owned=is_self_owned, default_branch=default_branch
-    )
+    with StepTimer("stage3", "save_assignment", origin_slug, issue_number) as t:
+        default_branch = svc.get_default_branch(
+            origin_owner, repo, issue_brief=issue_brief, dossier_context=dossier_context
+        )
+        svc.save_assignment(
+            origin_owner, repo, issue_number, fork_issue_number, fork_issue_url,
+            is_self_owned=is_self_owned, default_branch=default_branch
+        )
+        t.detail = f"saved (branch={default_branch})"
 
     # 8b. Persist aggregator metadata to assignment
     aggregator_meta = {}
@@ -262,8 +321,14 @@ def api_oss_fork_and_assign():
     svc.update_assignment(repo, int(fork_issue_number), meta_updates)
 
     # 9. Report claim to aggregator (best-effort)
-    issue_id = f"{PLATFORM_PREFIX}-{origin_owner}-{repo}-{issue_number}"
-    svc.report_claim(origin_slug, issue_id, my_user, fork_issue_url)
+    with StepTimer("stage3", "report_claim", origin_slug, issue_number) as t:
+        issue_id = f"{PLATFORM_PREFIX}-{origin_owner}-{repo}-{issue_number}"
+        svc.report_claim(origin_slug, issue_id, my_user, fork_issue_url)
+        t.detail = "claim reported"
+
+    plog.info("fork-and-assign DONE: %s #%s → %s (tier %s)",
+              origin_slug, issue_number, fork_issue_url,
+              context_metadata.get("context_tier"))
 
     response = {
         "success": True,
