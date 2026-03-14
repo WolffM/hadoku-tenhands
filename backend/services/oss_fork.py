@@ -6,10 +6,15 @@ configuring settings, pushing workflow files, detecting languages,
 and interacting with PR checks and reviews.
 """
 
+import logging
+import os
 import re
 import json
+import tempfile
 import time
 import base64
+
+logger = logging.getLogger(__name__)
 
 try:
     from ..config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
@@ -410,12 +415,113 @@ class OSSForkMixin:
             return {"name": name, "email": email, "login": login}
         return None
 
-    def create_clean_branch(self, my_user, repo, squash_sha, branch_name, commit_message):
+    # Files pushed by ensure_pipeline_files() that must NEVER appear in upstream PRs.
+    PIPELINE_FILES = frozenset({
+        ".github/copilot-instructions.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/static-analysis.yml",
+        ".github/workflows/copilot-setup-steps.yml",
+    })
+
+    def _strip_pipeline_files(self, my_user, repo, tree_sha, origin_slug, base_branch):
+        """Create a new tree with pipeline-owned files restored to their upstream state.
+
+        For each file in PIPELINE_FILES:
+        - If the file exists upstream: restore the upstream blob SHA
+        - If the file does NOT exist upstream: delete it from the tree
+
+        Returns (new_tree_sha, files_stripped) or (original_tree_sha, []) on failure.
+        """
+        if not origin_slug or not base_branch:
+            return tree_sha, []
+
+        # Get the upstream base branch tree
+        upstream_result = run_gh_command([
+            "api", f"repos/{origin_slug}/git/trees/{base_branch}",
+            "-q", ".sha",
+        ])
+        if not upstream_result["success"]:
+            logger.warning("Could not fetch upstream tree for %s:%s", origin_slug, base_branch)
+            return tree_sha, []
+
+        upstream_tree_sha = upstream_result["output"].strip()
+
+        # Fetch upstream entries for pipeline file paths
+        upstream_entries = {}
+        for fpath in self.PIPELINE_FILES:
+            entry_result = run_gh_command([
+                "api", f"repos/{origin_slug}/git/trees/{upstream_tree_sha}:{'/'.join(fpath.split('/')[:-1])}",
+                "--jq", f'.tree[] | select(.path == "{fpath.split("/")[-1]}")'
+            ])
+            if entry_result["success"] and entry_result["output"].strip():
+                try:
+                    entry = json.loads(entry_result["output"])
+                    upstream_entries[fpath] = entry
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        # Build tree modification entries
+        tree_mods = []
+        files_stripped = []
+        for fpath in self.PIPELINE_FILES:
+            if fpath in upstream_entries:
+                # Restore to upstream version
+                entry = upstream_entries[fpath]
+                tree_mods.append({
+                    "path": fpath,
+                    "mode": entry.get("mode", "100644"),
+                    "type": "blob",
+                    "sha": entry["sha"],
+                })
+                files_stripped.append(f"{fpath} (restored to upstream)")
+            else:
+                # File doesn't exist upstream — delete it
+                tree_mods.append({
+                    "path": fpath,
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": None,
+                })
+                files_stripped.append(f"{fpath} (removed)")
+
+        if not tree_mods:
+            return tree_sha, []
+
+        # Create new tree with modifications applied on top of the squash tree
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"base_tree": tree_sha, "tree": tree_mods}, f)
+            payload_path = f.name
+
+        try:
+            new_tree_result = run_gh_command([
+                "api", f"repos/{my_user}/{repo}/git/trees",
+                "-X", "POST",
+                "--input", payload_path,
+                "--jq", ".sha",
+            ])
+        finally:
+            os.unlink(payload_path)
+
+        if new_tree_result["success"] and new_tree_result["output"].strip():
+            new_tree_sha = new_tree_result["output"].strip()
+            logger.info("Stripped %d pipeline file(s) from tree: %s", len(files_stripped), files_stripped)
+            return new_tree_sha, files_stripped
+
+        logger.warning("Failed to create filtered tree, using original: %s", new_tree_result.get("error"))
+        return tree_sha, []
+
+    def create_clean_branch(self, my_user, repo, squash_sha, branch_name, commit_message,
+                            origin_slug=None, base_branch=None):
         """Create a re-authored branch from a squash commit using the Git Data API.
 
         Takes the squash commit (authored by Copilot), creates a new commit with
         the same tree but the authenticated user's identity, then creates a branch.
-        Returns {"success": True, "sha": new_commit_sha} or {"success": False, "error": ...}.
+
+        Pipeline-owned files (.github/copilot-instructions.md, workflow files) are
+        stripped or restored to their upstream state so they never leak to upstream PRs.
+
+        Returns {"success": True, "sha": new_commit_sha, "files_stripped": [...]}
+        or {"success": False, "error": ...}.
         """
         # 1. Get the squash commit's tree and parent
         commit_result = run_gh_command([
@@ -429,12 +535,17 @@ class OSSForkMixin:
         tree_sha = commit_data["tree"]
         parents = commit_data["parents"]
 
-        # 2. Get user identity for authoring
+        # 2. Strip pipeline-owned files from the tree
+        tree_sha, files_stripped = self._strip_pipeline_files(
+            my_user, repo, tree_sha, origin_slug, base_branch or "main"
+        )
+
+        # 3. Get user identity for authoring
         identity = self.get_user_identity()
         if not identity:
             return {"success": False, "error": "Failed to get user identity"}
 
-        # 3. Create a new commit with the user's identity
+        # 4. Create a new commit with the user's identity and filtered tree
         create_result = run_gh_command([
             "api", f"repos/{my_user}/{repo}/git/commits",
             "-X", "POST",
@@ -451,7 +562,7 @@ class OSSForkMixin:
 
         new_sha = json.loads(create_result["output"]).get("sha")
 
-        # 4. Create the clean branch pointing at the new commit
+        # 5. Create the clean branch pointing at the new commit
         ref_result = run_gh_command([
             "api", f"repos/{my_user}/{repo}/git/refs",
             "-X", "POST",
@@ -461,7 +572,7 @@ class OSSForkMixin:
         if not ref_result["success"]:
             return {"success": False, "error": f"Failed to create branch: {ref_result.get('error', '')}"}
 
-        return {"success": True, "sha": new_sha}
+        return {"success": True, "sha": new_sha, "files_stripped": files_stripped}
 
     def delete_branch(self, my_user, repo, branch_name):
         """Delete a branch from a repo via the Git Data API."""

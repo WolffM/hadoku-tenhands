@@ -1086,6 +1086,110 @@ class TestCIWorkflow:
         assert mock_gh.call_count == 2
 
 
+class TestPipelineFileStripping:
+    """Tests for pipeline file stripping during create_clean_branch."""
+
+    def test_pipeline_files_constant_contains_expected_files(self):
+        svc = OSSService()
+        assert ".github/copilot-instructions.md" in svc.PIPELINE_FILES
+        assert ".github/workflows/ci.yml" in svc.PIPELINE_FILES
+        assert ".github/workflows/static-analysis.yml" in svc.PIPELINE_FILES
+        assert ".github/workflows/copilot-setup-steps.yml" in svc.PIPELINE_FILES
+
+    @patch("services.oss_fork.run_gh_command")
+    def test_strip_pipeline_files_removes_nonexistent_upstream(self, mock_gh):
+        """Files that don't exist upstream should be deleted from tree."""
+        svc = OSSService()
+
+        mock_gh.side_effect = [
+            # Fetch upstream tree SHA
+            {"success": True, "output": "upstream-tree-sha\n"},
+            # For each PIPELINE_FILE: upstream tree lookup returns empty (file doesn't exist)
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            # Create new tree
+            {"success": True, "output": "new-tree-sha\n"},
+        ]
+
+        new_tree, stripped = svc._strip_pipeline_files(
+            "myuser", "myrepo", "orig-tree-sha", "upstream/repo", "main"
+        )
+        assert new_tree == "new-tree-sha"
+        assert len(stripped) == 4
+        assert all("removed" in s for s in stripped)
+
+    @patch("services.oss_fork.run_gh_command")
+    def test_strip_pipeline_files_restores_upstream_version(self, mock_gh):
+        """Files that exist upstream should be restored to upstream blob."""
+        svc = OSSService()
+
+        upstream_entry = json.dumps({"path": "copilot-instructions.md", "sha": "upstream-blob-sha", "mode": "100644"})
+        mock_gh.side_effect = [
+            # Fetch upstream tree SHA
+            {"success": True, "output": "upstream-tree-sha\n"},
+            # First file exists upstream
+            {"success": True, "output": upstream_entry},
+            # Remaining 3 don't exist
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            # Create new tree
+            {"success": True, "output": "new-tree-sha\n"},
+        ]
+
+        new_tree, stripped = svc._strip_pipeline_files(
+            "myuser", "myrepo", "orig-tree-sha", "upstream/repo", "main"
+        )
+        assert new_tree == "new-tree-sha"
+        assert any("restored" in s for s in stripped)
+        assert any("removed" in s for s in stripped)
+
+    @patch("services.oss_fork.run_gh_command")
+    def test_strip_pipeline_files_no_origin_returns_original(self, mock_gh):
+        """Without origin_slug, should return the original tree unchanged."""
+        svc = OSSService()
+
+        new_tree, stripped = svc._strip_pipeline_files(
+            "myuser", "myrepo", "orig-tree-sha", None, "main"
+        )
+        assert new_tree == "orig-tree-sha"
+        assert stripped == []
+        mock_gh.assert_not_called()
+
+    @patch("services.oss_fork.run_gh_command")
+    def test_create_clean_branch_passes_origin_to_strip(self, mock_gh):
+        """create_clean_branch should call _strip_pipeline_files with origin info."""
+        svc = OSSService()
+
+        mock_gh.side_effect = [
+            # 1. Get squash commit tree + parents
+            {"success": True, "output": json.dumps({"tree": "tree-sha", "parents": ["parent-sha"]})},
+            # 2-7. _strip_pipeline_files calls (upstream tree + 4 file lookups + create tree)
+            {"success": True, "output": "upstream-tree-sha\n"},
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            {"success": True, "output": ""},
+            {"success": True, "output": "filtered-tree-sha\n"},
+            # 3. Get user identity
+            {"success": True, "output": json.dumps({"name": "Test", "email": "test@example.com", "login": "testuser"})},
+            # 4. Create commit
+            {"success": True, "output": json.dumps({"sha": "new-commit-sha"})},
+            # 5. Create branch ref
+            {"success": True, "output": "{}"},
+        ]
+
+        result = svc.create_clean_branch(
+            "myuser", "myrepo", "squash-sha", "fix/42-test",
+            "Test commit", origin_slug="upstream/repo", base_branch="main"
+        )
+        assert result["success"] is True
+        assert result["sha"] == "new-commit-sha"
+        assert len(result["files_stripped"]) == 4
+
+
 class TestForkSettings:
     """Tests for configure_fork_settings and approve_pending_workflow_runs."""
 

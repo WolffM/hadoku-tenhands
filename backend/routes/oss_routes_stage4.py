@@ -20,12 +20,14 @@ try:
     from ..services.pipeline_orchestrator import PipelineOrchestrator
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, safe_error_message
+    from ..helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, safe_error_message
+    from helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from extensions import limiter
 
 
@@ -355,10 +357,11 @@ def api_oss_merge_fork_pr():
             title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
             clean_branch = f"fix/{upstream_issue_number}-{title_slug}"
 
-            # 4.5.3: Create re-authored commit + clean branch
+            # 4.5.3: Create re-authored commit + clean branch (strip pipeline files)
             clean_commit_msg = pr_title
             clean_result = svc.create_clean_branch(
-                my_user, repo, squash_sha, clean_branch, clean_commit_msg
+                my_user, repo, squash_sha, clean_branch, clean_commit_msg,
+                origin_slug=origin_slug, base_branch=base_branch,
             )
             sanitization_log["create_clean_branch"] = clean_result
 
@@ -387,6 +390,10 @@ def api_oss_merge_fork_pr():
                     title=pr_title,
                     base_branch=base_branch,
                     issue_number=upstream_issue_number,
+                )
+
+                notify_fork_merged(
+                    origin_slug, upstream_issue_number, pr_title, clean_branch,
                 )
 
                 # Check remaining PRs for merge conflicts
@@ -435,7 +442,8 @@ def api_oss_signoff():
     Combines the merge-fork-pr flow (Stage 4.5) with the submit-to-origin
     flow (Stage 5) into a single idempotent action.
 
-    Input: { "repo": "email-verifier", "pr_number": 2, "origin_slug": "reisepass/email-verifier" }
+    Input: { "repo": "email-verifier", "pr_number": 2, "origin_slug": "reisepass/email-verifier",
+             "issue_number": 123 }  // issue_number is optional but recommended for multi-issue repos
     """
     data = request.json
     req_err = validate_required_fields(data, ["repo", "pr_number", "origin_slug"])
@@ -445,6 +453,7 @@ def api_oss_signoff():
     repo = _normalize_repo_name(data.get("repo"))
     pr_number = data.get("pr_number")
     origin_slug = data.get("origin_slug")
+    issue_number = data.get("issue_number")
     repo_err = validate_repo_name(repo)
     if repo_err:
         return jsonify({"success": False, "error": repo_err})
@@ -458,11 +467,19 @@ def api_oss_signoff():
 
     # --- Step 1: Look up assignment ---
     assignments = svc.get_assigned_issues()
-    assignment = next(
-        (a for a in assignments
-         if a.get("origin_slug") == origin_slug and a.get("repo") == repo),
-        None
-    )
+    if issue_number:
+        assignment = next(
+            (a for a in assignments
+             if a.get("origin_slug") == origin_slug and a.get("repo") == repo
+             and a.get("issue_number") == issue_number),
+            None
+        )
+    else:
+        assignment = next(
+            (a for a in assignments
+             if a.get("origin_slug") == origin_slug and a.get("repo") == repo),
+            None
+        )
     if not assignment:
         return jsonify({"success": False, "error": "Assignment not found"})
 
@@ -523,7 +540,8 @@ def api_oss_signoff():
         title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
         clean_branch = f"fix/{upstream_issue_number}-{title_slug}"
         clean_result = svc.create_clean_branch(
-            my_user, repo, squash_sha, clean_branch, pr_title
+            my_user, repo, squash_sha, clean_branch, pr_title,
+            origin_slug=origin_slug, base_branch=base_branch,
         )
         steps["sanitize"] = clean_result
 
@@ -556,6 +574,10 @@ def api_oss_signoff():
         # Clean up ready-to-submit if it exists
         svc.remove_ready_to_submit(origin_slug, clean_branch)
         steps["submit"] = {"success": True, "pr_url": pr_url}
+
+        notify_upstream_submitted(
+            origin_slug, upstream_issue_number, pr_url, pr_title,
+        )
 
         conflict_warnings = _check_remaining_pr_conflicts(my_user, repo, pr_number)
 
