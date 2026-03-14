@@ -94,6 +94,10 @@ class CopilotSWEDispatcher(StageDispatcher):
         GitHub cross-references link issues to PRs created from them.
         When multiple PRs reference the same issue (e.g. stale WIP retries),
         pick the one with the most commits (actual implementation work).
+
+        Args:
+            copilot_prs: List of open Copilot-authored PR dicts.
+            excluded_prs: handled externally via check_status filtering.
         Returns the matched PR dict from copilot_prs, or None.
         """
         result = run_gh_command([
@@ -115,7 +119,7 @@ class CopilotSWEDispatcher(StageDispatcher):
         # Build lookup of copilot PRs by number
         pr_by_number = {p["number"]: p for p in copilot_prs}
 
-        # Find all cross-referenced PRs that are Copilot-authored
+        # Find all cross-referenced PRs that are Copilot-authored and open
         matched = [pr_by_number[n] for n in linked_numbers if n in pr_by_number]
         if not matched:
             return None
@@ -156,20 +160,26 @@ class CopilotSWEDispatcher(StageDispatcher):
         if not copilot_prs:
             return {"done": False, "status": "waiting_for_pr", "pr_number": None}
 
+        # Exclude PRs already claimed by other assignments in this repo.
+        # This prevents the "most commits" fallback from stealing another
+        # issue's PR when timeline correlation returns nothing.
+        claimed_prs = set(context.get("_claimed_pr_numbers", []))
+        available_prs = [p for p in copilot_prs if p["number"] not in claimed_prs]
+
         # Correlate: find the PR for this specific fork issue
         agent_pr = None
-        if fork_issue_number and len(copilot_prs) > 1:
+        if fork_issue_number and len(available_prs) > 1:
             agent_pr = self._find_pr_for_issue(
-                my_user, repo, int(fork_issue_number), copilot_prs)
+                my_user, repo, int(fork_issue_number), available_prs)
 
-        # Single PR — use it directly
-        if not agent_pr and len(copilot_prs) == 1:
-            agent_pr = copilot_prs[0]
+        # Single available PR — use it directly
+        if not agent_pr and len(available_prs) == 1:
+            agent_pr = available_prs[0]
 
         # Multiple PRs but timeline correlation failed — pick the one
         # with the most commits (most likely to have actual implementation)
-        if not agent_pr and copilot_prs:
-            agent_pr = max(copilot_prs, key=lambda p: len(p.get("commits", [])))
+        if not agent_pr and available_prs:
+            agent_pr = max(available_prs, key=lambda p: len(p.get("commits", [])))
 
         if not agent_pr:
             return {"done": False, "status": "waiting_for_pr", "pr_number": None}

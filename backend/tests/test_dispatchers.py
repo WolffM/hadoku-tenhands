@@ -135,11 +135,11 @@ class TestCopilotSWEDispatcher:
 
     @patch("services.dispatchers.run_gh_command")
     def test_find_pr_for_issue_success(self, mock_gh):
-        mock_gh.return_value = {"success": True, "output": "14\n"}
+        mock_gh.return_value = {"success": True, "output": "[14]\n"}
         d = CopilotSWEDispatcher()
         prs = [
-            {"number": 12, "headRefName": "copilot/fix-a"},
-            {"number": 14, "headRefName": "copilot/fix-b"},
+            {"number": 12, "headRefName": "copilot/fix-a", "commits": [{"sha": "a"}]},
+            {"number": 14, "headRefName": "copilot/fix-b", "commits": [{"sha": "b"}, {"sha": "c"}]},
         ]
         result = d._find_pr_for_issue("me", "r", 13, prs)
         assert result is not None
@@ -172,7 +172,7 @@ class TestCopilotSWEDispatcher:
             # pr list — 2 Copilot PRs
             {"success": True, "output": json.dumps([copilot_pr_a, copilot_pr_b])},
             # timeline — issue #13 links to PR #14
-            {"success": True, "output": "14\n"},
+            {"success": True, "output": "[14]\n"},
             # pr view headRefOid
             {"success": True, "output": "def456\n"},
             # check-runs — completed
@@ -226,25 +226,61 @@ class TestCopilotSWEDispatcher:
         assert result["commit_count"] == 1
 
     @patch("services.dispatchers.run_gh_command")
-    def test_check_status_waiting_when_ambiguous(self, mock_gh):
-        """With multiple Copilot PRs and failed timeline, returns waiting."""
+    def test_check_status_fallback_when_ambiguous(self, mock_gh):
+        """With multiple Copilot PRs and failed timeline, falls back to most commits."""
         mock_gh.side_effect = [
             # pr list — 2 Copilot PRs
             {"success": True, "output": json.dumps([
                 {"number": 12, "headRefName": "copilot/fix-a",
-                 "author": {"login": "app/copilot-swe-agent"}, "commits": []},
+                 "author": {"login": "app/copilot-swe-agent"},
+                 "commits": [{"sha": "plan"}]},
                 {"number": 14, "headRefName": "copilot/fix-b",
-                 "author": {"login": "app/copilot-swe-agent"}, "commits": []},
+                 "author": {"login": "app/copilot-swe-agent"},
+                 "commits": [{"sha": "plan"}, {"sha": "impl"}]},
             ])},
             # timeline — fails
             {"success": False, "error": "timeout"},
+            # pr view headRefOid (for PR #14 via fallback)
+            {"success": True, "output": "abc123\n"},
+            # check-runs — empty
+            {"success": True, "output": "\n"},
         ]
         d = CopilotSWEDispatcher()
         result = d.check_status("13", {
             "my_user": "me", "repo": "r", "fork_issue_number": 13,
         })
+        # PR#14 has 2 commits → done via commit count fallback
+        assert result["done"] is True
+        assert result["pr_number"] == 14
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_excludes_claimed_prs(self, mock_gh):
+        """PRs already claimed by other assignments are excluded."""
+        mock_gh.side_effect = [
+            # pr list — 2 Copilot PRs
+            {"success": True, "output": json.dumps([
+                {"number": 12, "headRefName": "copilot/fix-a",
+                 "author": {"login": "app/copilot-swe-agent"},
+                 "commits": [{"sha": "plan"}, {"sha": "impl"}]},
+                {"number": 14, "headRefName": "copilot/fix-b",
+                 "author": {"login": "app/copilot-swe-agent"},
+                 "commits": [{"sha": "plan"}]},
+            ])},
+            # timeline — no cross-refs for this issue
+            {"success": True, "output": "[]\n"},
+            # pr view headRefOid (for PR #14 — the only available one)
+            {"success": True, "output": "abc123\n"},
+            # check-runs — empty
+            {"success": True, "output": "\n"},
+        ]
+        d = CopilotSWEDispatcher()
+        result = d.check_status("13", {
+            "my_user": "me", "repo": "r", "fork_issue_number": 13,
+            "_claimed_pr_numbers": [12],  # PR#12 belongs to another issue
+        })
+        # PR#12 excluded, only PR#14 available (1 commit = working)
         assert result["done"] is False
-        assert result["status"] == "waiting_for_pr"
+        assert result["pr_number"] == 14
 
 
 class TestGitHubActionsDispatcher:
@@ -467,6 +503,7 @@ class TestCopilotRemediationDispatcher:
 
     @patch("services.dispatchers.run_gh_command")
     def test_check_status_waiting_when_no_new_commits(self, mock_gh):
+        import time
         mock_gh.side_effect = [
             # pr view — same commit count
             {"success": True, "output": "3\n"},
@@ -476,14 +513,34 @@ class TestCopilotRemediationDispatcher:
             {"success": True, "output": "\n"},
         ]
         d = CopilotRemediationDispatcher()
+        # Use a recent timestamp so the timeout doesn't fire
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        result = d.check_status("14", {
+            "my_user": "me", "repo": "r",
+            "stage4_pr_number": 14,
+            "stage4d_pre_commit_count": 3,
+            "stage4d_dispatched_at": now_iso,
+        })
+
+        assert result["done"] is False
+        assert result["status"] == "waiting_for_commits"
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_timeout_when_no_response(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": "3\n"},
+            {"success": True, "output": "abc123\n"},
+            {"success": True, "output": "\n"},
+        ]
+        d = CopilotRemediationDispatcher()
+        # No dispatched_at → triggers timeout immediately
         result = d.check_status("14", {
             "my_user": "me", "repo": "r",
             "stage4_pr_number": 14,
             "stage4d_pre_commit_count": 3,
         })
-
-        assert result["done"] is False
-        assert result["status"] == "waiting_for_commits"
+        assert result["done"] is True
+        assert result["status"] == "timeout"
 
     @patch("services.dispatchers.run_gh_command")
     def test_check_status_working_when_agent_in_progress(self, mock_gh):
