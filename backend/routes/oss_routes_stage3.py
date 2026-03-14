@@ -13,6 +13,7 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.github_api import set_saml_token_override
     from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from ..helpers.notifications import notify_dispatched
     from ..extensions import limiter
     from ..services.pipeline_logger import logger as plog, log_event, StepTimer
 except ImportError:
@@ -20,6 +21,7 @@ except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.github_api import set_saml_token_override
     from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from helpers.notifications import notify_dispatched
     from extensions import limiter
     from services.pipeline_logger import logger as plog, log_event, StepTimer
 
@@ -351,6 +353,11 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
     plog.info("fork-and-assign DONE: %s #%s → %s (tier %s)",
               origin_slug, issue_number, fork_issue_url,
               context_metadata.get("context_tier"))
+
+    notify_dispatched(
+        origin_slug, issue_number, issue_title, fork_issue_url,
+        context_metadata.get("context_tier"),
+    )
 
     response = {
         "success": True,

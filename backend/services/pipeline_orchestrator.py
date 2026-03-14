@@ -23,9 +23,25 @@ import subprocess
 import sys
 import time
 
+import re as _re
+
 from .dispatchers import create_default_registry
 from .github_api import run_gh_command
 from .oss_service import _sanitize_upstream_refs
+
+try:
+    from ..helpers.notifications import notify_copilot_pr_ready
+except ImportError:
+    from helpers.notifications import notify_copilot_pr_ready
+
+
+def _strip_leading_header(text):
+    """Strip a leading markdown header if the text starts with one.
+
+    Dossier sections often begin with their own '## Section Name' header.
+    When we wrap them in our own '### Header', the result is a double header.
+    """
+    return _re.sub(r'^#{1,4}\s+[^\n]+\n+', '', text.lstrip(), count=1)
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +197,20 @@ class PipelineOrchestrator:
                 "stage4_swe_done_at": now,
             }
             self._update_assignment(assignment, updates)
+
+            # Notify: Copilot PR is ready for review
+            origin_slug = assignment.get("origin_slug", "")
+            issue_number = assignment.get("issue_number", 0)
+            my_user = ctx.get("my_user", "")
+            repo = assignment.get("repo", "")
+            pr_num = result.get("pr_number")
+            if pr_num and my_user and repo:
+                fork_pr_url = f"https://github.com/{my_user}/{repo}/pull/{pr_num}"
+                notify_copilot_pr_ready(
+                    origin_slug, issue_number, fork_pr_url,
+                    result.get("pr_title", f"PR #{pr_num}"),
+                )
+
             return {"success": True, "status": "swe_agent_done",
                     "advanced": True, "details": result}
 
@@ -620,17 +650,17 @@ class PipelineOrchestrator:
                 if sections.get("contributionRules"):
                     parts.append(
                         "### Contribution Rules\n"
-                        f"{sections['contributionRules']}\n"
+                        f"{_strip_leading_header(sections['contributionRules'])}\n"
                     )
                 if sections.get("successPatterns"):
                     parts.append(
                         "### What Successful PRs Look Like\n"
-                        f"{sections['successPatterns']}\n"
+                        f"{_strip_leading_header(sections['successPatterns'])}\n"
                     )
                 if sections.get("antiPatterns"):
                     parts.append(
                         "### Common Rejection Reasons\n"
-                        f"{sections['antiPatterns']}\n"
+                        f"{_strip_leading_header(sections['antiPatterns'])}\n"
                     )
 
         # Get static analysis findings

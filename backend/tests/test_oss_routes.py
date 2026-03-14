@@ -835,6 +835,104 @@ class TestMergeForkPR:
         assert resp.get_json()["success"] is False
 
 
+class TestSignoffAssignmentMatching:
+    """Tests for POST /api/oss/signoff — assignment lookup with optional issue_number."""
+
+    ASSIGNMENTS = [
+        {"origin_slug": "microsoft/PowerToys", "repo": "PowerToys",
+         "issue_number": 22315, "default_branch": "main", "fork_issue_number": 1},
+        {"origin_slug": "microsoft/PowerToys", "repo": "PowerToys",
+         "issue_number": 36805, "default_branch": "main", "fork_issue_number": 2},
+    ]
+
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    @patch("routes.oss_routes_stage4.run_gh_command")
+    def test_issue_number_selects_correct_assignment(self, mock_gh, mock_svc_cls, mock_user, client):
+        """When issue_number is provided, the matching assignment is used — not the first one."""
+        svc = mock_svc_cls.return_value
+        svc.get_assigned_issues.return_value = list(self.ASSIGNMENTS)
+
+        # PR view returns MERGED so merge step is skipped (simplifies mocking)
+        mock_gh.side_effect = [
+            # Step 2: pr view
+            {"success": True, "output": json.dumps({
+                "headRefName": "copilot/fix-36805", "title": "Fix 36805",
+                "baseRefName": "main", "isDraft": False, "state": "MERGED"})},
+            # Step 4: sanitize — HEAD ref
+            {"success": True, "output": "deadbeef"},
+            # Step 4: conflict check
+            {"success": True, "output": json.dumps([])},
+            # Step 5: submit upstream PR
+            {"success": True, "output": "https://github.com/microsoft/PowerToys/pull/999\n"},
+        ]
+        svc.create_clean_branch.return_value = {"success": True, "sha": "abc123"}
+        svc.delete_branch.return_value = {"success": True}
+        svc.close_fork_issue.return_value = {"success": True}
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/signoff",
+            json={"repo": "PowerToys", "pr_number": 5,
+                  "origin_slug": "microsoft/PowerToys", "issue_number": 36805},
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is True
+        # The upstream PR body should reference issue 36805, not 22315
+        svc.close_fork_issue.assert_called_once_with("testuser", "PowerToys", 2)
+
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    @patch("routes.oss_routes_stage4.run_gh_command")
+    def test_no_issue_number_falls_back_to_first_match(self, mock_gh, mock_svc_cls, mock_user, client):
+        """When issue_number is omitted, the first matching assignment is returned (backward compat)."""
+        svc = mock_svc_cls.return_value
+        svc.get_assigned_issues.return_value = list(self.ASSIGNMENTS)
+
+        mock_gh.side_effect = [
+            {"success": True, "output": json.dumps({
+                "headRefName": "copilot/fix-22315", "title": "Fix 22315",
+                "baseRefName": "main", "isDraft": False, "state": "MERGED"})},
+            {"success": True, "output": "deadbeef"},
+            {"success": True, "output": json.dumps([])},
+            {"success": True, "output": "https://github.com/microsoft/PowerToys/pull/998\n"},
+        ]
+        svc.create_clean_branch.return_value = {"success": True, "sha": "abc123"}
+        svc.delete_branch.return_value = {"success": True}
+        svc.close_fork_issue.return_value = {"success": True}
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/signoff",
+            json={"repo": "PowerToys", "pr_number": 4,
+                  "origin_slug": "microsoft/PowerToys"},
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is True
+        # Falls back to first match (issue 22315, fork_issue_number=1)
+        svc.close_fork_issue.assert_called_once_with("testuser", "PowerToys", 1)
+
+    @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage4.OSSService")
+    def test_wrong_issue_number_returns_not_found(self, mock_svc_cls, mock_user, client):
+        """When issue_number doesn't match any assignment, return error."""
+        svc = mock_svc_cls.return_value
+        svc.get_assigned_issues.return_value = list(self.ASSIGNMENTS)
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/signoff",
+            json={"repo": "PowerToys", "pr_number": 5,
+                  "origin_slug": "microsoft/PowerToys", "issue_number": 99999},
+            content_type="application/json",
+        )
+        data = resp.get_json()
+
+        assert data["success"] is False
+        assert data["error"] == "Assignment not found"
+
+
 # ============ Stage 5: Submit Upstream ============
 
 

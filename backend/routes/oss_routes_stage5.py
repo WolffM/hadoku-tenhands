@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..helpers.oss_helpers import format_upstream_pr_body
-    from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback
+    from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
     from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message
     from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from helpers.oss_helpers import format_upstream_pr_body
-    from helpers.notifications import notify_upstream_merged, notify_upstream_feedback
+    from helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
     from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message
     from extensions import limiter
 
@@ -63,16 +63,17 @@ def api_oss_submit_to_origin():
 
     my_user = get_authenticated_user()
 
+    # Look up ready-to-submit data (used for body generation + notification)
+    svc_lookup = OSSService()
+    ready_items = svc_lookup.get_ready_to_submit()
+    ready_item = next(
+        (r for r in ready_items
+         if r["origin_slug"] == origin_slug and r.get("branch") == branch),
+        None
+    )
+
     # Generate default body if not provided
     if not body:
-        # Look up issue_number from ready-to-submit data
-        svc_lookup = OSSService()
-        ready_items = svc_lookup.get_ready_to_submit()
-        ready_item = next(
-            (r for r in ready_items
-             if r["origin_slug"] == origin_slug and r.get("branch") == branch),
-            None
-        )
         issue_number = ready_item.get("issue_number", 0) if ready_item else 0
         parts = origin_slug.split("/")
         if len(parts) == 2:
@@ -94,6 +95,11 @@ def api_oss_submit_to_origin():
         svc = OSSService()
         svc.save_submitted_pr(origin_slug, pr_url, title)
         svc.remove_ready_to_submit(origin_slug, branch)
+
+        # Look up issue_number for the notification
+        issue_num = ready_item.get("issue_number", 0) if ready_item else 0
+        notify_upstream_submitted(origin_slug, issue_num, pr_url, title)
+
         return jsonify({"success": True, "pr_url": pr_url, "owner": my_user})
 
     return jsonify({
@@ -166,11 +172,13 @@ def _poll_single_pr(pr):
     # Trigger notifications on state changes
     if old_state == "open" and pr["state"] == "merged":
         notify_upstream_merged(pr.get("origin_slug", ""), pr_url, pr.get("title", ""))
-    if pr["review_decision"] and pr["review_decision"] != old_review:
-        if pr["review_decision"] in ("CHANGES_REQUESTED", "APPROVED"):
-            notify_upstream_feedback(
-                pr.get("origin_slug", ""), pr_url, pr["review_decision"],
-            )
+    elif old_state == "open" and pr["state"] == "closed":
+        notify_upstream_closed(pr.get("origin_slug", ""), pr_url, pr.get("title", ""))
+    if (pr["review_decision"] == "CHANGES_REQUESTED"
+            and pr["review_decision"] != old_review):
+        notify_upstream_feedback(
+            pr.get("origin_slug", ""), pr_url, pr["review_decision"],
+        )
 
     return pr
 

@@ -9,9 +9,19 @@ brief → dossier → CONTRIBUTING.md.
 import json
 import base64
 import logging
+import re as _re
 
 from .github_api import run_gh_command
 from .oss_service import _sanitize_upstream_refs, _detect_tool_from_issue
+
+
+def _strip_leading_header(text):
+    """Strip a leading markdown header if the text starts with one.
+
+    Dossier sections often begin with their own '## Section Name' header.
+    When we wrap them in our own '## Header', the result is a double header.
+    """
+    return _re.sub(r'^#{1,4}\s+[^\n]+\n+', '', text.lstrip(), count=1)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +118,7 @@ class OSSContextMixin:
                        "environmentSetup", "devEnvironment")
         if dossier and any(dossier.get(k) for k in _tier2_keys):
             if dossier.get("contributionRules"):
-                body += f"\n---\n## Contribution Rules\n{_sanitize_upstream_refs(dossier['contributionRules'])}\n"
+                body += f"\n---\n## Contribution Rules\n{_strip_leading_header(_sanitize_upstream_refs(dossier['contributionRules']))}\n"
             metadata["dossier_used"] = True
             metadata["context_tier"] = 2
             metadata["sources"].append("aggregator-dossier")
@@ -116,21 +126,21 @@ class OSSContextMixin:
                 metadata["dossier_completeness"] = dossier_completeness
 
             if dossier.get("successPatterns"):
-                body += f"\n---\n## What Successful PRs Look Like\n{_sanitize_upstream_refs(dossier['successPatterns'])}\n"
+                body += f"\n---\n## What Successful PRs Look Like\n{_strip_leading_header(_sanitize_upstream_refs(dossier['successPatterns']))}\n"
 
             # Anti-patterns — only when completeness marks content as real (not boilerplate)
             anti = dossier.get("antiPatterns")
             if anti and isinstance(anti, str):
                 has_real_content = (dossier_completeness or {}).get("antiPatterns", False)
                 if has_real_content:
-                    body += f"\n---\n## Common Rejection Reasons\n{_sanitize_upstream_refs(anti)}\n"
+                    body += f"\n---\n## Common Rejection Reasons\n{_strip_leading_header(_sanitize_upstream_refs(anti))}\n"
 
             # Environment setup — handle rename from devEnvironment to environmentSetup
             env = dossier.get("environmentSetup") or dossier.get("devEnvironment")
             if env:
                 env_text = env if isinstance(env, str) else str(env)
                 if env_text.strip():
-                    body += f"\n---\n## Environment & Setup\n{_sanitize_upstream_refs(env_text)}\n"
+                    body += f"\n---\n## Environment & Setup\n{_strip_leading_header(_sanitize_upstream_refs(env_text))}\n"
 
         # Tier 3: Fetch CONTRIBUTING.md via gh CLI
         else:

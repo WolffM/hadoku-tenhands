@@ -85,21 +85,11 @@ class TestPollSubmittedPRsIntegration:
         assert data["success"] is True
         assert data["submitted"][0]["state"] == "merged"
 
-        # Discord webhook was called (merged + feedback for APPROVED review)
-        assert mock_discord_post.call_count >= 1
-
-        # Find the merge notification among all calls
-        merge_embeds = []
-        for c in mock_discord_post.call_args_list:
-            webhook_url = c[0][0]
-            assert webhook_url == "https://discord.com/api/webhooks/test"
-            payload = c.kwargs.get("json") or c[1].get("json")
-            embed = payload["embeds"][0]
-            if "Merged" in embed["title"]:
-                merge_embeds.append(embed)
-
-        assert len(merge_embeds) == 1
-        embed = merge_embeds[0]
+        # Only merge notification fires (APPROVED does not trigger feedback)
+        mock_discord_post.assert_called_once()
+        payload = mock_discord_post.call_args.kwargs.get("json") or mock_discord_post.call_args[1].get("json")
+        embed = payload["embeds"][0]
+        assert "Merged" in embed["title"]
         assert "fastify/fastify" in embed["description"]
         assert embed["color"] == 0x2ECC71  # COLOR_SUCCESS
 
@@ -145,8 +135,7 @@ class TestPollSubmittedPRsIntegration:
         payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
         embed = payload["embeds"][0]
 
-        assert "Feedback" in embed["title"]
-        assert "CHANGES_REQUESTED" in embed["description"]
+        assert "Changes Requested" in embed["title"]
         assert embed["color"] == 0xF39C12  # COLOR_WARNING
 
     @patch("helpers.notifications.requests.post")
@@ -289,15 +278,52 @@ class TestPollSubmittedPRsIntegration:
             json={}, content_type="application/json"
         )
 
-        # PR1 (merged+APPROVED) fires merge + feedback, PR2 (APPROVED) fires feedback
-        assert mock_discord_post.call_count >= 2
+        # PR1 (merged) fires merge notification only. PR2 (APPROVED) fires nothing.
+        mock_discord_post.assert_called_once()
+        payload = mock_discord_post.call_args.kwargs.get("json") or mock_discord_post.call_args[1].get("json")
+        assert "Merged" in payload["embeds"][0]["title"]
 
-        titles = []
-        for c in mock_discord_post.call_args_list:
-            payload = c.kwargs.get("json") or c[1].get("json")
-            titles.append(payload["embeds"][0]["title"])
+    @patch("helpers.notifications.requests.post")
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    @patch("routes.oss_routes_stage5.run_gh_command")
+    @patch("routes.oss_routes_stage5.OSSService")
+    @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
+    def test_poll_detects_close_and_sends_notification(
+        self, _mock_user, mock_svc_cls, mock_gh, mock_discord_post, client
+    ):
+        svc = mock_svc_cls.return_value
+        svc.get_submitted_prs.return_value = [{
+            "origin_slug": "fastify/fastify",
+            "pr_url": "https://github.com/fastify/fastify/pull/100",
+            "pr_number": 100,
+            "title": "Fix memory leak",
+            "state": "open",
+            "review_decision": None,
+            "merged_at": None,
+            "closed_at": None,
+            "last_polled_at": None,
+            "submitted_at": "2026-02-18T00:00:00Z",
+        }]
 
-        assert any("Merged" in t for t in titles)
-        assert any("Feedback" in t for t in titles)
+        mock_gh.return_value = {
+            "success": True,
+            "output": json.dumps({
+                "state": "CLOSED",
+                "reviewDecision": None,
+                "mergedAt": None,
+                "closedAt": "2026-02-19T12:00:00Z",
+            })
+        }
+
+        client.post(
+            f"{PREFIX}/api/oss/poll-submitted-prs",
+            json={}, content_type="application/json"
+        )
+
+        mock_discord_post.assert_called_once()
+        payload = mock_discord_post.call_args.kwargs.get("json") or mock_discord_post.call_args[1].get("json")
+        embed = payload["embeds"][0]
+        assert "Closed" in embed["title"]
+        assert embed["color"] == 0xE74C3C  # COLOR_ERROR
 
 
