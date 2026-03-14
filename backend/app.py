@@ -177,11 +177,20 @@ def api_root():
 # Register blueprint with URL prefix
 app.register_blueprint(bp, url_prefix=URL_PREFIX)
 
+# Start background pipeline advancement loop.
+# Guard against Werkzeug reloader (debug mode spawns two processes).
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+    try:
+        from .services.pipeline_loop import start_pipeline_loop
+    except ImportError:
+        from services.pipeline_loop import start_pipeline_loop
+    start_pipeline_loop(app)
+
 
 if __name__ == "__main__":
     # Use environment variable to control debug mode (defaults to False for security)
     # Set FLASK_ENV=development to enable debug mode in local development
     debug_mode = os.environ.get("FLASK_ENV") == "development"
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5001))
     _kill_port(port)
     app.run(debug=debug_mode, port=port)

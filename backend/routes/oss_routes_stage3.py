@@ -11,12 +11,14 @@ from . import bp
 try:
     from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from ..services import run_gh_command, get_authenticated_user, OSSService
+    from ..services.github_api import set_saml_token_override
     from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from ..extensions import limiter
     from ..services.pipeline_logger import logger as plog, log_event, StepTimer
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
+    from services.github_api import set_saml_token_override
     from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from extensions import limiter
     from services.pipeline_logger import logger as plog, log_event, StepTimer
@@ -85,7 +87,6 @@ def api_oss_fork_and_assign():
     issue_number = data.get("issue_number")
     issue_title = data.get("issue_title")
     issue_url = data.get("issue_url")
-    dossier_context = data.get("dossier")
 
     owner_err = validate_owner(origin_owner)
     if owner_err:
@@ -102,6 +103,26 @@ def api_oss_fork_and_assign():
     svc = OSSService()
 
     plog.info("fork-and-assign START: %s #%s", origin_slug, issue_number)
+
+    # Activate SAML token override for the entire pipeline run if the origin
+    # org is SAML-protected. This covers fork operations AND all subsequent
+    # commands on the fork (which inherits SAML enforcement from upstream).
+    set_saml_token_override(origin_owner.lower())
+
+    try:
+        return _do_fork_and_assign(
+            data, origin_owner, repo, issue_number, issue_title, issue_url,
+            my_user, svc
+        )
+    finally:
+        set_saml_token_override(None)
+
+
+def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
+                        issue_url, my_user, svc):
+    """Inner implementation of fork-and-assign (extracted for SAML cleanup)."""
+    origin_slug = f"{origin_owner}/{repo}"
+    dossier_context = data.get("dossier")
 
     # Detect self-owned repos (can't fork your own repo)
     is_self_owned = (origin_owner.lower() == my_user.lower())
@@ -199,13 +220,14 @@ def api_oss_fork_and_assign():
 
         # 3b. Configure fork settings (issues, Actions, disable upstream workflows)
         with StepTimer("stage3", "configure", origin_slug, issue_number) as t:
-            svc.configure_fork_settings(my_user, repo)
+            svc.configure_fork_settings(my_user, repo, origin_owner=origin_owner)
             t.detail = "settings configured + upstream workflows disabled"
 
         # 3c. Push all pipeline files in a single commit (copilot instructions + CI + SA)
         with StepTimer("stage3", "pipeline_files", origin_slug, issue_number) as t:
             push_result = svc.ensure_pipeline_files(
-                my_user, repo, language=language, toolchain_profile=toolchain_profile
+                my_user, repo, language=language, toolchain_profile=toolchain_profile,
+                origin_owner=origin_owner
             )
             if push_result.get("skipped"):
                 t.detail = "all files unchanged, no commit needed"

@@ -104,7 +104,17 @@ def api_oss_pipeline_status():
 
     statuses = [_normalize_assignment(a) for a in assignments]
 
-    return jsonify({"success": True, "statuses": statuses, "owner": my_user})
+    # Include pipeline loop status
+    try:
+        from ..services.pipeline_loop import get_loop_status
+    except ImportError:
+        from services.pipeline_loop import get_loop_status
+    loop_status = get_loop_status()
+
+    return jsonify({
+        "success": True, "statuses": statuses, "owner": my_user,
+        "pipeline_loop": loop_status,
+    })
 
 
 @bp.route("/api/oss/retrospective-logs", methods=["GET"])

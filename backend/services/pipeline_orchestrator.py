@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import time
 
 from .dispatchers import create_default_registry
@@ -302,10 +303,12 @@ class PipelineOrchestrator:
         }
         result = dispatcher.dispatch(job_spec, ctx)
         if result.get("success"):
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             updates = {
                 "stage4_status": "remediation_running",
                 "stage4d_pre_commit_count": result.get("pre_commit_count"),
                 "stage4d_skipped": False,
+                "stage4d_dispatched_at": now,
             }
             self._update_assignment(assignment, updates)
             return {"success": True, "status": "remediation_running",
@@ -526,7 +529,7 @@ class PipelineOrchestrator:
 
         try:
             result = subprocess.run(
-                ["python", script, "compare",
+                [sys.executable, script, "compare",
                  "-R", f"{my_user}/{repo}",
                  "--prs", str(pr_number),
                  "--json"],
