@@ -53,20 +53,13 @@ def run_gh(args, timeout=30):
         sys.exit(1)
 
 
-def get_session_id(repo, pr_number):
-    """Get the Copilot agent session ID for a PR by inspecting its Actions job logs."""
-    # Get the first commit SHA (the "Initial plan" commit from copilot)
-    commits_json, ok = run_gh([
-        "api", f"repos/{repo}/pulls/{pr_number}/commits", "--jq", ".[0].sha"
-    ])
-    if not ok or not commits_json:
-        return None
+def _extract_session_from_commit(repo, sha):
+    """Extract the Copilot session ID from a commit's check runs.
 
-    first_sha = commits_json.strip()
-
-    # Find the copilot check run's Actions run ID
+    Returns the session ID string, or None if no copilot check run exists.
+    """
     check_json, ok = run_gh([
-        "api", f"repos/{repo}/commits/{first_sha}/check-runs",
+        "api", f"repos/{repo}/commits/{sha}/check-runs",
         "--jq", '.check_runs[] | select(.name == "copilot") | .details_url'
     ])
     if not ok or not check_json:
@@ -77,14 +70,12 @@ def get_session_id(repo, pr_number):
         return None
     run_id = run_match.group(1)
 
-    # Get the job ID
     job_id, ok = run_gh([
         "api", f"repos/{repo}/actions/runs/{run_id}/jobs", "--jq", ".jobs[0].id"
     ])
     if not ok or not job_id:
         return None
 
-    # Fetch job logs and extract session ID
     logs, ok = run_gh([
         "api", f"repos/{repo}/actions/jobs/{job_id}/logs"
     ], timeout=60)
@@ -97,12 +88,79 @@ def get_session_id(repo, pr_number):
     return None
 
 
+def get_all_session_ids(repo, pr_number):
+    """Get ALL Copilot agent session IDs for a PR.
+
+    Copilot's multi-phase architecture creates separate sessions for
+    exploration/planning and implementation. Each phase produces commits
+    with their own check runs. This function scans all commits to capture
+    every session phase.
+
+    Returns a list of unique session IDs in chronological order, or [].
+    """
+    commits_json, ok = run_gh([
+        "api", f"repos/{repo}/pulls/{pr_number}/commits",
+        "--jq", ".[].sha"
+    ])
+    if not ok or not commits_json:
+        return []
+
+    shas = [s.strip() for s in commits_json.strip().split("\n") if s.strip()]
+    seen = set()
+    session_ids = []
+
+    for sha in shas:
+        sid = _extract_session_from_commit(repo, sha)
+        if sid and sid not in seen:
+            seen.add(sid)
+            session_ids.append(sid)
+
+    return session_ids
+
+
+def get_session_id(repo, pr_number):
+    """Get the first Copilot agent session ID for a PR.
+
+    For backward compatibility. Prefer get_all_session_ids() for complete
+    multi-phase coverage.
+    """
+    ids = get_all_session_ids(repo, pr_number)
+    return ids[0] if ids else None
+
+
 def get_session_log(session_id):
     """Fetch the full session log for a Copilot agent session."""
     log, ok = run_gh(["agent-task", "view", session_id, "--log"], timeout=120)
     if ok:
         return log
     return None
+
+
+def get_combined_session_log(repo, pr_number):
+    """Fetch and combine logs from all session phases for a PR.
+
+    Returns (combined_log, session_ids) tuple. The combined log includes
+    phase headers so analysis can distinguish exploration from implementation.
+    """
+    session_ids = get_all_session_ids(repo, pr_number)
+    if not session_ids:
+        return None, []
+
+    if len(session_ids) == 1:
+        log = get_session_log(session_ids[0])
+        return log, session_ids
+
+    parts = []
+    for i, sid in enumerate(session_ids, 1):
+        log = get_session_log(sid)
+        if log:
+            parts.append(f"=== SESSION PHASE {i}/{len(session_ids)} (id: {sid}) ===")
+            parts.append(log)
+
+    if not parts:
+        return None, session_ids
+
+    return "\n\n".join(parts), session_ids
 
 
 def extract_thinking(log_text):
@@ -131,7 +189,7 @@ def extract_thinking(log_text):
         # Always include these markers
         if any(stripped.startswith(p) for p in [
             "Start ", "View ", "Bash:", "Call to ", "Progress update:",
-            "Run ", "Create:", "$ ",
+            "Run ", "Create:", "$ ", "=== SESSION PHASE ",
         ]):
             result.append(stripped)
             if stripped.startswith("Bash:") or stripped.startswith("$ "):
@@ -492,14 +550,13 @@ def cmd_list(args):
 
 
 def cmd_log(args):
-    """View full session log for a PR."""
-    session_id = get_session_id(args.repo, args.pr)
-    if not session_id:
+    """View full session log for a PR (all phases)."""
+    log, session_ids = get_combined_session_log(args.repo, args.pr)
+    if not session_ids:
         print(f"Could not find session ID for PR #{args.pr}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Session: {session_id}", file=sys.stderr)
-    log = get_session_log(session_id)
+    print(f"Sessions ({len(session_ids)}): {', '.join(session_ids)}", file=sys.stderr)
     if log:
         print(log)
     else:
@@ -507,14 +564,13 @@ def cmd_log(args):
 
 
 def cmd_summary(args):
-    """View thinking summary for a PR."""
-    session_id = get_session_id(args.repo, args.pr)
-    if not session_id:
+    """View thinking summary for a PR (all phases)."""
+    log, session_ids = get_combined_session_log(args.repo, args.pr)
+    if not session_ids:
         print(f"Could not find session ID for PR #{args.pr}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Session: {session_id}", file=sys.stderr)
-    log = get_session_log(session_id)
+    print(f"Sessions ({len(session_ids)}): {', '.join(session_ids)}", file=sys.stderr)
     if not log:
         print("Failed to fetch session log", file=sys.stderr)
         sys.exit(1)
@@ -525,6 +581,7 @@ def cmd_summary(args):
     if args.analyze:
         print("\n" + "=" * 60)
         analysis = analyze_workflow(log)
+        print(f"Session phases:        {len(session_ids)}")
         print(f"Reproduced before fix: {'YES' if analysis['reproduced'] else 'NO'}")
         print(f"Verified after fix:    {'YES' if analysis['verified'] else 'NO'}")
         print(f"Installed tools:       {'YES' if analysis['tool_installed'] else 'NO'}")
@@ -542,27 +599,28 @@ def cmd_compare(args):
     results = []
     for pr_num in prs:
         print(f"Fetching PR #{pr_num}...", file=sys.stderr)
-        session_id = get_session_id(args.repo, pr_num)
-        if not session_id:
+        log, session_ids = get_combined_session_log(args.repo, pr_num)
+        if not session_ids:
             print(f"  Could not find session for PR #{pr_num}", file=sys.stderr)
             results.append({"pr": pr_num, "error": "no session found"})
             continue
 
-        log = get_session_log(session_id)
         if not log:
             print(f"  Could not fetch log for PR #{pr_num}", file=sys.stderr)
             results.append({"pr": pr_num, "error": "log fetch failed"})
             continue
 
+        print(f"  Found {len(session_ids)} session(s)", file=sys.stderr)
         analysis = analyze_workflow(log)
         analysis["pr"] = pr_num
-        analysis["session_id"] = session_id
+        analysis["session_ids"] = session_ids
+        analysis["session_count"] = len(session_ids)
         results.append(analysis)
 
     # Print comparison table
     print()
-    print(f"{'PR':<6} {'Repro':<7} {'Verify':<8} {'Install':<9} {'Review':<8} {'CodeQL':<8} {'Self-Fix':<10} {'Steps':<7} {'Tools'}")
-    print("-" * 100)
+    print(f"{'PR':<6} {'Phases':<8} {'Repro':<7} {'Verify':<8} {'Install':<9} {'Review':<8} {'CodeQL':<8} {'Self-Fix':<10} {'Steps':<7} {'Tools'}")
+    print("-" * 110)
 
     for r in results:
         if "error" in r:
@@ -572,6 +630,7 @@ def cmd_compare(args):
         yn = lambda v: "YES" if v else "no"
         print(
             f"#{r['pr']:<5} "
+            f"{r.get('session_count', 1):<8} "
             f"{yn(r['reproduced']):<7} "
             f"{yn(r['verified']):<8} "
             f"{yn(r['tool_installed']):<9} "
@@ -598,12 +657,13 @@ def cmd_batch(args):
         print(f"PR #{pr_num}")
         print(f"{'=' * 70}")
 
-        session_id = get_session_id(args.repo, pr_num)
-        if not session_id:
+        log, session_ids = get_combined_session_log(args.repo, pr_num)
+        if not session_ids:
             print(f"Could not find session for PR #{pr_num}")
             continue
 
-        log = get_session_log(session_id)
+        print(f"Sessions ({len(session_ids)}): {', '.join(session_ids)}")
+
         if not log:
             print(f"Could not fetch log for PR #{pr_num}")
             continue
@@ -621,7 +681,8 @@ def cmd_batch(args):
             print(thinking)
 
         analysis = analyze_workflow(log)
-        print(f"\n  Reproduced: {'YES' if analysis['reproduced'] else 'NO'} | "
+        print(f"\n  Phases: {len(session_ids)} | "
+              f"Reproduced: {'YES' if analysis['reproduced'] else 'NO'} | "
               f"Verified: {'YES' if analysis['verified'] else 'NO'} | "
               f"CodeQL: {'YES' if analysis['codeql'] else 'NO'} | "
               f"Self-fix: {'YES' if analysis['self_corrected'] else 'NO'} | "
