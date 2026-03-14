@@ -93,6 +93,14 @@ class PipelineLoop:
             orchestrator = PipelineOrchestrator(oss_service=svc)
             now = time.monotonic()
 
+            # Build map of PRs already claimed by other assignments in the
+            # same repo, so the SWE dispatcher doesn't steal another issue's PR.
+            claimed_by_repo = {}
+            for a in active:
+                pr_num = a.get("stage4_pr_number")
+                if pr_num:
+                    claimed_by_repo.setdefault(a.get("repo"), set()).add(pr_num)
+
             for assignment in active:
                 key = (assignment.get("repo"), assignment.get("fork_issue_number"))
                 last = self._last_advance.get(key, 0)
@@ -111,9 +119,22 @@ class PipelineLoop:
                 if is_saml_org(origin_owner):
                     set_saml_token_override(origin_owner.lower())
 
+                # Tell the SWE dispatcher which PRs belong to OTHER issues
+                # in this repo so it doesn't claim them via the fallback.
+                repo = assignment.get("repo")
+                own_pr = assignment.get("stage4_pr_number")
+                other_prs = claimed_by_repo.get(repo, set()) - {own_pr}
+                ctx = {"my_user": my_user, "_claimed_pr_numbers": list(other_prs)}
+
                 try:
-                    result = orchestrator.advance(assignment, {"my_user": my_user})
+                    result = orchestrator.advance(assignment, ctx)
                     self._last_advance[key] = time.monotonic()
+
+                    # If a PR was just claimed, update claimed_by_repo so
+                    # later assignments in this tick don't steal it.
+                    new_pr = assignment.get("stage4_pr_number")
+                    if new_pr and new_pr != own_pr:
+                        claimed_by_repo.setdefault(repo, set()).add(new_pr)
 
                     status_after = result.get("status", status_before)
                     advanced = result.get("advanced", False)
