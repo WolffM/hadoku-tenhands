@@ -593,6 +593,7 @@ class PipelineOrchestrator:
             "self_corrected": analysis.get("self_corrected", False),
             "tools_used": analysis.get("tools_used", []),
             "step_count": analysis.get("step_count", 0),
+            "session_count": analysis.get("session_count", 1),
         }
 
     # ---- Context builders ----
