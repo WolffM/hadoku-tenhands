@@ -11,6 +11,15 @@ back to sensible language defaults.
 """
 
 
+_LFS_CHECKOUT = (
+    "- uses: actions/checkout@v4\n"
+    "  with:\n"
+    "    ref: ${{ inputs.ref }}\n"
+    "  env:\n"
+    "    GIT_LFS_SKIP_SMUDGE: '1'"
+)
+
+
 def _COMMIT_FIXES_STEP(message):
     """Build a git commit+push step for auto-fixed changes."""
     return (
@@ -29,7 +38,7 @@ def build_ruff_job():
     return {
         "name": "ruff",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             "- uses: actions/setup-python@v5\n  with:\n    python-version: '3.x'",
             "- run: pip install ruff",
             "- name: Auto-fix\n  run: ruff check . --fix || true",
@@ -44,9 +53,14 @@ def build_eslint_job():
     return {
         "name": "eslint",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             "- uses: actions/setup-node@v4\n  with:\n    node-version: '20'",
-            "- run: npm ci",
+            "- name: Install dependencies\n  run: |\n"
+            "    if [ -f yarn.lock ]; then corepack enable && yarn install --immutable || yarn install\n"
+            "    elif [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile || pnpm install\n"
+            "    elif [ -f package-lock.json ]; then npm ci\n"
+            "    else npm install\n"
+            "    fi",
             "- name: Auto-fix\n  run: npx eslint . --fix || true",
             _COMMIT_FIXES_STEP("style: auto-fix eslint findings"),
             "- run: npx eslint . || true",
@@ -59,7 +73,7 @@ def build_biome_job():
     return {
         "name": "biome",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             "- uses: actions/setup-node@v4\n  with:\n    node-version: '20'",
             "- name: Auto-fix\n  run: npx @biomejs/biome check . --write || true",
             _COMMIT_FIXES_STEP("style: auto-fix biome findings"),
@@ -73,7 +87,7 @@ def build_golangci_lint_job():
     return {
         "name": "golangci-lint",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             "- uses: actions/setup-go@v5\n  with:\n    go-version: 'stable'",
             "- run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest",
             "- name: Auto-fix\n  run: golangci-lint run --fix || true",
@@ -88,7 +102,7 @@ def build_go_vet_job():
     return {
         "name": "go-vet",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             "- uses: actions/setup-go@v5\n  with:\n    go-version: 'stable'",
             "- run: go vet ./...",
             "- run: go test ./... || true",
@@ -101,7 +115,7 @@ def build_clippy_job():
     return {
         "name": "clippy",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             "- run: rustup component add clippy",
             "- name: Auto-fix\n  run: cargo clippy --fix --allow-dirty || true",
             _COMMIT_FIXES_STEP("style: auto-fix clippy findings"),
@@ -122,13 +136,19 @@ def build_codeql_job(language):
         "java": "java-kotlin",
         "rust": "rust",
         "ruby": "ruby",
+        "c": "c-cpp",
+        "c++": "c-cpp",
+        "cpp": "c-cpp",
+        "c#": "csharp",
+        "csharp": "csharp",
+        "kotlin": "java-kotlin",
     }
     codeql_lang = codeql_lang_map.get(lang, "python")
 
     return {
         "name": "codeql",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             f"- uses: github/codeql-action/init@v3\n  with:\n    languages: {codeql_lang}",
             "- uses: github/codeql-action/analyze@v3",
         ],
@@ -140,11 +160,51 @@ def build_pytest_job():
     return {
         "name": "pytest",
         "steps": [
-            "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+            _LFS_CHECKOUT,
             "- uses: actions/setup-python@v5\n  with:\n    python-version: '3.x'",
             "- run: pip install -r requirements.txt 2>/dev/null || true",
             "- run: pip install pytest 2>/dev/null || true",
             "- run: python -m pytest -v || true",
+        ],
+    }
+
+
+def build_cppcheck_job():
+    """cppcheck job (C/C++)."""
+    return {
+        "name": "cppcheck",
+        "steps": [
+            _LFS_CHECKOUT,
+            "- name: Install cppcheck\n  run: sudo apt-get update && sudo apt-get install -y cppcheck",
+            "- run: cppcheck --enable=warning,style,performance --error-exitcode=1 --inline-suppr --template='{file}:{line}: {severity}: {message} [{id}]' . 2>&1 || true",
+        ],
+    }
+
+
+def build_dotnet_format_job():
+    """dotnet format job (C#)."""
+    return {
+        "name": "dotnet-format",
+        "steps": [
+            _LFS_CHECKOUT,
+            "- uses: actions/setup-dotnet@v4\n  with:\n    dotnet-version: '8.x'",
+            "- name: Auto-fix\n  run: dotnet format --verify-no-changes || dotnet format",
+            _COMMIT_FIXES_STEP("style: auto-fix dotnet format findings"),
+            "- run: dotnet format --verify-no-changes || true",
+        ],
+    }
+
+
+def build_checkstyle_job():
+    """Checkstyle job (Java)."""
+    return {
+        "name": "checkstyle",
+        "steps": [
+            _LFS_CHECKOUT,
+            "- uses: actions/setup-java@v4\n  with:\n    distribution: 'temurin'\n    java-version: '21'",
+            "- name: Run checkstyle\n  run: |\n"
+            "    curl -sLO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.21.4/checkstyle-10.21.4-all.jar\n"
+            "    java -jar checkstyle-*.jar -c /google_checks.xml src/ || true",
         ],
     }
 
@@ -158,6 +218,9 @@ TOOL_BUILDERS = {
     "golangci-lint": build_golangci_lint_job,
     "clippy": build_clippy_job,
     "pytest": build_pytest_job,
+    "cppcheck": build_cppcheck_job,
+    "dotnet-format": build_dotnet_format_job,
+    "checkstyle": build_checkstyle_job,
 }
 
 
@@ -176,13 +239,19 @@ def default_linter_jobs(language):
         return {"go-vet": build_go_vet_job()}
     elif lang == "rust":
         return {"clippy": build_clippy_job()}
+    elif lang in ("c", "c++", "cpp"):
+        return {"cppcheck": build_cppcheck_job()}
+    elif lang in ("c#", "csharp"):
+        return {"dotnet-format": build_dotnet_format_job()}
+    elif lang in ("java", "kotlin"):
+        return {"checkstyle": build_checkstyle_job()}
     else:
         # Generic: just checkout
         return {
             "generic": {
                 "name": "generic",
                 "steps": [
-                    "- uses: actions/checkout@v4\n  with:\n    ref: ${{ inputs.ref }}",
+                    _LFS_CHECKOUT,
                     "- run: echo 'No language-specific static analysis configured'",
                 ],
             }
@@ -200,7 +269,7 @@ def build_jobs_from_toolchain(toolchain_profile, language):
                            Can be None.
         language: Detected language string (fallback when no profile).
     Returns:
-        Dict of job_name → job_dict.
+        Dict of job_name -> job_dict.
     """
     if not toolchain_profile:
         return default_linter_jobs(language)
@@ -232,7 +301,7 @@ def render_static_analysis_workflow(jobs):
     so vibedispatch controls exactly when analysis runs.
 
     Args:
-        jobs: Dict of job_name → job_dict (from build_jobs_from_toolchain).
+        jobs: Dict of job_name -> job_dict (from build_jobs_from_toolchain).
     Returns:
         Complete workflow YAML as a string.
     """

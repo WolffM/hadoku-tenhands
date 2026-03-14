@@ -342,7 +342,11 @@ class GitHubActionsDispatcher(StageDispatcher):
         }
 
     def collect_results(self, job_id, context):
-        """Extract logs from the completed workflow run."""
+        """Extract annotations from the completed workflow run.
+
+        Uses the check-runs annotations API instead of raw logs to get
+        structured findings without runner setup noise.
+        """
         my_user = context["my_user"]
         repo = context["repo"]
         run_id = context.get("stage4_sa_run_id")
@@ -350,17 +354,57 @@ class GitHubActionsDispatcher(StageDispatcher):
         if not run_id:
             return {"success": False, "error": "No run ID available"}
 
-        # Get the workflow run log
-        log_result = run_gh_command([
-            "run", "view", str(run_id), "-R", f"{my_user}/{repo}",
-            "--log",
-        ], timeout=60)
+        # Get jobs for this workflow run
+        jobs_result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/actions/runs/{run_id}/jobs",
+            "--jq", ".jobs",
+        ])
+        if not jobs_result["success"]:
+            return {"success": False, "error": "Failed to fetch jobs"}
 
-        findings = log_result.get("output", "") if log_result["success"] else ""
+        try:
+            jobs_data = json.loads(jobs_result["output"])
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return {"success": False, "error": "Failed to parse jobs response"}
 
-        # Truncate to avoid massive payloads
-        if len(findings) > 20000:
-            findings = findings[:20000] + "\n\n... (log truncated)"
+        findings_lines = []
+        job_conclusions = []
+
+        for job in jobs_data:
+            job_name = job.get("name", "unknown")
+            conclusion = job.get("conclusion", "unknown")
+            job_id_val = job.get("id")
+            job_conclusions.append(f"{job_name}: {conclusion}")
+
+            if not job_id_val:
+                continue
+
+            ann_result = run_gh_command([
+                "api",
+                f"repos/{my_user}/{repo}/check-runs/{job_id_val}/annotations",
+            ])
+            if not ann_result["success"]:
+                continue
+
+            try:
+                annotations = json.loads(ann_result["output"])
+            except (json.JSONDecodeError, ValueError, TypeError):
+                continue
+
+            for a in annotations:
+                path = a.get("path", "")
+                if path.startswith(".github"):
+                    continue
+                level = a.get("annotation_level", "notice")
+                line = a.get("start_line", 0)
+                message = a.get("message", "")
+                findings_lines.append(f"- {level}: {path}:{line} — {message}")
+
+        conclusions_text = "Job conclusions: " + ", ".join(job_conclusions)
+        if findings_lines:
+            findings = conclusions_text + "\n\n" + "\n".join(findings_lines)
+        else:
+            findings = conclusions_text + "\n\nNo findings."
 
         return {
             "success": True,
@@ -531,7 +575,7 @@ class CopilotRemediationDispatcher(StageDispatcher):
     # Copilot coding agent responds to issue assignments, not PR comments.
     # If no new commits or check-runs appear within this timeout after the
     # remediation comment was posted, treat remediation as done (no response).
-    REMEDIATION_TIMEOUT_SECONDS = 300  # 5 minutes
+    REMEDIATION_TIMEOUT_SECONDS = 600  # 10 minutes
 
     def check_status(self, job_id, context):
         """Check if Copilot has pushed new commits after the remediation comment."""
@@ -599,8 +643,9 @@ class CopilotRemediationDispatcher(StageDispatcher):
             except (ValueError, TypeError):
                 elapsed = 0
         else:
-            # No timestamp — use a generous elapsed to avoid premature timeout
-            elapsed = self.REMEDIATION_TIMEOUT_SECONDS + 1
+            # No timestamp recorded — don't timeout, keep waiting
+            return {"done": False, "status": "waiting_for_commits",
+                    "new_commits": 0}
 
         if elapsed > self.REMEDIATION_TIMEOUT_SECONDS:
             return {

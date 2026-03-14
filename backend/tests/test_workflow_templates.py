@@ -11,6 +11,9 @@ from services.workflow_templates import (
     build_clippy_job,
     build_codeql_job,
     build_pytest_job,
+    build_cppcheck_job,
+    build_dotnet_format_job,
+    build_checkstyle_job,
     default_linter_jobs,
     build_jobs_from_toolchain,
     render_static_analysis_workflow,
@@ -34,6 +37,15 @@ class TestToolBuilders:
         steps_text = "\n".join(job["steps"])
         assert "eslint" in steps_text
         assert "setup-node" in steps_text
+
+    def test_eslint_job_detects_package_manager(self):
+        """ESLint job should detect yarn, pnpm, and npm lockfiles."""
+        job = build_eslint_job()
+        steps_text = "\n".join(job["steps"])
+        assert "yarn.lock" in steps_text
+        assert "pnpm-lock.yaml" in steps_text
+        assert "package-lock.json" in steps_text
+        assert "npm install" in steps_text
 
     def test_biome_job(self):
         job = build_biome_job()
@@ -73,10 +85,51 @@ class TestToolBuilders:
         steps_text = "\n".join(job["steps"])
         assert "languages: go" in steps_text
 
+    def test_codeql_job_cpp(self):
+        job = build_codeql_job("c++")
+        steps_text = "\n".join(job["steps"])
+        assert "c-cpp" in steps_text
+
+    def test_codeql_job_c(self):
+        job = build_codeql_job("c")
+        steps_text = "\n".join(job["steps"])
+        assert "c-cpp" in steps_text
+
+    def test_codeql_job_csharp(self):
+        job = build_codeql_job("c#")
+        steps_text = "\n".join(job["steps"])
+        assert "csharp" in steps_text
+
+    def test_codeql_job_kotlin(self):
+        job = build_codeql_job("kotlin")
+        steps_text = "\n".join(job["steps"])
+        assert "java-kotlin" in steps_text
+
     def test_pytest_job(self):
         job = build_pytest_job()
         steps_text = "\n".join(job["steps"])
         assert "pytest" in steps_text
+
+    def test_cppcheck_job(self):
+        job = build_cppcheck_job()
+        assert job["name"] == "cppcheck"
+        steps_text = "\n".join(job["steps"])
+        assert "cppcheck" in steps_text
+        assert "apt-get" in steps_text
+
+    def test_dotnet_format_job(self):
+        job = build_dotnet_format_job()
+        assert job["name"] == "dotnet-format"
+        steps_text = "\n".join(job["steps"])
+        assert "dotnet format" in steps_text
+        assert "setup-dotnet" in steps_text
+
+    def test_checkstyle_job(self):
+        job = build_checkstyle_job()
+        assert job["name"] == "checkstyle"
+        steps_text = "\n".join(job["steps"])
+        assert "checkstyle" in steps_text
+        assert "setup-java" in steps_text
 
     def test_all_jobs_have_checkout(self):
         """Every job should start with actions/checkout."""
@@ -90,6 +143,26 @@ class TestToolBuilders:
             job = builder()
             assert any("inputs.ref" in s for s in job["steps"]), f"{name} missing inputs.ref"
 
+    def test_all_jobs_have_lfs_skip(self):
+        """Every job should set GIT_LFS_SKIP_SMUDGE in the checkout step."""
+        for name, builder in TOOL_BUILDERS.items():
+            job = builder()
+            assert any("GIT_LFS_SKIP_SMUDGE" in s for s in job["steps"]), (
+                f"{name} missing GIT_LFS_SKIP_SMUDGE"
+            )
+
+    def test_non_registry_jobs_have_lfs_skip(self):
+        """Jobs not in TOOL_BUILDERS should also have GIT_LFS_SKIP_SMUDGE."""
+        for builder in [build_go_vet_job, build_codeql_job]:
+            if builder == build_codeql_job:
+                job = builder("python")
+            else:
+                job = builder()
+            steps_text = "\n".join(job["steps"])
+            assert "GIT_LFS_SKIP_SMUDGE" in steps_text, (
+                f"{job['name']} missing GIT_LFS_SKIP_SMUDGE"
+            )
+
     def test_autofix_linters_have_fix_step(self):
         """Linters with auto-fix support should have an Auto-fix step."""
         autofix_builders = [
@@ -98,11 +171,14 @@ class TestToolBuilders:
             ("biome", build_biome_job),
             ("golangci-lint", build_golangci_lint_job),
             ("clippy", build_clippy_job),
+            ("dotnet-format", build_dotnet_format_job),
         ]
         for name, builder in autofix_builders:
             job = builder()
             steps_text = "\n".join(job["steps"])
-            assert "Auto-fix" in steps_text, f"{name} missing Auto-fix step"
+            assert "Auto-fix" in steps_text or "auto-fix" in steps_text.lower(), (
+                f"{name} missing Auto-fix step"
+            )
             assert "Commit fixes" in steps_text, f"{name} missing Commit fixes step"
             assert "git push" in steps_text, f"{name} missing git push in commit step"
 
@@ -117,6 +193,14 @@ class TestToolBuilders:
         assert "Auto-fix" not in steps_text
 
         job = build_pytest_job()
+        steps_text = "\n".join(job["steps"])
+        assert "Auto-fix" not in steps_text
+
+        job = build_cppcheck_job()
+        steps_text = "\n".join(job["steps"])
+        assert "Auto-fix" not in steps_text
+
+        job = build_checkstyle_job()
         steps_text = "\n".join(job["steps"])
         assert "Auto-fix" not in steps_text
 
@@ -144,6 +228,34 @@ class TestDefaultLinterJobs:
     def test_rust_defaults(self):
         jobs = default_linter_jobs("rust")
         assert "clippy" in jobs
+
+    def test_c_defaults(self):
+        jobs = default_linter_jobs("c")
+        assert "cppcheck" in jobs
+
+    def test_cpp_defaults(self):
+        jobs = default_linter_jobs("c++")
+        assert "cppcheck" in jobs
+
+    def test_cpp_alt_defaults(self):
+        jobs = default_linter_jobs("cpp")
+        assert "cppcheck" in jobs
+
+    def test_csharp_defaults(self):
+        jobs = default_linter_jobs("c#")
+        assert "dotnet-format" in jobs
+
+    def test_csharp_alt_defaults(self):
+        jobs = default_linter_jobs("csharp")
+        assert "dotnet-format" in jobs
+
+    def test_java_defaults(self):
+        jobs = default_linter_jobs("java")
+        assert "checkstyle" in jobs
+
+    def test_kotlin_defaults(self):
+        jobs = default_linter_jobs("kotlin")
+        assert "checkstyle" in jobs
 
     def test_unknown_language_returns_generic(self):
         jobs = default_linter_jobs("cobol")
@@ -177,6 +289,21 @@ class TestBuildJobsFromToolchain:
         jobs = build_jobs_from_toolchain(profile, "python")
         assert "ruff" in jobs
         assert "eslint" in jobs
+
+    def test_matches_cppcheck_from_profile(self):
+        profile = {"linters": [{"tool": "cppcheck"}]}
+        jobs = build_jobs_from_toolchain(profile, "c++")
+        assert "cppcheck" in jobs
+
+    def test_matches_dotnet_format_from_profile(self):
+        profile = {"linters": [{"tool": "dotnet-format"}]}
+        jobs = build_jobs_from_toolchain(profile, "c#")
+        assert "dotnet-format" in jobs
+
+    def test_matches_checkstyle_from_profile(self):
+        profile = {"linters": [{"tool": "checkstyle"}]}
+        jobs = build_jobs_from_toolchain(profile, "java")
+        assert "checkstyle" in jobs
 
     def test_adds_codeql_when_in_profile(self):
         profile = {
@@ -239,3 +366,8 @@ class TestRenderWorkflow:
         jobs = {"ruff": build_ruff_job()}
         yaml = render_static_analysis_workflow(jobs)
         assert "Stage 4b" in yaml
+
+    def test_render_includes_lfs_skip(self):
+        jobs = {"ruff": build_ruff_job()}
+        yaml = render_static_analysis_workflow(jobs)
+        assert "GIT_LFS_SKIP_SMUDGE" in yaml

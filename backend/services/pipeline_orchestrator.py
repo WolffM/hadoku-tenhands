@@ -244,9 +244,11 @@ class PipelineOrchestrator:
 
         result = dispatcher.dispatch(job_spec, ctx)
         if result.get("success"):
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             updates = {
                 "stage4_status": "review_in_progress",
                 "stage4_review_requested": True,
+                "stage4_review_dispatched_at": now,
             }
             self._update_assignment(assignment, updates)
             return {"success": True, "status": "review_in_progress",
@@ -270,6 +272,31 @@ class PipelineOrchestrator:
             self._update_assignment(assignment, updates)
             return {"success": True, "status": "review_complete",
                     "advanced": True, "details": result}
+
+        # Check timeout — 10 minutes since review was requested
+        dispatched_at = assignment.get("stage4_review_dispatched_at")
+        if dispatched_at:
+            import datetime
+            try:
+                dt = datetime.datetime.fromisoformat(
+                    dispatched_at.replace("Z", "+00:00"))
+                elapsed = time.time() - dt.timestamp()
+                if elapsed > 600:  # 10 minutes
+                    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    updates = {
+                        "stage4_status": "review_complete",
+                        "stage4_review_done_at": now,
+                        "stage4_review_timed_out": True,
+                    }
+                    self._update_assignment(assignment, updates)
+                    return {
+                        "success": True, "status": "review_complete",
+                        "advanced": True,
+                        "details": {"status": "timeout",
+                                    "message": "No Copilot review after 10 minutes"},
+                    }
+            except (ValueError, TypeError):
+                pass
 
         return {"success": True, "status": "review_in_progress",
                 "advanced": False, "details": result}
