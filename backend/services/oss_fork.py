@@ -47,15 +47,20 @@ class OSSForkMixin:
             time.sleep(interval)
         return False
 
-    def configure_fork_settings(self, my_user, repo):
+    def configure_fork_settings(self, my_user, repo, origin_owner=None):
         """Configure fork repository settings for the pipeline.
 
         Enables issues, configures Actions permissions, disables inherited
         upstream workflows (to prevent runaway CI costs), and sets any other
         repo-level settings needed for the Copilot coding agent.
+
+        Args:
+            origin_owner: Upstream repo owner. SAML-protected orgs force the
+                Copilot firewall on, so self-hosted runner setup is skipped.
         """
         import logging
         _logger = logging.getLogger("pipeline")
+        from .github_api import is_saml_org
 
         # 1. Enable issues (forks inherit has_issues=false)
         run_gh_command([
@@ -76,12 +81,18 @@ class OSSForkMixin:
         #    push/PR. We only need our own workflows + copilot-setup-steps.
         self._disable_upstream_workflows(my_user, repo)
 
-        # 4. Register a self-hosted runner (if not already registered)
-        self._ensure_self_hosted_runner(my_user, repo)
-
-        # 5. Disable Copilot coding agent firewall (required for self-hosted runners).
-        #    Try the API first (may not exist), fall back to patchright browser automation.
-        self._disable_copilot_firewall(my_user, repo)
+        # 4-5. Self-hosted runner setup — only for non-SAML orgs.
+        # SAML-protected orgs (e.g. Microsoft) force COPILOT_AGENT_FIREWALL_ENABLED=true
+        # on forks, which blocks self-hosted runners. Those forks use github-hosted.
+        if is_saml_org(origin_owner):
+            _logger.info(
+                "Skipping self-hosted runner + firewall toggle for %s/%s "
+                "(SAML org %s forces firewall — using github-hosted runners)",
+                my_user, repo, origin_owner
+            )
+        else:
+            self._ensure_self_hosted_runner(my_user, repo)
+            self._disable_copilot_firewall(my_user, repo)
 
     def _ensure_self_hosted_runner(self, my_user, repo):
         """Register a self-hosted runner for this repo if one isn't already online.
@@ -160,7 +171,8 @@ class OSSForkMixin:
                     capture_output=True, timeout=30, creationflags=_flags
                 )
                 # Clean old config if copied from another repo's runner
-                for stale in [".runner", ".credentials", ".credentials_rsaparams"]:
+                for stale in [".runner", ".runner_migrated", ".credentials",
+                              ".credentials_rsaparams", ".env"]:
                     stale_path = os.path.join(runner_dir, stale)
                     if os.path.exists(stale_path):
                         os.remove(stale_path)
@@ -657,15 +669,21 @@ class OSSForkMixin:
                       len(pushed), my_user, repo, pushed)
         return {"success": True, "output": new_commit_sha, "files": pushed}
 
-    def ensure_pipeline_files(self, my_user, repo, language=None, toolchain_profile=None):
+    def ensure_pipeline_files(self, my_user, repo, language=None, toolchain_profile=None,
+                              origin_owner=None):
         """Push all pipeline files (copilot instructions + workflows) in a single commit.
 
         This replaces the separate ensure_copilot_instructions, ensure_ci_workflow,
         and ensure_static_analysis_workflow calls. A single commit means a single
         push event, which means upstream CI only triggers once (and we disable it
         anyway via _disable_upstream_workflows).
+
+        Args:
+            origin_owner: Upstream repo owner. Used to detect SAML-protected orgs
+                that force Copilot firewall on (requiring github-hosted runners).
         """
         from .workflow_templates import build_jobs_from_toolchain, render_static_analysis_workflow
+        from .github_api import is_saml_org
 
         copilot_instructions = (
             "# Copilot Coding Agent Instructions\n\n"
@@ -695,7 +713,10 @@ class OSSForkMixin:
         jobs = build_jobs_from_toolchain(toolchain_profile, language)
         sa_yaml = render_static_analysis_workflow(jobs)
 
-        setup_steps_yaml = self._build_copilot_setup_steps(language)
+        # SAML-protected orgs force Copilot firewall ON for forks — self-hosted
+        # runners fail at the firewall validation step. Use github-hosted instead.
+        use_self_hosted = not is_saml_org(origin_owner)
+        setup_steps_yaml = self._build_copilot_setup_steps(language, use_self_hosted=use_self_hosted)
 
         return self._push_files_as_single_commit(my_user, repo, [
             (".github/copilot-instructions.md", copilot_instructions),
@@ -828,15 +849,20 @@ class OSSForkMixin:
             )
 
     @staticmethod
-    def _build_copilot_setup_steps(language):
+    def _build_copilot_setup_steps(language, use_self_hosted=True):
         """Build copilot-setup-steps.yml for the Copilot coding agent.
 
         This workflow defines the environment the agent runs in.
-        Uses self-hosted to route to the local runner, avoiding GitHub
-        Actions minute consumption. Requires per-repo runner registration
-        and Copilot firewall disabled.
+
+        Args:
+            language: Primary repo language (for setup steps).
+            use_self_hosted: If True, use self-hosted runner (requires firewall
+                disabled). If False, use ubuntu-latest (GitHub-hosted). Forks of
+                SAML-protected orgs (e.g. Microsoft) force firewall ON, so they
+                must use GitHub-hosted runners.
         """
         lang = (language or "").lower()
+        runner = "self-hosted" if use_self_hosted else "ubuntu-latest"
 
         header = (
             "name: \"Copilot Setup Steps\"\n"
@@ -849,7 +875,7 @@ class OSSForkMixin:
             "\n"
             "jobs:\n"
             "  copilot-setup-steps:\n"
-            "    runs-on: self-hosted\n"
+            f"    runs-on: {runner}\n"
             "    steps:\n"
             "      - uses: actions/checkout@v4\n"
         )

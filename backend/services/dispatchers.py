@@ -92,6 +92,8 @@ class CopilotSWEDispatcher(StageDispatcher):
         """Correlate a fork issue to its Copilot PR via the issue timeline.
 
         GitHub cross-references link issues to PRs created from them.
+        When multiple PRs reference the same issue (e.g. stale WIP retries),
+        pick the one with the most commits (actual implementation work).
         Returns the matched PR dict from copilot_prs, or None.
         """
         result = run_gh_command([
@@ -99,18 +101,27 @@ class CopilotSWEDispatcher(StageDispatcher):
             f"repos/{my_user}/{repo}/issues/{fork_issue_number}/timeline",
             "--jq",
             '[.[] | select(.event=="cross-referenced") '
-            '| .source.issue.number] | first',
+            '| .source.issue.number]',
         ])
         if not result["success"]:
             return None
         try:
-            linked_pr_number = int(result["output"].strip())
-        except (ValueError, TypeError):
+            linked_numbers = json.loads(result["output"].strip())
+        except (json.JSONDecodeError, ValueError, TypeError):
             return None
-        return next(
-            (p for p in copilot_prs if p["number"] == linked_pr_number),
-            None,
-        )
+        if not linked_numbers:
+            return None
+
+        # Build lookup of copilot PRs by number
+        pr_by_number = {p["number"]: p for p in copilot_prs}
+
+        # Find all cross-referenced PRs that are Copilot-authored
+        matched = [pr_by_number[n] for n in linked_numbers if n in pr_by_number]
+        if not matched:
+            return None
+
+        # Prefer the PR with the most commits (real work, not just "Initial plan")
+        return max(matched, key=lambda p: len(p.get("commits", [])))
 
     def check_status(self, job_id, context):
         """Check if the Copilot SWE agent has finished.
@@ -151,9 +162,14 @@ class CopilotSWEDispatcher(StageDispatcher):
             agent_pr = self._find_pr_for_issue(
                 my_user, repo, int(fork_issue_number), copilot_prs)
 
-        # Single PR or no fork_issue_number — use the only one
+        # Single PR — use it directly
         if not agent_pr and len(copilot_prs) == 1:
             agent_pr = copilot_prs[0]
+
+        # Multiple PRs but timeline correlation failed — pick the one
+        # with the most commits (most likely to have actual implementation)
+        if not agent_pr and copilot_prs:
+            agent_pr = max(copilot_prs, key=lambda p: len(p.get("commits", [])))
 
         if not agent_pr:
             return {"done": False, "status": "waiting_for_pr", "pr_number": None}
@@ -502,8 +518,15 @@ class CopilotRemediationDispatcher(StageDispatcher):
             "pre_commit_count": pre_commit_count,
         }
 
+    # Copilot coding agent responds to issue assignments, not PR comments.
+    # If no new commits or check-runs appear within this timeout after the
+    # remediation comment was posted, treat remediation as done (no response).
+    REMEDIATION_TIMEOUT_SECONDS = 300  # 5 minutes
+
     def check_status(self, job_id, context):
         """Check if Copilot has pushed new commits after the remediation comment."""
+        import time as _time
+
         my_user = context["my_user"]
         repo = context["repo"]
         pr_number = context.get("stage4_pr_number")
@@ -536,7 +559,7 @@ class CopilotRemediationDispatcher(StageDispatcher):
                 "total_commits": current_count,
             }
 
-        # Also check the Copilot coding agent check-run
+        # Check the Copilot coding agent check-run
         head_result = run_gh_command([
             "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
             "--json", "headRefOid", "--jq", ".headRefOid",
@@ -554,6 +577,29 @@ class CopilotRemediationDispatcher(StageDispatcher):
                 if status and status != "completed":
                     return {"done": False, "status": "working",
                             "new_commits": 0}
+
+        # No new commits and no active check-run. Check if we've waited
+        # long enough — Copilot may not respond to PR comments at all.
+        dispatched_at = context.get("stage4d_dispatched_at")
+        if dispatched_at:
+            try:
+                import datetime
+                dt = datetime.datetime.fromisoformat(dispatched_at.replace("Z", "+00:00"))
+                elapsed = (_time.time() - dt.timestamp())
+            except (ValueError, TypeError):
+                elapsed = 0
+        else:
+            # No timestamp — use a generous elapsed to avoid premature timeout
+            elapsed = self.REMEDIATION_TIMEOUT_SECONDS + 1
+
+        if elapsed > self.REMEDIATION_TIMEOUT_SECONDS:
+            return {
+                "done": True,
+                "status": "timeout",
+                "new_commits": 0,
+                "total_commits": current_count,
+                "message": "No agent response after timeout — treating as done",
+            }
 
         return {"done": False, "status": "waiting_for_commits",
                 "new_commits": 0}

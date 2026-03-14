@@ -139,28 +139,32 @@ def disable_firewall(page, owner, repo):
         log.warning("Could not find firewall toggle button on %s/%s", owner, repo)
         return False
 
-    # Check current state
+    # Always toggle ON then OFF to force GitHub to register the "off" state.
+    # New forks may show firewall as "off" in the UI but GitHub's backend
+    # still injects COPILOT_AGENT_FIREWALL_ENABLED=true until the toggle is
+    # explicitly clicked at least once.
     aria_pressed = toggle.get_attribute("aria-pressed")
-    is_enabled = aria_pressed == "true"
     log.info("Firewall toggle: aria-pressed=%s (firewall %s)",
-             aria_pressed, "ON" if is_enabled else "OFF")
+             aria_pressed, "ON" if aria_pressed == "true" else "OFF")
 
-    if is_enabled:
+    if aria_pressed == "false":
+        # Toggle ON first so we can toggle it OFF (forces state registration)
         toggle.click()
         time.sleep(1.5)
+        log.info("Toggled firewall ON (intermediate step)")
 
-        # Verify
-        new_state = toggle.get_attribute("aria-pressed")
-        if new_state == "false":
-            log.info("Firewall disabled on %s/%s", owner, repo)
-            return True
-        else:
-            log.warning("Toggle click didn't change state on %s/%s (still %s)",
-                       owner, repo, new_state)
-            return False
-    else:
-        log.info("Firewall already OFF on %s/%s", owner, repo)
+    # Now toggle OFF
+    toggle.click()
+    time.sleep(1.5)
+
+    new_state = toggle.get_attribute("aria-pressed")
+    if new_state == "false":
+        log.info("Firewall disabled on %s/%s", owner, repo)
         return True
+    else:
+        log.warning("Toggle click didn't change state on %s/%s (still %s)",
+                   owner, repo, new_state)
+        return False
 
 
 def main():
