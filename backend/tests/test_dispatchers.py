@@ -357,11 +357,19 @@ class TestGitHubActionsDispatcher:
         assert result["status"] == "not_found"
 
     @patch("services.dispatchers.run_gh_command")
-    def test_collect_results_returns_logs(self, mock_gh):
-        mock_gh.return_value = {
-            "success": True,
-            "output": "test output\nruff: 3 errors found\n",
-        }
+    def test_collect_results_returns_findings(self, mock_gh):
+        mock_gh.side_effect = [
+            # jobs API
+            {"success": True, "output": json.dumps([
+                {"name": "ruff", "conclusion": "failure", "id": 101},
+            ])},
+            # annotations API for job 101
+            {"success": True, "output": json.dumps([
+                {"path": "src/app.py", "start_line": 10,
+                 "annotation_level": "error",
+                 "message": "ruff: 3 errors found"},
+            ])},
+        ]
         d = GitHubActionsDispatcher()
         result = d.collect_results("id", {
             "my_user": "me", "repo": "r", "stage4_sa_run_id": 12345,
@@ -526,21 +534,43 @@ class TestCopilotRemediationDispatcher:
         assert result["status"] == "waiting_for_commits"
 
     @patch("services.dispatchers.run_gh_command")
-    def test_check_status_timeout_when_no_response(self, mock_gh):
+    def test_check_status_keeps_waiting_when_no_dispatched_at(self, mock_gh):
         mock_gh.side_effect = [
             {"success": True, "output": "3\n"},
             {"success": True, "output": "abc123\n"},
             {"success": True, "output": "\n"},
         ]
         d = CopilotRemediationDispatcher()
-        # No dispatched_at → triggers timeout immediately
+        # No dispatched_at → should NOT timeout, keep waiting
         result = d.check_status("14", {
             "my_user": "me", "repo": "r",
             "stage4_pr_number": 14,
             "stage4d_pre_commit_count": 3,
         })
+        assert result["done"] is False
+        assert result["status"] == "waiting_for_commits"
+
+    @patch("services.dispatchers.run_gh_command")
+    def test_check_status_timeout_with_old_dispatched_at(self, mock_gh):
+        mock_gh.side_effect = [
+            {"success": True, "output": "3\n"},
+            {"success": True, "output": "abc123\n"},
+            {"success": True, "output": "\n"},
+        ]
+        d = CopilotRemediationDispatcher()
+        # dispatched_at 20 minutes ago → should timeout
+        result = d.check_status("14", {
+            "my_user": "me", "repo": "r",
+            "stage4_pr_number": 14,
+            "stage4d_pre_commit_count": 3,
+            "stage4d_dispatched_at": "2020-01-01T00:00:00Z",
+        })
         assert result["done"] is True
         assert result["status"] == "timeout"
+
+    def test_remediation_timeout_constant_is_600(self):
+        d = CopilotRemediationDispatcher()
+        assert d.REMEDIATION_TIMEOUT_SECONDS == 600
 
     @patch("services.dispatchers.run_gh_command")
     def test_check_status_working_when_agent_in_progress(self, mock_gh):
