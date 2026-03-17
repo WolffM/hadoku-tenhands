@@ -128,13 +128,7 @@ def format_upstream_pr_body(origin_slug, issue_number, issue_title, branch):
     """Format the PR body for submitting to an upstream repo."""
     return f"""## Summary
 
-Fixes {origin_slug}#{issue_number}: {issue_title}
+{issue_title}
 
-## Changes
-
-This PR addresses the issue described above. Changes were developed on the `{branch}` branch.
-
-## Related Issue
-
-- Closes #{issue_number}
+Closes #{issue_number}
 """
