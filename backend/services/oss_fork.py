@@ -28,6 +28,25 @@ from .oss_service import _parse_jsonl
 # Multiple concurrent dispatches can crash WSL via OOM. Limit to 1 at a time.
 _PATCHRIGHT_LOCK = threading.Semaphore(1)
 
+# Per-repo locks: serialize concurrent dispatches for the same upstream repo.
+# Prevents the race condition where two parallel dispatches for the same repo
+# both call fork_repo() simultaneously, causing the second to fail with 422.
+_FORK_LOCKS: dict = {}
+_FORK_LOCKS_MUTEX = threading.Lock()
+
+
+def get_fork_lock(origin_slug: str) -> threading.Lock:
+    """Return (or create) the per-repo serialization lock for origin_slug.
+
+    Keyed by 'owner/repo'. Lock must be held for the full fork/sync/configure
+    sequence to prevent race conditions when two issues from the same repo are
+    dispatched concurrently.
+    """
+    with _FORK_LOCKS_MUTEX:
+        if origin_slug not in _FORK_LOCKS:
+            _FORK_LOCKS[origin_slug] = threading.Lock()
+        return _FORK_LOCKS[origin_slug]
+
 
 class OSSForkMixin:
     """Fork management and CI/workflow operations."""
@@ -245,18 +264,33 @@ class OSSForkMixin:
             _logger.warning("Failed to start runner for %s/%s: %s", my_user, repo, e)
 
     def _disable_copilot_firewall(self, my_user, repo):
-        """Disable the Copilot coding agent firewall on a repo.
+        """Disable the Copilot coding agent firewall asynchronously.
 
-        Tries the REST API first (in case GitHub adds one). Falls back to
-        patchright browser automation via the disable-copilot-firewall.py script.
+        Spawns a daemon thread so the dispatch request thread is not blocked.
+        The firewall only needs to be disabled before Copilot starts working
+        (minutes later), so there's no reason to wait inline.
         """
-        import logging
+        t = threading.Thread(
+            target=self._run_firewall_disable,
+            args=(my_user, repo),
+            daemon=True,
+            name=f"patchright-{my_user}-{repo}",
+        )
+        t.start()
+        logger.info("Firewall disable launched in background for %s/%s", my_user, repo)
+
+    def _run_firewall_disable(self, my_user, repo):
+        """Blocking implementation for firewall disable — runs in a background thread.
+
+        Tries the REST API first. Falls back to patchright browser automation.
+        The _PATCHRIGHT_LOCK semaphore limits concurrent Chromium instances to 1.
+        """
         import subprocess
         import sys
         import os
         _logger = logging.getLogger("pipeline")
 
-        # Try API first (best-effort — endpoint may not exist)
+        # Try API first (best-effort — endpoint may not exist yet)
         result = run_gh_command([
             "api", f"repos/{my_user}/{repo}/copilot/coding_agent/settings",
             "-X", "PATCH",
@@ -281,24 +315,32 @@ class OSSForkMixin:
 
         _logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
         _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        with _PATCHRIGHT_LOCK:
-            try:
-                proc = subprocess.run(
-                    [sys.executable, script_path, f"{my_user}/{repo}"],
-                    capture_output=True, text=True, timeout=60,
-                    creationflags=_flags,
+        # acquire(timeout=300): wait up to 5 min for another patchright to finish
+        if not _PATCHRIGHT_LOCK.acquire(timeout=300):
+            _logger.warning(
+                "Patchright semaphore timeout for %s/%s — skipping firewall disable",
+                my_user, repo
+            )
+            return
+        try:
+            proc = subprocess.run(
+                [sys.executable, script_path, f"{my_user}/{repo}"],
+                capture_output=True, text=True, timeout=60,
+                creationflags=_flags,
+            )
+            if proc.returncode == 0:
+                _logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
+            else:
+                _logger.warning(
+                    "Patchright firewall disable failed on %s/%s: %s",
+                    my_user, repo, proc.stderr[:200]
                 )
-                if proc.returncode == 0:
-                    _logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
-                else:
-                    _logger.warning(
-                        "Patchright firewall disable failed on %s/%s: %s",
-                        my_user, repo, proc.stderr[:200]
-                    )
-            except subprocess.TimeoutExpired:
-                _logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
-            except Exception as e:
-                _logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
+        except subprocess.TimeoutExpired:
+            _logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
+        except Exception as e:
+            _logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
+        finally:
+            _PATCHRIGHT_LOCK.release()
 
     def _disable_upstream_workflows(self, my_user, repo):
         """Disable all inherited workflows except our own and Copilot's.

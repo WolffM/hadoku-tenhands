@@ -170,3 +170,32 @@ class OSSStateMixin:
             if item["origin_slug"] == origin_slug and item["issue_number"] == issue_number:
                 return item
         return None
+
+    # --- Dispatched repos ---
+
+    def get_dispatched_repos(self):
+        """Get all repos that have had at least one successful dispatch."""
+        return _load_json("dispatched-repos.json")
+
+    def track_dispatched_repo(self, origin_slug):
+        """Record a successful dispatch for origin_slug. Idempotent — deduped by slug.
+
+        Stores both slash-format ('owner/repo') and aggregator-format ('owner-repo')
+        so Stage 1 can filter by either format without conversion at read time.
+        """
+        items = self.get_dispatched_repos()
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for item in items:
+            if item["origin_slug"] == origin_slug:
+                item["last_dispatched_at"] = now
+                item["dispatch_count"] = item.get("dispatch_count", 1) + 1
+                _save_json("dispatched-repos.json", items)
+                return
+        items.append({
+            "origin_slug": origin_slug,
+            "aggregator_slug": origin_slug.replace("/", "-", 1),
+            "first_dispatched_at": now,
+            "last_dispatched_at": now,
+            "dispatch_count": 1,
+        })
+        _save_json("dispatched-repos.json", items)

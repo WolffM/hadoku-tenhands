@@ -94,6 +94,15 @@ def api_oss_stage1_targets():
                 logger.warning("Failed to enrich target %s from aggregator: %s", futures[future], e)
                 targets.append({"slug": futures[future]})
 
+    # Mark repos that have already been dispatched
+    dispatched_agg_slugs = {
+        d["aggregator_slug"]
+        for d in svc.get_dispatched_repos()
+        if "aggregator_slug" in d
+    }
+    for target in targets:
+        target["already_dispatched"] = target["slug"] in dispatched_agg_slugs
+
     # Sort by overallViability descending (repos with health first)
     targets.sort(
         key=lambda t: t.get("health", {}).get("overallViability", 0),
@@ -101,6 +110,15 @@ def api_oss_stage1_targets():
     )
 
     return {"success": True, "targets": targets, "owner": my_user}
+
+
+@bp.route("/api/oss/dispatched-repos", methods=["GET"])
+def api_oss_dispatched_repos():
+    """Get the list of repos that have had at least one successful dispatch."""
+    my_user = get_authenticated_user()
+    svc = OSSService()
+    dispatched = svc.get_dispatched_repos()
+    return jsonify({"success": True, "dispatched_repos": dispatched, "owner": my_user})
 
 
 @bp.route("/api/oss/refresh-target", methods=["POST"])

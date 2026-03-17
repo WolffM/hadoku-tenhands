@@ -12,6 +12,7 @@ try:
     from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.github_api import set_saml_token_override
+    from ..services.oss_fork import get_fork_lock
     from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from ..helpers.notifications import notify_dispatched
     from ..extensions import limiter
@@ -20,6 +21,7 @@ except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.github_api import set_saml_token_override
+    from services.oss_fork import get_fork_lock
     from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from helpers.notifications import notify_dispatched
     from extensions import limiter
@@ -226,67 +228,71 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
         toolchain_profile = issue_brief["repoHealth"].get("toolchainProfile")
 
     if not is_self_owned:
-        # Third-party repo — fork, wait, and sync
-        # 1. Fork if needed
-        with StepTimer("stage3", "fork", origin_slug, issue_number) as t:
-            if not svc.check_fork_exists(my_user, repo):
-                fork_result = svc.fork_repo(origin_owner, repo)
-                if not fork_result["success"]:
-                    t.status = "error"
-                    t.detail = fork_result.get("error", "fork failed")
-                    plog.error("fork-and-assign FAIL at fork: %s #%s — %s",
-                               origin_slug, issue_number, t.detail)
+        # Third-party repo — fork, wait, and sync.
+        # Acquire a per-repo lock to serialize concurrent dispatches for the
+        # same upstream repo. Prevents the race where two parallel dispatches
+        # both call fork_repo() simultaneously and the second fails with 422.
+        with get_fork_lock(origin_slug):
+            # 1. Fork if needed
+            with StepTimer("stage3", "fork", origin_slug, issue_number) as t:
+                if not svc.check_fork_exists(my_user, repo):
+                    fork_result = svc.fork_repo(origin_owner, repo)
+                    if not fork_result["success"]:
+                        t.status = "error"
+                        t.detail = fork_result.get("error", "fork failed")
+                        plog.error("fork-and-assign FAIL at fork: %s #%s — %s",
+                                   origin_slug, issue_number, t.detail)
+                        return jsonify({
+                            "success": False,
+                            "error": safe_error_message(fork_result.get("error"), "Failed to fork"),
+                            "owner": my_user,
+                        })
+                    t.detail = "fork created"
+                else:
+                    t.detail = "fork already exists"
+
+            # 2. Wait for fork to be ready
+            with StepTimer("stage3", "wait_for_fork", origin_slug, issue_number) as t:
+                if not svc.wait_for_fork(my_user, repo, timeout=60, interval=3):
+                    t.status = "timeout"
+                    t.detail = "fork not ready after 60s"
+                    plog.error("fork-and-assign FAIL at wait: %s #%s — timeout",
+                               origin_slug, issue_number)
                     return jsonify({
                         "success": False,
-                        "error": safe_error_message(fork_result.get("error"), "Failed to fork"),
+                        "error": "Fork creation timed out",
                         "owner": my_user,
                     })
-                t.detail = "fork created"
-            else:
-                t.detail = "fork already exists"
+                t.detail = "fork ready"
 
-        # 2. Wait for fork to be ready
-        with StepTimer("stage3", "wait_for_fork", origin_slug, issue_number) as t:
-            if not svc.wait_for_fork(my_user, repo, timeout=60, interval=3):
-                t.status = "timeout"
-                t.detail = "fork not ready after 60s"
-                plog.error("fork-and-assign FAIL at wait: %s #%s — timeout",
-                           origin_slug, issue_number)
-                return jsonify({
-                    "success": False,
-                    "error": "Fork creation timed out",
-                    "owner": my_user,
-                })
-            t.detail = "fork ready"
+            # 3. Sync fork
+            with StepTimer("stage3", "sync", origin_slug, issue_number) as t:
+                sync_result = svc.sync_fork(my_user, repo)
+                t.detail = "synced" if sync_result.get("success") else f"sync issue: {sync_result.get('error', 'unknown')}"
 
-        # 3. Sync fork
-        with StepTimer("stage3", "sync", origin_slug, issue_number) as t:
-            sync_result = svc.sync_fork(my_user, repo)
-            t.detail = "synced" if sync_result.get("success") else f"sync issue: {sync_result.get('error', 'unknown')}"
+            # 3b. Configure fork settings (issues, Actions, disable upstream workflows)
+            with StepTimer("stage3", "configure", origin_slug, issue_number) as t:
+                svc.configure_fork_settings(my_user, repo, origin_owner=origin_owner)
+                t.detail = "settings configured + upstream workflows disabled"
 
-        # 3b. Configure fork settings (issues, Actions, disable upstream workflows)
-        with StepTimer("stage3", "configure", origin_slug, issue_number) as t:
-            svc.configure_fork_settings(my_user, repo, origin_owner=origin_owner)
-            t.detail = "settings configured + upstream workflows disabled"
+            # 3c. Push all pipeline files in a single commit (copilot instructions + CI + SA)
+            with StepTimer("stage3", "pipeline_files", origin_slug, issue_number) as t:
+                push_result = svc.ensure_pipeline_files(
+                    my_user, repo, language=language, toolchain_profile=toolchain_profile,
+                    origin_owner=origin_owner
+                )
+                if push_result.get("skipped"):
+                    t.detail = "all files unchanged, no commit needed"
+                elif push_result.get("success"):
+                    t.detail = f"pushed {len(push_result.get('files', []))} files in 1 commit"
+                else:
+                    t.status = "error"
+                    t.detail = f"push failed: {push_result.get('error', 'unknown')}"
 
-        # 3c. Push all pipeline files in a single commit (copilot instructions + CI + SA)
-        with StepTimer("stage3", "pipeline_files", origin_slug, issue_number) as t:
-            push_result = svc.ensure_pipeline_files(
-                my_user, repo, language=language, toolchain_profile=toolchain_profile,
-                origin_owner=origin_owner
-            )
-            if push_result.get("skipped"):
-                t.detail = "all files unchanged, no commit needed"
-            elif push_result.get("success"):
-                t.detail = f"pushed {len(push_result.get('files', []))} files in 1 commit"
-            else:
-                t.status = "error"
-                t.detail = f"push failed: {push_result.get('error', 'unknown')}"
-
-        # 3d. Approve any pending workflow runs from previous setups
-        with StepTimer("stage3", "approve_workflows", origin_slug, issue_number) as t:
-            unblocked = svc.approve_pending_workflow_runs(my_user, repo)
-            t.detail = f"{unblocked} runs approved"
+            # 3d. Approve any pending workflow runs from previous setups
+            with StepTimer("stage3", "approve_workflows", origin_slug, issue_number) as t:
+                unblocked = svc.approve_pending_workflow_runs(my_user, repo)
+                t.detail = f"{unblocked} runs approved"
 
     # 4. Check for same-repo overlap with existing assignments
     existing_assignments = svc.get_assigned_issues()
@@ -373,7 +379,10 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
         )
         t.detail = f"saved (branch={default_branch})"
 
-    # 8b. Persist aggregator metadata to assignment
+    # 8b. Track that this repo has been dispatched (for Stage 1 dedup display)
+    svc.track_dispatched_repo(origin_slug)
+
+    # 8c. Persist aggregator metadata to assignment
     aggregator_meta = {}
     if dossier_meta:
         aggregator_meta["dossier"] = dossier_meta

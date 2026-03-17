@@ -178,21 +178,48 @@ def get_repos(limit=100):
 
 
 def get_repo_issues(owner, repo, labels=None):
-    """Get issues for a repository, optionally filtered by labels."""
-    cmd = ["issue", "list", "-R", f"{owner}/{repo}", "--json", "number,title,labels,state,createdAt,assignees,url"]
+    """Get issues for a repository, optionally filtered by labels.
+
+    Uses REST API to avoid GraphQL rate limits.
+    """
+    url = f"repos/{owner}/{repo}/issues?state=open&per_page=100"
     if labels:
-        cmd.extend(["--label", labels])
-    result = run_gh_command(cmd)
+        url += f"&labels={labels}"
+    result = run_gh_command([
+        "api", url,
+        "--jq",
+        '[.[] | select(.pull_request == null) | {'
+        'number: .number, title: .title, labels: .labels, '
+        'state: .state, createdAt: .created_at, '
+        'assignees: .assignees, url: .html_url}]',
+    ])
     if result["success"]:
-        return json.loads(result["output"])
+        try:
+            return json.loads(result["output"])
+        except (json.JSONDecodeError, ValueError):
+            return []
     return []
 
 
 def get_repo_prs(owner, repo):
-    """Get pull requests for a repository."""
-    result = run_gh_command(["pr", "list", "-R", f"{owner}/{repo}", "--json", "number,title,state,createdAt,author,url,headRefName,isDraft,reviewDecision,labels"])
+    """Get pull requests for a repository.
+
+    Uses REST API to avoid GraphQL rate limits.
+    reviewDecision is not available from the REST list endpoint — set to null.
+    """
+    result = run_gh_command([
+        "api", f"repos/{owner}/{repo}/pulls?state=open&per_page=100",
+        "--jq",
+        '[.[] | {number: .number, title: .title, state: .state, '
+        'createdAt: .created_at, author: {login: .user.login}, '
+        'url: .html_url, headRefName: .head.ref, isDraft: .draft, '
+        'reviewDecision: null, labels: .labels}]',
+    ])
     if result["success"]:
-        return json.loads(result["output"])
+        try:
+            return json.loads(result["output"])
+        except (json.JSONDecodeError, ValueError):
+            return []
     return []
 
 
