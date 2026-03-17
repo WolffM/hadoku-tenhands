@@ -13,7 +13,7 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.github_api import set_saml_token_override, is_saml_org
     from ..services.oss_fork import get_fork_lock
-    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
     from ..helpers.notifications import notify_dispatched
     from ..extensions import limiter
     from ..services.pipeline_logger import logger as plog, log_event, StepTimer
@@ -22,7 +22,7 @@ except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.github_api import set_saml_token_override, is_saml_org
     from services.oss_fork import get_fork_lock
-    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
     from helpers.notifications import notify_dispatched
     from extensions import limiter
     from services.pipeline_logger import logger as plog, log_event, StepTimer
@@ -41,25 +41,16 @@ def api_oss_stage3_assigned():
 def api_oss_select_issue():
     """Mark an issue as selected for work."""
     data = request.json
-    req_err = validate_required_fields(data, ["origin_owner", "repo", "issue_number"])
-    if req_err:
-        return jsonify({"success": False, "error": req_err})
-
     origin_owner = data.get("origin_owner")
     repo = data.get("repo")
     issue_number = data.get("issue_number")
     issue_title = data.get("issue_title")
     issue_url = data.get("issue_url")
-
-    owner_err = validate_owner(origin_owner)
-    if owner_err:
-        return jsonify({"success": False, "error": owner_err})
-    repo_err = validate_repo_name(repo)
-    if repo_err:
-        return jsonify({"success": False, "error": repo_err})
-    num_err = validate_issue_number(issue_number)
-    if num_err:
-        return jsonify({"success": False, "error": num_err})
+    err = validate_request_or_error(data, ["origin_owner", "repo", "issue_number"], [
+        (origin_owner, validate_owner), (repo, validate_repo_name), (issue_number, validate_issue_number)
+    ])
+    if err:
+        return err
 
     my_user = get_authenticated_user()
     origin_slug = f"{origin_owner}/{repo}"
@@ -82,25 +73,19 @@ def api_oss_fork_and_assign():
     pipeline-events.jsonl for post-mortem diagnosis.
     """
     data = request.json
-    req_err = validate_required_fields(data, ["origin_owner", "repo", "issue_number", "issue_title", "issue_url"])
-    if req_err:
-        return jsonify({"success": False, "error": req_err})
-
     origin_owner = data.get("origin_owner")
     repo = data.get("repo")
     issue_number = data.get("issue_number")
     issue_title = data.get("issue_title")
     issue_url = data.get("issue_url")
-
-    owner_err = validate_owner(origin_owner)
-    if owner_err:
-        return jsonify({"success": False, "error": owner_err})
-    repo_err = validate_repo_name(repo)
-    if repo_err:
-        return jsonify({"success": False, "error": repo_err})
-    num_err = validate_issue_number(issue_number)
-    if num_err:
-        return jsonify({"success": False, "error": num_err})
+    err = validate_request_or_error(
+        data, ["origin_owner", "repo", "issue_number", "issue_title", "issue_url"], [
+            (origin_owner, validate_owner), (repo, validate_repo_name),
+            (issue_number, validate_issue_number),
+        ]
+    )
+    if err:
+        return err
 
     my_user = get_authenticated_user()
     origin_slug = f"{origin_owner}/{repo}"

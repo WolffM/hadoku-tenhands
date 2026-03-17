@@ -19,14 +19,14 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.pipeline_orchestrator import PipelineOrchestrator
     from ..helpers.oss_helpers import format_upstream_pr_body
-    from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, safe_error_message
+    from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message
     from ..helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
     from helpers.oss_helpers import format_upstream_pr_body
-    from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, safe_error_message
+    from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message
     from helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from extensions import limiter
 
@@ -41,15 +41,11 @@ def api_oss_advance_pipeline():
     Input: { "repo": "email-verifier", "fork_issue_number": 1 }
     """
     data = request.json
-    req_err = validate_required_fields(data, ["repo", "fork_issue_number"])
-    if req_err:
-        return jsonify({"success": False, "error": req_err})
-
-    repo = _normalize_repo_name(data.get("repo"))
+    repo = _normalize_repo_name(data.get("repo", ""))
     fork_issue_number = data.get("fork_issue_number")
-    repo_err = validate_repo_name(repo)
-    if repo_err:
-        return jsonify({"success": False, "error": repo_err})
+    err = validate_request_or_error(data, ["repo", "fork_issue_number"], [(repo, validate_repo_name)])
+    if err:
+        return err
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -187,15 +183,11 @@ def api_oss_stage4_fork_prs():
 def api_oss_fork_pr_details():
     """Get detailed info about a PR on a fork, including diff."""
     data = request.json
-    req_err = validate_required_fields(data, ["repo", "pr_number"])
-    if req_err:
-        return jsonify({"success": False, "error": req_err})
-
-    repo = _normalize_repo_name(data.get("repo"))
+    repo = _normalize_repo_name(data.get("repo", ""))
     pr_number = data.get("pr_number")
-    repo_err = validate_repo_name(repo)
-    if repo_err:
-        return jsonify({"success": False, "error": repo_err})
+    err = validate_request_or_error(data, ["repo", "pr_number"], [(repo, validate_repo_name)])
+    if err:
+        return err
 
     my_user = get_authenticated_user()
 
@@ -226,15 +218,11 @@ def api_oss_fork_pr_details():
 def api_oss_approve_fork_pr():
     """Approve a PR on a fork."""
     data = request.json
-    req_err = validate_required_fields(data, ["repo", "pr_number"])
-    if req_err:
-        return jsonify({"success": False, "error": req_err})
-
-    repo = _normalize_repo_name(data.get("repo"))
+    repo = _normalize_repo_name(data.get("repo", ""))
     pr_number = data.get("pr_number")
-    repo_err = validate_repo_name(repo)
-    if repo_err:
-        return jsonify({"success": False, "error": repo_err})
+    err = validate_request_or_error(data, ["repo", "pr_number"], [(repo, validate_repo_name)])
+    if err:
+        return err
 
     my_user = get_authenticated_user()
 
@@ -282,19 +270,14 @@ def _check_remaining_pr_conflicts(my_user, repo, merged_pr_number):
 def api_oss_merge_fork_pr():
     """Merge a PR on a fork. Captures branch info and transitions to Stage 5."""
     data = request.json
-    req_err = validate_required_fields(data, ["repo", "pr_number", "origin_slug"])
-    if req_err:
-        return jsonify({"success": False, "error": req_err})
-
-    repo = _normalize_repo_name(data.get("repo"))
+    repo = _normalize_repo_name(data.get("repo", ""))
     pr_number = data.get("pr_number")
     origin_slug = data.get("origin_slug")
-    repo_err = validate_repo_name(repo)
-    if repo_err:
-        return jsonify({"success": False, "error": repo_err})
-    slug_err = validate_slug(origin_slug)
-    if slug_err:
-        return jsonify({"success": False, "error": slug_err})
+    err = validate_request_or_error(data, ["repo", "pr_number", "origin_slug"], [
+        (repo, validate_repo_name), (origin_slug, validate_slug)
+    ])
+    if err:
+        return err
 
     my_user = get_authenticated_user()
     svc = OSSService()
@@ -446,20 +429,15 @@ def api_oss_signoff():
              "issue_number": 123 }  // issue_number is optional but recommended for multi-issue repos
     """
     data = request.json
-    req_err = validate_required_fields(data, ["repo", "pr_number", "origin_slug"])
-    if req_err:
-        return jsonify({"success": False, "error": req_err})
-
-    repo = _normalize_repo_name(data.get("repo"))
+    repo = _normalize_repo_name(data.get("repo", ""))
     pr_number = data.get("pr_number")
     origin_slug = data.get("origin_slug")
     issue_number = data.get("issue_number")
-    repo_err = validate_repo_name(repo)
-    if repo_err:
-        return jsonify({"success": False, "error": repo_err})
-    slug_err = validate_slug(origin_slug)
-    if slug_err:
-        return jsonify({"success": False, "error": slug_err})
+    err = validate_request_or_error(data, ["repo", "pr_number", "origin_slug"], [
+        (repo, validate_repo_name), (origin_slug, validate_slug)
+    ])
+    if err:
+        return err
 
     my_user = get_authenticated_user()
     svc = OSSService()

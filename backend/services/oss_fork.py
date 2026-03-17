@@ -10,12 +10,17 @@ import logging
 import os
 import re
 import json
+import subprocess
+import sys
 import tempfile
 import threading
 import time
 import base64
 
 logger = logging.getLogger("pipeline")
+
+# Suppress console windows on Windows when spawning subprocesses
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 try:
     from ..config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
@@ -152,9 +157,6 @@ class OSSForkMixin:
         starts a runner in a background process. Runners are stored in
         ~/actions-runners/{repo}/.
         """
-        import subprocess
-        import os
-        import sys
 
         # Check if a runner is already registered and online
         result = run_gh_command([
@@ -213,7 +215,7 @@ class OSSForkMixin:
 
             # Copy the runner (can't symlink — each needs its own config)
             logger.info("Setting up runner for %s/%s from %s", my_user, repo, template_dir)
-            _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            _flags = _SUBPROCESS_FLAGS
             try:
                 subprocess.run(
                     ["cp", "-r", template_dir, runner_dir],
@@ -231,7 +233,7 @@ class OSSForkMixin:
 
         # Configure the runner
         logger.info("Configuring runner for %s/%s", my_user, repo)
-        _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        _flags = _SUBPROCESS_FLAGS
         try:
             config_proc = subprocess.run(
                 [os.path.join(runner_dir, "config.sh"),
@@ -287,9 +289,6 @@ class OSSForkMixin:
         Tries the REST API first. Falls back to patchright browser automation.
         The _PATCHRIGHT_LOCK semaphore limits concurrent Chromium instances to 1.
         """
-        import subprocess
-        import sys
-        import os
 
         # Try API first (best-effort — endpoint may not exist yet)
         result = run_gh_command([
@@ -315,7 +314,7 @@ class OSSForkMixin:
             return
 
         logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
-        _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        _flags = _SUBPROCESS_FLAGS
         # acquire(timeout=300): wait up to 5 min for another patchright to finish
         if not _PATCHRIGHT_LOCK.acquire(timeout=300):
             logger.warning(
@@ -755,9 +754,7 @@ class OSSForkMixin:
 
         # Create new tree — uses subprocess directly because gh api --input
         # doesn't handle nested JSON tree entries correctly via -f flags
-        import subprocess
-        import sys
-        _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        _flags = _SUBPROCESS_FLAGS
         tree_body = json.dumps({"base_tree": base_tree, "tree": tree_entries})
         try:
             proc = subprocess.run(
