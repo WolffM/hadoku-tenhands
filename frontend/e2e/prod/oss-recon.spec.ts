@@ -1,11 +1,11 @@
 /**
  * Production E2E Tests — OSS Recon Pipeline
  *
- * Hits the REAL Flask backend (port 5000) via Vite dev server (port 5175).
+ * Hits the REAL Flask backend (port 5001) via Vite dev server (port 5175).
  * No route interception — all API calls go to the real aggregator + gh CLI.
  *
  * Requirements:
- *   - Flask backend running on port 5000 with .env loaded
+ *   - Flask backend running on port 5001 with .env loaded
  *   - gh CLI authenticated (gh auth status)
  *   - Aggregator at https://hadoku.me/oss/api (may be down — tests handle gracefully)
  *
@@ -57,8 +57,10 @@ async function navigateToOSSTab(page: Page, tabLabel: string): Promise<void> {
   // Navigate to the requested tab
   if (tabLabel !== 'Pipeline Runs') {
     await page.locator('.stage-tab').filter({ hasText: tabLabel }).click()
-    // Wait for tab content to settle
-    await page.waitForTimeout(2000)
+    // Wait for the tab to become active before asserting its content
+    await expect(page.locator('.stage-tab--active').filter({ hasText: tabLabel })).toBeVisible({
+      timeout: 5000
+    })
   }
 }
 
@@ -168,8 +170,9 @@ test.describe('Prod: OSS Navigation', () => {
     const tabs = ['Fork & Assign', 'Pipeline Runs', 'Review', 'Repo Health']
     for (const tab of tabs) {
       await page.locator('.stage-tab').filter({ hasText: tab }).click()
-      await page.waitForTimeout(2000)
-      await expect(page.locator('.stage-tab--active')).toBeVisible()
+      await expect(page.locator('.stage-tab--active').filter({ hasText: tab })).toBeVisible({
+        timeout: 5000
+      })
     }
   })
 
@@ -217,19 +220,16 @@ test.describe('Prod: OSS Navigation', () => {
 
     // Click Review Queue tab
     await page.locator('.nav-tabs__tab').filter({ hasText: 'Review Queue' }).click()
-    await page.waitForTimeout(2000)
     // Should show the review queue view
     await expect(page.locator('.review-queue-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
 
     // Click Health tab
     await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
-    await page.waitForTimeout(2000)
     // Should show the health view
     await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
 
     // Navigate back to OSS Contrib
     await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
-    await page.waitForTimeout(2000)
     await expect(
       page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
     ).toBeVisible({
@@ -383,9 +383,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
     // Change the first filter (CVS Tier) and verify no crash
     const tierFilter = filterSelects.first()
     await tierFilter.selectOption('go')
-    await page.waitForTimeout(500)
     await tierFilter.selectOption('all')
-    await page.waitForTimeout(500)
   })
 
   test('Select All / Select None buttons work when recommended issues present', async ({
@@ -561,13 +559,11 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
     // Count rows before clicking Show More
     const rowsBefore = await allIssuesSection.locator('.data-table tbody tr').count()
 
-    // Click Show More
+    // Click Show More — wait for row count to increase
     await showMoreBtn.click()
-    await page.waitForTimeout(1000)
-
-    // Should have more rows now
-    const rowsAfter = await allIssuesSection.locator('.data-table tbody tr').count()
-    expect(rowsAfter).toBeGreaterThan(rowsBefore)
+    await expect(allIssuesSection.locator('.data-table tbody tr').nth(rowsBefore)).toBeVisible({
+      timeout: 5000
+    })
   })
 
   test('Dossier panel tabs are clickable and switch content', async ({ page }) => {
@@ -661,35 +657,22 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
 
     // Cycle CVS Tier filter
     await filterSelects.nth(0).selectOption('likely')
-    await page.waitForTimeout(300)
     await filterSelects.nth(0).selectOption('maybe')
-    await page.waitForTimeout(300)
     await filterSelects.nth(0).selectOption('risky')
-    await page.waitForTimeout(300)
     await filterSelects.nth(0).selectOption('all')
-    await page.waitForTimeout(300)
 
     // Cycle Complexity filter
     await filterSelects.nth(1).selectOption('low')
-    await page.waitForTimeout(300)
     await filterSelects.nth(1).selectOption('medium')
-    await page.waitForTimeout(300)
     await filterSelects.nth(1).selectOption('high')
-    await page.waitForTimeout(300)
     await filterSelects.nth(1).selectOption('all')
-    await page.waitForTimeout(300)
 
     // Cycle Lifecycle filter
     await filterSelects.nth(2).selectOption('fresh')
-    await page.waitForTimeout(300)
     await filterSelects.nth(2).selectOption('triaged')
-    await page.waitForTimeout(300)
     await filterSelects.nth(2).selectOption('accepted')
-    await page.waitForTimeout(300)
     await filterSelects.nth(2).selectOption('stale')
-    await page.waitForTimeout(300)
     await filterSelects.nth(2).selectOption('all')
-    await page.waitForTimeout(300)
   })
 })
 
@@ -1243,19 +1226,13 @@ test.describe('Prod: Health View', () => {
 
     // Cycle VibeCheck Status filter
     await filterSelects.nth(0).selectOption('vc-installed')
-    await page.waitForTimeout(300)
     await filterSelects.nth(0).selectOption('vc-not-installed')
-    await page.waitForTimeout(300)
     await filterSelects.nth(0).selectOption('all')
-    await page.waitForTimeout(300)
 
     // Cycle Run Status filter
     await filterSelects.nth(1).selectOption('success')
-    await page.waitForTimeout(300)
     await filterSelects.nth(1).selectOption('failure')
-    await page.waitForTimeout(300)
     await filterSelects.nth(1).selectOption('all')
-    await page.waitForTimeout(300)
   })
 
   test('Health view Show Failed quick filter button works', async ({ page }) => {
@@ -1280,8 +1257,6 @@ test.describe('Prod: Health View', () => {
     if (!(await showFailedBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
 
     await showFailedBtn.click()
-    await page.waitForTimeout(500)
-
     // Run Status filter should now be set to "failure"
     const statusFilter = page.locator('.health-view .filter-select').nth(1)
     await expect(statusFilter).toHaveValue('failure')
@@ -1325,16 +1300,16 @@ test.describe('Prod: Health View', () => {
 test.describe('Prod: Cross-Tab Network Audit', () => {
   test('full tab traversal produces no non-2xx OSS API responses', async ({ page, auditTrail }) => {
     await navigateToOSSTab(page, 'Repo Health')
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     await page.locator('.stage-tab').filter({ hasText: 'Fork & Assign' }).click()
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     await page.locator('.stage-tab').filter({ hasText: 'Pipeline Runs' }).click()
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     await page.locator('.stage-tab').filter({ hasText: 'Review' }).click()
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     // Assert no failed OSS API requests
     const failedOSS = auditTrail.network.filter(n => n.isOSSAPI && n.isError)
@@ -1350,16 +1325,16 @@ test.describe('Prod: Cross-Tab Network Audit', () => {
 
   test('all OSS API responses contain { success: true }', async ({ page, auditTrail }) => {
     await navigateToOSSTab(page, 'Repo Health')
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     await page.locator('.stage-tab').filter({ hasText: 'Fork & Assign' }).click()
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     await page.locator('.stage-tab').filter({ hasText: 'Pipeline Runs' }).click()
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     await page.locator('.stage-tab').filter({ hasText: 'Review' }).click()
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle', { timeout: 15_000 })
 
     const ossResponses = auditTrail.network.filter(n => n.isOSSAPI && n.responseBody)
     const malformed: string[] = []
