@@ -159,6 +159,50 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
             svc.trigger_compute(hyphenated_slug)
             t.detail = "compute triggered (both dossier and brief missing)"
 
+    # Preflight: repo size gate (large repos stress WSL memory during sync/configure)
+    # Threshold: 500MB compressed (GitHub reports size in KB)
+    MAX_REPO_SIZE_KB = 500_000
+    if not is_self_owned:
+        size_result = run_gh_command([
+            "api", f"repos/{origin_owner}/{repo}", "--jq", ".size"
+        ])
+        if size_result["success"]:
+            try:
+                repo_size_kb = int(size_result["output"].strip())
+                if repo_size_kb > MAX_REPO_SIZE_KB:
+                    plog.warning(
+                        "fork-and-assign BLOCKED (repo too large): %s — %dMB > %dMB limit",
+                        origin_slug, repo_size_kb // 1024, MAX_REPO_SIZE_KB // 1024
+                    )
+                    return jsonify({
+                        "success": False,
+                        "error": f"Repo too large ({repo_size_kb // 1024}MB) — exceeds {MAX_REPO_SIZE_KB // 1024}MB limit",
+                        "repo_size_mb": repo_size_kb // 1024,
+                        "owner": my_user,
+                    })
+            except (ValueError, TypeError):
+                pass
+
+    # Preflight: rate limit check (require at least 200 core REST calls remaining)
+    MIN_CORE_REMAINING = 200
+    rl_result = run_gh_command(["api", "rate_limit", "--jq", ".resources.core.remaining"])
+    if rl_result["success"]:
+        try:
+            core_remaining = int(rl_result["output"].strip())
+            if core_remaining < MIN_CORE_REMAINING:
+                plog.warning(
+                    "fork-and-assign BLOCKED (rate limit): %s — only %d core calls remaining",
+                    origin_slug, core_remaining
+                )
+                return jsonify({
+                    "success": False,
+                    "error": f"GitHub rate limit too low ({core_remaining} remaining) — try again later",
+                    "rate_limit_remaining": core_remaining,
+                    "owner": my_user,
+                })
+        except (ValueError, TypeError):
+            pass
+
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
     if existing:
@@ -271,11 +315,14 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
         t.extra = {"context_tier": tier, "context_sources": sources}
 
     # 6. Create context issue on target repo (fork or self-owned)
+    # Use REST API (gh api POST) instead of gh issue create (GraphQL) to avoid GraphQL rate limits.
     with StepTimer("stage3", "create_issue", origin_slug, issue_number) as t:
+        import json as _json
         create_result = run_gh_command([
-            "issue", "create", "-R", f"{my_user}/{repo}",
-            "--title", f"[OSS] Fix: {issue_title}",
-            "--body", context_body
+            "api", f"repos/{my_user}/{repo}/issues",
+            "-X", "POST",
+            "-f", f"title=[OSS] Fix: {issue_title}",
+            "-f", f"body={context_body}"
         ])
 
         if not create_result["success"]:
@@ -288,25 +335,27 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
                 "error": safe_error_message(create_result.get("error"), "Failed to create issue"),
                 "owner": my_user,
             })
-        fork_issue_url = create_result["output"].strip()
-        fork_issue_number = fork_issue_url.split("/")[-1]
+        create_data = _json.loads(create_result["output"])
+        fork_issue_url = create_data["html_url"]
+        fork_issue_number = str(create_data["number"])
         t.detail = f"created fork issue #{fork_issue_number}"
 
-    # 7. Assign Copilot (retry once — GraphQL lags behind issue creation)
+    # 7. Assign Copilot (retry once — API lags behind issue creation)
+    # Use REST API instead of gh issue edit (GraphQL) to avoid GraphQL rate limits.
     with StepTimer("stage3", "assign_copilot", origin_slug, issue_number) as t:
         import time as _time
+        import json as _json2
+        _assignees_payload = _json2.dumps({"assignees": [COPILOT_ASSIGNEE]})
         assign_result = run_gh_command([
-            "issue", "edit", fork_issue_number,
-            "-R", f"{my_user}/{repo}",
-            "--add-assignee", COPILOT_ASSIGNEE
-        ])
+            "api", f"repos/{my_user}/{repo}/issues/{fork_issue_number}/assignees",
+            "-X", "POST", "--input", "-"
+        ], stdin_data=_assignees_payload)
         if not assign_result.get("success"):
             _time.sleep(3)
             assign_result = run_gh_command([
-                "issue", "edit", fork_issue_number,
-                "-R", f"{my_user}/{repo}",
-                "--add-assignee", COPILOT_ASSIGNEE
-            ])
+                "api", f"repos/{my_user}/{repo}/issues/{fork_issue_number}/assignees",
+                "-X", "POST", "--input", "-"
+            ], stdin_data=_assignees_payload)
         if assign_result.get("success"):
             t.detail = f"assigned {COPILOT_ASSIGNEE} to #{fork_issue_number}"
         else:

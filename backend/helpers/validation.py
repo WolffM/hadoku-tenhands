@@ -108,22 +108,6 @@ def to_aggregator_slug(slug):
     return slug.replace("/", "-")
 
 
-def parse_gh_json(result):
-    """Parse JSON output from a gh CLI command result dict.
-
-    Args:
-        result: dict with 'success' and 'output' keys from run_gh_command.
-
-    Returns:
-        Parsed JSON data, or None if parsing fails or result was unsuccessful.
-    """
-    if not result or not result.get("success"):
-        return None
-    try:
-        return json.loads(result["output"])
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
-
 
 # Known gh CLI error patterns → safe user-facing messages
 _ERROR_PATTERNS = [
@@ -152,17 +136,6 @@ def validate_required_fields(data, fields):
         return f"Missing required fields: {', '.join(missing)}"
     return None
 
-
-def success_response(data):
-    """Return a standard success JSON response."""
-    from flask import jsonify
-    return jsonify({"success": True, **data})
-
-
-def error_response(message, status_code=400):
-    """Return a standard error JSON response."""
-    from flask import jsonify
-    return jsonify({"success": False, "error": message}), status_code
 
 
 def safe_error_message(raw_error, default="Operation failed"):

@@ -405,7 +405,7 @@ class TestForkAndAssign:
 
         mock_gh.return_value = {
             "success": True,
-            "output": "https://github.com/testuser/fastify/issues/1\n",
+            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
         }
 
         client.post(
@@ -437,7 +437,7 @@ class TestForkAndAssign:
 
         mock_gh.return_value = {
             "success": True,
-            "output": "https://github.com/testuser/myrepo/issues/1\n",
+            "output": '{"html_url": "https://github.com/testuser/myrepo/issues/1", "number": 1}\n',
         }
 
         resp = client.post(
@@ -476,7 +476,7 @@ class TestForkAndAssign:
 
         mock_gh.return_value = {
             "success": True,
-            "output": "https://github.com/testuser/fastify/issues/1\n",
+            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
         }
 
         resp = client.post(
@@ -516,7 +516,7 @@ class TestForkAndAssign:
 
         mock_gh.return_value = {
             "success": True,
-            "output": "https://github.com/testuser/fastify/issues/1\n",
+            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
         }
 
         resp = client.post(
@@ -998,7 +998,7 @@ class TestSubmitToOrigin:
         call_args = mock_gh.call_args[0][0]
         body_idx = call_args.index("--body") + 1
         assert len(call_args[body_idx]) > 0
-        assert "fastify/fastify" in call_args[body_idx]
+        assert "Closes #42" in call_args[body_idx]
 
     @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
