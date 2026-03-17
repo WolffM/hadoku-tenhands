@@ -1036,56 +1036,6 @@ class TestCIWorkflow:
         workflow = OSSService._build_ci_workflow(None)
         assert "No language-specific CI configured" in workflow
 
-    @patch("services.oss_fork.run_gh_command")
-    def test_ensure_ci_workflow_creates_new_file(self, mock_gh):
-        mock_gh.side_effect = [
-            # Language detection skipped (language provided)
-            # Check if workflow exists — not found
-            {"success": False, "output": ""},
-            # PUT to create file
-            {"success": True, "output": "{}"},
-        ]
-        svc = OSSService()
-        svc.ensure_ci_workflow("myuser", "myrepo", language="Go")
-
-        # Should have called PUT without sha
-        put_call = mock_gh.call_args_list[-1]
-        cmd = put_call[0][0]
-        assert "ci.yml" in " ".join(cmd)
-        assert "sha=" not in " ".join(cmd)
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_ensure_ci_workflow_updates_existing_file(self, mock_gh):
-        mock_gh.side_effect = [
-            # Check if workflow exists — found with sha
-            {"success": True, "output": "abc123sha"},
-            # PUT to update file
-            {"success": True, "output": "{}"},
-        ]
-        svc = OSSService()
-        svc.ensure_ci_workflow("myuser", "myrepo", language="Python")
-
-        # Should have called PUT with sha
-        put_call = mock_gh.call_args_list[-1]
-        cmd = put_call[0][0]
-        assert "sha=abc123sha" in " ".join(cmd)
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_ensure_ci_workflow_uses_generic_when_no_language(self, mock_gh):
-        """When no language is provided, should use generic workflow (no detection API calls)."""
-        mock_gh.side_effect = [
-            # Check if workflow exists — not found
-            {"success": False, "output": ""},
-            # PUT to create file
-            {"success": True, "output": "{}"},
-        ]
-        svc = OSSService()
-        svc.ensure_ci_workflow("myuser", "myrepo")  # No language
-
-        # Should only make 2 calls: check existence + create file (no language detection)
-        assert mock_gh.call_count == 2
-
-
 class TestPipelineFileStripping:
     """Tests for pipeline file stripping during create_clean_branch."""
 
@@ -1279,66 +1229,6 @@ class TestForkSettings:
         approved = svc.approve_pending_workflow_runs("myuser", "myrepo")
 
         assert approved == 0
-
-
-class TestCopilotReview:
-    """Tests for request_copilot_review and review helpers."""
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_request_copilot_review_calls_correct_api(self, mock_gh):
-        mock_gh.return_value = {"success": True, "output": "{}"}
-        svc = OSSService()
-        result = svc.request_copilot_review("myuser", "myrepo", 42)
-
-        assert result["success"] is True
-        mock_gh.assert_called_once()
-        cmd = mock_gh.call_args[0][0]
-        assert "repos/myuser/myrepo/pulls/42/requested_reviewers" in " ".join(cmd)
-        assert "copilot-pull-request-reviewer[bot]" in " ".join(cmd)
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_get_pr_check_runs_returns_checks(self, mock_gh):
-        mock_gh.side_effect = [
-            # Get head SHA
-            {"success": True, "output": "abc123\n"},
-            # Get check runs
-            {"success": True, "output": '{"name":"CI","status":"completed","conclusion":"success"}\n{"name":"CodeQL","status":"completed","conclusion":"failure"}\n'},
-        ]
-        svc = OSSService()
-        checks = svc.get_pr_check_runs("myuser", "myrepo", 42)
-
-        assert len(checks) == 2
-        assert checks[0]["name"] == "CI"
-        assert checks[0]["conclusion"] == "success"
-        assert checks[1]["name"] == "CodeQL"
-        assert checks[1]["conclusion"] == "failure"
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_get_pr_check_runs_returns_empty_on_failure(self, mock_gh):
-        mock_gh.return_value = {"success": False, "output": ""}
-        svc = OSSService()
-        checks = svc.get_pr_check_runs("myuser", "myrepo", 42)
-        assert checks == []
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_get_pr_reviews_returns_reviews(self, mock_gh):
-        mock_gh.return_value = {
-            "success": True,
-            "output": '{"user":"copilot-pull-request-reviewer[bot]","state":"APPROVED","body":"LGTM"}\n',
-        }
-        svc = OSSService()
-        reviews = svc.get_pr_reviews("myuser", "myrepo", 42)
-
-        assert len(reviews) == 1
-        assert reviews[0]["user"] == "copilot-pull-request-reviewer[bot]"
-        assert reviews[0]["state"] == "APPROVED"
-
-    @patch("services.oss_fork.run_gh_command")
-    def test_get_pr_reviews_returns_empty_on_failure(self, mock_gh):
-        mock_gh.return_value = {"success": False, "output": ""}
-        svc = OSSService()
-        reviews = svc.get_pr_reviews("myuser", "myrepo", 42)
-        assert reviews == []
 
 
 class TestAssignmentUpdate:

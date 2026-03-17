@@ -669,47 +669,6 @@ class OSSForkMixin:
 
     # --- File push operations ---
 
-    def _push_file_to_repo(self, my_user, repo, file_path, content, commit_message):
-        """Push a file to a repo via the GitHub Contents API (create or update).
-
-        Skips the push if the file already exists with identical content
-        to avoid creating unnecessary commits on the default branch.
-        """
-        import logging
-        _logger = logging.getLogger("pipeline")
-
-        check = run_gh_command([
-            "api", f"repos/{my_user}/{repo}/contents/{file_path}",
-            "--jq", "{sha: .sha, content: .content, encoding: .encoding}"
-        ])
-
-        if check["success"] and check["output"].strip():
-            try:
-                existing = json.loads(check["output"])
-                existing_sha = existing.get("sha", "")
-                # Compare content — GitHub returns base64 with newlines
-                existing_content = base64.b64decode(
-                    existing.get("content", "").replace("\n", "")
-                ).decode("utf-8")
-                if existing_content == content:
-                    _logger.debug("Skip push %s (unchanged) on %s/%s", file_path, my_user, repo)
-                    return {"success": True, "output": "unchanged", "skipped": True}
-            except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
-                existing_sha = check["output"].strip()
-        else:
-            existing_sha = None
-
-        encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-        cmd = [
-            "api", f"repos/{my_user}/{repo}/contents/{file_path}",
-            "-X", "PUT",
-            "-f", f"message={commit_message}",
-            "-f", f"content={encoded}",
-        ]
-        if existing_sha:
-            cmd.extend(["-f", f"sha={existing_sha}"])
-        return run_gh_command(cmd)
-
     def _push_files_as_single_commit(self, my_user, repo, files, commit_message):
         """Push multiple files in a single commit via the Git Data API.
 
@@ -918,63 +877,6 @@ class OSSForkMixin:
             (".github/workflows/copilot-setup-steps.yml", setup_steps_yaml),
         ], "Configure pipeline: copilot instructions, CI, and static analysis")
 
-    # Keep individual methods for backward compatibility / targeted updates
-    def ensure_copilot_instructions(self, my_user, repo):
-        """Write .github/copilot-instructions.md on the fork. Prefer ensure_pipeline_files()."""
-        content = (
-            "# Copilot Coding Agent Instructions\n\n"
-            "## Mandatory Workflow (MUST follow in order)\n\n"
-            "### Phase 1: Reproduce (MUST complete before Phase 2)\n"
-            "- Read the issue description and understand the problem.\n"
-            "- Write a failing test or run the existing test suite to confirm the bug.\n"
-            "- **Do NOT proceed to Phase 2 until you have a confirmed failure.**\n\n"
-            "### Phase 2: Implement (MUST complete before Phase 3)\n"
-            "- Make the minimal code change to fix the bug.\n"
-            "- Do NOT refactor unrelated code or add features.\n\n"
-            "### Phase 3: Verify (MUST complete before committing)\n"
-            "- Re-run the specific test from Phase 1 and confirm it passes.\n"
-            "- Run the full test suite to check for regressions.\n"
-            "- **Do NOT commit until all tests pass.**\n\n"
-            "## Rules\n"
-            "- DO NOT reference, close, or link any external issues. "
-            "No Closes, Fixes, or Resolves directives.\n"
-            "- DO NOT use GitHub MCP tools to look up issues on other repositories.\n"
-            "- DO NOT modify or weaken a test to make it pass.\n"
-            "- DO NOT commit __pycache__/ directories. Add to .gitignore if missing.\n"
-            "- Keep changes minimal and focused.\n"
-        )
-        self._push_file_to_repo(
-            my_user, repo,
-            ".github/copilot-instructions.md",
-            content,
-            "Add Copilot workflow instructions",
-        )
-
-    def ensure_ci_workflow(self, my_user, repo, language=None):
-        """Push a CI workflow to the fork. Prefer ensure_pipeline_files()."""
-        workflow_yaml = self._build_ci_workflow(language)
-        self._push_file_to_repo(
-            my_user, repo,
-            ".github/workflows/ci.yml",
-            workflow_yaml,
-            "Add CI workflow for automated testing",
-        )
-
-    def ensure_static_analysis_workflow(self, my_user, repo, toolchain_profile=None,
-                                         language=None):
-        """Push a static-analysis workflow to the fork. Prefer ensure_pipeline_files()."""
-        from .workflow_templates import build_jobs_from_toolchain, render_static_analysis_workflow
-
-        jobs = build_jobs_from_toolchain(toolchain_profile, language)
-        workflow_yaml = render_static_analysis_workflow(jobs)
-        self._push_file_to_repo(
-            my_user, repo,
-            ".github/workflows/static-analysis.yml",
-            workflow_yaml,
-            "Add static analysis workflow (Stage 4b)",
-        )
-
-
     @staticmethod
     def _build_ci_workflow(language):
         """Build a CI workflow YAML appropriate for the detected language."""
@@ -1097,49 +999,3 @@ class OSSForkMixin:
         else:
             return header
 
-    # --- PR review helpers ---
-
-    def request_copilot_review(self, my_user, repo, pr_number):
-        """Request Copilot code review on a PR."""
-        return run_gh_command([
-            "api", "-X", "POST",
-            f"repos/{my_user}/{repo}/pulls/{pr_number}/requested_reviewers",
-            "-f", f"reviewers[]={COPILOT_REVIEWER}"
-        ])
-
-    def get_pr_check_runs(self, my_user, repo, pr_number):
-        """Get CI check run results for a PR.
-
-        Returns list of {name, status, conclusion} or empty list on failure.
-        """
-        # Get the head SHA of the PR
-        pr_result = run_gh_command([
-            "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
-            "--json", "headRefOid", "--jq", ".headRefOid"
-        ])
-        if not pr_result["success"] or not pr_result["output"].strip():
-            return []
-
-        head_sha = pr_result["output"].strip()
-        checks_result = run_gh_command([
-            "api", f"repos/{my_user}/{repo}/commits/{head_sha}/check-runs",
-            "--jq", ".check_runs[] | {name, status, conclusion}"
-        ])
-        if not checks_result["success"]:
-            return []
-
-        return _parse_jsonl(checks_result["output"])
-
-    def get_pr_reviews(self, my_user, repo, pr_number):
-        """Get reviews on a PR.
-
-        Returns list of {user, state, body} or empty list on failure.
-        """
-        result = run_gh_command([
-            "api", f"repos/{my_user}/{repo}/pulls/{pr_number}/reviews",
-            "--jq", ".[] | {user: .user.login, state: .state, body: .body}"
-        ])
-        if not result["success"]:
-            return []
-
-        return _parse_jsonl(result["output"])
