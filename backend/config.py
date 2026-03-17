@@ -6,7 +6,7 @@ import os
 
 # Platform constants - centralize here so they are easy to swap for other platforms
 PLATFORM_PREFIX = "github"  # Used in issue ID format: "github-owner-repo-number"
-COPILOT_ASSIGNEE = "@Copilot"
+COPILOT_ASSIGNEE = "copilot-swe-agent[bot]"
 COPILOT_REVIEWER = "copilot-pull-request-reviewer[bot]"
 COPILOT_MENTION = "@copilot"
 COPILOT_CHECK_RUN_NAME = "copilot"
