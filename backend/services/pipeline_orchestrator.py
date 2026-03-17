@@ -418,6 +418,21 @@ class PipelineOrchestrator:
                 pass
         return 0
 
+    def _get_sa_findings(self, assignment, ctx):
+        """Return SA findings string (truncated to 5000 chars) or empty string."""
+        if not assignment.get("stage4_sa_run_id"):
+            return ""
+        sa_dispatcher = self.dispatchers.get("static_analysis")
+        if not sa_dispatcher:
+            return ""
+        sa_results = sa_dispatcher.collect_results(None, ctx)
+        if not sa_results.get("success"):
+            return ""
+        findings = sa_results["outputs"].get("findings", "")
+        if len(findings) > 5000:
+            findings = findings[:5000] + "\n... (truncated)"
+        return findings
+
     def _build_remediation_context(self, assignment, ctx):
         """Build remediation prompt from review comments + SA findings."""
         parts = ["## Remediation Required\n"]
@@ -441,20 +456,12 @@ class PipelineOrchestrator:
                 )
 
         # Gather SA findings that survived auto-fix
-        sa_run_id = assignment.get("stage4_sa_run_id")
-        if sa_run_id:
-            sa_dispatcher = self.dispatchers.get("static_analysis")
-            if sa_dispatcher:
-                sa_results = sa_dispatcher.collect_results(None, ctx)
-                if sa_results.get("success"):
-                    findings = sa_results["outputs"].get("findings", "")
-                    if findings:
-                        if len(findings) > 5000:
-                            findings = findings[:5000] + "\n... (truncated)"
-                        parts.append(
-                            "### Static Analysis Findings (post auto-fix)\n"
-                            f"```\n{findings}\n```\n"
-                        )
+        findings = self._get_sa_findings(assignment, ctx)
+        if findings:
+            parts.append(
+                "### Static Analysis Findings (post auto-fix)\n"
+                f"```\n{findings}\n```\n"
+            )
 
         parts.append(
             "### Instructions\n"
@@ -671,21 +678,12 @@ class PipelineOrchestrator:
                     )
 
         # Get static analysis findings
-        sa_run_id = assignment.get("stage4_sa_run_id")
-        if sa_run_id:
-            sa_dispatcher = self.dispatchers.get("static_analysis")
-            if sa_dispatcher:
-                sa_results = sa_dispatcher.collect_results(None, ctx)
-                if sa_results.get("success"):
-                    findings = sa_results["outputs"].get("findings", "")
-                    if findings:
-                        # Truncate for review context
-                        if len(findings) > 5000:
-                            findings = findings[:5000] + "\n... (truncated)"
-                        parts.append(
-                            "### Static Analysis Findings\n"
-                            f"```\n{findings}\n```\n"
-                        )
+        findings = self._get_sa_findings(assignment, ctx)
+        if findings:
+            parts.append(
+                "### Static Analysis Findings\n"
+                f"```\n{findings}\n```\n"
+            )
 
         parts.append(
             "### Review Instructions\n"
