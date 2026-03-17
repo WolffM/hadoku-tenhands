@@ -15,7 +15,7 @@ import threading
 import time
 import base64
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pipeline")
 
 try:
     from ..config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
@@ -69,7 +69,7 @@ class OSSForkMixin:
         # Get the fork's default branch first
         branch_result = run_gh_command(["api", f"repos/{my_user}/{repo}", "--jq", ".default_branch"])
         if not branch_result["success"]:
-            _logger.error(
+            logger.error(
                 "sync_fork: could not fetch default branch for %s/%s: %s",
                 my_user, repo, branch_result.get("error", "unknown error")
             )
@@ -111,8 +111,6 @@ class OSSForkMixin:
             origin_owner: Upstream repo owner. SAML-protected orgs force the
                 Copilot firewall on, so self-hosted runner setup is skipped.
         """
-        import logging
-        _logger = logging.getLogger("pipeline")
         from .github_api import is_saml_org
 
         # 1. Enable issues (forks inherit has_issues=false)
@@ -138,7 +136,7 @@ class OSSForkMixin:
         # SAML-protected orgs (e.g. Microsoft) force COPILOT_AGENT_FIREWALL_ENABLED=true
         # on forks, which blocks self-hosted runners. Those forks use github-hosted.
         if is_saml_org(origin_owner):
-            _logger.info(
+            logger.info(
                 "Skipping self-hosted runner + firewall toggle for %s/%s "
                 "(SAML org %s forces firewall — using github-hosted runners)",
                 my_user, repo, origin_owner
@@ -154,11 +152,9 @@ class OSSForkMixin:
         starts a runner in a background process. Runners are stored in
         ~/actions-runners/{repo}/.
         """
-        import logging
         import subprocess
         import os
         import sys
-        _logger = logging.getLogger("pipeline")
 
         # Check if a runner is already registered and online
         result = run_gh_command([
@@ -166,7 +162,7 @@ class OSSForkMixin:
             "--jq", ".runners[] | select(.status==\"online\") | .name"
         ])
         if result["success"] and result["output"].strip():
-            _logger.debug("Runner already online for %s/%s: %s",
+            logger.debug("Runner already online for %s/%s: %s",
                          my_user, repo, result["output"].strip().split("\n")[0])
             return
 
@@ -177,7 +173,7 @@ class OSSForkMixin:
             "--jq", ".token"
         ])
         if not token_result["success"]:
-            _logger.warning("Failed to get runner registration token for %s/%s", my_user, repo)
+            logger.warning("Failed to get runner registration token for %s/%s", my_user, repo)
             return
 
         token = token_result["output"].strip()
@@ -208,7 +204,7 @@ class OSSForkMixin:
                         break
 
             if not template_dir:
-                _logger.warning(
+                logger.warning(
                     "No runner template found. Please install a GitHub Actions runner at "
                     "~/actions-runners/template/ first. See: "
                     "https://github.com/actions/runner/releases"
@@ -216,7 +212,7 @@ class OSSForkMixin:
                 return
 
             # Copy the runner (can't symlink — each needs its own config)
-            _logger.info("Setting up runner for %s/%s from %s", my_user, repo, template_dir)
+            logger.info("Setting up runner for %s/%s from %s", my_user, repo, template_dir)
             _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             try:
                 subprocess.run(
@@ -230,11 +226,11 @@ class OSSForkMixin:
                     if os.path.exists(stale_path):
                         os.remove(stale_path)
             except Exception as e:
-                _logger.warning("Failed to copy runner template: %s", e)
+                logger.warning("Failed to copy runner template: %s", e)
                 return
 
         # Configure the runner
-        _logger.info("Configuring runner for %s/%s", my_user, repo)
+        logger.info("Configuring runner for %s/%s", my_user, repo)
         _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
         try:
             config_proc = subprocess.run(
@@ -248,15 +244,15 @@ class OSSForkMixin:
                 cwd=runner_dir, creationflags=_flags
             )
             if config_proc.returncode != 0:
-                _logger.warning("Runner config failed for %s/%s: %s",
+                logger.warning("Runner config failed for %s/%s: %s",
                                my_user, repo, config_proc.stderr[:200])
                 return
         except Exception as e:
-            _logger.warning("Runner config error for %s/%s: %s", my_user, repo, e)
+            logger.warning("Runner config error for %s/%s: %s", my_user, repo, e)
             return
 
         # Start the runner in the background
-        _logger.info("Starting runner for %s/%s", my_user, repo)
+        logger.info("Starting runner for %s/%s", my_user, repo)
         try:
             subprocess.Popen(
                 [os.path.join(runner_dir, "run.sh")],
@@ -265,9 +261,9 @@ class OSSForkMixin:
                 cwd=runner_dir,
                 start_new_session=True,
             )
-            _logger.info("Runner started for %s/%s (pid in background)", my_user, repo)
+            logger.info("Runner started for %s/%s (pid in background)", my_user, repo)
         except Exception as e:
-            _logger.warning("Failed to start runner for %s/%s: %s", my_user, repo, e)
+            logger.warning("Failed to start runner for %s/%s: %s", my_user, repo, e)
 
     def _disable_copilot_firewall(self, my_user, repo):
         """Disable the Copilot coding agent firewall asynchronously.
@@ -294,7 +290,6 @@ class OSSForkMixin:
         import subprocess
         import sys
         import os
-        _logger = logging.getLogger("pipeline")
 
         # Try API first (best-effort — endpoint may not exist yet)
         result = run_gh_command([
@@ -303,7 +298,7 @@ class OSSForkMixin:
             "-f", "firewall_enabled=false"
         ])
         if result["success"]:
-            _logger.info("Disabled Copilot firewall via API on %s/%s", my_user, repo)
+            logger.info("Disabled Copilot firewall via API on %s/%s", my_user, repo)
             return
 
         # Fall back to patchright browser automation
@@ -312,18 +307,18 @@ class OSSForkMixin:
             "scripts", "disable-copilot-firewall.py"
         )
         if not os.path.exists(script_path):
-            _logger.warning(
+            logger.warning(
                 "Cannot disable Copilot firewall on %s/%s — no API and script not found at %s. "
                 "Disable manually at: https://github.com/%s/%s/settings/copilot/coding_agent",
                 my_user, repo, script_path, my_user, repo
             )
             return
 
-        _logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
+        logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
         _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
         # acquire(timeout=300): wait up to 5 min for another patchright to finish
         if not _PATCHRIGHT_LOCK.acquire(timeout=300):
-            _logger.warning(
+            logger.warning(
                 "Patchright semaphore timeout for %s/%s — skipping firewall disable",
                 my_user, repo
             )
@@ -335,16 +330,16 @@ class OSSForkMixin:
                 creationflags=_flags,
             )
             if proc.returncode == 0:
-                _logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
+                logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
             else:
-                _logger.warning(
+                logger.warning(
                     "Patchright firewall disable failed on %s/%s: %s",
                     my_user, repo, proc.stderr[:200]
                 )
         except subprocess.TimeoutExpired:
-            _logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
+            logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
         except Exception as e:
-            _logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
+            logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
         finally:
             _PATCHRIGHT_LOCK.release()
 
@@ -356,9 +351,6 @@ class OSSForkMixin:
         runaway Actions billing when we push workflow files or the agent
         creates PRs.
         """
-        import logging
-        _logger = logging.getLogger("pipeline")
-
         # Workflows we want to keep enabled
         keep_patterns = {
             "ci.yml",                    # our CI
@@ -400,7 +392,7 @@ class OSSForkMixin:
                     disabled_count += 1
 
         if disabled_count:
-            _logger.info("Disabled %d upstream workflows on %s/%s", disabled_count, my_user, repo)
+            logger.info("Disabled %d upstream workflows on %s/%s", disabled_count, my_user, repo)
 
     def approve_pending_workflow_runs(self, my_user, repo):
         """Unblock any workflow runs waiting for approval on the fork.
@@ -473,7 +465,7 @@ class OSSForkMixin:
         if result["success"] and result["output"].strip():
             return result["output"].strip()
 
-        _logger.error(
+        logger.error(
             "get_default_branch: all sources failed for %s/%s — gh api returned: %s",
             owner, repo, result.get("error", "unknown error")
         )
@@ -489,7 +481,7 @@ class OSSForkMixin:
             uid = data.get("id", "")
             email = GITHUB_NOREPLY_EMAIL_TEMPLATE.format(uid=uid, login=login)
             return {"name": name, "email": email, "login": login}
-        _logger.error("get_user_identity failed: %s", result.get("error", "unknown error"))
+        logger.error("get_user_identity failed: %s", result.get("error", "unknown error"))
         return None
 
     # Files pushed by ensure_pipeline_files() that must NEVER appear in upstream PRs.
@@ -683,15 +675,12 @@ class OSSForkMixin:
         Args:
             files: list of (path, content) tuples
         """
-        import logging
-        _logger = logging.getLogger("pipeline")
-
         # Get default branch and its HEAD
         branch_result = run_gh_command([
             "api", f"repos/{my_user}/{repo}", "--jq", ".default_branch"
         ])
         if not branch_result["success"]:
-            _logger.warning("Failed to get default branch for %s/%s", my_user, repo)
+            logger.warning("Failed to get default branch for %s/%s", my_user, repo)
             return {"success": False, "error": "could not get default branch"}
 
         branch = branch_result["output"].strip()
@@ -700,7 +689,7 @@ class OSSForkMixin:
             "--jq", ".object.sha"
         ])
         if not ref_result["success"]:
-            _logger.warning("Failed to get HEAD ref for %s/%s:%s", my_user, repo, branch)
+            logger.warning("Failed to get HEAD ref for %s/%s:%s", my_user, repo, branch)
             return {"success": False, "error": "could not get HEAD ref"}
 
         head_sha = ref_result["output"].strip()
@@ -728,16 +717,16 @@ class OSSForkMixin:
                         check["output"].strip().replace("\n", "")
                     ).decode("utf-8")
                     if existing == content:
-                        _logger.debug("Skip %s (unchanged)", path)
+                        logger.debug("Skip %s (unchanged)", path)
                         continue
                 except UnicodeDecodeError:
                     pass  # Binary file — can't compare content as text, push it
                 except Exception as e:
-                    _logger.warning("Unexpected error comparing %s content: %s", path, e)
+                    logger.warning("Unexpected error comparing %s content: %s", path, e)
             files_to_push.append((path, content))
 
         if not files_to_push:
-            _logger.debug("All files unchanged on %s/%s, skipping commit", my_user, repo)
+            logger.debug("All files unchanged on %s/%s, skipping commit", my_user, repo)
             return {"success": True, "output": "all unchanged", "skipped": True}
 
         # Create blobs and tree entries
@@ -751,11 +740,11 @@ class OSSForkMixin:
                 "-f", "encoding=base64",
             ])
             if not blob_result["success"]:
-                _logger.error("Failed to create blob for %s: %s", path, blob_result.get("error", "unknown error"))
+                logger.error("Failed to create blob for %s: %s", path, blob_result.get("error", "unknown error"))
                 continue
             blob_sha = json.loads(blob_result["output"]).get("sha")
             if not blob_sha:
-                _logger.error("Blob API returned no sha for %s — response: %r", path, blob_result["output"][:200])
+                logger.error("Blob API returned no sha for %s — response: %r", path, blob_result["output"][:200])
                 continue
             tree_entries.append({
                 "path": path, "mode": "100644", "type": "blob", "sha": blob_sha
@@ -779,11 +768,11 @@ class OSSForkMixin:
                 creationflags=_flags, timeout=30
             )
             if proc.returncode != 0:
-                _logger.warning("Failed to create tree: %s", proc.stderr[:200])
+                logger.warning("Failed to create tree: %s", proc.stderr[:200])
                 return {"success": False, "error": "tree creation failed"}
             new_tree_sha = json.loads(proc.stdout).get("sha")
         except Exception as e:
-            _logger.warning("Tree creation error: %s", e)
+            logger.warning("Tree creation error: %s", e)
             return {"success": False, "error": str(e)}
 
         # Create commit
@@ -801,7 +790,7 @@ class OSSForkMixin:
                 creationflags=_flags, timeout=30
             )
             if proc.returncode != 0:
-                _logger.warning("Failed to create commit: %s", proc.stderr[:200])
+                logger.warning("Failed to create commit: %s", proc.stderr[:200])
                 return {"success": False, "error": "commit creation failed"}
             new_commit_sha = json.loads(proc.stdout).get("sha")
         except Exception as e:
@@ -817,7 +806,7 @@ class OSSForkMixin:
             return {"success": False, "error": "ref update failed"}
 
         pushed = [p for p, _ in files_to_push]
-        _logger.info("Pushed %d files in 1 commit to %s/%s: %s",
+        logger.info("Pushed %d files in 1 commit to %s/%s: %s",
                       len(pushed), my_user, repo, pushed)
         return {"success": True, "output": new_commit_sha, "files": pushed}
 
