@@ -10,12 +10,15 @@ and register it in the dispatcher registry.
 """
 
 import json
+import logging
 
 try:
     from ..config import COPILOT_REVIEWER, COPILOT_MENTION, COPILOT_CHECK_RUN_NAME
 except ImportError:
     from config import COPILOT_REVIEWER, COPILOT_MENTION, COPILOT_CHECK_RUN_NAME
 from .github_api import run_gh_command
+
+logger = logging.getLogger(__name__)
 
 
 class StageDispatcher:
@@ -189,13 +192,13 @@ class CopilotSWEDispatcher(StageDispatcher):
                     shas = json.loads(commits_result["output"])
                     pr["commits"] = [{"sha": s} for s in shas]
                 except (json.JSONDecodeError, ValueError) as e:
-                    _logger.warning(
+                    logger.warning(
                         "Failed to parse commits for PR #%s in %s/%s: %s — raw: %r",
                         pr["number"], my_user, repo, e, commits_result["output"][:200]
                     )
                     pr["commits"] = []
             else:
-                _logger.warning(
+                logger.warning(
                     "Failed to fetch commits for PR #%s in %s/%s: %s",
                     pr["number"], my_user, repo, commits_result.get("error", "unknown error")
                 )
