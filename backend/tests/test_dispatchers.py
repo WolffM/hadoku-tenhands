@@ -57,14 +57,15 @@ class TestCopilotSWEDispatcher:
     @patch("services.dispatchers.run_gh_command")
     def test_check_status_detects_completed_agent(self, mock_gh):
         mock_gh.side_effect = [
-            # pr list — Copilot PR found
+            # pr list — Copilot PR found (no commits inline)
             {"success": True, "output": json.dumps([{
                 "number": 2,
                 "title": "Fix bug",
                 "headRefName": "copilot/fix-bug",
                 "author": {"login": "app/copilot-swe-agent"},
-                "commits": [{"sha": "a"}, {"sha": "b"}],
             }])},
+            # commits fetch for PR#2
+            {"success": True, "output": '["a","b"]'},
             # pr view headRefOid
             {"success": True, "output": "abc123\n"},
             # check-runs — completed
@@ -89,14 +90,15 @@ class TestCopilotSWEDispatcher:
     @patch("services.dispatchers.run_gh_command")
     def test_check_status_returns_working_when_in_progress(self, mock_gh):
         mock_gh.side_effect = [
-            # pr list
+            # pr list (no commits inline)
             {"success": True, "output": json.dumps([{
                 "number": 2,
                 "title": "Fix bug",
                 "headRefName": "copilot/fix-bug",
                 "author": {"login": "app/copilot-swe-agent"},
-                "commits": [{"sha": "a"}],
             }])},
+            # commits fetch for PR#2
+            {"success": True, "output": '["a"]'},
             # pr view headRefOid
             {"success": True, "output": "abc123\n"},
             # check-runs — in_progress
@@ -160,17 +162,19 @@ class TestCopilotSWEDispatcher:
             "number": 12, "title": "Fix A",
             "headRefName": "copilot/fix-a",
             "author": {"login": "app/copilot-swe-agent"},
-            "commits": [{"sha": "a"}],
         }
         copilot_pr_b = {
             "number": 14, "title": "Fix B",
             "headRefName": "copilot/fix-b",
             "author": {"login": "app/copilot-swe-agent"},
-            "commits": [{"sha": "b"}, {"sha": "c"}],
         }
         mock_gh.side_effect = [
-            # pr list — 2 Copilot PRs
+            # pr list — 2 Copilot PRs (no commits inline)
             {"success": True, "output": json.dumps([copilot_pr_a, copilot_pr_b])},
+            # commits fetch for PR#12
+            {"success": True, "output": '["a"]'},
+            # commits fetch for PR#14
+            {"success": True, "output": '["b","c"]'},
             # timeline — issue #13 links to PR #14
             {"success": True, "output": "[14]\n"},
             # pr view headRefOid
@@ -190,13 +194,14 @@ class TestCopilotSWEDispatcher:
     def test_check_status_done_via_commit_count_fallback(self, mock_gh):
         """When check-run is absent but PR has 2+ commits, treat as done."""
         mock_gh.side_effect = [
-            # pr list — single Copilot PR with 2 commits
+            # pr list — single Copilot PR (no commits inline)
             {"success": True, "output": json.dumps([{
                 "number": 12, "title": "Fix tests",
                 "headRefName": "copilot/fix-tests",
                 "author": {"login": "app/copilot-swe-agent"},
-                "commits": [{"sha": "plan"}, {"sha": "impl"}],
             }])},
+            # commits fetch for PR#12
+            {"success": True, "output": '["plan","impl"]'},
             # pr view headRefOid
             {"success": True, "output": "abc123\n"},
             # check-runs — empty (no Copilot check-run found)
@@ -211,12 +216,14 @@ class TestCopilotSWEDispatcher:
     def test_check_status_working_single_commit_no_checkrun(self, mock_gh):
         """When check-run is absent and only 1 commit, still working."""
         mock_gh.side_effect = [
+            # pr list (no commits inline)
             {"success": True, "output": json.dumps([{
                 "number": 12, "title": "Fix tests",
                 "headRefName": "copilot/fix-tests",
                 "author": {"login": "app/copilot-swe-agent"},
-                "commits": [{"sha": "plan"}],
             }])},
+            # commits fetch for PR#12
+            {"success": True, "output": '["plan"]'},
             {"success": True, "output": "abc123\n"},
             {"success": True, "output": "\n"},
         ]
@@ -229,15 +236,17 @@ class TestCopilotSWEDispatcher:
     def test_check_status_fallback_when_ambiguous(self, mock_gh):
         """With multiple Copilot PRs and failed timeline, falls back to most commits."""
         mock_gh.side_effect = [
-            # pr list — 2 Copilot PRs
+            # pr list — 2 Copilot PRs (no commits inline)
             {"success": True, "output": json.dumps([
                 {"number": 12, "headRefName": "copilot/fix-a",
-                 "author": {"login": "app/copilot-swe-agent"},
-                 "commits": [{"sha": "plan"}]},
+                 "author": {"login": "app/copilot-swe-agent"}},
                 {"number": 14, "headRefName": "copilot/fix-b",
-                 "author": {"login": "app/copilot-swe-agent"},
-                 "commits": [{"sha": "plan"}, {"sha": "impl"}]},
+                 "author": {"login": "app/copilot-swe-agent"}},
             ])},
+            # commits fetch for PR#12
+            {"success": True, "output": '["plan"]'},
+            # commits fetch for PR#14
+            {"success": True, "output": '["plan","impl"]'},
             # timeline — fails
             {"success": False, "error": "timeout"},
             # pr view headRefOid (for PR #14 via fallback)
@@ -257,17 +266,17 @@ class TestCopilotSWEDispatcher:
     def test_check_status_excludes_claimed_prs(self, mock_gh):
         """PRs already claimed by other assignments are excluded."""
         mock_gh.side_effect = [
-            # pr list — 2 Copilot PRs
+            # pr list — 2 Copilot PRs (no commits inline)
             {"success": True, "output": json.dumps([
                 {"number": 12, "headRefName": "copilot/fix-a",
-                 "author": {"login": "app/copilot-swe-agent"},
-                 "commits": [{"sha": "plan"}, {"sha": "impl"}]},
+                 "author": {"login": "app/copilot-swe-agent"}},
                 {"number": 14, "headRefName": "copilot/fix-b",
-                 "author": {"login": "app/copilot-swe-agent"},
-                 "commits": [{"sha": "plan"}]},
+                 "author": {"login": "app/copilot-swe-agent"}},
             ])},
-            # timeline — no cross-refs for this issue
-            {"success": True, "output": "[]\n"},
+            # commits fetch for PR#12
+            {"success": True, "output": '["plan","impl"]'},
+            # commits fetch for PR#14
+            {"success": True, "output": '["plan"]'},
             # pr view headRefOid (for PR #14 — the only available one)
             {"success": True, "output": "abc123\n"},
             # check-runs — empty

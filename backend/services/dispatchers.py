@@ -137,11 +137,13 @@ class CopilotSWEDispatcher(StageDispatcher):
         repo = context["repo"]
         fork_issue_number = context.get("fork_issue_number")
 
-        # Fetch all open PRs
+        # Fetch all open PRs via REST to avoid GraphQL rate limits
         result = run_gh_command([
-            "pr", "list", "-R", f"{my_user}/{repo}",
-            "--json", "number,title,headRefName,author,commits",
-            "--state", "open",
+            "api",
+            f"repos/{my_user}/{repo}/pulls?state=open&per_page=100",
+            "--jq",
+            '[.[] | {number: .number, title: .title, '
+            'headRefName: .head.ref, author: {login: .user.login}}]',
         ])
         if not result["success"]:
             return {"done": False, "status": "error",
@@ -159,6 +161,23 @@ class CopilotSWEDispatcher(StageDispatcher):
 
         if not copilot_prs:
             return {"done": False, "status": "waiting_for_pr", "pr_number": None}
+
+        # Fetch commits for each Copilot PR — needed for correlation and commit_count.
+        # REST PR list doesn't include commits inline; fetch separately per PR.
+        for pr in copilot_prs:
+            commits_result = run_gh_command([
+                "api",
+                f"repos/{my_user}/{repo}/pulls/{pr['number']}/commits?per_page=100",
+                "--jq", "[.[].sha]",
+            ])
+            if commits_result["success"]:
+                try:
+                    shas = json.loads(commits_result["output"])
+                    pr["commits"] = [{"sha": s} for s in shas]
+                except (json.JSONDecodeError, ValueError):
+                    pr["commits"] = []
+            else:
+                pr["commits"] = []
 
         # Exclude PRs already claimed by other assignments in this repo.
         # This prevents the "most commits" fallback from stealing another
