@@ -116,7 +116,7 @@ def _build_env_for_args(args):
     return {**os.environ, "GH_TOKEN": token}
 
 
-def run_gh_command(args, capture_output=True, timeout=30):
+def run_gh_command(args, capture_output=True, timeout=30, stdin_data=None):
     """Run a gh CLI command and return the result.
 
     Automatically injects the correct SAML-authorized token when the
@@ -126,6 +126,7 @@ def run_gh_command(args, capture_output=True, timeout=30):
         args: Command arguments to pass to gh
         capture_output: Whether to capture stdout/stderr
         timeout: Timeout in seconds (default 30s)
+        stdin_data: Optional string to send to stdin (for --input -)
     """
     cmd_summary = " ".join(args[:4])  # first 4 args for log readability
     start = time.monotonic()
@@ -134,6 +135,7 @@ def run_gh_command(args, capture_output=True, timeout=30):
     try:
         result = subprocess.run(
             ["gh"] + args,
+            input=stdin_data,
             capture_output=capture_output,
             text=True,
             encoding='utf-8',

@@ -1,8 +1,18 @@
 """
-OSS helpers — scoring fallback and PR template formatting.
+OSS helpers — scoring fallback, PR template formatting, and markdown utilities.
 """
 
+import re
 from datetime import datetime, timezone
+
+
+def strip_leading_header(text):
+    """Strip a leading markdown header if the text starts with one.
+
+    Dossier sections often begin with their own '## Section Name' header.
+    When we wrap them in our own '## Header', the result is a double header.
+    """
+    return re.sub(r'^#{1,4}\s+[^\n]+\n+', '', text.lstrip(), count=1)
 
 
 def _map_tier(score):

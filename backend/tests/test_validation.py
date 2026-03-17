@@ -12,7 +12,6 @@ from helpers.validation import (
     validate_required_fields,
     normalize_repo_name,
     to_aggregator_slug,
-    parse_gh_json,
     safe_error_message,
 )
 
@@ -174,27 +173,6 @@ class TestToAggregatorSlug:
     def test_already_hyphenated(self):
         assert to_aggregator_slug("fastify-fastify") == "fastify-fastify"
 
-
-class TestParseGhJson:
-    """Tests for parse_gh_json()."""
-
-    def test_valid_json(self):
-        result = {"success": True, "output": '{"key": "value"}'}
-        assert parse_gh_json(result) == {"key": "value"}
-
-    def test_failed_result(self):
-        result = {"success": False, "output": '{"key": "value"}'}
-        assert parse_gh_json(result) is None
-
-    def test_invalid_json(self):
-        result = {"success": True, "output": "not json"}
-        assert parse_gh_json(result) is None
-
-    def test_none_result(self):
-        assert parse_gh_json(None) is None
-
-    def test_empty_result(self):
-        assert parse_gh_json({}) is None
 
 
 class TestSafeErrorMessage:

@@ -11,6 +11,7 @@ import os
 import re
 import json
 import tempfile
+import threading
 import time
 import base64
 
@@ -22,6 +23,10 @@ except ImportError:
     from config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
 from .github_api import run_gh_command
 from .oss_service import _parse_jsonl
+
+# Global semaphore: patchright launches a headless Chromium (~300MB each).
+# Multiple concurrent dispatches can crash WSL via OOM. Limit to 1 at a time.
+_PATCHRIGHT_LOCK = threading.Semaphore(1)
 
 
 class OSSForkMixin:
@@ -36,12 +41,30 @@ class OSSForkMixin:
         ])
 
     def sync_fork(self, my_user, repo):
-        """Sync a fork with its upstream. Returns the gh command result."""
+        """Sync a fork with its upstream via REST merge-upstream API.
+
+        Uses REST instead of 'gh repo sync' (which uses GraphQL internally)
+        to avoid exhausting the GraphQL rate limit during batch dispatches.
+        Falls back to gh repo sync if the REST call fails.
+        """
+        # Get the fork's default branch first
+        branch_result = run_gh_command(["api", f"repos/{my_user}/{repo}", "--jq", ".default_branch"])
+        branch = branch_result["output"].strip() if branch_result["success"] else "main"
+
+        result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/merge-upstream",
+            "-X", "POST", "-f", f"branch={branch}"
+        ])
+        if result["success"]:
+            return result
+        # Fallback to gh repo sync if REST fails (e.g. already up-to-date returns 409)
+        if "409" in result.get("error", "") or "already" in result.get("error", "").lower():
+            return {"success": True, "output": "already up-to-date"}
         return run_gh_command(["repo", "sync", f"{my_user}/{repo}"])
 
     def check_fork_exists(self, my_user, repo):
-        """Check if a fork exists. Returns True/False."""
-        result = run_gh_command(["repo", "view", f"{my_user}/{repo}", "--json", "name"])
+        """Check if a fork exists. Returns True/False. Uses REST to avoid GraphQL rate limits."""
+        result = run_gh_command(["api", f"repos/{my_user}/{repo}", "--jq", ".name"])
         return result["success"]
 
     def wait_for_fork(self, my_user, repo, timeout=60, interval=3):
@@ -258,23 +281,24 @@ class OSSForkMixin:
 
         _logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
         _flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        try:
-            proc = subprocess.run(
-                [sys.executable, script_path, f"{my_user}/{repo}"],
-                capture_output=True, text=True, timeout=60,
-                creationflags=_flags,
-            )
-            if proc.returncode == 0:
-                _logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
-            else:
-                _logger.warning(
-                    "Patchright firewall disable failed on %s/%s: %s",
-                    my_user, repo, proc.stderr[:200]
+        with _PATCHRIGHT_LOCK:
+            try:
+                proc = subprocess.run(
+                    [sys.executable, script_path, f"{my_user}/{repo}"],
+                    capture_output=True, text=True, timeout=60,
+                    creationflags=_flags,
                 )
-        except subprocess.TimeoutExpired:
-            _logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
-        except Exception as e:
-            _logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
+                if proc.returncode == 0:
+                    _logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
+                else:
+                    _logger.warning(
+                        "Patchright firewall disable failed on %s/%s: %s",
+                        my_user, repo, proc.stderr[:200]
+                    )
+            except subprocess.TimeoutExpired:
+                _logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
+            except Exception as e:
+                _logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
 
     def _disable_upstream_workflows(self, my_user, repo):
         """Disable all inherited workflows except our own and Copilot's.

@@ -23,41 +23,19 @@ import subprocess
 import sys
 import time
 
-import re as _re
-
 from .dispatchers import create_default_registry
 from .github_api import run_gh_command
 from .oss_service import _sanitize_upstream_refs
 
 try:
     from ..helpers.notifications import notify_copilot_pr_ready
+    from ..helpers.oss_helpers import strip_leading_header
 except ImportError:
     from helpers.notifications import notify_copilot_pr_ready
+    from helpers.oss_helpers import strip_leading_header
 
-
-def _strip_leading_header(text):
-    """Strip a leading markdown header if the text starts with one.
-
-    Dossier sections often begin with their own '## Section Name' header.
-    When we wrap them in our own '### Header', the result is a double header.
-    """
-    return _re.sub(r'^#{1,4}\s+[^\n]+\n+', '', text.lstrip(), count=1)
 
 logger = logging.getLogger(__name__)
-
-
-def _gh_json(args):
-    """Run gh CLI command and return parsed JSON, or None on failure."""
-    try:
-        r = subprocess.run(
-            ["gh"] + args,
-            capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            return json.loads(r.stdout)
-    except Exception as e:
-        logger.warning("gh command failed: %s", e)
-    return None
 
 
 def fetch_sa_details(run_id, fork_slug):
@@ -77,11 +55,15 @@ def fetch_sa_details(run_id, fork_slug):
     if not run_id or not fork_slug:
         return []
 
-    jobs_data = _gh_json([
+    _jobs_result = run_gh_command([
         "api", f"repos/{fork_slug}/actions/runs/{run_id}/jobs",
         "--jq", ".jobs",
     ])
-    if not jobs_data:
+    try:
+        jobs_data = json.loads(_jobs_result["output"]) if _jobs_result["success"] else None
+    except (json.JSONDecodeError, KeyError, TypeError):
+        jobs_data = None
+    if not jobs_data or not isinstance(jobs_data, list):
         return []
 
     jobs = []
@@ -90,9 +72,13 @@ def fetch_sa_details(run_id, fork_slug):
             "name": job.get("name", "unknown"),
             "conclusion": job.get("conclusion", "unknown"),
         }
-        annotations = _gh_json([
+        _ann_result = run_gh_command([
             "api", f"repos/{fork_slug}/check-runs/{job['id']}/annotations",
         ])
+        try:
+            annotations = json.loads(_ann_result["output"]) if _ann_result["success"] else None
+        except (json.JSONDecodeError, KeyError, TypeError):
+            annotations = None
         if annotations:
             findings = [
                 {
@@ -650,17 +636,17 @@ class PipelineOrchestrator:
                 if sections.get("contributionRules"):
                     parts.append(
                         "### Contribution Rules\n"
-                        f"{_strip_leading_header(sections['contributionRules'])}\n"
+                        f"{strip_leading_header(sections['contributionRules'])}\n"
                     )
                 if sections.get("successPatterns"):
                     parts.append(
                         "### What Successful PRs Look Like\n"
-                        f"{_strip_leading_header(sections['successPatterns'])}\n"
+                        f"{strip_leading_header(sections['successPatterns'])}\n"
                     )
                 if sections.get("antiPatterns"):
                     parts.append(
                         "### Common Rejection Reasons\n"
-                        f"{_strip_leading_header(sections['antiPatterns'])}\n"
+                        f"{strip_leading_header(sections['antiPatterns'])}\n"
                     )
 
         # Get static analysis findings

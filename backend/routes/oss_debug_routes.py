@@ -315,15 +315,18 @@ def api_oss_debug_create_context_issue():
     title = data.get("title", "").strip()
     body = data.get("body", "").strip()
 
+    import json as _json
     result = run_gh_command([
-        "issue", "create", "-R", f"{my_user}/{repo}",
-        "--title", title,
-        "--body", body
+        "api", f"repos/{my_user}/{repo}/issues",
+        "-X", "POST",
+        "-f", f"title={title}",
+        "-f", f"body={body}"
     ])
 
     if result["success"]:
-        issue_url = result["output"].strip()
-        issue_number = issue_url.split("/")[-1]
+        create_data = _json.loads(result["output"])
+        issue_url = create_data["html_url"]
+        issue_number = str(create_data["number"])
         return jsonify({
             "success": True,
             "issue_url": issue_url,

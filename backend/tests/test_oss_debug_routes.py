@@ -286,7 +286,7 @@ class TestCreateContextIssue:
     def test_create_issue_succeeds(self, mock_user, mock_gh, client):
         mock_gh.return_value = {
             "success": True,
-            "output": "https://github.com/testuser/fastify/issues/5",
+            "output": '{"html_url": "https://github.com/testuser/fastify/issues/5", "number": 5}',
         }
         resp = client.post(
             f"{PREFIX}/api/oss/debug/create-context-issue",
