@@ -311,8 +311,12 @@ class PipelineOrchestrator:
                         "details": {"status": "timeout",
                                     "message": "No Copilot review after 10 minutes"},
                     }
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as e:
+                logger.error(
+                    "Review timeout check failed for %s #%s — dispatched_at=%r error: %s",
+                    assignment.get("origin_slug"), assignment.get("issue_number"),
+                    dispatched_at, e
+                )
 
         return {"success": True, "status": "review_in_progress",
                 "advanced": False, "details": result}
@@ -567,7 +571,7 @@ class PipelineOrchestrator:
         script = os.path.normpath(script)
 
         if not os.path.exists(script):
-            logger.warning("copilot-sessions.py not found at %s", script)
+            logger.error("copilot-sessions.py not found at %s — workflow analysis unavailable", script)
             return {}
 
         try:

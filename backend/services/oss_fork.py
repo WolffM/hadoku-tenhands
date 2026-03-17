@@ -68,7 +68,13 @@ class OSSForkMixin:
         """
         # Get the fork's default branch first
         branch_result = run_gh_command(["api", f"repos/{my_user}/{repo}", "--jq", ".default_branch"])
-        branch = branch_result["output"].strip() if branch_result["success"] else "main"
+        if not branch_result["success"]:
+            _logger.error(
+                "sync_fork: could not fetch default branch for %s/%s: %s",
+                my_user, repo, branch_result.get("error", "unknown error")
+            )
+            return {"success": False, "error": f"Could not fetch default branch for {my_user}/{repo}"}
+        branch = branch_result["output"].strip()
 
         result = run_gh_command([
             "api", f"repos/{my_user}/{repo}/merge-upstream",
@@ -467,7 +473,11 @@ class OSSForkMixin:
         if result["success"] and result["output"].strip():
             return result["output"].strip()
 
-        return "main"
+        _logger.error(
+            "get_default_branch: all sources failed for %s/%s — gh api returned: %s",
+            owner, repo, result.get("error", "unknown error")
+        )
+        return None
 
     def get_user_identity(self):
         """Get the authenticated user's name and noreply email for commit authoring."""
@@ -479,6 +489,7 @@ class OSSForkMixin:
             uid = data.get("id", "")
             email = GITHUB_NOREPLY_EMAIL_TEMPLATE.format(uid=uid, login=login)
             return {"name": name, "email": email, "login": login}
+        _logger.error("get_user_identity failed: %s", result.get("error", "unknown error"))
         return None
 
     # Files pushed by ensure_pipeline_files() that must NEVER appear in upstream PRs.
@@ -760,8 +771,10 @@ class OSSForkMixin:
                     if existing == content:
                         _logger.debug("Skip %s (unchanged)", path)
                         continue
-                except (UnicodeDecodeError, Exception):
-                    pass
+                except UnicodeDecodeError:
+                    pass  # Binary file — can't compare content as text, push it
+                except Exception as e:
+                    _logger.warning("Unexpected error comparing %s content: %s", path, e)
             files_to_push.append((path, content))
 
         if not files_to_push:
@@ -779,9 +792,12 @@ class OSSForkMixin:
                 "-f", "encoding=base64",
             ])
             if not blob_result["success"]:
-                _logger.warning("Failed to create blob for %s", path)
+                _logger.error("Failed to create blob for %s: %s", path, blob_result.get("error", "unknown error"))
                 continue
             blob_sha = json.loads(blob_result["output"]).get("sha")
+            if not blob_sha:
+                _logger.error("Blob API returned no sha for %s — response: %r", path, blob_result["output"][:200])
+                continue
             tree_entries.append({
                 "path": path, "mode": "100644", "type": "blob", "sha": blob_sha
             })

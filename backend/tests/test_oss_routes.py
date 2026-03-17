@@ -25,6 +25,24 @@ def disable_cache(monkeypatch):
     monkeypatch.setenv("CACHE_DISABLED", "1")
 
 
+def _fork_assign_gh_mock(
+    issue_output='{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
+):
+    """Build a run_gh_command side_effect for fork-and-assign tests.
+
+    Returns proper numeric responses for the preflight checks (size, rate limit)
+    and the given issue_output for all other calls.
+    """
+    def side_effect(cmd, **kw):
+        jq = next((cmd[i + 1] for i, c in enumerate(cmd) if c == "--jq"), None)
+        if jq == ".size":
+            return {"success": True, "output": "1000\n"}  # 1MB — under limit
+        if jq == ".resources.core.remaining":
+            return {"success": True, "output": "5000\n"}  # plenty of calls
+        return {"success": True, "output": issue_output}
+    return side_effect
+
+
 PREFIX = "/dispatch"
 
 
@@ -490,10 +508,7 @@ class TestForkAndAssign:
         svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
 
-        mock_gh.return_value = {
-            "success": True,
-            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
-        }
+        mock_gh.side_effect = _fork_assign_gh_mock()
 
         client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
@@ -522,10 +537,9 @@ class TestForkAndAssign:
         svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
 
-        mock_gh.return_value = {
-            "success": True,
-            "output": '{"html_url": "https://github.com/testuser/myrepo/issues/1", "number": 1}\n',
-        }
+        mock_gh.side_effect = _fork_assign_gh_mock(
+            '{"html_url": "https://github.com/testuser/myrepo/issues/1", "number": 1}\n'
+        )
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
@@ -561,10 +575,7 @@ class TestForkAndAssign:
         svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = ("## Context", {"sources": ["gh-issue-view"]})
 
-        mock_gh.return_value = {
-            "success": True,
-            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
-        }
+        mock_gh.side_effect = _fork_assign_gh_mock()
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
@@ -601,10 +612,7 @@ class TestForkAndAssign:
             {"sources": ["gh-issue-view", "gh-contributing-md"]},
         )
 
-        mock_gh.return_value = {
-            "success": True,
-            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
-        }
+        mock_gh.side_effect = _fork_assign_gh_mock()
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
@@ -637,10 +645,7 @@ class TestForkAndAssign:
         svc.get_issue_brief.return_value = (None, None)
         svc.build_agent_context.return_value = ("## Context", {"sources": []})
 
-        mock_gh.return_value = {
-            "success": True,
-            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
-        }
+        mock_gh.side_effect = _fork_assign_gh_mock()
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",

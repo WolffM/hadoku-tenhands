@@ -175,6 +175,8 @@ class TestCopilotSWEDispatcher:
             {"success": True, "output": '["a"]'},
             # commits fetch for PR#14
             {"success": True, "output": '["b","c"]'},
+            # issue title fetch (no body on PRs → title-tag match fails → fall through)
+            {"success": True, "output": '"Some issue title"\n'},
             # timeline — issue #13 links to PR #14
             {"success": True, "output": "[14]\n"},
             # pr view headRefOid
@@ -233,8 +235,8 @@ class TestCopilotSWEDispatcher:
         assert result["commit_count"] == 1
 
     @patch("services.dispatchers.run_gh_command")
-    def test_check_status_fallback_when_ambiguous(self, mock_gh):
-        """With multiple Copilot PRs and failed timeline, falls back to most commits."""
+    def test_check_status_no_fallback_when_ambiguous(self, mock_gh):
+        """With multiple Copilot PRs and failed correlation, we don't guess — wait."""
         mock_gh.side_effect = [
             # pr list — 2 Copilot PRs (no commits inline)
             {"success": True, "output": json.dumps([
@@ -247,20 +249,19 @@ class TestCopilotSWEDispatcher:
             {"success": True, "output": '["plan"]'},
             # commits fetch for PR#14
             {"success": True, "output": '["plan","impl"]'},
+            # issue title fetch (no body on PRs → title-tag match fails)
+            {"success": True, "output": '"Some title"\n'},
             # timeline — fails
             {"success": False, "error": "timeout"},
-            # pr view headRefOid (for PR #14 via fallback)
-            {"success": True, "output": "abc123\n"},
-            # check-runs — empty
-            {"success": True, "output": "\n"},
         ]
         d = CopilotSWEDispatcher()
         result = d.check_status("13", {
             "my_user": "me", "repo": "r", "fork_issue_number": 13,
         })
-        # PR#14 has 2 commits → done via commit count fallback
-        assert result["done"] is True
-        assert result["pr_number"] == 14
+        # Both correlation methods failed — do not guess, wait for PR body to be updated
+        assert result["done"] is False
+        assert result["status"] == "waiting_for_pr"
+        assert result["pr_number"] is None
 
     @patch("services.dispatchers.run_gh_command")
     def test_check_status_excludes_claimed_prs(self, mock_gh):
