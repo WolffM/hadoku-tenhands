@@ -50,7 +50,6 @@ except ImportError:
 
 
 @bp.route("/api/oss/debug/gh-health", methods=["GET"])
-@require_admin_key
 def api_oss_debug_gh_health():
     """Check gh CLI health: authentication, API access, rate limits."""
     my_user = get_authenticated_user()
@@ -90,7 +89,6 @@ def api_oss_debug_gh_health():
 
 
 @bp.route("/api/oss/debug/aggregator-health", methods=["GET"])
-@require_admin_key
 def api_oss_debug_aggregator_health():
     """Check aggregator API availability and response time."""
     my_user = get_authenticated_user()
