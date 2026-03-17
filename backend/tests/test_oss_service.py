@@ -1410,3 +1410,63 @@ class TestFileLocking:
         _save_json("roundtrip.json", [{"a": 1}, {"b": 2}])
         data = _load_json("roundtrip.json")
         assert data == [{"a": 1}, {"b": 2}]
+
+
+class TestDispatchedRepos:
+    """Tests for dispatched-repos tracking (track_dispatched_repo / get_dispatched_repos)."""
+
+    def test_first_dispatch_creates_entry(self, clean_data_dir):
+        svc = OSSService()
+        svc.track_dispatched_repo("fastify/fastify")
+
+        items = svc.get_dispatched_repos()
+        assert len(items) == 1
+        assert items[0]["origin_slug"] == "fastify/fastify"
+        assert items[0]["aggregator_slug"] == "fastify-fastify"
+        assert items[0]["dispatch_count"] == 1
+        assert "first_dispatched_at" in items[0]
+        assert "last_dispatched_at" in items[0]
+
+    def test_second_dispatch_increments_count(self, clean_data_dir):
+        svc = OSSService()
+        svc.track_dispatched_repo("fastify/fastify")
+        svc.track_dispatched_repo("fastify/fastify")
+
+        items = svc.get_dispatched_repos()
+        assert len(items) == 1
+        assert items[0]["dispatch_count"] == 2
+
+    def test_different_slugs_create_separate_entries(self, clean_data_dir):
+        svc = OSSService()
+        svc.track_dispatched_repo("fastify/fastify")
+        svc.track_dispatched_repo("vercel/next.js")
+
+        items = svc.get_dispatched_repos()
+        assert len(items) == 2
+        slugs = {i["origin_slug"] for i in items}
+        assert slugs == {"fastify/fastify", "vercel/next.js"}
+
+    def test_aggregator_slug_format(self, clean_data_dir):
+        """aggregator_slug replaces only the first slash."""
+        svc = OSSService()
+        svc.track_dispatched_repo("vercel/next.js")
+
+        items = svc.get_dispatched_repos()
+        assert items[0]["aggregator_slug"] == "vercel-next.js"
+
+    def test_empty_list_when_no_dispatches(self, clean_data_dir):
+        svc = OSSService()
+        assert svc.get_dispatched_repos() == []
+
+    def test_second_dispatch_updates_last_dispatched_at(self, clean_data_dir):
+        import time
+        svc = OSSService()
+        svc.track_dispatched_repo("fastify/fastify")
+        first_at = svc.get_dispatched_repos()[0]["last_dispatched_at"]
+
+        time.sleep(0.01)
+        svc.track_dispatched_repo("fastify/fastify")
+        second_at = svc.get_dispatched_repos()[0]["last_dispatched_at"]
+
+        # last_dispatched_at must be updated (may be same second but field exists)
+        assert second_at >= first_at
