@@ -172,6 +172,20 @@ Before selecting repos for dispatch:
 2. **Prioritize Microsoft repos.** They are easy to contribute to and the user has SSO auth configured. Use REST API (`gh api repos/...`) instead of GraphQL (`gh issue view --json`) for issue verification — GraphQL triggers SAML prompts on org repos but REST API works fine.
 3. **Verify issues via REST API.** Use `gh api repos/{owner}/{repo}/issues/{number}` with `--jq '{state, title, pull_request: .pull_request}'`. If `pull_request` is non-null, the "issue" is actually a PR — skip it. If `state` is not `open`, skip it.
 
+### GitHub Authentication for Microsoft org
+
+The `gh` CLI OAuth token (`gho_...`) does **not** have SAML authorization for the Microsoft org and will return 403 on most API calls. Always use the `MSFT_SSO` token from `.env` for any direct API calls to `microsoft/*` repos:
+
+```bash
+MSFT_TOKEN=$(grep "MSFT_SSO" /path/to/vibedispatch/.env | cut -d'=' -f2 | tr -d '\r\n')
+curl -s -H "Authorization: token $MSFT_TOKEN" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/microsoft/{repo}/pulls/{number}"
+```
+
+- `MSFT_SSO` is a classic PAT with SAML SSO authorized for the Microsoft organization.
+- `gh api` / `gh pr view` will fail for `microsoft/*` repos with the default OAuth token — use `curl` with `MSFT_TOKEN` instead, or set `GH_TOKEN=$MSFT_TOKEN` before any `gh` command targeting Microsoft repos.
+- `HADOKU_SITE_TOKEN` is a separate PAT for the hadoku site — it hits a Microsoft enterprise lifetime restriction and won't work for org API access.
+
 ### Dispatching via the API
 
 The fork-and-assign endpoint handles the full Stage 3 flow:
