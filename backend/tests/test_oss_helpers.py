@@ -203,19 +203,20 @@ class TestScoreIssueFallback:
 class TestFormatUpstreamPrBody:
     """Tests for format_upstream_pr_body — PR template for upstream submissions."""
 
-    def test_contains_issue_reference(self):
+    def test_contains_title_and_closes(self):
         body = format_upstream_pr_body("fastify/fastify", 42, "Fix memory leak", "fix-memleak")
-        assert "fastify/fastify#42" in body
         assert "Fix memory leak" in body
+        assert "Closes #42" in body
 
     def test_contains_closes_directive(self):
         """PR body should include 'Closes #N' for GitHub auto-close."""
         body = format_upstream_pr_body("vercel/next.js", 100, "Fix routing", "fix-routing")
         assert "Closes #100" in body
 
-    def test_contains_branch_name(self):
-        body = format_upstream_pr_body("org/repo", 1, "Title", "my-feature-branch")
-        assert "`my-feature-branch`" in body
+    def test_no_duplicate_issue_reference(self):
+        """Issue number should appear once via Closes, not also in a Fixes slug."""
+        body = format_upstream_pr_body("org/repo", 42, "Fix bug", "fix-branch")
+        assert body.count("#42") == 1
 
     def test_special_characters_in_title(self):
         """Titles with special chars should be included as-is (no escaping needed for markdown)."""
