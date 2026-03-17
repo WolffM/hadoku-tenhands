@@ -34,6 +34,7 @@ export interface AuditTrail {
   network: NetworkEntry[]
   errors: ConsoleEntry[] // subset: just errors/warnings
   failedRequests: NetworkEntry[] // subset: non-2xx API calls
+  apiFailures: NetworkEntry[] // subset: 2xx but {"success":false} in body
 }
 
 // ---------- Fixture ----------
@@ -47,7 +48,8 @@ export const test = base.extend<{
         console: [],
         network: [],
         errors: [],
-        failedRequests: []
+        failedRequests: [],
+        apiFailures: []
       }
 
       // --- Console capture (ALL levels) ---
@@ -135,6 +137,18 @@ export const test = base.extend<{
         if (isError && isOSSAPI) {
           trail.failedRequests.push(entry)
         }
+
+        // Detect server-reported failures: HTTP 200 but {"success":false}
+        if (!isError && isOSSAPI && responseBody) {
+          try {
+            const parsed = JSON.parse(responseBody) as Record<string, unknown>
+            if (parsed && parsed.success === false) {
+              trail.apiFailures.push(entry)
+            }
+          } catch {
+            /* not JSON, skip */
+          }
+        }
       })
 
       // --- Run the test ---
@@ -163,7 +177,43 @@ export const test = base.extend<{
         })
       }
 
-      // Fail test on console errors (same behavior as base.ts)
+      if (trail.apiFailures.length > 0) {
+        await testInfo.attach('api-failures', {
+          body: JSON.stringify(trail.apiFailures, null, 2),
+          contentType: 'application/json'
+        })
+      }
+
+      // Fail on HTTP errors (non-2xx OSS API responses)
+      if (trail.failedRequests.length > 0) {
+        const summary = trail.failedRequests
+          .map(r => `  [${r.status}] ${r.method} ${r.url}`)
+          .join('\n')
+        throw new Error(
+          `Test produced ${trail.failedRequests.length} failed HTTP request(s):\n${summary}`
+        )
+      }
+
+      // Fail on server-reported errors (200 but {"success":false})
+      if (trail.apiFailures.length > 0) {
+        const summary = trail.apiFailures
+          .map(r => {
+            let err = ''
+            try {
+              const parsed = JSON.parse(r.responseBody ?? '{}') as Record<string, unknown>
+              err = typeof parsed.error === 'string' ? parsed.error : ''
+            } catch {
+              /* */
+            }
+            return `  [${r.method} ${r.url}] ${err}`
+          })
+          .join('\n')
+        throw new Error(
+          `Test produced ${trail.apiFailures.length} API failure(s) (success:false):\n${summary}`
+        )
+      }
+
+      // Fail on browser console errors/warnings
       if (trail.errors.length > 0) {
         const summary = trail.errors.map(e => `  [${e.type}] ${e.text}`).join('\n')
         throw new Error(

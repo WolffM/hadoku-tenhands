@@ -52,7 +52,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'python3 -m backend.app',
-      port: 5000,
+      port: 5001,
       reuseExistingServer: !process.env.CI,
       cwd: '..',
       timeout: 30000

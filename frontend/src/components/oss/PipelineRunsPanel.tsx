@@ -174,13 +174,15 @@ export function PipelineRunsPanel() {
               </tr>
             </thead>
             <tbody>
-              {assignments.map((a: PipelineAssignment) => {
+              {assignments.map((a: PipelineAssignment, idx: number) => {
                 const signoffKey = `${a.repo}-${a.stage4PrNumber}`
                 const advanceKey = `${a.repo}-${a.forkIssueNumber}`
                 const isComplete = a.stage4Status === 'retrospective_complete'
 
                 return (
-                  <tr key={`${a.originSlug}-${a.issueNumber}`}>
+                  <tr
+                    key={`${a.originSlug}-${a.issueNumber}-${a.assignedAt ?? a.forkIssueNumber ?? idx}`}
+                  >
                     <td>
                       <span className="repo-link">{a.originSlug}</span>
                     </td>

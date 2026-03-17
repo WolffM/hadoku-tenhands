@@ -184,7 +184,7 @@ def _poll_single_pr(pr):
 
 
 @bp.route("/api/oss/poll-submitted-prs", methods=["POST"])
-@limiter.limit("10 per minute")
+@limiter.limit("60 per minute")
 def api_oss_poll_submitted_prs():
     """Poll all submitted PRs for status changes and update tracking."""
     my_user = get_authenticated_user()
