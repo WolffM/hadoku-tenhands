@@ -37,13 +37,13 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from ..helpers.oss_helpers import score_issue_with_breakdown
-    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from helpers.oss_helpers import score_issue_with_breakdown
-    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
+    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
 
 
 # ============ Group A: Health Checks ============

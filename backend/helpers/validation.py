@@ -123,6 +123,31 @@ _ERROR_PATTERNS = [
 ]
 
 
+def validate_request_or_error(data, required_fields, extra_validators=()):
+    """Validate request fields; return jsonify'd error Response or None.
+
+    Args:
+        data: Request JSON dict.
+        required_fields: List of field names that must be present and truthy.
+        extra_validators: Iterable of (value, validator_fn) pairs evaluated
+            after the required-field check. validator_fn(value) returns an
+            error string or None.
+
+    Returns:
+        A Flask jsonify Response with success=False on first error, or None
+        if all checks pass.
+    """
+    from flask import jsonify
+    err = validate_required_fields(data, required_fields)
+    if err:
+        return jsonify({"success": False, "error": err})
+    for value, validator_fn in extra_validators:
+        err = validator_fn(value)
+        if err:
+            return jsonify({"success": False, "error": err})
+    return None
+
+
 def validate_required_fields(data, fields):
     """Check that all required fields are present and truthy in a dict.
 
