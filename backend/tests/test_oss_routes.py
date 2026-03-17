@@ -31,6 +31,93 @@ PREFIX = "/dispatch"
 # ============ Stage 1: Target Repos ============
 
 
+class TestDispatchedReposEndpoint:
+    """Tests for GET /api/oss/dispatched-repos."""
+
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    def test_returns_dispatched_list(self, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_dispatched_repos.return_value = [
+            {"origin_slug": "fastify/fastify", "aggregator_slug": "fastify-fastify",
+             "dispatch_count": 2},
+        ]
+
+        resp = client.get(f"{PREFIX}/api/oss/dispatched-repos")
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert len(data["dispatched_repos"]) == 1
+        assert data["dispatched_repos"][0]["origin_slug"] == "fastify/fastify"
+        assert data["owner"] == "testuser"
+
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    def test_returns_empty_list_when_none_dispatched(self, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_dispatched_repos.return_value = []
+
+        resp = client.get(f"{PREFIX}/api/oss/dispatched-repos")
+        data = resp.get_json()
+
+        assert data["success"] is True
+        assert data["dispatched_repos"] == []
+
+
+class TestStage1AlreadyDispatched:
+    """Tests for already_dispatched flag in stage1 targets."""
+
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    def test_already_dispatched_true_for_matching_slug(self, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_scored_issues.return_value = [{"repoSlug": "fastify-fastify"}]
+        svc.get_health.return_value = (None, None)
+        svc.get_dossier.return_value = (None, None)
+        svc.get_dispatched_repos.return_value = [
+            {"aggregator_slug": "fastify-fastify"},
+        ]
+
+        resp = client.get(f"{PREFIX}/api/oss/stage1-targets")
+        data = resp.get_json()
+
+        assert data["success"] is True
+        target = next(t for t in data["targets"] if t["slug"] == "fastify-fastify")
+        assert target["already_dispatched"] is True
+
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    def test_already_dispatched_false_for_unmatched_slug(self, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_scored_issues.return_value = [{"repoSlug": "vercel-next.js"}]
+        svc.get_health.return_value = (None, None)
+        svc.get_dossier.return_value = (None, None)
+        svc.get_dispatched_repos.return_value = [
+            {"aggregator_slug": "fastify-fastify"},
+        ]
+
+        resp = client.get(f"{PREFIX}/api/oss/stage1-targets")
+        data = resp.get_json()
+
+        target = next(t for t in data["targets"] if t["slug"] == "vercel-next.js")
+        assert target["already_dispatched"] is False
+
+    @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage1.OSSService")
+    def test_already_dispatched_false_when_no_dispatches(self, mock_svc_cls, mock_user, client):
+        svc = mock_svc_cls.return_value
+        svc.get_scored_issues.return_value = [{"repoSlug": "fastify-fastify"}]
+        svc.get_health.return_value = (None, None)
+        svc.get_dossier.return_value = (None, None)
+        svc.get_dispatched_repos.return_value = []
+
+        resp = client.get(f"{PREFIX}/api/oss/stage1-targets")
+        data = resp.get_json()
+
+        target = data["targets"][0]
+        assert target["already_dispatched"] is False
+
+
 class TestRefreshTarget:
     """Tests for POST /api/oss/refresh-target."""
 
@@ -536,6 +623,64 @@ class TestForkAndAssign:
         assert "context_sources" in data
         assert "gh-issue-view" in data["context_sources"]
         assert "gh-contributing-md" in data["context_sources"]
+
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
+    @patch("routes.oss_routes_stage3.run_gh_command")
+    def test_tracks_dispatched_repo_on_success(self, mock_gh, mock_svc_cls, mock_user, client):
+        """Successful dispatch must call track_dispatched_repo with origin_slug."""
+        svc = mock_svc_cls.return_value
+        svc.find_assignment.return_value = None
+        svc.check_fork_exists.return_value = True
+        svc.wait_for_fork.return_value = True
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
+        svc.build_agent_context.return_value = ("## Context", {"sources": []})
+
+        mock_gh.return_value = {
+            "success": True,
+            "output": '{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
+        }
+
+        resp = client.post(
+            f"{PREFIX}/api/oss/fork-and-assign",
+            json={
+                "origin_owner": "fastify",
+                "repo": "fastify",
+                "issue_number": 42,
+                "issue_title": "Fix docs",
+                "issue_url": "https://github.com/fastify/fastify/issues/42",
+            },
+            content_type="application/json",
+        )
+
+        assert resp.get_json()["success"] is True
+        svc.track_dispatched_repo.assert_called_once_with("fastify/fastify")
+
+    @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
+    @patch("routes.oss_routes_stage3.OSSService")
+    def test_does_not_track_dispatched_repo_on_dedup(self, mock_svc_cls, mock_user, client):
+        """Dedup early-return must NOT call track_dispatched_repo."""
+        svc = mock_svc_cls.return_value
+        svc.get_dossier.return_value = (None, None)
+        svc.get_issue_brief.return_value = (None, None)
+        svc.find_assignment.return_value = {
+            "fork_issue_url": "https://github.com/testuser/fastify/issues/1"
+        }
+
+        client.post(
+            f"{PREFIX}/api/oss/fork-and-assign",
+            json={
+                "origin_owner": "fastify",
+                "repo": "fastify",
+                "issue_number": 42,
+                "issue_title": "Fix docs",
+                "issue_url": "https://github.com/fastify/fastify/issues/42",
+            },
+            content_type="application/json",
+        )
+
+        svc.track_dispatched_repo.assert_not_called()
 
     @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
     @patch("routes.oss_routes_stage3.OSSService")
