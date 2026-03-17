@@ -11,7 +11,7 @@ from . import bp
 try:
     from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from ..services import run_gh_command, get_authenticated_user, OSSService
-    from ..services.github_api import set_saml_token_override
+    from ..services.github_api import set_saml_token_override, is_saml_org
     from ..services.oss_fork import get_fork_lock
     from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from ..helpers.notifications import notify_dispatched
@@ -20,7 +20,7 @@ try:
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
-    from services.github_api import set_saml_token_override
+    from services.github_api import set_saml_token_override, is_saml_org
     from services.oss_fork import get_fork_lock
     from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, to_aggregator_slug, safe_error_message
     from helpers.notifications import notify_dispatched
@@ -287,9 +287,42 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
                 t.detail = "synced" if sync_result.get("success") else f"sync issue: {sync_result.get('error', 'unknown')}"
 
             # 3b. Configure fork settings (issues, Actions, disable upstream workflows)
+            # For non-SAML orgs this also starts the async Copilot firewall disable.
+            # SAML orgs (e.g. Microsoft) keep the firewall ON — Copilot runs on
+            # github-hosted runners where the firewall is required and expected.
             with StepTimer("stage3", "configure", origin_slug, issue_number) as t:
                 svc.configure_fork_settings(my_user, repo, origin_owner=origin_owner)
                 t.detail = "settings configured + upstream workflows disabled"
+
+            # 3b2. Confirm Copilot firewall is disabled (non-SAML only).
+            # configure_fork_settings fires _disable_copilot_firewall asynchronously.
+            # Poll until the Actions variable confirms disabled (max 30s).
+            # SAML orgs intentionally keep the firewall ON — skip this check.
+            if not is_saml_org(origin_owner):
+                import time as _fw_time
+                with StepTimer("stage3", "firewall_check", origin_slug, issue_number) as t:
+                    _fw_disabled = False
+                    for _ in range(7):  # up to ~30s (0 + 6×5s)
+                        fw_result = run_gh_command([
+                            "api",
+                            f"repos/{my_user}/{repo}/actions/variables/COPILOT_AGENT_FIREWALL_ENABLED",
+                            "--jq", ".value",
+                        ])
+                        if fw_result.get("success") and fw_result["output"].strip().strip('"') == "false":
+                            _fw_disabled = True
+                            break
+                        _fw_time.sleep(5)
+                    if _fw_disabled:
+                        t.detail = "firewall disabled (confirmed)"
+                    else:
+                        t.status = "warn"
+                        t.detail = "firewall not confirmed disabled after 30s — Copilot session may fail"
+                        plog.warning(
+                            "fork-and-assign WARN: Copilot firewall not confirmed disabled for %s — "
+                            "Copilot may fail at 'Validate firewall settings' step. "
+                            "Retry disable manually at: https://github.com/%s/%s/settings/copilot/coding_agent",
+                            origin_slug, my_user, repo
+                        )
 
             # 3c. Push all pipeline files in a single commit (copilot instructions + CI + SA)
             with StepTimer("stage3", "pipeline_files", origin_slug, issue_number) as t:
@@ -364,25 +397,46 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
 
     # 7. Assign Copilot (retry once — API lags behind issue creation)
     # Use REST API instead of gh issue edit (GraphQL) to avoid GraphQL rate limits.
+    # After POST, re-fetch the issue to confirm Copilot actually appears in assignees.
+    # GitHub returns HTTP 200 but silently ignores the assignment on some repos/orgs.
     with StepTimer("stage3", "assign_copilot", origin_slug, issue_number) as t:
         import time as _time
         import json as _json2
         _assignees_payload = _json2.dumps({"assignees": [COPILOT_ASSIGNEE]})
-        assign_result = run_gh_command([
-            "api", f"repos/{my_user}/{repo}/issues/{fork_issue_number}/assignees",
-            "-X", "POST", "--input", "-"
-        ], stdin_data=_assignees_payload)
-        if not assign_result.get("success"):
-            _time.sleep(3)
+        _assigned = False
+        for _attempt in range(2):
+            if _attempt > 0:
+                _time.sleep(3)
             assign_result = run_gh_command([
                 "api", f"repos/{my_user}/{repo}/issues/{fork_issue_number}/assignees",
                 "-X", "POST", "--input", "-"
             ], stdin_data=_assignees_payload)
-        if assign_result.get("success"):
+            if not assign_result.get("success"):
+                continue
+            # Verify the assignee actually stuck — GitHub silently drops unknown assignees
+            verify_result = run_gh_command([
+                "api", f"repos/{my_user}/{repo}/issues/{fork_issue_number}",
+                "--jq", "[.assignees[].login]",
+            ])
+            if verify_result.get("success"):
+                try:
+                    _assignees = _json2.loads(verify_result["output"].strip())
+                    if any("copilot" in a.lower() for a in _assignees):
+                        _assigned = True
+                        break
+                except (ValueError, TypeError):
+                    pass
+        if _assigned:
             t.detail = f"assigned {COPILOT_ASSIGNEE} to #{fork_issue_number}"
         else:
             t.status = "error"
-            t.detail = f"assign failed: {assign_result.get('error', 'unknown')}"
+            t.detail = f"assign failed: Copilot not in assignees after POST (assignee rejected by GitHub)"
+            plog.error(
+                "fork-and-assign FAIL at assign_copilot: %s #%s — "
+                "GitHub accepted the request but Copilot was not added as assignee. "
+                "Check that the Copilot coding agent is available for this repo.",
+                origin_slug, issue_number
+            )
 
     # 8. Track locally
     with StepTimer("stage3", "save_assignment", origin_slug, issue_number) as t:
@@ -416,6 +470,7 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
     if brief_meta:
         aggregator_meta["brief"] = brief_meta
     meta_updates = {
+        "stage4_status": "swe_agent_working",
         "context_tier": context_metadata.get("context_tier"),
         "context_sources": context_metadata.get("sources", []),
     }
