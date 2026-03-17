@@ -613,85 +613,6 @@ def render_report_html(report_data):
 # API entry point (called from backend route)
 # ---------------------------------------------------------------------------
 
-def _backfill_sa_jobs(logs, fork_slug):
-    """Backfill SA job details for old retrospective logs that lack them.
-
-    New pipeline runs capture jobs at write time via the orchestrator.
-    This handles logs written before that change by fetching on demand.
-    Each unique run_id is fetched at most once.
-    """
-    if not fork_slug:
-        return
-
-    try:
-        from ..services.pipeline_orchestrator import fetch_sa_details
-    except ImportError:
-        from services.pipeline_orchestrator import fetch_sa_details
-
-    sa_cache = {}
-    for entry in logs:
-        sa = entry.get("static_analysis", {})
-        rid = sa.get("run_id")
-        if rid and not sa.get("jobs"):
-            if rid not in sa_cache:
-                sa_cache[rid] = fetch_sa_details(rid, fork_slug)
-            jobs = sa_cache[rid]
-            if jobs:
-                sa["jobs"] = jobs
-
-
-def _synthesize_entry_from_assignment(assignment):
-    """Build a retrospective-like entry from an in-progress assignment.
-
-    When the pipeline hasn't reached Stage 4.5 yet, there are no retrospective
-    logs. This creates a partial entry from whatever assignment fields exist so
-    the report can render progress instead of showing "no data".
-    """
-    status = assignment.get("stage4_status", "swe_agent_working")
-    return {
-        "id": f"{assignment.get('repo')}/{assignment.get('fork_issue_number')}/in-progress",
-        "created_at": assignment.get("assigned_at", ""),
-        "origin_slug": assignment.get("origin_slug", ""),
-        "repo": assignment.get("repo", ""),
-        "issue_number": assignment.get("issue_number"),
-        "fork_issue_number": assignment.get("fork_issue_number"),
-        "pipeline": {
-            "language": assignment.get("language"),
-            "toolchain_profile": assignment.get("toolchain_profile"),
-        },
-        "swe": {
-            "pr_number": assignment.get("stage4_pr_number"),
-            "pr_branch": assignment.get("stage4_pr_branch"),
-        },
-        "static_analysis": {
-            "run_id": assignment.get("stage4_sa_run_id"),
-            "conclusion": assignment.get("stage4_sa_conclusion"),
-        },
-        "review": {
-            "inline_comment_count": 0,
-            "actionable": False,
-        },
-        "remediation": {
-            "skipped": assignment.get("stage4d_skipped", True),
-        },
-        "workflow": {},
-        "data_quality": {
-            "context_tier": assignment.get("context_tier"),
-            "context_sources": assignment.get("context_sources", []),
-            "dossier_completeness": assignment.get("dossier_completeness"),
-        },
-        "timing": {
-            "assigned_at": assignment.get("assigned_at"),
-            "swe_done_at": assignment.get("stage4_swe_done_at"),
-            "sa_done_at": assignment.get("stage4_sa_done_at"),
-            "review_done_at": assignment.get("stage4_review_done_at"),
-            "remediation_done_at": assignment.get("stage4d_done_at"),
-            "completed_at": None,
-        },
-        "_in_progress": status,
-    }
-
-
 def generate_issue_report_html(svc, repo, issue_number):
     """Generate a self-contained pipeline report HTML for a single issue.
 
@@ -706,35 +627,13 @@ def generate_issue_report_html(svc, repo, issue_number):
     all_logs = svc.get_retrospective_logs()
     all_assignments = svc.get_assigned_issues()
 
-    # Filter to this repo
     repo_logs = [e for e in all_logs if e.get("repo") == repo]
     repo_assignments = [a for a in all_assignments if a.get("repo") == repo]
 
-    # Further filter logs to this issue
-    issue_logs = [
-        e for e in repo_logs
-        if e.get("issue_number") == issue_number
-    ]
-
-    # If no logs for this specific issue, fall back to all repo logs
+    issue_logs = [e for e in repo_logs if e.get("issue_number") == issue_number]
     if not issue_logs:
         issue_logs = repo_logs
 
-    # If still no logs, synthesize from assignment data (pipeline in progress)
-    if not issue_logs:
-        matching_assignments = [
-            a for a in repo_assignments
-            if a.get("issue_number") == issue_number
-        ]
-        if not matching_assignments:
-            matching_assignments = repo_assignments
-        issue_logs = [_synthesize_entry_from_assignment(a) for a in matching_assignments]
-
-    # Backfill SA job details for old logs that predate write-time capture
-    fork_slug, _ = derive_slugs(repo_assignments)
-    _backfill_sa_jobs(issue_logs, fork_slug)
-
     cached_health = load_health_from_cache(repo)
     report_data = build_report_data(repo, issue_logs, repo_assignments, cached_health)
-
     return render_report_html(report_data)
