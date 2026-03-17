@@ -14,6 +14,7 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -41,6 +42,8 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: 'http://localhost:5175',
+        actionTimeout: 10_000,
+        navigationTimeout: 30_000,
         trace: 'on',
         screenshot: 'on',
         video: 'on'
@@ -48,20 +51,22 @@ export default defineConfig({
     }
   ],
 
-  // Start both Flask backend and Vite dev server before running tests
+  // Start both Flask backend and Vite dev server before running tests.
+  // url= checks that the server actually responds, not just that the port is open.
+  // This catches stale servers with wrong proxy configs immediately.
   webServer: [
     {
       command: 'python3 -m backend.app',
-      port: 5001,
+      url: 'http://localhost:5001/dispatch/api/healthcheck',
       reuseExistingServer: !process.env.CI,
       cwd: '..',
-      timeout: 30000
+      timeout: 60_000
     },
     {
       command: 'pnpm dev',
-      port: 5175,
+      url: 'http://localhost:5175',
       reuseExistingServer: !process.env.CI,
-      timeout: 30000
+      timeout: 60_000
     }
   ]
 })
