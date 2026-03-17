@@ -242,6 +242,23 @@ class PipelineOrchestrator:
             return {"success": True, "status": "static_analysis_done",
                     "advanced": True, "details": result}
 
+        # If the run is queued (not in_progress), the runner may be down.
+        # Attempt to restart it — _ensure_self_hosted_runner is idempotent.
+        if result.get("status") == "queued":
+            my_user = ctx["my_user"]
+            repo = ctx["repo"]
+            origin_owner = assignment.get("origin_owner", "")
+            logger.warning(
+                "SA run queued with no runner for %s/%s — attempting runner restart",
+                my_user, repo
+            )
+            try:
+                from .oss_fork import OSSForkMixin
+                fork_mixin = OSSForkMixin()
+                fork_mixin._ensure_self_hosted_runner(my_user, repo)
+            except Exception as e:
+                logger.error("Runner restart failed for %s/%s: %s", my_user, repo, e)
+
         return {"success": True, "status": "static_analysis_running",
                 "advanced": False, "details": result}
 
