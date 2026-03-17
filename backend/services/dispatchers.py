@@ -89,23 +89,42 @@ class CopilotSWEDispatcher(StageDispatcher):
         }
 
     def _find_pr_for_issue(self, my_user, repo, fork_issue_number, copilot_prs):
-        """Correlate a fork issue to its Copilot PR via the issue timeline.
+        """Correlate a fork issue to its Copilot PR by matching the fork issue
+        title against the <issue_title> tag we inject into every Copilot context.
 
-        GitHub cross-references link issues to PRs created from them.
-        When multiple PRs reference the same issue (e.g. stale WIP retries),
-        pick the one with the most commits (actual implementation work).
+        This is reliable because we control the PR body content — we inject
+        <issue_title>{title}</issue_title> into the context we give Copilot,
+        and Copilot includes it verbatim in the PR description.
+
+        Falls back to cross-reference timeline if the title match fails.
 
         Args:
-            copilot_prs: List of open Copilot-authored PR dicts.
-            excluded_prs: handled externally via check_status filtering.
+            copilot_prs: List of open Copilot-authored PR dicts (must include .body).
         Returns the matched PR dict from copilot_prs, or None.
         """
+        # Fetch the fork issue title — this is what we injected into Copilot's context.
+        issue_result = run_gh_command([
+            "api",
+            f"repos/{my_user}/{repo}/issues/{fork_issue_number}",
+            "--jq", ".title",
+        ])
+        if issue_result["success"]:
+            fork_issue_title = issue_result["output"].strip().strip('"')
+            if fork_issue_title:
+                matched = [
+                    p for p in copilot_prs
+                    if f"<issue_title>{fork_issue_title}</issue_title>" in (p.get("body") or "")
+                ]
+                if matched:
+                    return max(matched, key=lambda p: len(p.get("commits", [])))
+
+        # Fallback: cross-reference timeline (works when repo has a PR template
+        # that Copilot fills with "Fixes owner/repo#N").
         result = run_gh_command([
             "api",
             f"repos/{my_user}/{repo}/issues/{fork_issue_number}/timeline",
             "--jq",
-            '[.[] | select(.event=="cross-referenced") '
-            '| .source.issue.number]',
+            '[.[] | select(.event=="cross-referenced") | .source.issue.number]',
         ])
         if not result["success"]:
             return None
@@ -116,15 +135,10 @@ class CopilotSWEDispatcher(StageDispatcher):
         if not linked_numbers:
             return None
 
-        # Build lookup of copilot PRs by number
         pr_by_number = {p["number"]: p for p in copilot_prs}
-
-        # Find all cross-referenced PRs that are Copilot-authored and open
         matched = [pr_by_number[n] for n in linked_numbers if n in pr_by_number]
         if not matched:
             return None
-
-        # Prefer the PR with the most commits (real work, not just "Initial plan")
         return max(matched, key=lambda p: len(p.get("commits", [])))
 
     def check_status(self, job_id, context):
@@ -142,7 +156,7 @@ class CopilotSWEDispatcher(StageDispatcher):
             "api",
             f"repos/{my_user}/{repo}/pulls?state=open&per_page=100",
             "--jq",
-            '[.[] | {number: .number, title: .title, '
+            '[.[] | {number: .number, title: .title, body: .body, '
             'headRefName: .head.ref, author: {login: .user.login}}]',
         ])
         if not result["success"]:
@@ -174,9 +188,17 @@ class CopilotSWEDispatcher(StageDispatcher):
                 try:
                     shas = json.loads(commits_result["output"])
                     pr["commits"] = [{"sha": s} for s in shas]
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError) as e:
+                    _logger.warning(
+                        "Failed to parse commits for PR #%s in %s/%s: %s — raw: %r",
+                        pr["number"], my_user, repo, e, commits_result["output"][:200]
+                    )
                     pr["commits"] = []
             else:
+                _logger.warning(
+                    "Failed to fetch commits for PR #%s in %s/%s: %s",
+                    pr["number"], my_user, repo, commits_result.get("error", "unknown error")
+                )
                 pr["commits"] = []
 
         # Exclude PRs already claimed by other assignments in this repo.
@@ -195,10 +217,8 @@ class CopilotSWEDispatcher(StageDispatcher):
         if not agent_pr and len(available_prs) == 1:
             agent_pr = available_prs[0]
 
-        # Multiple PRs but timeline correlation failed — pick the one
-        # with the most commits (most likely to have actual implementation)
-        if not agent_pr and available_prs:
-            agent_pr = max(available_prs, key=lambda p: len(p.get("commits", [])))
+        # If correlation failed with multiple PRs, don't guess — wait for Copilot
+        # to update the PR body with the issue title (usually happens quickly).
 
         if not agent_pr:
             return {"done": False, "status": "waiting_for_pr", "pr_number": None}

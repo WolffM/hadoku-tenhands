@@ -113,7 +113,7 @@ def _save_json(filename, data):
 
 
 def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
-    """Call aggregator API with graceful failure. Returns None on any error."""
+    """Call aggregator API. Returns None on any error (logs at appropriate level)."""
     if not AGGREGATOR_API_URL:
         logger.warning("Aggregator call skipped (no AGGREGATOR_API_URL): %s %s", method, endpoint)
         return None
@@ -126,10 +126,19 @@ def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
         if resp.ok:
             logger.debug("Aggregator %s %s → %d", method, endpoint, resp.status_code)
             return resp.json()
-        logger.warning("Aggregator %s %s → HTTP %d", method, endpoint, resp.status_code)
+        logger.error(
+            "Aggregator %s %s → HTTP %d: %s",
+            method, endpoint, resp.status_code, resp.text[:200]
+        )
+        return None
+    except requests.Timeout:
+        logger.error("Aggregator %s %s timed out after %ds", method, endpoint, timeout)
+        return None
+    except requests.ConnectionError as e:
+        logger.error("Aggregator %s %s connection failed: %s", method, endpoint, e)
         return None
     except Exception as e:
-        logger.warning("Aggregator call failed for %s %s: %s", method, endpoint, e)
+        logger.error("Aggregator %s %s unexpected error: %s", method, endpoint, e)
         return None
 
 
@@ -232,6 +241,10 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
             data = result.get("data") or result
             # Check for pending status (pre-computed data not yet available)
             if isinstance(data, dict) and data.get("status") == "pending":
+                logger.warning(
+                    "Aggregator scored-issues for %s is pending (not yet computed)",
+                    slug or "all"
+                )
                 return _empty
             issues = data.get("issues") if isinstance(data, dict) else None
             if isinstance(issues, list):

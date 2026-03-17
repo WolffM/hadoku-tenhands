@@ -182,8 +182,16 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
                         "repo_size_mb": repo_size_kb // 1024,
                         "owner": my_user,
                     })
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as e:
+                plog.error(
+                    "fork-and-assign BLOCKED (size check parse failure): %s — raw: %r error: %s",
+                    origin_slug, size_result["output"], e
+                )
+                return jsonify({
+                    "success": False,
+                    "error": "Could not parse repo size from GitHub API response",
+                    "owner": my_user,
+                })
 
     # Preflight: rate limit check (require at least 200 core REST calls remaining)
     MIN_CORE_REMAINING = 200
@@ -202,8 +210,16 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
                     "rate_limit_remaining": core_remaining,
                     "owner": my_user,
                 })
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            plog.error(
+                "fork-and-assign BLOCKED (rate limit parse failure): %s — raw: %r error: %s",
+                origin_slug, rl_result["output"], e
+            )
+            return jsonify({
+                "success": False,
+                "error": "Could not parse rate limit from GitHub API response",
+                "owner": my_user,
+            })
 
     # 0. Dedup guard
     existing = svc.find_assignment(origin_slug, issue_number)
@@ -373,6 +389,17 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
         default_branch = svc.get_default_branch(
             origin_owner, repo, issue_brief=issue_brief, dossier_context=dossier_context
         )
+        if default_branch is None:
+            plog.error(
+                "fork-and-assign ERROR: could not determine default branch for %s — "
+                "fork was created but assignment not saved",
+                origin_slug
+            )
+            return jsonify({
+                "success": False,
+                "error": f"Could not determine default branch for {origin_slug}",
+                "owner": my_user,
+            })
         svc.save_assignment(
             origin_owner, repo, issue_number, fork_issue_number, fork_issue_url,
             is_self_owned=is_self_owned, default_branch=default_branch
