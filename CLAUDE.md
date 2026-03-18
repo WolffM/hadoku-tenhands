@@ -75,7 +75,13 @@ File-based caching in `backend/services/cache.py`. TTL: 5min (prod), 1hr (local 
 
 ## Development
 
-### Running the backend locally
+### Running the backend (production)
+
+**NEVER start the backend manually.** The backend runs as a pm2 service managed by `hadoku_site`. To deploy or restart it, push to `main` — this triggers `.github/workflows/deploy.yml`, which sends a `repository_dispatch` event to `WolffM/hadoku_site` to redeploy the service. The workflow can also be manually triggered from the GitHub Actions UI.
+
+The backend runs on **port 5024** (configured via `PORT` env var in `app.py`). The Vite dev proxy also targets 5024 by default.
+
+### Running the backend locally (dev only)
 
 ```bash
 cd backend && python3 app.py
@@ -83,7 +89,7 @@ cd backend && python3 app.py
 
 The app loads `.env` from the project root via `python-dotenv` at startup. This includes `AGGREGATOR_API_URL`, `ADMIN_KEY`, `DISCORD_WEBHOOK_URL`, and other config. Without `.env`, the backend runs in offline/fallback mode (no aggregator, no admin gating).
 
-The Flask app registers routes under `URL_PREFIX` (default: `/dispatch`). Locally, all API calls go to `http://localhost:5000/dispatch/api/oss/...`. Set `URL_PREFIX=""` to remove the prefix.
+The Flask app registers routes under `URL_PREFIX` (default: `/dispatch`). Locally, all API calls go to `http://localhost:5024/dispatch/api/oss/...`. Set `URL_PREFIX=""` to remove the prefix.
 
 ### Backend tests
 
