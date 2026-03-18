@@ -71,8 +71,11 @@ for r in ready:
 
 if unique_ready:
     for r in unique_ready:
-        print(f"- **{r['origin_slug']} #{r['issue_number']}** — {r['title']}")
-        print(f"  Branch: `{r['branch']}`")
+        fork_owner = "WolffM"
+        fork_pulls = f"https://github.com/{fork_owner}/{r['repo']}/pulls"
+        upstream_issue = f"https://github.com/{r['origin_slug']}/issues/{r['issue_number']}"
+        print(f"- **[{r['origin_slug']} #{r['issue_number']}]({upstream_issue})** — {r['title']}")
+        print(f"  Branch: `{r['branch']}` → [review fork PRs]({fork_pulls})")
 else:
     print("_None_")
 
@@ -80,10 +83,41 @@ dup_count = len(ready) - len(unique_ready)
 if dup_count:
     print(f"  _(Note: {dup_count} duplicate entries removed)_")
 
-# ── Active Assignments ─────────────────────────────────────────────────────────
+# ── Complete — Awaiting Stage 5 (human review needed) ─────────────────────────
 TERMINAL = {"retrospective_complete"}
 complete = [a for a in assignments if a.get("stage4_status") in TERMINAL]
 active = [a for a in assignments if a.get("stage4_status") not in TERMINAL]
+
+# Build lookup of already-submitted or ready-to-submit issues
+submitted_keys = set((p["origin_slug"], p.get("issue_number")) for p in submitted)
+ready_keys = set((r["origin_slug"], r["issue_number"]) for r in unique_ready)
+submitted_slugs = set(p["origin_slug"] for p in submitted)
+
+needs_stage5 = [
+    a for a in complete
+    if (a["origin_slug"], a["issue_number"]) not in submitted_keys
+    and (a["origin_slug"], a["issue_number"]) not in ready_keys
+]
+
+print()
+print("## Complete — Needs Stage 5 Review")
+print(f"**{len(needs_stage5)} items finished fork cycle, not yet submitted upstream**")
+if needs_stage5:
+    print()
+    for a in needs_stage5:
+        fork_owner = "WolffM"
+        repo = a.get("repo", "")
+        fork_pr_num = a.get("stage4_pr_number")
+        upstream_issue = f"https://github.com/{a['origin_slug']}/issues/{a['issue_number']}"
+        if fork_pr_num:
+            fork_link = f"https://github.com/{fork_owner}/{repo}/pull/{fork_pr_num}"
+            links = f"[upstream issue]({upstream_issue}) · [fork PR #{fork_pr_num}]({fork_link})"
+        else:
+            fork_pulls = f"https://github.com/{fork_owner}/{repo}/pulls"
+            links = f"[upstream issue]({upstream_issue}) · [fork PRs]({fork_pulls})"
+        lang = a.get("language", "")
+        lang_str = f" [{lang}]" if lang else ""
+        print(f"- {a['origin_slug']} #{a['issue_number']}{lang_str} — {links}")
 
 print()
 print("## Active Assignments")
@@ -128,4 +162,6 @@ for status in ordered:
         lang_str = f" [{lang}]" if lang else ""
         tier = a.get("context_tier")
         tier_str = f" tier={tier}" if tier else ""
-        print(f"- {a['origin_slug']} #{a['issue_number']}{lang_str}{tier_str}")
+        fork_url = a.get("fork_issue_url", "")
+        link = f" — [fork issue]({fork_url})" if fork_url else ""
+        print(f"- {a['origin_slug']} #{a['issue_number']}{lang_str}{tier_str}{link}")

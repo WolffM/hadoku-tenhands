@@ -196,12 +196,47 @@ class PipelineOrchestrator:
                     origin_slug, issue_number, fork_pr_url,
                     result.get("pr_title", f"PR #{pr_num}"),
                 )
+                # Close any other open Copilot PRs on this fork that are stale
+                # (Copilot creates a new branch+PR each time it retries)
+                self._close_stale_copilot_prs(my_user, repo, pr_num)
 
             return {"success": True, "status": "swe_agent_done",
                     "advanced": True, "details": result}
 
         return {"success": True, "status": "swe_agent_working",
                 "advanced": False, "details": result}
+
+    def _close_stale_copilot_prs(self, my_user, repo, keep_pr_number):
+        """Close open Copilot PRs on the fork that are not the active one.
+
+        Copilot creates a new branch+PR each time it retries. When we detect
+        the active PR, close all other open Copilot PRs to avoid accumulation.
+        """
+        result = run_gh_command([
+            "api", f"repos/{my_user}/{repo}/pulls?state=open&per_page=100",
+            "--jq",
+            '[.[] | select(.user.login | ascii_downcase | contains("copilot")) | .number]',
+        ])
+        if not result["success"]:
+            return
+        try:
+            open_copilot_prs = json.loads(result["output"])
+        except (json.JSONDecodeError, ValueError):
+            return
+        if not isinstance(open_copilot_prs, list):
+            return
+        for pr_num in open_copilot_prs:
+            if pr_num == keep_pr_number:
+                continue
+            close_result = run_gh_command([
+                "pr", "close", str(pr_num), "-R", f"{my_user}/{repo}",
+                "--comment", f"Superseded by #{keep_pr_number}. Closing stale Copilot attempt.",
+            ])
+            if close_result["success"]:
+                logger.info("Closed stale Copilot PR #%s on %s/%s", pr_num, my_user, repo)
+            else:
+                logger.warning("Failed to close stale PR #%s on %s/%s: %s",
+                               pr_num, my_user, repo, close_result.get("error", ""))
 
     def _dispatch_static_analysis(self, assignment, ctx):
         """Dispatch static analysis (4b) against the SWE agent's branch."""

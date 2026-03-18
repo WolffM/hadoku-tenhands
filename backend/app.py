@@ -191,6 +191,6 @@ if __name__ == "__main__":
     # Use environment variable to control debug mode (defaults to False for security)
     # Set FLASK_ENV=development to enable debug mode in local development
     debug_mode = os.environ.get("FLASK_ENV") == "development"
-    port = int(os.environ.get("PORT", 5001))
+    port = int(os.environ.get("PORT", 5024))
     _kill_port(port)
     app.run(debug=debug_mode, port=port)
