@@ -30,7 +30,8 @@ def _fork_assign_gh_mock(
 ):
     """Build a run_gh_command side_effect for fork-and-assign tests.
 
-    Returns proper numeric responses for the preflight checks (size, rate limit)
+    Returns proper numeric responses for the preflight checks (size, rate limit),
+    "false" for the Copilot firewall variable (so the check passes immediately),
     and the given issue_output for all other calls.
     """
     def side_effect(cmd, **kw):
@@ -39,6 +40,8 @@ def _fork_assign_gh_mock(
             return {"success": True, "output": "1000\n"}  # 1MB — under limit
         if jq == ".resources.core.remaining":
             return {"success": True, "output": "5000\n"}  # plenty of calls
+        if jq == ".value" and any("COPILOT_AGENT_FIREWALL_ENABLED" in str(c) for c in cmd):
+            return {"success": True, "output": "false\n"}  # firewall disabled
         return {"success": True, "output": issue_output}
     return side_effect
 
@@ -1005,6 +1008,8 @@ class TestSignoffAssignmentMatching:
 
         # PR view returns MERGED so merge step is skipped (simplifies mocking)
         mock_gh.side_effect = [
+            # Step 1b: actionability — issue state check
+            {"success": True, "output": json.dumps({"state": "open", "locked": False})},
             # Step 2: pr view
             {"success": True, "output": json.dumps({
                 "headRefName": "copilot/fix-36805", "title": "Fix 36805",
@@ -1041,6 +1046,8 @@ class TestSignoffAssignmentMatching:
         svc.get_assigned_issues.return_value = list(self.ASSIGNMENTS)
 
         mock_gh.side_effect = [
+            # Step 1b: actionability — issue state check
+            {"success": True, "output": json.dumps({"state": "open", "locked": False})},
             {"success": True, "output": json.dumps({
                 "headRefName": "copilot/fix-22315", "title": "Fix 22315",
                 "baseRefName": "main", "isDraft": False, "state": "MERGED"})},
