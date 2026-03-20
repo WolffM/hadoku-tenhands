@@ -6,6 +6,7 @@ Reads local JSON state files and prints a formatted status summary.
 import json
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent / "backend" / ".cache" / "oss"
@@ -123,6 +124,26 @@ print()
 print("## Active Assignments")
 print(f"**{len(active)} active, {len(complete)} complete**")
 
+STALL_HOURS = 12  # flag as stalled if swe_agent_working for longer than this
+
+def _hours_since(iso_str):
+    if not iso_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+    except (ValueError, TypeError):
+        return None
+
+# Split swe_agent_working into stalled vs. genuinely recent
+stalled = [
+    a for a in active
+    if a.get("stage4_status", "no_status") == "swe_agent_working"
+    and (_hours_since(a.get("assigned_at")) or 0) > STALL_HOURS
+]
+stalled_keys = {(a["origin_slug"], a["issue_number"]) for a in stalled}
+active_display = [a for a in active if (a["origin_slug"], a["issue_number"]) not in stalled_keys]
+
 STATUS_ORDER = [
     "review_complete",
     "remediation_done",
@@ -143,15 +164,15 @@ STATUS_LABELS = {
     "review_in_progress":     "Under review",
     "static_analysis_running": "Static analysis running",
     "swe_agent_done":         "SWE agent done — SA running or queued",
-    "swe_agent_working":      "SWE agent working",
+    "swe_agent_working":      "SWE agent working (recent)",
     "no_status":              "Awaiting first poll",
 }
 
-seen_statuses = set(a.get("stage4_status", "no_status") for a in active)
+seen_statuses = set(a.get("stage4_status", "no_status") for a in active_display)
 ordered = STATUS_ORDER + sorted(seen_statuses - set(STATUS_ORDER))
 
 for status in ordered:
-    items = [a for a in active if a.get("stage4_status", "no_status") == status]
+    items = [a for a in active_display if a.get("stage4_status", "no_status") == status]
     if not items:
         continue
     label = STATUS_LABELS.get(status, status)
@@ -165,3 +186,15 @@ for status in ordered:
         fork_url = a.get("fork_issue_url", "")
         link = f" — [fork issue]({fork_url})" if fork_url else ""
         print(f"- {a['origin_slug']} #{a['issue_number']}{lang_str}{tier_str}{link}")
+
+if stalled:
+    print()
+    print(f"### Agent stalled — no code commits after Initial Plan ({len(stalled)})")
+    for a in stalled:
+        hours = _hours_since(a.get("assigned_at"))
+        age_str = f" ({int(hours)}h ago)" if hours else ""
+        lang = a.get("language", "")
+        lang_str = f" [{lang}]" if lang else ""
+        fork_url = a.get("fork_issue_url", "")
+        link = f" — [fork issue]({fork_url})" if fork_url else ""
+        print(f"- {a['origin_slug']} #{a['issue_number']}{lang_str}{age_str}{link}")

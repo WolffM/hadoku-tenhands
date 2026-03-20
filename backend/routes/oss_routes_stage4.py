@@ -465,6 +465,46 @@ def api_oss_signoff():
     stored_default = assignment.get("default_branch", "main")
     fork_issue_number = assignment.get("fork_issue_number")
 
+    # --- Step 1b: Actionability check ---
+    # Verify the upstream issue is still open and we haven't already submitted a PR for it.
+    actionability = {}
+    if upstream_issue_number:
+        issue_check = run_gh_command([
+            "api", f"repos/{origin_slug}/issues/{upstream_issue_number}",
+            "--jq", "{state: .state, locked: .locked}"
+        ])
+        if issue_check["success"]:
+            try:
+                issue_meta = json.loads(issue_check["output"])
+                actionability["issue_state"] = issue_meta.get("state")
+                if issue_meta.get("state") != "open":
+                    return jsonify({
+                        "success": False,
+                        "error": f"Upstream issue #{upstream_issue_number} is {issue_meta.get('state')} — nothing to fix",
+                        "actionability": actionability,
+                    })
+            except (json.JSONDecodeError, ValueError):
+                actionability["issue_check"] = "parse_error"
+        else:
+            actionability["issue_check"] = "api_error"
+
+        # Check if we already have an open upstream PR for this slug
+        submitted_items = svc.get_submitted_prs()
+        existing_pr = next(
+            (p for p in submitted_items
+             if p.get("origin_slug") == origin_slug and p.get("state") == "open"),
+            None
+        )
+        if existing_pr:
+            actionability["existing_pr"] = existing_pr.get("pr_url")
+            return jsonify({
+                "success": False,
+                "error": f"Already have an open upstream PR for {origin_slug}: {existing_pr.get('pr_url')}",
+                "actionability": actionability,
+            })
+
+    steps["actionability"] = actionability
+
     # --- Step 2: Get PR info before merge (can't read after) ---
     pr_info = run_gh_command([
         "pr", "view", str(pr_number), "-R", f"{my_user}/{repo}",
