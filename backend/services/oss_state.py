@@ -5,9 +5,48 @@ Handles reading/writing the local JSON files that track pipeline state:
 selected issues, assignments, ready-to-submit, and submitted PRs.
 """
 
+import os
 import time
 
-from .oss_service import _load_json, _save_json
+from .oss_service import _load_json, _save_json, OSS_DATA_DIR
+
+# Session artifacts directory: .cache/oss/sessions/{owner}-{repo}/{issue_number}/
+SESSIONS_DIR = os.path.join(OSS_DATA_DIR, "sessions")
+
+
+def _session_dir(origin_slug: str, issue_number: int) -> str:
+    """Return the session directory path for a given issue."""
+    safe_slug = origin_slug.replace("/", "-")
+    return os.path.join(SESSIONS_DIR, safe_slug, str(issue_number))
+
+
+def save_session_artifact(origin_slug: str, issue_number: int,
+                          filename: str, content: str) -> str:
+    """Write a session artifact file and return its path.
+
+    Creates the session directory if it doesn't exist. Returns the path to
+    the written file, or empty string on failure.
+    """
+    try:
+        d = _session_dir(origin_slug, issue_number)
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, filename)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return path
+    except OSError:
+        return ""
+
+
+def get_session_artifact(origin_slug: str, issue_number: int,
+                         filename: str) -> str:
+    """Read a session artifact file. Returns empty string if not found."""
+    try:
+        path = os.path.join(_session_dir(origin_slug, issue_number), filename)
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 class OSSStateMixin:
