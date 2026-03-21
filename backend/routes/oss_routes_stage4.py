@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.pipeline_orchestrator import PipelineOrchestrator
+    from ..services.oss_state import save_session_artifact
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message
     from ..helpers.notifications import notify_fork_merged, notify_upstream_submitted
@@ -25,6 +26,7 @@ try:
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
+    from services.oss_state import save_session_artifact
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message
     from helpers.notifications import notify_fork_merged, notify_upstream_submitted
@@ -576,6 +578,9 @@ def api_oss_signoff():
 
     # --- Step 5: Create upstream PR ---
     body = format_upstream_pr_body(origin_slug, upstream_issue_number, pr_title, clean_branch)
+
+    # Persist the PR body for retrospective analysis before submitting
+    save_session_artifact(origin_slug, upstream_issue_number, "upstream-pr-body.md", body)
 
     submit_result = run_gh_command([
         "pr", "create",

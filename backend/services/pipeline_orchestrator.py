@@ -26,6 +26,7 @@ import time
 from .dispatchers import create_default_registry
 from .github_api import run_gh_command
 from .oss_service import _sanitize_upstream_refs
+from .oss_state import save_session_artifact
 
 try:
     from ..helpers.notifications import notify_copilot_pr_ready
@@ -597,8 +598,26 @@ class PipelineOrchestrator:
         }
 
         # Copilot session workflow analysis
-        retro["workflow"] = self._fetch_workflow_analysis(
-            ctx.get("my_user", ""), repo, pr_number)
+        my_user = ctx.get("my_user", "")
+        retro["workflow"] = self._fetch_workflow_analysis(my_user, repo, pr_number)
+
+        # Session artifacts — persist full session log and fork diff for retrospective
+        origin_slug = assignment.get("origin_slug", "")
+        issue_number = assignment.get("issue_number")
+        session_artifacts = {}
+        if pr_number and my_user and repo and origin_slug and issue_number:
+            session_log = self._fetch_session_log(my_user, repo, pr_number)
+            if session_log:
+                path = save_session_artifact(origin_slug, issue_number, "session.log", session_log)
+                if path:
+                    session_artifacts["session_log"] = path
+
+            fork_diff = self._fetch_fork_diff(my_user, repo, pr_number)
+            if fork_diff:
+                path = save_session_artifact(origin_slug, issue_number, "fork-diff.patch", fork_diff)
+                if path:
+                    session_artifacts["fork_diff"] = path
+        retro["session_artifacts"] = session_artifacts
 
         # Timing — per-stage timestamps from assignment record
         retro["timing"] = {
@@ -674,6 +693,40 @@ class PipelineOrchestrator:
             "step_count": analysis.get("step_count", 0),
             "session_count": analysis.get("session_count", 1),
         }
+
+    def _fetch_session_log(self, my_user, repo, pr_number):
+        """Fetch full Copilot session thinking log via copilot-sessions.py summary.
+
+        Returns the raw log text, or empty string on failure.
+        """
+        script = os.path.join(
+            os.path.dirname(__file__), "..", "..", "scripts", "copilot-sessions.py"
+        )
+        script = os.path.normpath(script)
+        if not os.path.exists(script):
+            return ""
+        try:
+            result = subprocess.run(
+                [sys.executable, script, "summary",
+                 "-R", f"{my_user}/{repo}",
+                 "--pr", str(pr_number)],
+                capture_output=True, text=True, timeout=120,
+                encoding="utf-8", errors="replace",
+            )
+            return result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return ""
+
+    def _fetch_fork_diff(self, my_user, repo, pr_number):
+        """Fetch the full diff of the fork PR via gh pr diff.
+
+        Returns the patch text, or empty string on failure.
+        """
+        result = run_gh_command([
+            "pr", "diff", str(pr_number),
+            "-R", f"{my_user}/{repo}",
+        ])
+        return result.get("output", "").strip() if result.get("success") else ""
 
     # ---- Context builders ----
 

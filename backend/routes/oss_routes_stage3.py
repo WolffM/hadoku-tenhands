@@ -13,6 +13,7 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.github_api import set_saml_token_override, is_saml_org
     from ..services.oss_fork import get_fork_lock
+    from ..services.oss_state import save_session_artifact
     from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
     from ..helpers.notifications import notify_dispatched
     from ..extensions import limiter
@@ -22,6 +23,7 @@ except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.github_api import set_saml_token_override, is_saml_org
     from services.oss_fork import get_fork_lock
+    from services.oss_state import save_session_artifact
     from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
     from helpers.notifications import notify_dispatched
     from extensions import limiter
@@ -353,6 +355,9 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
         sources = context_metadata.get("sources", [])
         t.detail = f"tier={tier} sources={sources}"
         t.extra = {"context_tier": tier, "context_sources": sources}
+
+    # Persist the agent context for retrospective analysis
+    save_session_artifact(f"{origin_owner}/{repo}", issue_number, "context.md", context_body)
 
     # 6. Create context issue on target repo (fork or self-owned)
     # Use REST API (gh api POST) instead of gh issue create (GraphQL) to avoid GraphQL rate limits.
