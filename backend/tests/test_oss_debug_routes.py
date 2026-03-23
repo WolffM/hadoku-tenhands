@@ -29,6 +29,13 @@ def disable_cache_and_admin_key(monkeypatch):
 
 PREFIX = "/dispatch"
 
+# Module paths for patching (names live in their sub-module now)
+_health = "routes.debug.health_routes"
+_fork = "routes.debug.fork_routes"
+_context = "routes.debug.context_routes"
+_assignment = "routes.debug.assignment_routes"
+_tracking = "routes.debug.tracking_routes"
+
 
 # ============ Admin Key Gating ============
 
@@ -39,8 +46,8 @@ class TestAdminKeyGating:
     def test_no_gating_when_admin_key_unset(self, client, monkeypatch):
         """When ADMIN_KEY is not set, debug endpoints are accessible without auth."""
         monkeypatch.delenv("ADMIN_KEY", raising=False)
-        with patch("routes.oss_debug_routes.run_gh_command") as mock_gh, \
-             patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser"):
+        with patch(f"{_health}.run_gh_command") as mock_gh, \
+             patch(f"{_health}.get_authenticated_user", return_value="testuser"):
             mock_gh.return_value = {"success": True, "output": "testuser"}
             resp = client.get(f"{PREFIX}/api/oss/debug/gh-health")
             assert resp.status_code == 200
@@ -66,8 +73,8 @@ class TestAdminKeyGating:
     def test_success_with_correct_header(self, client, monkeypatch):
         """When correct X-Admin-Key header is provided, request succeeds."""
         monkeypatch.setenv("ADMIN_KEY", "secret123")
-        with patch("routes.oss_debug_routes.run_gh_command") as mock_gh, \
-             patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser"):
+        with patch(f"{_health}.run_gh_command") as mock_gh, \
+             patch(f"{_health}.get_authenticated_user", return_value="testuser"):
             mock_gh.return_value = {"success": True, "output": "testuser"}
             resp = client.get(
                 f"{PREFIX}/api/oss/debug/gh-health",
@@ -78,8 +85,8 @@ class TestAdminKeyGating:
     def test_success_with_query_param(self, client, monkeypatch):
         """admin_key query param also works."""
         monkeypatch.setenv("ADMIN_KEY", "secret123")
-        with patch("routes.oss_debug_routes.run_gh_command") as mock_gh, \
-             patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser"):
+        with patch(f"{_health}.run_gh_command") as mock_gh, \
+             patch(f"{_health}.get_authenticated_user", return_value="testuser"):
             mock_gh.return_value = {"success": True, "output": "testuser"}
             resp = client.get(f"{PREFIX}/api/oss/debug/gh-health?admin_key=secret123")
             assert resp.status_code == 200
@@ -91,8 +98,8 @@ class TestAdminKeyGating:
 class TestGhHealth:
     """Tests for GET /api/oss/debug/gh-health."""
 
-    @patch("routes.oss_debug_routes.run_gh_command")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_health}.run_gh_command")
+    @patch(f"{_health}.get_authenticated_user", return_value="testuser")
     def test_healthy_gh(self, mock_user, mock_gh, client):
         mock_gh.side_effect = [
             {"success": True, "output": "Logged in"},  # auth status
@@ -107,8 +114,8 @@ class TestGhHealth:
         assert data["rate_limit"]["remaining"] == 4999
         assert data["response_time_ms"] >= 0
 
-    @patch("routes.oss_debug_routes.run_gh_command")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_health}.run_gh_command")
+    @patch(f"{_health}.get_authenticated_user", return_value="testuser")
     def test_gh_not_authenticated(self, mock_user, mock_gh, client):
         mock_gh.return_value = {"success": False, "error": "not logged in"}
         resp = client.get(f"{PREFIX}/api/oss/debug/gh-health")
@@ -120,9 +127,9 @@ class TestGhHealth:
 class TestAggregatorHealth:
     """Tests for GET /api/oss/debug/aggregator-health."""
 
-    @patch("routes.oss_debug_routes._call_aggregator")
-    @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "https://test-aggregator.example.com/oss/api")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_health}._call_aggregator")
+    @patch(f"{_health}.AGGREGATOR_API_URL", "https://test-aggregator.example.com/oss/api")
+    @patch(f"{_health}.get_authenticated_user", return_value="testuser")
     def test_aggregator_reachable(self, mock_user, mock_agg, client):
         mock_agg.return_value = {"success": True, "data": {"issues": []}}
         resp = client.get(f"{PREFIX}/api/oss/debug/aggregator-health")
@@ -131,18 +138,18 @@ class TestAggregatorHealth:
         assert data["configured"] is True
         assert data["reachable"] is True
 
-    @patch("routes.oss_debug_routes._call_aggregator")
-    @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_health}._call_aggregator")
+    @patch(f"{_health}.AGGREGATOR_API_URL", "")
+    @patch(f"{_health}.get_authenticated_user", return_value="testuser")
     def test_aggregator_not_configured(self, mock_user, mock_agg, client):
         resp = client.get(f"{PREFIX}/api/oss/debug/aggregator-health")
         data = resp.get_json()
         assert data["configured"] is False
         assert data["error"] == "AGGREGATOR_API_URL not configured"
 
-    @patch("routes.oss_debug_routes._call_aggregator")
-    @patch("routes.oss_debug_routes.AGGREGATOR_API_URL", "https://test-aggregator.example.com/oss/api")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_health}._call_aggregator")
+    @patch(f"{_health}.AGGREGATOR_API_URL", "https://test-aggregator.example.com/oss/api")
+    @patch(f"{_health}.get_authenticated_user", return_value="testuser")
     def test_aggregator_unreachable(self, mock_user, mock_agg, client):
         mock_agg.return_value = None
         resp = client.get(f"{PREFIX}/api/oss/debug/aggregator-health")
@@ -154,7 +161,7 @@ class TestAggregatorHealth:
 class TestStateDump:
     """Tests for GET /api/oss/debug/state-dump."""
 
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_health}.get_authenticated_user", return_value="testuser")
     def test_state_dump_returns_all_sections(self, mock_user, client):
         resp = client.get(f"{PREFIX}/api/oss/debug/state-dump")
         data = resp.get_json()
@@ -171,8 +178,8 @@ class TestStateDump:
 class TestForkExists:
     """Tests for GET /api/oss/debug/fork-exists."""
 
-    @patch("routes.oss_debug_routes.OSSService")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_fork}.OSSService")
+    @patch(f"{_fork}.get_authenticated_user", return_value="testuser")
     def test_fork_exists(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.check_fork_exists.return_value = True
@@ -181,8 +188,8 @@ class TestForkExists:
         assert data["exists"] is True
         assert data["fork_url"] == "https://github.com/testuser/fastify"
 
-    @patch("routes.oss_debug_routes.OSSService")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_fork}.OSSService")
+    @patch(f"{_fork}.get_authenticated_user", return_value="testuser")
     def test_fork_not_exists(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.check_fork_exists.return_value = False
@@ -191,7 +198,7 @@ class TestForkExists:
         assert data["exists"] is False
         assert data["fork_url"] is None
 
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_fork}.get_authenticated_user", return_value="testuser")
     def test_missing_repo_param(self, mock_user, client):
         resp = client.get(f"{PREFIX}/api/oss/debug/fork-exists")
         data = resp.get_json()
@@ -201,8 +208,8 @@ class TestForkExists:
 class TestForkRepo:
     """Tests for POST /api/oss/debug/fork-repo."""
 
-    @patch("routes.oss_debug_routes.OSSService")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_fork}.OSSService")
+    @patch(f"{_fork}.get_authenticated_user", return_value="testuser")
     def test_fork_succeeds(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.fork_repo.return_value = {"success": True, "output": ""}
@@ -214,7 +221,7 @@ class TestForkRepo:
         data = resp.get_json()
         assert data["forked"] is True
 
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_fork}.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/debug/fork-repo",
@@ -228,8 +235,8 @@ class TestForkRepo:
 class TestSyncFork:
     """Tests for POST /api/oss/debug/sync-fork."""
 
-    @patch("routes.oss_debug_routes.OSSService")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_fork}.OSSService")
+    @patch(f"{_fork}.get_authenticated_user", return_value="testuser")
     def test_sync_succeeds(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.sync_fork.return_value = {"success": True, "output": ""}
@@ -245,8 +252,8 @@ class TestSyncFork:
 class TestBuildContext:
     """Tests for POST /api/oss/debug/build-context."""
 
-    @patch("routes.oss_debug_routes.OSSService")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_context}.OSSService")
+    @patch(f"{_context}.get_authenticated_user", return_value="testuser")
     def test_build_context_returns_markdown(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.get_dossier.return_value = None
@@ -267,7 +274,7 @@ class TestBuildContext:
         assert data["success"] is True
         assert data["context_markdown"] == "# Context"
 
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_context}.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/debug/build-context",
@@ -281,8 +288,8 @@ class TestBuildContext:
 class TestCreateContextIssue:
     """Tests for POST /api/oss/debug/create-context-issue."""
 
-    @patch("routes.oss_debug_routes.run_gh_command")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_context}.run_gh_command")
+    @patch(f"{_context}.get_authenticated_user", return_value="testuser")
     def test_create_issue_succeeds(self, mock_user, mock_gh, client):
         mock_gh.return_value = {
             "success": True,
@@ -301,8 +308,8 @@ class TestCreateContextIssue:
 class TestAssignCopilot:
     """Tests for POST /api/oss/debug/assign-copilot."""
 
-    @patch("routes.oss_debug_routes.run_gh_command")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_assignment}.run_gh_command")
+    @patch(f"{_assignment}.get_authenticated_user", return_value="testuser")
     def test_assign_succeeds(self, mock_user, mock_gh, client):
         mock_gh.return_value = {"success": True, "output": ""}
         resp = client.post(
@@ -320,8 +327,8 @@ class TestAssignCopilot:
 class TestScoreIssue:
     """Tests for GET /api/oss/debug/score-issue."""
 
-    @patch("routes.oss_debug_routes.run_gh_command")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_assignment}.run_gh_command")
+    @patch(f"{_assignment}.get_authenticated_user", return_value="testuser")
     def test_score_issue_returns_breakdown(self, mock_user, mock_gh, client):
         mock_gh.return_value = {
             "success": True,
@@ -344,7 +351,7 @@ class TestScoreIssue:
         assert data["score"]["cvs"] > 0
         assert data["breakdown"]["good_first_issue_bonus"] == 20
 
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_assignment}.get_authenticated_user", return_value="testuser")
     def test_missing_params(self, mock_user, client):
         resp = client.get(f"{PREFIX}/api/oss/debug/score-issue?owner=org")
         data = resp.get_json()
@@ -354,8 +361,8 @@ class TestScoreIssue:
 class TestForkPRStatus:
     """Tests for GET /api/oss/debug/fork-pr-status."""
 
-    @patch("routes.oss_debug_routes.run_gh_command")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_tracking}.run_gh_command")
+    @patch(f"{_tracking}.get_authenticated_user", return_value="testuser")
     def test_pr_status_returns_data(self, mock_user, mock_gh, client):
         mock_gh.return_value = {
             "success": True,
@@ -383,9 +390,9 @@ class TestForkPRStatus:
 class TestPollSubmittedPR:
     """Tests for GET /api/oss/debug/poll-submitted-pr."""
 
-    @patch("routes.oss_debug_routes.OSSService")
-    @patch("routes.oss_debug_routes.run_gh_command")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_tracking}.OSSService")
+    @patch(f"{_tracking}.run_gh_command")
+    @patch(f"{_tracking}.get_authenticated_user", return_value="testuser")
     def test_poll_returns_state(self, mock_user, mock_gh, mock_svc_class, client):
         mock_gh.return_value = {
             "success": True,
@@ -403,7 +410,7 @@ class TestPollSubmittedPR:
         assert data["success"] is True
         assert data["current_state"] == "open"
 
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_tracking}.get_authenticated_user", return_value="testuser")
     def test_missing_pr_url(self, mock_user, client):
         resp = client.get(f"{PREFIX}/api/oss/debug/poll-submitted-pr")
         data = resp.get_json()
@@ -413,8 +420,8 @@ class TestPollSubmittedPR:
 class TestNotificationPreview:
     """Tests for GET /api/oss/debug/notification-preview."""
 
-    @patch("routes.oss_debug_routes.OSSService")
-    @patch("routes.oss_debug_routes.get_authenticated_user", return_value="testuser")
+    @patch(f"{_tracking}.OSSService")
+    @patch(f"{_tracking}.get_authenticated_user", return_value="testuser")
     def test_preview_returns_structure(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.get_submitted_prs.return_value = [
