@@ -4,6 +4,10 @@ OSSForkMixin — fork management, CI/workflow setup, and PR review helpers.
 Handles all GitHub operations on forked repos: creating forks, syncing,
 configuring settings, pushing workflow files, detecting languages,
 and interacting with PR checks and reviews.
+
+Runner setup and firewall management are delegated to sub-mixins:
+- OSSRunnerSetupMixin (oss_runner_setup.py)
+- OSSFirewallMixin (oss_firewall.py)
 """
 
 import logging
@@ -29,9 +33,12 @@ except ImportError:
 from .github_api import run_gh_command
 from .oss_service import _parse_jsonl
 
-# Global semaphore: patchright launches a headless Chromium (~300MB each).
-# Multiple concurrent dispatches can crash WSL via OOM. Limit to 1 at a time.
-_PATCHRIGHT_LOCK = threading.Semaphore(1)
+try:
+    from .oss_runner_setup import OSSRunnerSetupMixin
+    from .oss_firewall import OSSFirewallMixin, _PATCHRIGHT_LOCK
+except ImportError:
+    from oss_runner_setup import OSSRunnerSetupMixin
+    from oss_firewall import OSSFirewallMixin, _PATCHRIGHT_LOCK
 
 # Per-repo locks: serialize concurrent dispatches for the same upstream repo.
 # Prevents the race condition where two parallel dispatches for the same repo
@@ -53,8 +60,12 @@ def get_fork_lock(origin_slug: str) -> threading.Lock:
         return _FORK_LOCKS[origin_slug]
 
 
-class OSSForkMixin:
-    """Fork management and CI/workflow operations."""
+class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
+    """Fork management and CI/workflow operations.
+
+    Inherits runner registration from OSSRunnerSetupMixin and firewall
+    management from OSSFirewallMixin.
+    """
 
     # --- Fork lifecycle ---
 
@@ -149,198 +160,6 @@ class OSSForkMixin:
         else:
             self._ensure_self_hosted_runner(my_user, repo)
             self._disable_copilot_firewall(my_user, repo)
-
-    def _ensure_self_hosted_runner(self, my_user, repo):
-        """Register a self-hosted runner for this repo if one isn't already online.
-
-        Uses the GitHub API to get a registration token, then configures and
-        starts a runner in a background process. Runners are stored in
-        ~/actions-runners/{repo}/.
-        """
-
-        # Check if a runner is already registered and online
-        result = run_gh_command([
-            "api", f"repos/{my_user}/{repo}/actions/runners",
-            "--jq", ".runners[] | select(.status==\"online\") | .name"
-        ])
-        if result["success"] and result["output"].strip():
-            logger.debug("Runner already online for %s/%s: %s",
-                         my_user, repo, result["output"].strip().split("\n")[0])
-            return
-
-        # Get a registration token
-        token_result = run_gh_command([
-            "api", "-X", "POST",
-            f"repos/{my_user}/{repo}/actions/runners/registration-token",
-            "--jq", ".token"
-        ])
-        if not token_result["success"]:
-            logger.warning("Failed to get runner registration token for %s/%s", my_user, repo)
-            return
-
-        token = token_result["output"].strip()
-        runner_dir = os.path.expanduser(f"~/actions-runners/{repo}")
-        runner_bin = os.path.join(runner_dir, "run.sh")
-
-        # If runner directory doesn't exist, set it up
-        if not os.path.exists(runner_bin):
-            # Find the runner template (first existing runner install to copy from)
-            template_dir = None
-            runners_base = os.path.expanduser("~/actions-runners")
-            os.makedirs(runners_base, exist_ok=True)
-
-            # Look for an existing runner install to symlink/copy from
-            home = os.path.expanduser("~")
-            for candidate in ["actions-runner", "actions-runner-fastify"]:
-                candidate_path = os.path.join(home, candidate)
-                if os.path.exists(os.path.join(candidate_path, "run.sh")):
-                    template_dir = candidate_path
-                    break
-
-            # Also check in the runners directory itself
-            if not template_dir:
-                for entry in os.listdir(runners_base) if os.path.exists(runners_base) else []:
-                    candidate_path = os.path.join(runners_base, entry)
-                    if os.path.exists(os.path.join(candidate_path, "run.sh")):
-                        template_dir = candidate_path
-                        break
-
-            if not template_dir:
-                logger.warning(
-                    "No runner template found. Please install a GitHub Actions runner at "
-                    "~/actions-runners/template/ first. See: "
-                    "https://github.com/actions/runner/releases"
-                )
-                return
-
-            # Copy the runner (can't symlink — each needs its own config)
-            logger.info("Setting up runner for %s/%s from %s", my_user, repo, template_dir)
-            _flags = _SUBPROCESS_FLAGS
-            try:
-                subprocess.run(
-                    ["cp", "-r", template_dir, runner_dir],
-                    capture_output=True, timeout=30, creationflags=_flags
-                )
-                # Clean old config if copied from another repo's runner
-                for stale in [".runner", ".runner_migrated", ".credentials",
-                              ".credentials_rsaparams", ".env"]:
-                    stale_path = os.path.join(runner_dir, stale)
-                    if os.path.exists(stale_path):
-                        os.remove(stale_path)
-            except Exception as e:
-                logger.warning("Failed to copy runner template: %s", e)
-                return
-
-        # Configure the runner
-        logger.info("Configuring runner for %s/%s", my_user, repo)
-        _flags = _SUBPROCESS_FLAGS
-        try:
-            config_proc = subprocess.run(
-                [os.path.join(runner_dir, "config.sh"),
-                 "--url", f"https://github.com/{my_user}/{repo}",
-                 "--token", token,
-                 "--name", f"vd-{repo}",
-                 "--labels", "self-hosted,Linux,X64",
-                 "--unattended", "--replace"],
-                capture_output=True, text=True, timeout=30,
-                cwd=runner_dir, creationflags=_flags
-            )
-            if config_proc.returncode != 0:
-                logger.warning("Runner config failed for %s/%s: %s",
-                               my_user, repo, config_proc.stderr[:200])
-                return
-        except Exception as e:
-            logger.warning("Runner config error for %s/%s: %s", my_user, repo, e)
-            return
-
-        # Start the runner in the background
-        logger.info("Starting runner for %s/%s", my_user, repo)
-        try:
-            subprocess.Popen(
-                [os.path.join(runner_dir, "run.sh")],
-                stdout=open(os.path.join(runner_dir, "runner.log"), "w"),
-                stderr=subprocess.STDOUT,
-                cwd=runner_dir,
-                start_new_session=True,
-            )
-            logger.info("Runner started for %s/%s (pid in background)", my_user, repo)
-        except Exception as e:
-            logger.warning("Failed to start runner for %s/%s: %s", my_user, repo, e)
-
-    def _disable_copilot_firewall(self, my_user, repo):
-        """Disable the Copilot coding agent firewall asynchronously.
-
-        Spawns a daemon thread so the dispatch request thread is not blocked.
-        The firewall only needs to be disabled before Copilot starts working
-        (minutes later), so there's no reason to wait inline.
-        """
-        t = threading.Thread(
-            target=self._run_firewall_disable,
-            args=(my_user, repo),
-            daemon=True,
-            name=f"patchright-{my_user}-{repo}",
-        )
-        t.start()
-        logger.info("Firewall disable launched in background for %s/%s", my_user, repo)
-
-    def _run_firewall_disable(self, my_user, repo):
-        """Blocking implementation for firewall disable — runs in a background thread.
-
-        Tries the REST API first. Falls back to patchright browser automation.
-        The _PATCHRIGHT_LOCK semaphore limits concurrent Chromium instances to 1.
-        """
-
-        # Try API first (best-effort — endpoint may not exist yet)
-        result = run_gh_command([
-            "api", f"repos/{my_user}/{repo}/copilot/coding_agent/settings",
-            "-X", "PATCH",
-            "-f", "firewall_enabled=false"
-        ])
-        if result["success"]:
-            logger.info("Disabled Copilot firewall via API on %s/%s", my_user, repo)
-            return
-
-        # Fall back to patchright browser automation
-        script_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "scripts", "disable-copilot-firewall.py"
-        )
-        if not os.path.exists(script_path):
-            logger.warning(
-                "Cannot disable Copilot firewall on %s/%s — no API and script not found at %s. "
-                "Disable manually at: https://github.com/%s/%s/settings/copilot/coding_agent",
-                my_user, repo, script_path, my_user, repo
-            )
-            return
-
-        logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
-        _flags = _SUBPROCESS_FLAGS
-        # acquire(timeout=300): wait up to 5 min for another patchright to finish
-        if not _PATCHRIGHT_LOCK.acquire(timeout=300):
-            logger.warning(
-                "Patchright semaphore timeout for %s/%s — skipping firewall disable",
-                my_user, repo
-            )
-            return
-        try:
-            proc = subprocess.run(
-                [sys.executable, script_path, f"{my_user}/{repo}"],
-                capture_output=True, text=True, timeout=60,
-                creationflags=_flags,
-            )
-            if proc.returncode == 0:
-                logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)
-            else:
-                logger.warning(
-                    "Patchright firewall disable failed on %s/%s: %s",
-                    my_user, repo, proc.stderr[:200]
-                )
-        except subprocess.TimeoutExpired:
-            logger.warning("Patchright firewall disable timed out on %s/%s", my_user, repo)
-        except Exception as e:
-            logger.warning("Patchright firewall disable error on %s/%s: %s", my_user, repo, e)
-        finally:
-            _PATCHRIGHT_LOCK.release()
 
     def _disable_upstream_workflows(self, my_user, repo):
         """Disable all inherited workflows except our own and Copilot's.

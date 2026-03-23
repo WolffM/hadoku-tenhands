@@ -18,85 +18,31 @@ State transitions:
 
 import json
 import logging
-import os
-import subprocess
-import sys
 import time
 
 from .dispatchers import create_default_registry
 from .github_api import run_gh_command
-from .oss_service import _sanitize_upstream_refs
-from .oss_state import save_session_artifact
+from .pipeline_session_analysis import (
+    fetch_workflow_analysis as _fetch_workflow_analysis_fn,
+    fetch_session_log as _fetch_session_log_fn,
+    fetch_fork_diff as _fetch_fork_diff_fn,
+)
+from .pipeline_context_builders import (
+    build_remediation_context as _build_remediation_context_fn,
+    build_review_context as _build_review_context_fn,
+)
+from .pipeline_retrospective import (
+    collect_retrospective as _collect_retrospective_fn,
+    fetch_sa_details,  # re-exported for backward compatibility
+)
 
 try:
     from ..helpers.notifications import notify_copilot_pr_ready
-    from ..helpers.oss_helpers import strip_leading_header
 except ImportError:
     from helpers.notifications import notify_copilot_pr_ready
-    from helpers.oss_helpers import strip_leading_header
 
 
 logger = logging.getLogger(__name__)
-
-
-def fetch_sa_details(run_id, fork_slug):
-    """Fetch per-job conclusions and annotations for a SA workflow run.
-
-    Called at retrospective write time so the data is captured once and
-    persisted in retrospective-logs.json for later report rendering.
-
-    Args:
-        run_id: GitHub Actions workflow run ID.
-        fork_slug: Fork repo slug (e.g. "user/some-repo").
-
-    Returns:
-        list of job dicts [{name, conclusion, annotations: [{path, line, level, message}]}],
-        or empty list on failure.
-    """
-    if not run_id or not fork_slug:
-        return []
-
-    _jobs_result = run_gh_command([
-        "api", f"repos/{fork_slug}/actions/runs/{run_id}/jobs",
-        "--jq", ".jobs",
-    ])
-    try:
-        jobs_data = json.loads(_jobs_result["output"]) if _jobs_result["success"] else None
-    except (json.JSONDecodeError, KeyError, TypeError):
-        jobs_data = None
-    if not jobs_data or not isinstance(jobs_data, list):
-        return []
-
-    jobs = []
-    for job in jobs_data:
-        job_info = {
-            "name": job.get("name", "unknown"),
-            "conclusion": job.get("conclusion", "unknown"),
-        }
-        _ann_result = run_gh_command([
-            "api", f"repos/{fork_slug}/check-runs/{job['id']}/annotations",
-        ])
-        try:
-            annotations = json.loads(_ann_result["output"]) if _ann_result["success"] else None
-        except (json.JSONDecodeError, KeyError, TypeError):
-            annotations = None
-        if annotations:
-            findings = [
-                {
-                    "path": a.get("path", ""),
-                    "line": a.get("start_line", 0),
-                    "level": a.get("annotation_level", ""),
-                    "message": a.get("message", ""),
-                }
-                for a in annotations
-                if a.get("path", "") != ".github"
-            ]
-            job_info["annotations"] = findings
-        else:
-            job_info["annotations"] = []
-        jobs.append(job_info)
-
-    return jobs
 
 
 # Valid pipeline states in order
@@ -470,45 +416,11 @@ class PipelineOrchestrator:
         return findings
 
     def _build_remediation_context(self, assignment, ctx):
-        """Build remediation prompt from review comments + SA findings."""
-        parts = ["## Remediation Required\n"]
+        """Build remediation prompt from review comments + SA findings.
 
-        pr_number = assignment.get("stage4_pr_number")
-        my_user = ctx["my_user"]
-        repo = ctx["repo"]
-
-        # Gather inline review comments
-        if pr_number:
-            result = run_gh_command([
-                "api",
-                f"repos/{my_user}/{repo}/pulls/{pr_number}/comments",
-                "--jq",
-                '.[] | "- `\\(.path):\\(.line // .original_line // \"?\")`: \\(.body)"',
-            ])
-            if result["success"] and result["output"].strip():
-                parts.append(
-                    "### Review Comments\n"
-                    f"{result['output'].strip()}\n"
-                )
-
-        # Gather SA findings that survived auto-fix
-        findings = self._get_sa_findings(assignment, ctx)
-        if findings:
-            parts.append(
-                "### Static Analysis Findings (post auto-fix)\n"
-                f"```\n{findings}\n```\n"
-            )
-
-        parts.append(
-            "### Instructions\n"
-            "1. Address each review comment above.\n"
-            "2. Fix any remaining static analysis findings.\n"
-            "3. Do not introduce new issues.\n"
-        )
-
-        context = "\n".join(parts)
-        context = _sanitize_upstream_refs(context)
-        return context
+        Delegates to pipeline_context_builders.build_remediation_context.
+        """
+        return _build_remediation_context_fn(assignment, ctx, self._get_sa_findings)
 
     # ---- Stage 4.5: Retrospective ----
 
@@ -525,268 +437,51 @@ class PipelineOrchestrator:
                 "advanced": True, "retrospective": retro}
 
     def _collect_retrospective(self, assignment, ctx):
-        """Gather structured metrics for the pipeline run."""
-        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        repo = assignment.get("repo", "")
-        fork_issue = assignment.get("fork_issue_number", 0)
-        pr_number = assignment.get("stage4_pr_number")
+        """Gather structured metrics for the pipeline run.
 
-        retro = {
-            "id": f"{repo}/{fork_issue}/{now}",
-            "created_at": now,
-            "origin_slug": assignment.get("origin_slug", ""),
-            "repo": repo,
-            "issue_number": assignment.get("issue_number"),
-            "fork_issue_number": fork_issue,
-        }
-
-        # Pipeline configuration — what model/dispatcher/tools ran each stage
-        retro["pipeline"] = {
-            "swe_agent": type(self.dispatchers.get("swe", None)).__name__,
-            "static_analysis": type(
-                self.dispatchers.get("static_analysis", None)).__name__,
-            "review_agent": type(self.dispatchers.get("review", None)).__name__,
-            "remediation_agent": type(
-                self.dispatchers.get("remediation", None)).__name__,
-            "language": assignment.get("language"),
-            "toolchain_profile": assignment.get("toolchain_profile"),
-        }
-
-        # SWE metrics
-        swe_data = {"pr_number": pr_number,
-                     "pr_branch": assignment.get("stage4_pr_branch")}
-        if pr_number and self.dispatchers.get("swe"):
-            swe_results = self.dispatchers["swe"].collect_results(
-                str(fork_issue), ctx)
-            if swe_results.get("success"):
-                swe_data.update(swe_results["outputs"])
-        retro["swe"] = swe_data
-
-        # SA metrics — fetch per-job details at write time so they're
-        # persisted in retrospective-logs.json for report rendering
-        sa_run_id = assignment.get("stage4_sa_run_id")
-        fork_slug = f"{ctx.get('my_user', '')}/{repo}" if repo else None
-        sa_jobs = fetch_sa_details(sa_run_id, fork_slug) if sa_run_id else []
-        retro["static_analysis"] = {
-            "run_id": sa_run_id,
-            "conclusion": assignment.get("stage4_sa_conclusion"),
-            "jobs": sa_jobs,
-        }
-
-        # Review metrics
-        inline_count = self._count_inline_comments(assignment, ctx)
-        retro["review"] = {
-            "inline_comment_count": inline_count,
-            "actionable": inline_count > 0,
-        }
-
-        # Remediation metrics
-        skipped = assignment.get("stage4d_skipped", True)
-        retro["remediation"] = {"skipped": skipped}
-        if not skipped and self.dispatchers.get("remediation"):
-            remed_results = self.dispatchers["remediation"].collect_results(
-                str(pr_number), ctx)
-            if remed_results.get("success"):
-                retro["remediation"].update(remed_results["outputs"])
-
-        # Data quality — how complete was the aggregator data for this run?
-        retro["data_quality"] = {
-            "context_tier": assignment.get("context_tier"),
-            "context_sources": assignment.get("context_sources", []),
-            "dossier_completeness": assignment.get("dossier_completeness"),
-            "aggregator_meta": assignment.get("aggregator_meta"),
-        }
-
-        # Copilot session workflow analysis
-        my_user = ctx.get("my_user", "")
-        retro["workflow"] = self._fetch_workflow_analysis(my_user, repo, pr_number)
-
-        # Session artifacts — persist full session log and fork diff for retrospective
-        origin_slug = assignment.get("origin_slug", "")
-        issue_number = assignment.get("issue_number")
-        session_artifacts = {}
-        if pr_number and my_user and repo and origin_slug and issue_number:
-            session_log = self._fetch_session_log(my_user, repo, pr_number)
-            if session_log:
-                path = save_session_artifact(origin_slug, issue_number, "session.log", session_log)
-                if path:
-                    session_artifacts["session_log"] = path
-
-            fork_diff = self._fetch_fork_diff(my_user, repo, pr_number)
-            if fork_diff:
-                path = save_session_artifact(origin_slug, issue_number, "fork-diff.patch", fork_diff)
-                if path:
-                    session_artifacts["fork_diff"] = path
-        retro["session_artifacts"] = session_artifacts
-
-        # Timing — per-stage timestamps from assignment record
-        retro["timing"] = {
-            "assigned_at": assignment.get("assigned_at"),
-            "swe_done_at": assignment.get("stage4_swe_done_at"),
-            "sa_done_at": assignment.get("stage4_sa_done_at"),
-            "review_done_at": assignment.get("stage4_review_done_at"),
-            "remediation_done_at": assignment.get("stage4d_done_at"),
-            "completed_at": now,
-        }
-
-        return retro
+        Delegates to pipeline_retrospective.collect_retrospective, passing
+        self._fetch_workflow_analysis so patch.object on the class still works.
+        """
+        return _collect_retrospective_fn(
+            assignment,
+            ctx,
+            self.dispatchers,
+            self._count_inline_comments,
+            fetch_workflow_analysis_fn=self._fetch_workflow_analysis,
+        )
 
     # ---- Copilot session analysis ----
 
     def _fetch_workflow_analysis(self, my_user, repo, pr_number):
         """Fetch Copilot agent workflow analysis for a PR.
 
-        Calls scripts/copilot-sessions.py compare --json to get
-        reproduced/verified/tools/step_count data. Returns a dict
-        with workflow metrics, or an empty dict on failure.
+        Delegates to pipeline_session_analysis.fetch_workflow_analysis.
+        Kept as a class method so tests can patch it via patch.object.
         """
-        if not pr_number or not my_user or not repo:
-            return {}
-
-        script = os.path.join(
-            os.path.dirname(__file__), "..", "..", "scripts", "copilot-sessions.py"
-        )
-        script = os.path.normpath(script)
-
-        if not os.path.exists(script):
-            logger.error("copilot-sessions.py not found at %s — workflow analysis unavailable", script)
-            return {}
-
-        try:
-            result = subprocess.run(
-                [sys.executable, script, "compare",
-                 "-R", f"{my_user}/{repo}",
-                 "--prs", str(pr_number),
-                 "--json"],
-                capture_output=True, text=True, timeout=120,
-                encoding="utf-8", errors="replace",
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-            logger.warning("Workflow analysis failed for PR #%s: %s", pr_number, exc)
-            return {}
-
-        # The JSON block is printed after the table — find the top-level array
-        # Use "\n[" to avoid matching "[" inside JSON values (e.g. empty arrays)
-        output = result.stdout
-        json_start = output.rfind("\n[")
-        if json_start == -1:
-            return {}
-        json_start += 1  # skip the newline itself
-
-        try:
-            entries = json.loads(output[json_start:])
-        except (json.JSONDecodeError, ValueError):
-            return {}
-
-        if not entries or "error" in entries[0]:
-            return {}
-
-        analysis = entries[0]
-        return {
-            "reproduced": analysis.get("reproduced", False),
-            "verified": analysis.get("verified", False),
-            "tool_installed": analysis.get("tool_installed", False),
-            "code_review": analysis.get("code_review", False),
-            "codeql": analysis.get("codeql", False),
-            "self_corrected": analysis.get("self_corrected", False),
-            "tools_used": analysis.get("tools_used", []),
-            "step_count": analysis.get("step_count", 0),
-            "session_count": analysis.get("session_count", 1),
-        }
+        return _fetch_workflow_analysis_fn(my_user, repo, pr_number)
 
     def _fetch_session_log(self, my_user, repo, pr_number):
         """Fetch full Copilot session thinking log via copilot-sessions.py summary.
 
-        Returns the raw log text, or empty string on failure.
+        Delegates to pipeline_session_analysis.fetch_session_log.
         """
-        script = os.path.join(
-            os.path.dirname(__file__), "..", "..", "scripts", "copilot-sessions.py"
-        )
-        script = os.path.normpath(script)
-        if not os.path.exists(script):
-            return ""
-        try:
-            result = subprocess.run(
-                [sys.executable, script, "summary",
-                 "-R", f"{my_user}/{repo}",
-                 "--pr", str(pr_number)],
-                capture_output=True, text=True, timeout=120,
-                encoding="utf-8", errors="replace",
-            )
-            return result.stdout.strip()
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return ""
+        return _fetch_session_log_fn(my_user, repo, pr_number)
 
     def _fetch_fork_diff(self, my_user, repo, pr_number):
         """Fetch the full diff of the fork PR via gh pr diff.
 
-        Returns the patch text, or empty string on failure.
+        Delegates to pipeline_session_analysis.fetch_fork_diff.
         """
-        result = run_gh_command([
-            "pr", "diff", str(pr_number),
-            "-R", f"{my_user}/{repo}",
-        ])
-        return result.get("output", "").strip() if result.get("success") else ""
+        return _fetch_fork_diff_fn(my_user, repo, pr_number)
 
     # ---- Context builders ----
 
     def _build_review_context(self, assignment, ctx):
         """Build review context from dossier + static analysis findings.
 
-        This assembles the information the review agent needs to do a
-        repo-specific review. All content is sanitized to prevent
-        upstream cross-linking.
+        Delegates to pipeline_context_builders.build_review_context.
         """
-        if not self.svc:
-            return ""
-
-        parts = ["## Review Context\n"]
-
-        # Get dossier for contribution rules and patterns
-        origin_slug = assignment.get("origin_slug", "")
-        if origin_slug:
-            hyphenated = origin_slug.replace("/", "-")
-            dossier_data = self.svc.get_dossier(hyphenated)
-            if dossier_data and dossier_data.get("sections"):
-                sections = dossier_data["sections"]
-                if sections.get("contributionRules"):
-                    parts.append(
-                        "### Contribution Rules\n"
-                        f"{strip_leading_header(sections['contributionRules'])}\n"
-                    )
-                if sections.get("successPatterns"):
-                    parts.append(
-                        "### What Successful PRs Look Like\n"
-                        f"{strip_leading_header(sections['successPatterns'])}\n"
-                    )
-                if sections.get("antiPatterns"):
-                    parts.append(
-                        "### Common Rejection Reasons\n"
-                        f"{strip_leading_header(sections['antiPatterns'])}\n"
-                    )
-
-        # Get static analysis findings
-        findings = self._get_sa_findings(assignment, ctx)
-        if findings:
-            parts.append(
-                "### Static Analysis Findings\n"
-                f"```\n{findings}\n```\n"
-            )
-
-        parts.append(
-            "### Review Instructions\n"
-            "1. Check that the code change fixes the problem.\n"
-            "2. Check for issues flagged by static analysis above.\n"
-            "3. Verify the change follows contribution rules and patterns.\n"
-            "4. Check for anti-patterns that would cause upstream rejection.\n"
-            "5. Leave specific, actionable review comments.\n"
-        )
-
-        context = "\n".join(parts)
-
-        # Sanitize to prevent upstream cross-linking
-        context = _sanitize_upstream_refs(context)
-        return context
+        return _build_review_context_fn(assignment, ctx, self.svc, self._get_sa_findings)
 
     def _update_assignment(self, assignment, updates):
         """Persist state changes to the assignment record."""

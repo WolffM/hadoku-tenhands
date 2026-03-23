@@ -2,250 +2,28 @@
  * Pipeline Store
  *
  * Central state management for pipeline items using Zustand.
+ * Composed from focused slice modules — state shape is identical to before.
  */
 
 import { create } from 'zustand'
-import type {
-  Issue,
-  PipelineItem,
-  PipelineStatus,
-  PullRequest,
-  Stage1Repo,
-  Stage2Repo,
-  OSSTarget,
-  ScoredIssue,
-  OSSAssignment,
-  ForkPR,
-  ReadyToSubmit,
-  PipelineAssignment,
-  RepoHealthTarget,
-  RetrospectiveEntry,
-  SubmittedPR
-} from '../api/types'
-import {
-  getStage1Repos,
-  getStage2Repos,
-  getStage3Issues,
-  getStage4PRs,
-  getOSSTargets,
-  getOSSScoredIssues,
-  getOSSAssigned,
-  getOSSForkPRs,
-  getOSSReadyToSubmit,
-  getPipelineStatus,
-  getRetrospectiveLogs,
-  pollSubmittedPRs
-} from '../api/endpoints'
-import {
-  isPRReady,
-  getSeverityFromLabels,
-  getErrorMessage,
-  normalizePipelineAssignment,
-  normalizeSubmittedPR,
-  hyphenatedToSlashed
-} from '../utils'
+import type { PipelineItem, PipelineStatus, RepoHealthTarget } from '../api/types'
+import { isPRReady, getSeverityFromLabels, hyphenatedToSlashed } from '../utils'
+import { createVibeCheckSlice, type VibeCheckSliceState } from './vibeCheckStore'
+import { createOSSSlice, type OSSSliceState } from './ossStore'
+import { createUISlice, type UISliceState } from './uiStore'
+import { createFilterSlice, type FilterSliceState } from './filterStore'
 
-// ============ Types ============
+// Re-export types that consumers import from this module
+export type { ViewType, LogEntry } from './uiStore'
 
-export type ViewType = 'select' | 'list' | 'review' | 'health' | 'oss'
+// ============ Combined State ============
 
-export interface LogEntry {
-  id: string
-  timestamp: Date
-  message: string
-  type: 'info' | 'success' | 'error' | 'warning'
-}
-
-interface StageData<T> {
-  items: T[]
-  loading: boolean
-  error: string | null
-  lastFetched: Date | null
-}
-
-interface PipelineState {
-  // Current view
-  activeView: ViewType
-
-  // Owner (GitHub username)
-  owner: string | null
-
-  // Stage data
-  stage1: StageData<Stage1Repo>
-  stage2: StageData<Stage2Repo>
-  stage3: StageData<Issue> & {
-    labels: string[]
-    reposWithCopilotPRs: string[]
-  }
-  stage4: StageData<PullRequest>
-
-  // OSS stage data
-  ossStage1: StageData<OSSTarget>
-  ossStage2: StageData<ScoredIssue>
-  ossStage3: StageData<OSSAssignment>
-  ossStage4: StageData<ForkPR>
-  ossStage5: StageData<ReadyToSubmit>
-
-  // OSS pipeline redesign data
-  ossPipelineRuns: StageData<PipelineAssignment>
-  ossRetrospectiveLogs: StageData<RetrospectiveEntry>
-  ossSubmittedPRs: StageData<SubmittedPR>
-
-  // Global repo filter (exclusion model: empty = all visible)
-  ossExcludedRepos: Set<string>
-
+interface PipelineState extends VibeCheckSliceState, OSSSliceState, UISliceState, FilterSliceState {
   // Pipeline items (derived from stage data)
   pipelineItems: PipelineItem[]
 
-  // Expanded rows
-  expandedRows: Set<string>
-
-  // Selection state (for batch operations)
-  selectedItems: Set<string>
-
-  // Progress log
-  logs: LogEntry[]
-
-  // Actions
-  setActiveView: (view: ViewType) => void
-  setOwner: (owner: string) => void
-  loadStage1: () => Promise<void>
-  loadStage2: () => Promise<void>
-  loadStage3: () => Promise<void>
-  loadStage4: () => Promise<void>
-  loadAllStages: () => Promise<void>
-  toggleRowExpanded: (id: string) => void
-  toggleItemSelected: (id: string) => void
-  selectAll: () => void
-  selectNone: () => void
-  addLog: (message: string, type: LogEntry['type']) => void
-  clearLogs: () => void
+  // Core action that rebuilds pipelineItems from all stage data
   refreshPipelineItems: () => void
-  removeStage1Repo: (repoName: string) => void
-  markStage2RepoTriggered: (repoName: string) => void
-  removeStage3Issue: (repo: string, issueNumber: number) => void
-  removeStage4PR: (repo: string, prNumber: number) => void
-
-  // OSS actions
-  loadOSSStage1: () => Promise<void>
-  loadOSSStage2: () => Promise<void>
-  loadOSSStage3: () => Promise<void>
-  loadOSSStage4: () => Promise<void>
-  loadOSSStage5: () => Promise<void>
-  loadAllOSSStages: () => Promise<void>
-  removeOSSForkPR: (repo: string, prNumber: number) => void
-  removeOSSReadyToSubmit: (originSlug: string, branch: string) => void
-
-  // OSS pipeline redesign actions
-  loadOSSPipelineRuns: () => Promise<void>
-  loadOSSRetrospectiveLogs: () => Promise<void>
-  loadOSSSubmittedPRs: () => Promise<void>
-
-  // Global repo filter actions
-  toggleOSSRepoFilter: (repo: string) => void
-  setOSSRepoFilterAll: () => void
-  setOSSRepoFilterNone: (allRepos: string[]) => void
-}
-
-// ============ Helpers ============
-
-function createLogEntry(message: string, type: LogEntry['type'] = 'info'): LogEntry {
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    timestamp: new Date(),
-    message,
-    type
-  }
-}
-
-function getStatusFromIssue(issue: Issue, reposWithCopilotPRs: string[]): PipelineStatus {
-  const repo = issue.repo || ''
-  // If repo has an active Copilot PR, it's processing
-  if (reposWithCopilotPRs.includes(repo)) {
-    return 'processing'
-  }
-  // If issue has Copilot assigned, it's processing
-  const hasCopilotAssigned = issue.assignees?.some(a => a.login.toLowerCase().includes('copilot'))
-  if (hasCopilotAssigned) {
-    return 'processing'
-  }
-  // Otherwise pending assignment (not waiting_for_review - that's for PRs)
-  return 'pending'
-}
-
-function getStatusFromPR(pr: PullRequest): PipelineStatus {
-  // Already approved - ready to merge
-  if (pr.reviewDecision === 'APPROVED') {
-    return 'ready'
-  }
-
-  // Check if PR is ready for review using Stage4 logic
-  if (isPRReady(pr)) {
-    return 'waiting_for_review'
-  }
-
-  // Not ready yet - still in progress
-  return 'processing'
-}
-
-// ============ Stage Loader Factory ============
-
-interface StageLoaderConfig<R> {
-  stageKey:
-    | 'stage1'
-    | 'stage2'
-    | 'stage3'
-    | 'stage4'
-    | 'ossStage1'
-    | 'ossStage2'
-    | 'ossStage3'
-    | 'ossStage4'
-    | 'ossStage5'
-    | 'ossPipelineRuns'
-    | 'ossRetrospectiveLogs'
-    | 'ossSubmittedPRs'
-  fetchFn: () => Promise<R>
-  mapResponse: (response: R) => { items: unknown[]; extra?: Record<string, unknown> }
-}
-
-function createStageLoader<R extends { success: boolean; owner: string }>(
-  config: StageLoaderConfig<R>,
-  set: (fn: (state: PipelineState) => Partial<PipelineState>) => void,
-  get: () => PipelineState
-): () => Promise<void> {
-  const { stageKey, fetchFn, mapResponse } = config
-  return async () => {
-    set(state => ({
-      [stageKey]: { ...state[stageKey], loading: true, error: null }
-    }))
-    try {
-      const response = await fetchFn()
-      if (response.success) {
-        const { items, extra } = mapResponse(response)
-        set(state => ({
-          owner: response.owner,
-          [stageKey]: {
-            ...state[stageKey],
-            ...extra,
-            items,
-            loading: false,
-            lastFetched: new Date()
-          }
-        }))
-        get().refreshPipelineItems()
-      } else {
-        throw new Error(`Failed to load ${stageKey}`)
-      }
-    } catch (err) {
-      set(state => ({
-        [stageKey]: {
-          ...state[stageKey],
-          loading: false,
-          error: getErrorMessage(err)
-        }
-      }))
-    }
-  }
 }
 
 // ============ Pipeline Item Registry ============
@@ -256,6 +34,25 @@ const pipelineItemProviders = new Map<string, ItemMapper>()
 
 export function registerPipelineItemProvider(type: string, mapper: ItemMapper) {
   pipelineItemProviders.set(type, mapper)
+}
+
+// ============ Item Mappers ============
+
+function getStatusFromIssue(
+  issue: VibeCheckSliceState['stage3']['items'][number],
+  reposWithCopilotPRs: string[]
+): PipelineStatus {
+  const repo = issue.repo || ''
+  if (reposWithCopilotPRs.includes(repo)) return 'processing'
+  const hasCopilotAssigned = issue.assignees?.some(a => a.login.toLowerCase().includes('copilot'))
+  if (hasCopilotAssigned) return 'processing'
+  return 'pending'
+}
+
+function getStatusFromPR(pr: VibeCheckSliceState['stage4']['items'][number]): PipelineStatus {
+  if (pr.reviewDecision === 'APPROVED') return 'ready'
+  if (isPRReady(pr)) return 'waiting_for_review'
+  return 'processing'
 }
 
 function vibecheckItemMapper(state: PipelineState): PipelineItem[] {
@@ -302,7 +99,6 @@ registerPipelineItemProvider('vibecheck', vibecheckItemMapper)
 function ossItemMapper(state: PipelineState): PipelineItem[] {
   const items: PipelineItem[] = []
 
-  // Stage 3 assignments → processing items
   for (const assignment of state.ossStage3.items) {
     items.push({
       id: `oss-assign-${assignment.originSlug}-${assignment.issueNumber}`,
@@ -319,7 +115,6 @@ function ossItemMapper(state: PipelineState): PipelineItem[] {
     })
   }
 
-  // Stage 4 fork PRs → waiting_for_review or ready
   for (const pr of state.ossStage4.items) {
     items.push({
       id: `oss-pr-${pr.repo}-${pr.number}`,
@@ -336,7 +131,6 @@ function ossItemMapper(state: PipelineState): PipelineItem[] {
     })
   }
 
-  // Stage 5 ready-to-submit → ready items
   for (const item of state.ossStage5.items) {
     items.push({
       id: `oss-submit-${item.originSlug}-${item.branch}`,
@@ -361,298 +155,14 @@ registerPipelineItemProvider('oss', ossItemMapper)
 // ============ Store ============
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
-  // Initial state
-  activeView: 'select',
-  owner: null,
-  stage1: { items: [], loading: false, error: null, lastFetched: null },
-  stage2: { items: [], loading: false, error: null, lastFetched: null },
-  stage3: {
-    items: [],
-    loading: false,
-    error: null,
-    lastFetched: null,
-    labels: [],
-    reposWithCopilotPRs: []
-  },
-  stage4: { items: [], loading: false, error: null, lastFetched: null },
-  ossStage1: { items: [], loading: false, error: null, lastFetched: null },
-  ossStage2: { items: [], loading: false, error: null, lastFetched: null },
-  ossStage3: { items: [], loading: false, error: null, lastFetched: null },
-  ossStage4: { items: [], loading: false, error: null, lastFetched: null },
-  ossStage5: { items: [], loading: false, error: null, lastFetched: null },
-  ossPipelineRuns: { items: [], loading: false, error: null, lastFetched: null },
-  ossRetrospectiveLogs: { items: [], loading: false, error: null, lastFetched: null },
-  ossSubmittedPRs: { items: [], loading: false, error: null, lastFetched: null },
-  ossExcludedRepos: new Set<string>(),
+  // Slice state + actions
+  ...createVibeCheckSlice<PipelineState>(set, get),
+  ...createOSSSlice<PipelineState>(set, get),
+  ...createUISlice<PipelineState>(set, get),
+  ...createFilterSlice<PipelineState>(set, get),
+
+  // Pipeline items (derived)
   pipelineItems: [],
-  expandedRows: new Set(),
-  selectedItems: new Set(),
-  logs: [],
-
-  // Actions
-  setActiveView: view => set({ activeView: view }),
-
-  setOwner: owner => set({ owner }),
-
-  loadStage1: createStageLoader(
-    {
-      stageKey: 'stage1',
-      fetchFn: getStage1Repos,
-      mapResponse: r => ({ items: r.repos })
-    },
-    set,
-    get
-  ),
-
-  loadStage2: createStageLoader(
-    {
-      stageKey: 'stage2',
-      fetchFn: getStage2Repos,
-      mapResponse: r => ({ items: r.repos })
-    },
-    set,
-    get
-  ),
-
-  loadStage3: createStageLoader(
-    {
-      stageKey: 'stage3',
-      fetchFn: getStage3Issues,
-      mapResponse: r => ({
-        items: r.issues,
-        extra: { labels: r.labels, reposWithCopilotPRs: r.repos_with_copilot_prs }
-      })
-    },
-    set,
-    get
-  ),
-
-  loadStage4: createStageLoader(
-    {
-      stageKey: 'stage4',
-      fetchFn: getStage4PRs,
-      mapResponse: r => ({ items: r.prs })
-    },
-    set,
-    get
-  ),
-
-  loadAllStages: async () => {
-    // Load all stages in parallel
-    await Promise.all([
-      get().loadStage1(),
-      get().loadStage2(),
-      get().loadStage3(),
-      get().loadStage4()
-    ])
-  },
-
-  toggleRowExpanded: id => {
-    set(state => {
-      const newExpanded = new Set(state.expandedRows)
-      if (newExpanded.has(id)) {
-        newExpanded.delete(id)
-      } else {
-        newExpanded.add(id)
-      }
-      return { expandedRows: newExpanded }
-    })
-  },
-
-  toggleItemSelected: id => {
-    set(state => {
-      const newSelected = new Set(state.selectedItems)
-      if (newSelected.has(id)) {
-        newSelected.delete(id)
-      } else {
-        newSelected.add(id)
-      }
-      return { selectedItems: newSelected }
-    })
-  },
-
-  selectAll: () => {
-    set(state => ({
-      selectedItems: new Set(state.pipelineItems.map(item => item.id))
-    }))
-  },
-
-  selectNone: () => {
-    set({ selectedItems: new Set() })
-  },
-
-  addLog: (message, type = 'info') => {
-    set(state => ({
-      logs: [...state.logs, createLogEntry(message, type)]
-    }))
-  },
-
-  clearLogs: () => {
-    set({ logs: [] })
-  },
-
-  removeStage1Repo: (repoName: string) => {
-    set(state => ({
-      stage1: {
-        ...state.stage1,
-        items: state.stage1.items.filter(repo => repo.name !== repoName)
-      }
-    }))
-  },
-
-  markStage2RepoTriggered: (repoName: string) => {
-    set(state => ({
-      stage2: {
-        ...state.stage2,
-        items: state.stage2.items.map(repo => {
-          if (repo.name === repoName) {
-            // Create a new lastRun with 'queued' status to move out of recommended list
-            return {
-              ...repo,
-              lastRun: {
-                id: repo.lastRun?.id ?? 0,
-                status: 'queued' as const,
-                conclusion: null,
-                createdAt: new Date().toISOString()
-              },
-              commitsSinceLastRun: 0
-            }
-          }
-          return repo
-        })
-      }
-    }))
-  },
-
-  removeStage3Issue: (repo: string, issueNumber: number) => {
-    set(state => ({
-      stage3: {
-        ...state.stage3,
-        items: state.stage3.items.filter(
-          issue => !(issue.repo === repo && issue.number === issueNumber)
-        ),
-        // Add repo to reposWithCopilotPRs so other issues from this repo
-        // are excluded from recommended (Copilot is now working on this repo)
-        reposWithCopilotPRs: state.stage3.reposWithCopilotPRs.includes(repo)
-          ? state.stage3.reposWithCopilotPRs
-          : [...state.stage3.reposWithCopilotPRs, repo]
-      }
-    }))
-    // Also refresh pipeline items to update the list view
-    get().refreshPipelineItems()
-  },
-
-  removeStage4PR: (repo: string, prNumber: number) => {
-    set(state => ({
-      stage4: {
-        ...state.stage4,
-        items: state.stage4.items.filter(pr => !(pr.repo === repo && pr.number === prNumber))
-      }
-    }))
-    // Also refresh pipeline items to update the list view
-    get().refreshPipelineItems()
-  },
-
-  // OSS stage loaders
-  loadOSSStage1: createStageLoader(
-    { stageKey: 'ossStage1', fetchFn: getOSSTargets, mapResponse: r => ({ items: r.targets }) },
-    set,
-    get
-  ),
-  loadOSSStage2: createStageLoader(
-    { stageKey: 'ossStage2', fetchFn: getOSSScoredIssues, mapResponse: r => ({ items: r.issues }) },
-    set,
-    get
-  ),
-  loadOSSStage3: createStageLoader(
-    {
-      stageKey: 'ossStage3',
-      fetchFn: getOSSAssigned,
-      mapResponse: r => ({ items: r.assignments })
-    },
-    set,
-    get
-  ),
-  loadOSSStage4: createStageLoader(
-    { stageKey: 'ossStage4', fetchFn: getOSSForkPRs, mapResponse: r => ({ items: r.prs }) },
-    set,
-    get
-  ),
-  loadOSSStage5: createStageLoader(
-    { stageKey: 'ossStage5', fetchFn: getOSSReadyToSubmit, mapResponse: r => ({ items: r.ready }) },
-    set,
-    get
-  ),
-
-  loadAllOSSStages: async () => {
-    await Promise.all([
-      get().loadOSSStage1(),
-      get().loadOSSStage2(),
-      get().loadOSSPipelineRuns(),
-      get().loadOSSRetrospectiveLogs(),
-      get().loadOSSSubmittedPRs()
-    ])
-  },
-
-  // OSS optimistic removers
-  removeOSSForkPR: (repo: string, prNumber: number) => {
-    set(state => ({
-      ossStage4: {
-        ...state.ossStage4,
-        items: state.ossStage4.items.filter(pr => !(pr.repo === repo && pr.number === prNumber))
-      }
-    }))
-    get().refreshPipelineItems()
-  },
-
-  removeOSSReadyToSubmit: (originSlug: string, branch: string) => {
-    set(state => ({
-      ossStage5: {
-        ...state.ossStage5,
-        items: state.ossStage5.items.filter(
-          item => !(item.originSlug === originSlug && item.branch === branch)
-        )
-      }
-    }))
-    get().refreshPipelineItems()
-  },
-
-  // OSS pipeline redesign loaders
-  loadOSSPipelineRuns: createStageLoader(
-    {
-      stageKey: 'ossPipelineRuns',
-      fetchFn: getPipelineStatus,
-      mapResponse: r => ({
-        items: (r.statuses || []).map(s =>
-          normalizePipelineAssignment(s as unknown as Record<string, unknown>)
-        )
-      })
-    },
-    set,
-    get
-  ),
-  loadOSSRetrospectiveLogs: createStageLoader(
-    {
-      stageKey: 'ossRetrospectiveLogs',
-      fetchFn: getRetrospectiveLogs,
-      mapResponse: r => ({ items: r.logs })
-    },
-    set,
-    get
-  ),
-  loadOSSSubmittedPRs: createStageLoader(
-    {
-      stageKey: 'ossSubmittedPRs',
-      fetchFn: pollSubmittedPRs,
-      mapResponse: r => ({
-        items: (r.submitted || []).map(s =>
-          normalizeSubmittedPR(s as unknown as Record<string, unknown>)
-        )
-      })
-    },
-    set,
-    get
-  ),
 
   refreshPipelineItems: () => {
     const state = get()
@@ -662,7 +172,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       items.push(...mapper(state))
     }
 
-    // Sort by status (waiting_for_review first) then by date
     items.sort((a, b) => {
       const statusOrder: Record<PipelineStatus, number> = {
         waiting_for_review: 0,
@@ -678,23 +187,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     })
 
     set({ pipelineItems: items })
-  },
-
-  // Global repo filter actions
-  toggleOSSRepoFilter: (repo: string) => {
-    const next = new Set(get().ossExcludedRepos)
-    if (next.has(repo)) {
-      next.delete(repo)
-    } else {
-      next.add(repo)
-    }
-    set({ ossExcludedRepos: next })
-  },
-  setOSSRepoFilterAll: () => {
-    set({ ossExcludedRepos: new Set<string>() })
-  },
-  setOSSRepoFilterNone: (allRepos: string[]) => {
-    set({ ossExcludedRepos: new Set(allRepos) })
   }
 }))
 
