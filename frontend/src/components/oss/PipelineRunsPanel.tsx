@@ -7,6 +7,7 @@
 
 import { useState, useMemo } from 'react'
 import { usePipelineStore } from '../../store'
+import { useAsyncAction } from '../../hooks'
 import { signoffIssue, advancePipeline } from '../../api/endpoints'
 import type { PipelineAssignment, Stage4Status } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
@@ -52,8 +53,6 @@ export function PipelineRunsPanel() {
   const loadOSSSubmittedPRs = usePipelineStore(state => state.loadOSSSubmittedPRs)
   const addLog = usePipelineStore(state => state.addLog)
   const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
-  const [signingOff, setSigningOff] = useState<string | null>(null)
-  const [advancing, setAdvancing] = useState<string | null>(null)
   const [reportUrl, setReportUrl] = useState<string | null>(null)
 
   const assignments = useMemo(
@@ -69,48 +68,35 @@ export function PipelineRunsPanel() {
     return { total, completed, inProgress }
   }, [assignments])
 
-  const handleSignoff = async (a: PipelineAssignment) => {
-    const key = `${a.repo}-${a.stage4PrNumber}`
+  const [signingOff, runSignoff] = useAsyncAction({
+    startMsg: key => `Signing off ${key}...`,
+    successMsg: result => `Signed off: ${(result.pr_url as string) || 'success'}`,
+    failMsg: 'Signoff failed',
+    onSuccess: () => {
+      void loadOSSPipelineRuns()
+      void loadOSSSubmittedPRs()
+    }
+  })
+
+  const [advancing, runAdvance] = useAsyncAction({
+    startMsg: key => `Advancing pipeline for ${key}...`,
+    successMsg: 'Pipeline advanced',
+    failMsg: 'Advance failed',
+    onSuccess: () => loadOSSPipelineRuns()
+  })
+
+  const handleSignoff = (a: PipelineAssignment) => {
     if (!a.stage4PrNumber) {
       addLog('No fork PR number found for signoff', 'error')
       return
     }
-    setSigningOff(key)
-    addLog(`Signing off ${a.originSlug}#${a.issueNumber}...`, 'info')
-    try {
-      const result = await signoffIssue(a.repo, a.stage4PrNumber, a.originSlug)
-      if (result.success) {
-        addLog(`Signed off: ${result.pr_url || 'success'}`, 'success')
-        void loadOSSPipelineRuns()
-        void loadOSSSubmittedPRs()
-      } else {
-        addLog(`Signoff failed: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog('Signoff failed', 'error')
-    } finally {
-      setSigningOff(null)
-    }
+    return runSignoff(`${a.originSlug}#${a.issueNumber}`, () =>
+      signoffIssue(a.repo, a.stage4PrNumber!, a.originSlug)
+    )
   }
 
-  const handleAdvance = async (a: PipelineAssignment) => {
-    const key = `${a.repo}-${a.forkIssueNumber}`
-    setAdvancing(key)
-    addLog(`Advancing pipeline for ${a.originSlug}#${a.issueNumber}...`, 'info')
-    try {
-      const result = await advancePipeline(a.repo, a.forkIssueNumber)
-      if (result.success) {
-        addLog('Pipeline advanced', 'success')
-        void loadOSSPipelineRuns()
-      } else {
-        addLog(`Advance failed: ${result.error}`, 'error')
-      }
-    } catch {
-      addLog('Advance failed', 'error')
-    } finally {
-      setAdvancing(null)
-    }
-  }
+  const handleAdvance = (a: PipelineAssignment) =>
+    runAdvance(`${a.originSlug}#${a.issueNumber}`, () => advancePipeline(a.repo, a.forkIssueNumber))
 
   const handleOpenReport = (a: PipelineAssignment) => {
     // Build URL for the backend-generated HTML report

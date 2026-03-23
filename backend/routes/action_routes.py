@@ -10,10 +10,10 @@ from . import bp
 
 try:
     from ..services import run_gh_command, get_workflow_runs
-    from ..helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message, error_response
 except ImportError:
     from services import run_gh_command, get_workflow_runs
-    from helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message
+    from helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message, error_response
 
 
 @bp.route("/api/assign-copilot", methods=["POST"])
@@ -43,7 +43,7 @@ def api_assign_copilot():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"Copilot assigned to issue #{issue_number}!"})
-    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Failed to assign Copilot")})
+    return error_response(result.get("error"), "Failed to assign Copilot")
 
 
 @bp.route("/api/approve-pr", methods=["POST"])
@@ -74,7 +74,7 @@ def api_approve_pr():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"PR #{pr_number} approved!"})
-    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Operation failed")})
+    return error_response(result.get("error"), "Operation failed")
 
 
 @bp.route("/api/mark-pr-ready", methods=["POST"])
@@ -103,7 +103,7 @@ def api_mark_pr_ready():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"PR #{pr_number} marked as ready!"})
-    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Failed to mark PR as ready")})
+    return error_response(result.get("error"), "Failed to mark PR as ready")
 
 
 @bp.route("/api/merge-pr", methods=["POST"])
@@ -141,7 +141,7 @@ def api_merge_pr():
                     "-R", f"{owner}/{repo}"
                 ])
                 if not ready_result["success"]:
-                    return jsonify({"success": False, "error": safe_error_message(ready_result.get("error"), "Failed to mark PR as ready")})
+                    return error_response(ready_result.get("error"), "Failed to mark PR as ready")
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
@@ -155,7 +155,7 @@ def api_merge_pr():
 
     if result["success"]:
         return jsonify({"success": True, "message": f"PR #{pr_number} merged!"})
-    return jsonify({"success": False, "error": safe_error_message(result.get("error"), "Operation failed")})
+    return error_response(result.get("error"), "Operation failed")
 
 
 @bp.route("/api/workflow-status", methods=["POST"])

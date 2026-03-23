@@ -14,7 +14,7 @@ try:
     from ..services.github_api import set_saml_token_override, is_saml_org
     from ..services.oss_fork import get_fork_lock
     from ..services.oss_state import save_session_artifact
-    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message, error_response
     from ..helpers.notifications import notify_dispatched
     from ..extensions import limiter
     from ..services.pipeline_logger import logger as plog, log_event, StepTimer
@@ -24,7 +24,7 @@ except ImportError:
     from services.github_api import set_saml_token_override, is_saml_org
     from services.oss_fork import get_fork_lock
     from services.oss_state import save_session_artifact
-    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
+    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message, error_response
     from helpers.notifications import notify_dispatched
     from extensions import limiter
     from services.pipeline_logger import logger as plog, log_event, StepTimer
@@ -245,11 +245,7 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
                         t.detail = fork_result.get("error", "fork failed")
                         plog.error("fork-and-assign FAIL at fork: %s #%s — %s",
                                    origin_slug, issue_number, t.detail)
-                        return jsonify({
-                            "success": False,
-                            "error": safe_error_message(fork_result.get("error"), "Failed to fork"),
-                            "owner": my_user,
-                        })
+                        return error_response(fork_result.get("error"), "Failed to fork", my_user)
                     t.detail = "fork created"
                 else:
                     t.detail = "fork already exists"
@@ -375,11 +371,7 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
             t.detail = create_result.get("error", "issue creation failed")
             plog.error("fork-and-assign FAIL at create_issue: %s #%s — %s",
                        origin_slug, issue_number, t.detail)
-            return jsonify({
-                "success": False,
-                "error": safe_error_message(create_result.get("error"), "Failed to create issue"),
-                "owner": my_user,
-            })
+            return error_response(create_result.get("error"), "Failed to create issue", my_user)
         create_data = _json.loads(create_result["output"])
         fork_issue_url = create_data["html_url"]
         fork_issue_number = str(create_data["number"])

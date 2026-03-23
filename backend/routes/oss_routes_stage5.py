@@ -19,13 +19,13 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
-    from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message
+    from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
     from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
-    from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message
+    from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
     from extensions import limiter
 
 
@@ -102,11 +102,7 @@ def api_oss_submit_to_origin():
 
         return jsonify({"success": True, "pr_url": pr_url, "owner": my_user})
 
-    return jsonify({
-        "success": False,
-        "error": safe_error_message(result.get("error"), "Failed to create PR"),
-        "owner": my_user,
-    })
+    return error_response(result.get("error"), "Failed to create PR", my_user)
 
 
 @bp.route("/api/oss/stage5-tracking", methods=["GET"])

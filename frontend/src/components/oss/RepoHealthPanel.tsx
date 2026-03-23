@@ -6,17 +6,14 @@
  */
 
 import { useState, useMemo } from 'react'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
 import { usePipelineStore } from '../../store'
+import { useAsyncAction } from '../../hooks'
 import { refreshOSSTarget, computeOSSTarget } from '../../api/endpoints'
 import type { RepoHealthTarget, DossierSections } from '../../api/types'
-import { hyphenatedToSlashed } from '../../utils'
+import { hyphenatedToSlashed, renderMarkdown, DOSSIER_SECTION_ORDER } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
 import { Badge, getHealthBadgeVariant } from '../common/Badge'
-
-marked.setOptions({ breaks: true, gfm: true })
 
 const DOSSIER_SECTION_LABELS: Record<keyof DossierSections, string> = {
   overview: 'Overview',
@@ -27,31 +24,22 @@ const DOSSIER_SECTION_LABELS: Record<keyof DossierSections, string> = {
   environmentSetup: 'Environment Setup'
 }
 
-const SECTION_ORDER: (keyof DossierSections)[] = [
-  'overview',
-  'contributionRules',
-  'successPatterns',
-  'antiPatterns',
-  'issueBoard',
-  'environmentSetup'
-]
-
 function DossierSectionsView({ sections }: { sections: DossierSections }) {
   const [expandedSection, setExpandedSection] = useState<string | null>(null)
 
   // Pre-render all section markdown so toggling is instant
   const rendered = useMemo(() => {
     const out: Partial<Record<keyof DossierSections, string>> = {}
-    for (const key of SECTION_ORDER) {
+    for (const key of DOSSIER_SECTION_ORDER) {
       const md = sections[key]
-      if (md) out[key] = DOMPurify.sanitize(marked.parse(md) as string)
+      if (md) out[key] = renderMarkdown(md)
     }
     return out
   }, [sections])
 
   return (
     <div className="repo-health-card__dossier">
-      {SECTION_ORDER.map(key => {
+      {DOSSIER_SECTION_ORDER.map(key => {
         const html = rendered[key]
         if (!html) return null
         const isExpanded = expandedSection === key
@@ -80,43 +68,24 @@ function DossierSectionsView({ sections }: { sections: DossierSections }) {
 export function RepoHealthPanel() {
   const ossStage1 = usePipelineStore(state => state.ossStage1)
   const loadOSSStage1 = usePipelineStore(state => state.loadOSSStage1)
-  const addLog = usePipelineStore(state => state.addLog)
   const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
 
-  const [refreshingSlug, setRefreshingSlug] = useState<string | null>(null)
-  const [computingSlug, setComputingSlug] = useState<string | null>(null)
+  const [refreshingSlug, runRefresh] = useAsyncAction({
+    startMsg: slug => `Re-scraping: ${slug}...`,
+    successMsg: (_, key) => `Re-scraped: ${key}`,
+    failMsg: 'Failed to re-scrape',
+    onSuccess: () => loadOSSStage1()
+  })
 
-  const handleRefresh = async (slug: string) => {
-    setRefreshingSlug(slug)
-    addLog(`Re-scraping: ${slug}...`, 'info')
-    try {
-      const result = await refreshOSSTarget(slug)
-      if (result.success) {
-        addLog(`Re-scraped: ${slug}`, 'success')
-        void loadOSSStage1()
-      }
-    } catch {
-      addLog('Failed to re-scrape', 'error')
-    } finally {
-      setRefreshingSlug(null)
-    }
-  }
+  const [computingSlug, runCompute] = useAsyncAction({
+    startMsg: slug => `Re-computing: ${slug}...`,
+    successMsg: (_, key) => `Re-computed: ${key}`,
+    failMsg: 'Failed to re-compute',
+    onSuccess: () => loadOSSStage1()
+  })
 
-  const handleCompute = async (slug: string) => {
-    setComputingSlug(slug)
-    addLog(`Re-computing: ${slug}...`, 'info')
-    try {
-      const result = await computeOSSTarget(slug)
-      if (result.success) {
-        addLog(`Re-computed: ${slug}`, 'success')
-        void loadOSSStage1()
-      }
-    } catch {
-      addLog('Failed to re-compute', 'error')
-    } finally {
-      setComputingSlug(null)
-    }
-  }
+  const handleRefresh = (slug: string) => runRefresh(slug, () => refreshOSSTarget(slug))
+  const handleCompute = (slug: string) => runCompute(slug, () => computeOSSTarget(slug))
 
   const allTargets = ossStage1.items as RepoHealthTarget[]
   const targets = useMemo(

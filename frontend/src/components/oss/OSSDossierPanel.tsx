@@ -6,13 +6,10 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
 import { getOSSDossier } from '../../api/endpoints'
 import type { Dossier, DossierSections } from '../../api/types'
+import { renderMarkdown, DOSSIER_SECTION_ORDER } from '../../utils'
 import { LoadingState } from '../common/LoadingState'
-
-marked.setOptions({ breaks: true, gfm: true })
 
 const DOSSIER_TAB_LABELS: Record<keyof DossierSections, string> = {
   overview: 'Overview',
@@ -22,15 +19,6 @@ const DOSSIER_TAB_LABELS: Record<keyof DossierSections, string> = {
   issueBoard: 'Issues',
   environmentSetup: 'Setup'
 }
-
-const TAB_ORDER: (keyof DossierSections)[] = [
-  'overview',
-  'contributionRules',
-  'successPatterns',
-  'antiPatterns',
-  'issueBoard',
-  'environmentSetup'
-]
 
 interface OSSDossierPanelProps {
   slug: string
@@ -49,13 +37,13 @@ function DossierContent({
   const renderedHtml = useMemo(() => {
     const md = dossier.sections[activeTab]
     if (!md) return ''
-    return DOMPurify.sanitize(marked.parse(md) as string)
+    return renderMarkdown(md)
   }, [dossier, activeTab])
 
   return (
     <>
       <div className="dossier-panel__tabs">
-        {TAB_ORDER.map(key =>
+        {DOSSIER_SECTION_ORDER.map(key =>
           dossier.sections[key] ? (
             <button
               key={key}
