@@ -37,13 +37,13 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from ..helpers.oss_helpers import score_issue_with_breakdown
-    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message, error_response
 except ImportError:
     from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
     from helpers.oss_helpers import score_issue_with_breakdown
-    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message
+    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message, error_response
 
 
 # ============ Group A: Health Checks ============
@@ -333,11 +333,7 @@ def api_oss_debug_create_context_issue():
             "owner": my_user,
         })
 
-    return jsonify({
-        "success": False,
-        "error": safe_error_message(result.get("error"), "Failed to create issue"),
-        "owner": my_user,
-    })
+    return error_response(result.get("error"), "Failed to create issue", my_user)
 
 
 @bp.route("/api/oss/debug/assign-copilot", methods=["POST"])
@@ -399,11 +395,7 @@ def api_oss_debug_score_issue():
     ])
 
     if not result["success"]:
-        return jsonify({
-            "success": False,
-            "error": safe_error_message(result.get("error"), "Failed to fetch issue"),
-            "owner": my_user,
-        })
+        return error_response(result.get("error"), "Failed to fetch issue", my_user)
 
     try:
         issue = json.loads(result["output"])

@@ -6,18 +6,10 @@
  */
 
 import { useState, useMemo } from 'react'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import type { PipelineItem, PRDetails, PullRequest } from '../../api/types'
-
-// Configure marked for GitHub-flavored markdown
-marked.setOptions({
-  gfm: true,
-  breaks: true
-})
+import { renderMarkdown, getErrorMessage } from '../../utils'
 import { usePipelineStore, useReviewQueueStore, selectHasNext } from '../../store'
 import { approvePR, mergePR, markPRReady } from '../../api/endpoints'
-import { getErrorMessage } from '../../utils'
 import { DiffViewer } from './DiffViewer'
 import { ReviewActions } from './ReviewActions'
 import { ReviewQueueShell } from './ReviewQueueShell'
@@ -62,8 +54,7 @@ function PRReviewContent({ currentItem, currentDetails, detailsLoading }: PRRevi
   // Render markdown description with memoization
   const renderedDescription = useMemo(() => {
     if (!currentDetails?.body) return null
-    const rawHtml = marked.parse(currentDetails.body) as string
-    return DOMPurify.sanitize(rawHtml)
+    return renderMarkdown(currentDetails.body)
   }, [currentDetails?.body])
 
   // Single merge handler that does: mark ready (if draft) -> approve -> merge

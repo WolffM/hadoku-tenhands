@@ -20,7 +20,7 @@ try:
     from ..services.pipeline_orchestrator import PipelineOrchestrator
     from ..services.oss_state import save_session_artifact
     from ..helpers.oss_helpers import format_upstream_pr_body
-    from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message
+    from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
     from ..helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from ..extensions import limiter
 except ImportError:
@@ -28,7 +28,7 @@ except ImportError:
     from services.pipeline_orchestrator import PipelineOrchestrator
     from services.oss_state import save_session_artifact
     from helpers.oss_helpers import format_upstream_pr_body
-    from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message
+    from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
     from helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from extensions import limiter
 
@@ -209,11 +209,7 @@ def api_oss_fork_pr_details():
 
         return jsonify({"success": True, "pr": pr_data, "owner": my_user})
 
-    return jsonify({
-        "success": False,
-        "error": safe_error_message(result.get("error"), "Failed to fetch PR"),
-        "owner": my_user,
-    })
+    return error_response(result.get("error"), "Failed to fetch PR", my_user)
 
 
 @bp.route("/api/oss/approve-fork-pr", methods=["POST"])
@@ -241,11 +237,7 @@ def api_oss_approve_fork_pr():
             "message": f"PR #{pr_number} approved!",
             "owner": my_user,
         })
-    return jsonify({
-        "success": False,
-        "error": safe_error_message(result.get("error"), "Failed to approve PR"),
-        "owner": my_user,
-    })
+    return error_response(result.get("error"), "Failed to approve PR", my_user)
 
 
 def _check_remaining_pr_conflicts(my_user, repo, merged_pr_number):
@@ -412,11 +404,7 @@ def api_oss_merge_fork_pr():
             "conflict_warnings": conflict_warnings,
         })
 
-    return jsonify({
-        "success": False,
-        "error": safe_error_message(result.get("error"), "Failed to merge PR"),
-        "owner": my_user,
-    })
+    return error_response(result.get("error"), "Failed to merge PR", my_user)
 
 
 @bp.route("/api/oss/signoff", methods=["POST"])

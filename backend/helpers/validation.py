@@ -176,3 +176,24 @@ def safe_error_message(raw_error, default="Operation failed"):
         if pattern in lower:
             return safe_msg
     return default
+
+
+def error_response(raw_error, default, owner=None):
+    """Return a Flask JSON error response with a safe error message.
+
+    Convenience wrapper combining safe_error_message + jsonify so route
+    handlers don't repeat the same three-key dict pattern.
+
+    Args:
+        raw_error: Raw error from a gh command result (may contain internal details).
+        default:   User-facing fallback message if raw_error doesn't match any pattern.
+        owner:     Authenticated user to include in the response (optional).
+
+    Returns:
+        Flask Response with {"success": False, "error": ..., "owner": ...}
+    """
+    from flask import jsonify
+    payload = {"success": False, "error": safe_error_message(raw_error, default)}
+    if owner is not None:
+        payload["owner"] = owner
+    return jsonify(payload)

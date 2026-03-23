@@ -194,6 +194,27 @@ def _detect_tool_from_issue(issue_body):
     return None
 
 
+def _unwrap_aggregator_response(result):
+    """Extract (data, meta) from a raw aggregator response dict.
+
+    Handles the standard envelope: { success, data: {...}, _meta: {...} }
+    and the fallback where the response itself is the data (no "data" key).
+
+    Returns (data, meta) on success, (None, None) if result is invalid
+    or has status "pending".
+    """
+    if not result or not isinstance(result, dict):
+        return None, None
+    meta = result.get("_meta")
+    if "data" in result and isinstance(result["data"], dict):
+        data = result["data"]
+    else:
+        data = result
+    if isinstance(data, dict) and data.get("status") == "pending":
+        return None, None
+    return data, meta
+
+
 # ============ OSSService ============
 
 from .oss_state import OSSStateMixin
@@ -235,22 +256,22 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
         _empty = ([], None) if include_meta else []
         if not result:
             return _empty
-        meta = result.get("_meta") if isinstance(result, dict) else None
-        # Unwrap aggregator response: { success, data: { issues: [...] } }
-        if isinstance(result, dict):
-            data = result.get("data") or result
-            # Check for pending status (pre-computed data not yet available)
-            if isinstance(data, dict) and data.get("status") == "pending":
+        # Legacy: bare list response
+        if isinstance(result, list):
+            return (result, None) if include_meta else result
+        data, meta = _unwrap_aggregator_response(result)
+        if data is None:
+            # Log a specific warning when the aggregator returned pending status
+            raw_data = result.get("data") if isinstance(result, dict) else None
+            if isinstance(raw_data, dict) and raw_data.get("status") == "pending":
                 logger.warning(
                     "Aggregator scored-issues for %s is pending (not yet computed)",
                     slug or "all"
                 )
-                return _empty
-            issues = data.get("issues") if isinstance(data, dict) else None
-            if isinstance(issues, list):
-                return (issues, meta) if include_meta else issues
-        if isinstance(result, list):
-            return (result, meta) if include_meta else result
+            return _empty
+        issues = data.get("issues") if isinstance(data, dict) else None
+        if isinstance(issues, list):
+            return (issues, meta) if include_meta else issues
         return _empty
 
     def get_dossier(self, slug, include_meta=False):
@@ -270,15 +291,10 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
         _none = (None, None) if include_meta else None
         if not result or not isinstance(result, dict):
             return _none
-        meta = result.get("_meta")
-        # Unwrap: { success, data: { ... } }
-        if "data" in result and isinstance(result["data"], dict):
-            data = result["data"]
-            # Check for pending status
-            if data.get("status") == "pending":
-                return _none
-            return (data, meta) if include_meta else data
-        return (result, meta) if include_meta else result
+        data, meta = _unwrap_aggregator_response(result)
+        if data is None:
+            return _none
+        return (data, meta) if include_meta else data
 
     def get_issue_brief(self, slug, issue_id, include_meta=False):
         """Get a pre-built issue brief from the aggregator.
@@ -294,14 +310,12 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
         """
         _none = (None, None) if include_meta else None
         result = _call_aggregator(f"/recon/{slug}/issue-brief/{issue_id}")
-        if result and result.get("success") and result.get("data"):
-            meta = result.get("_meta")
-            data = result["data"]
-            # Check for pending status
-            if isinstance(data, dict) and data.get("status") == "pending":
-                return _none
-            return (data, meta) if include_meta else data
-        return _none
+        if not (result and result.get("success") and result.get("data")):
+            return _none
+        data, meta = _unwrap_aggregator_response(result)
+        if data is None:
+            return _none
+        return (data, meta) if include_meta else data
 
     def get_health(self, slug, include_meta=False):
         """Get repo health scores from the aggregator.
@@ -317,9 +331,8 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
         _none = (None, None) if include_meta else None
         if not result or not isinstance(result, dict):
             return _none
-        meta = result.get("_meta")
-        data = result.get("data", result)
-        if isinstance(data, dict) and data.get("status") == "pending":
+        data, meta = _unwrap_aggregator_response(result)
+        if data is None:
             return _none
         return (data, meta) if include_meta else data
 
