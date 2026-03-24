@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -73,6 +74,27 @@ def fetch_batches(base_url: str) -> list:
 
 def fetch_batch_detail(base_url: str, batch_id: str) -> dict:
     return _get(base_url, f"/retro/batch/{batch_id}")
+
+
+# ── GitHub helpers ───────────────────────────────────────────────────────────
+
+def fetch_pr_commits(origin_slug: str, pr_number: int) -> list:
+    """Fetch commits for an upstream PR via gh CLI.
+
+    Returns list of {sha, date, author, message} dicts, sorted by date asc.
+    Returns [] silently if gh CLI is unavailable or the call fails.
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{origin_slug}/pulls/{pr_number}/commits",
+             "--jq", '[.[] | {sha: .sha[:7], date: .commit.author.date, author: (.author.login // .commit.author.name), message: (.commit.message | split("\n")[0])}]'],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return []
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        return []
 
 
 # ── Bot filter ────────────────────────────────────────────────────────────────
@@ -197,30 +219,50 @@ def print_pr_report(issue: dict, full: bool = False) -> None:
 
     # ── Timeline ──────────────────────────────────────────────────────────────
     timing = retro.get("timing", {})
-    t_assigned   = timing.get("assigned_at")
-    t_swe        = timing.get("swe_done_at")
-    t_sa         = timing.get("sa_done_at")
-    t_review     = timing.get("review_done_at")
+    t_assigned    = timing.get("assigned_at")
+    t_swe         = timing.get("swe_done_at")
+    t_sa          = timing.get("sa_done_at")
+    t_review      = timing.get("review_done_at")
     t_remediation = timing.get("remediation_done_at")
-    t_completed  = timing.get("completed_at")
+    t_completed   = timing.get("completed_at")
+    t_submitted   = (upstream_pr or {}).get("submitted_at")
+
+    # Fetch post-submission commits from GitHub
+    post_commits = []
+    if upstream_pr and t_submitted:
+        pr_num = upstream_pr.get("pr_number")
+        all_commits = fetch_pr_commits(origin_slug, pr_num)
+        post_commits = [c for c in all_commits if c["date"] > t_submitted]
 
     if any([t_assigned, t_swe, t_sa]):
         print()
         print(_hr("Timeline"))
         steps = [
-            ("assigned",     t_assigned,    None),
-            ("swe-done",     t_swe,         t_assigned),
-            ("sa-done",      t_sa,          t_swe),
-            ("review-done",  t_review,      t_sa),
-            ("remediation",  t_remediation, t_review),
-            ("completed",    t_completed,   t_remediation or t_review or t_sa),
+            ("assigned",    t_assigned,    None),
+            ("swe-done",    t_swe,         t_assigned),
+            ("sa-done",     t_sa,          t_swe),
+            ("review-done", t_review,      t_sa),
+            ("remediation", t_remediation, t_review),
+            ("submitted",   t_submitted,   t_remediation or t_completed),
         ]
+        prev_ts = t_submitted or t_completed
         for label, ts, prev in steps:
             if not ts:
                 continue
             delta = _delta(prev, ts) if prev else ""
             delta_str = f"  ({delta})" if delta else ""
             print(f"  {label:<14}  {_fmt_ts(ts)}{delta_str}")
+
+        for commit in post_commits:
+            delta = _delta(prev_ts, commit["date"]) if prev_ts else ""
+            delta_str = f"  ({delta})" if delta else ""
+            author = commit.get("author", "")
+            msg = commit.get("message", "")[:60]
+            sha = commit.get("sha", "")
+            author_str = f" @{author}" if author else ""
+            print(f"  {'commit':<14}  {_fmt_ts(commit['date'])}{delta_str}")
+            print(f"  {'':14}  {sha}  \"{msg}\"{author_str}")
+            prev_ts = commit["date"]
 
     # ── Upstream PR ───────────────────────────────────────────────────────────
     print()
