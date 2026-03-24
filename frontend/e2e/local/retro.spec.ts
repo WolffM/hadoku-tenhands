@@ -102,6 +102,48 @@ test.describe('RetroView — Batch Tabs', () => {
     await expect(page.locator('.retro-tab--older')).not.toBeVisible()
   })
 
+  test('switching tabs fires API request for the new batch id', async ({ page }) => {
+    const [request] = await Promise.all([
+      page.waitForRequest(req => req.url().includes('/oss/retro/batch/jade-hare')),
+      page.locator('.retro-tab').filter({ hasText: 'jade-hare' }).click()
+    ])
+    expect(request.url()).toContain('jade-hare')
+  })
+
+  test('switching tabs updates batch summary to the new batch', async ({ page }) => {
+    // Override route so jade-hare returns its own batch data
+    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
+      if (route.request().url().includes('jade-hare')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            batch: mockRetroBatches[1],
+            issues: [],
+            owner: mockOwner
+          })
+        })
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, ...mockRetroBatchDetail, owner: mockOwner })
+        })
+      }
+    })
+
+    // Initially on crimson-kitty
+    await expect(page.locator('.batch-summary__id')).toHaveText('crimson-kitty')
+
+    await page.locator('.retro-tab').filter({ hasText: 'jade-hare' }).click()
+
+    // Summary must update to jade-hare
+    await expect(page.locator('.batch-summary__id')).toHaveText('jade-hare')
+    // jade-hare returned no issues
+    await expect(page.locator('.retro-empty')).toBeVisible()
+  })
+
   test('Older dropdown shown and works when >5 batches', async ({ page }) => {
     // Override the batches mock with 7 batches
     const manyBatches = Array.from({ length: 7 }, (_, i) => ({
@@ -217,11 +259,12 @@ test.describe('RetroView — IssueRetroCard header', () => {
     await expect(firstCard.locator('.retro-badge--neutral')).toContainText('tier 1')
   })
 
-  test('shows human comments badge with count', async ({ page }) => {
-    // First card: 2 human fork comments (copilot-swe-agent filtered out) + 1 inline
-    //   + 1 upstream maintainer (github-actions[bot] filtered out) = 4 human comments
+  test('shows human comments badge with exact count', async ({ page }) => {
+    // fork_pr: hadoku × 2 (copilot-swe-agent filtered) = 2
+    // upstream_pr: upstream-maintainer × 1 (github-actions[bot] filtered) = 1
+    // total = 3
     const firstCard = page.locator('.retro-card').first()
-    await expect(firstCard.locator('.retro-badge--comments')).toContainText('human comment')
+    await expect(firstCard.locator('.retro-badge--comments')).toContainText('3 human comments')
   })
 
   test('no upstream PR link when no upstream PR', async ({ page }) => {
@@ -346,6 +389,39 @@ test.describe('RetroView — Timeline section', () => {
     await expect(
       page.locator('.retro-timeline__label').filter({ hasText: 'Dispatched' })
     ).toBeVisible()
+  })
+
+  test('timeline renders formatted timestamps (not empty)', async ({ page }) => {
+    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
+    await timelineToggle.click()
+    // Every visible timestamp cell must have content
+    const ts = page.locator('.retro-timeline__ts').first()
+    await expect(ts).toBeVisible()
+    await expect(ts).not.toBeEmpty()
+  })
+
+  test('timeline shows delta between consecutive steps', async ({ page }) => {
+    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
+    await timelineToggle.click()
+    await expect(page.locator('.retro-timeline__delta').first()).toBeVisible()
+  })
+
+  test('merged step has success styling', async ({ page }) => {
+    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
+    await timelineToggle.click()
+    await expect(page.locator('.retro-timeline__step--success')).toBeVisible()
+    await expect(
+      page.locator('.retro-timeline__step--success .retro-timeline__label')
+    ).toContainText('Merged')
+  })
+
+  test('timeline shows all pipeline steps from mock timing data', async ({ page }) => {
+    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
+    await timelineToggle.click()
+    // Mock has: assigned_at, swe_done_at, sa_done_at, review_done_at, remediation_done_at
+    // + upstream_pr.submitted_at + upstream_pr.merged_at = 7 steps
+    const steps = page.locator('.retro-timeline__step')
+    await expect(steps).toHaveCount(7)
   })
 })
 
@@ -484,6 +560,51 @@ test.describe('RetroView — ContextPanel', () => {
     await expect(page.locator('.context-panel')).toBeVisible()
     await page.locator('.context-panel-overlay').click()
     await expect(page.locator('.context-panel')).not.toBeVisible()
+  })
+})
+
+test.describe('RetroView — Second card (pre-telemetry, no upstream PR)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAPIs(page)
+    await navigateToRetro(page)
+    await page.locator('.retro-card__header').nth(1).click()
+    await expect(page.locator('.retro-card').nth(1).locator('.retro-card__body')).toBeVisible()
+  })
+
+  test('pre-telemetry placeholder is shown', async ({ page }) => {
+    const card = page.locator('.retro-card').nth(1)
+    await expect(card.locator('.retro-placeholder')).toBeVisible()
+    await expect(card.locator('.retro-placeholder')).toContainText('before full telemetry')
+  })
+
+  test('human comments section shows unavailable message (no data captured)', async ({ page }) => {
+    const card = page.locator('.retro-card').nth(1)
+    await expect(
+      card.locator('.retro-empty-section').filter({ hasText: 'Comment data unavailable' })
+    ).toBeVisible()
+  })
+
+  test('no Copilot workflow section rendered (no workflow in retro)', async ({ page }) => {
+    const card = page.locator('.retro-card').nth(1)
+    await expect(
+      card.locator('.retro-section__toggle').filter({ hasText: /Copilot workflow/i })
+    ).not.toBeVisible()
+  })
+
+  test('artifacts section shows missing messages for both artifacts', async ({ page }) => {
+    const card = page.locator('.retro-card').nth(1)
+    await card
+      .locator('.retro-section__toggle')
+      .filter({ hasText: /Artifacts/i })
+      .click()
+    // Both context brief and upstream PR body are missing
+    const missing = card.locator('.retro-artifact-missing')
+    await expect(missing).toHaveCount(2)
+  })
+
+  test('dispatched badge shown (no upstream PR)', async ({ page }) => {
+    const card = page.locator('.retro-card').nth(1)
+    await expect(card.locator('.retro-badge--neutral').first()).toContainText('Dispatched')
   })
 })
 
