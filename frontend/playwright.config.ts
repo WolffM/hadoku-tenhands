@@ -56,14 +56,14 @@ export default defineConfig({
   // This catches stale servers with wrong proxy configs immediately.
   webServer: [
     {
-      command: 'python3 -m backend.app',
+      command: 'PORT=5001 python3 -m backend.app',
       url: 'http://localhost:5001/dispatch/api/healthcheck',
       reuseExistingServer: !process.env.CI,
       cwd: '..',
       timeout: 60_000
     },
     {
-      command: 'pnpm dev',
+      command: 'BACKEND_PORT=5001 pnpm dev',
       url: 'http://localhost:5175',
       reuseExistingServer: !process.env.CI,
       timeout: 60_000

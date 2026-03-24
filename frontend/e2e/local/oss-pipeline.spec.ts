@@ -402,7 +402,7 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
   test('Signoff button shows loading state', async ({ page }) => {
     // Delay the signoff response
     await page.route('**/dispatch/api/oss/signoff', async route => {
-      await new Promise(resolve => setTimeout(resolve, 500))
+      await new Promise(resolve => setTimeout(resolve, 2000))
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

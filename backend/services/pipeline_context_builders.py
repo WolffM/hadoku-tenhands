@@ -11,9 +11,9 @@ try:
     from services.oss_service import _sanitize_upstream_refs
     from helpers.oss_helpers import strip_leading_header
 except ImportError:
-    from github_api import run_gh_command
-    from oss_service import _sanitize_upstream_refs
-    from helpers.oss_helpers import strip_leading_header
+    from .github_api import run_gh_command
+    from .oss_service import _sanitize_upstream_refs
+    from ..helpers.oss_helpers import strip_leading_header
 
 logger = logging.getLogger(__name__)
 

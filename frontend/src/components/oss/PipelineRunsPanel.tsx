@@ -85,14 +85,12 @@ export function PipelineRunsPanel() {
     onSuccess: () => loadOSSPipelineRuns()
   })
 
-  const handleSignoff = (a: PipelineAssignment) => {
+  const handleSignoff = (a: PipelineAssignment, key: string) => {
     if (!a.stage4PrNumber) {
       addLog('No fork PR number found for signoff', 'error')
       return
     }
-    return runSignoff(`${a.originSlug}#${a.issueNumber}`, () =>
-      signoffIssue(a.repo, a.stage4PrNumber!, a.originSlug)
-    )
+    return runSignoff(key, () => signoffIssue(a.repo, a.stage4PrNumber!, a.originSlug))
   }
 
   const handleAdvance = (a: PipelineAssignment) =>
@@ -205,7 +203,7 @@ export function PipelineRunsPanel() {
                           <button
                             className="btn btn--primary btn--sm"
                             onClick={() => {
-                              void handleSignoff(a)
+                              void handleSignoff(a, signoffKey)
                             }}
                             disabled={signingOff === signoffKey}
                           >
