@@ -7,6 +7,7 @@ Filtering happens at render time so adding new bots doesn't require re-fetching.
 BOT_LOGINS: set = {
     "copilot-swe-agent",
     "app/copilot-swe-agent",
+    "copilot",  # GitHub Copilot AI code reviewer (no [bot] suffix in author field)
     "github-actions[bot]",
     "dependabot[bot]",
     "coderabbitai[bot]",
