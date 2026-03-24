@@ -1,7 +1,7 @@
 /**
  * Production E2E Tests — OSS Recon Pipeline
  *
- * Hits the REAL Flask backend (port 5001) via Vite dev server (port 5175).
+ * Hits the REAL Flask backend (port 5001) via Vite dev server (port 5184).
  * No route interception — all API calls go to the real aggregator + gh CLI.
  *
  * Requirements:

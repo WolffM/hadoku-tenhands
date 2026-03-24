@@ -16,7 +16,7 @@ function validatePort(port) {
   return String(num)
 }
 
-const port = validatePort(process.argv[2] || '5175')
+const port = validatePort(process.argv[2] || '5184')
 
 function killWin(p) {
   const killed = new Set()

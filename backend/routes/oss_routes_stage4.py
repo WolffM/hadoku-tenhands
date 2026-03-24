@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.pipeline_orchestrator import PipelineOrchestrator
-    from ..services.oss_state import save_session_artifact
+    from ..services.oss_state import save_session_artifact, get_session_artifact
     from ..services.pipeline_retrospective import fetch_pr_comments
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
@@ -27,7 +27,7 @@ try:
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
-    from services.oss_state import save_session_artifact
+    from services.oss_state import save_session_artifact, get_session_artifact
     from services.pipeline_retrospective import fetch_pr_comments
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
@@ -738,6 +738,27 @@ def api_oss_retro_batch(batch_id):
              and r.get("issue_number") == issue_number),
             {}
         )
+
+        # Enrich retro with session artifacts (comments, PR body, context)
+        retro = dict(retro)  # copy so we don't mutate the original
+
+        # Upstream PR comments
+        raw_comments_json = get_session_artifact(origin_slug, issue_number, "upstream-pr-comments.json")
+        if raw_comments_json:
+            try:
+                retro["raw_comments"] = {"upstream_pr": json.loads(raw_comments_json)}
+            except (ValueError, TypeError):
+                pass
+
+        # Upstream PR body
+        upstream_pr_body = get_session_artifact(origin_slug, issue_number, "upstream-pr-body.md")
+        if upstream_pr_body:
+            retro["upstream_pr_body"] = upstream_pr_body
+
+        # Context issue body (fork issue)
+        context_body = get_session_artifact(origin_slug, issue_number, "context.md")
+        if context_body:
+            retro["context_issue_body"] = context_body
 
         issues.append({
             "assignment": assignment,

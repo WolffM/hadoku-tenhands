@@ -106,7 +106,7 @@ pnpm install
 pnpm dev
 ```
 
-The dev server starts on `http://localhost:5175` and proxies API requests to the backend.
+The dev server starts on `http://localhost:5184` and proxies API requests to the backend.
 
 ## Project Structure
 
