@@ -49,7 +49,7 @@ export function IssueRetroCard({ item }: Props) {
   const humanForkComments = filterHuman(retro?.raw_comments?.fork_pr ?? [])
   const humanUpstreamComments = filterHuman(retro?.raw_comments?.upstream_pr ?? [])
   const totalHumanComments = humanForkComments.length + humanUpstreamComments.length
-  const hasRetroData = !!retro?.timing?.assigned_at
+  const hasRetroData = !!(retro?.raw_comments || retro?.context_issue_body)
 
   const stageReached = upstream_pr
     ? upstream_pr.state === 'merged'
@@ -92,15 +92,18 @@ export function IssueRetroCard({ item }: Props) {
             {assignment.origin_slug}#{assignment.issue_number}
           </a>
           {upstream_pr && (
-            <a
-              href={upstream_pr.pr_url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="retro-card__pr-link"
-            >
-              PR #{upstream_pr.pr_number}
-            </a>
+            <>
+              <span className="retro-card__sep">·</span>
+              <a
+                href={upstream_pr.pr_url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="retro-card__pr-link"
+              >
+                PR #{upstream_pr.pr_number}
+              </a>
+            </>
           )}
         </div>
         <div className="retro-card__badges">
