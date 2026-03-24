@@ -51,7 +51,10 @@ export function RetroView() {
       .then(res => {
         if (res.success) {
           setIssues(res.issues ?? [])
-          setActiveBatch(res.batch ?? null)
+          // Use the batch from the already-loaded batches list (has computed counts)
+          // res.batch is raw data without summary counts
+          const summary = batches.find(b => b.batch_id === activeBatchId)
+          setActiveBatch(summary ?? null)
         } else {
           setError(res.error ?? 'Failed to load batch')
         }
