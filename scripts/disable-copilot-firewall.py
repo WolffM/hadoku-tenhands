@@ -190,7 +190,7 @@ def main():
     os.makedirs(BROWSER_DATA_DIR, exist_ok=True)
 
     with sync_playwright() as p:
-        browser = _launch_browser(p, headless=False)
+        browser = _launch_browser(p, headless=True)
         page = browser.new_page()
 
         page.goto("https://github.com", wait_until="domcontentloaded", timeout=30000)
