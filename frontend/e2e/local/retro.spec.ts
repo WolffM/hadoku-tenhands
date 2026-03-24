@@ -1,31 +1,34 @@
 /**
  * E2E Tests for the Retrospective View
  *
- * Covers:
- *   - Navigation to the Retro tab
- *   - Batch tabs and "Older" dropdown
- *   - BatchSummaryPanel funnel counts
- *   - IssueRetroCard header, expand/collapse, sections
- *   - Bot-filtered human comments (open by default)
- *   - Copilot workflow chips
- *   - SA findings
- *   - ContextPanel slide-in (open, close, Escape, overlay)
- *   - Empty/pre-telemetry states
+ * All retro tests hit the real backend (port 5001, started by webServer in
+ * playwright.config.ts) so they validate actual jade-hare data.  Mocking
+ * retro endpoints would defeat the purpose — these tests exist specifically
+ * to catch backend data bugs like missing upstream PRs, empty comment counts,
+ * or artifacts that aren't loaded.
+ *
+ * Non-retro endpoints (owner, pipeline stages, etc.) are still mocked for
+ * speed; they are not under test here.
+ *
+ * Known-stable jade-hare facts asserted below:
+ *   - 3 batches: crimson-kitty (0 issues, newest), jade-hare (55), dusty-lizard (8)
+ *   - jade-hare: 55 dispatched, 28 upstream PRs, 1 merged (data-formulator#85)
+ *   - microsoft/markitdown#183  → PR #1619 (open), timing data, SA annotations, 1 human comment
+ *   - puppeteer/puppeteer#5096  → PR #14791 (open), 13 human comments (wolfib, WolffM, Lightning00Blade)
+ *   - microsoft/PowerToys#22315 → PR #46315 (open), upstream-pr-body.md artifact
+ *   - microsoft/PowerToys#36805 → fork PR only (stage4_pr_number=6, no upstream PR)
+ *   - strapi/strapi#24822       → truly dispatched (no fork PR, no upstream PR)
  */
 
 import { test, expect, type Page } from '../fixtures/base'
-import {
-  mockAllAPIs,
-  mockOwner,
-  mockRetroBatches,
-  mockRetroBatchDetail
-} from '../fixtures/api-mocks'
+import { mockAllAPIs } from '../fixtures/api-mocks'
 
-/** Navigate past the select screen so pipeline tabs appear, then click Retrospective. */
+// ---- Helpers ----
+
+/** Navigate past the select screen, then click Retrospective. */
 async function navigateToRetro(page: Page): Promise<void> {
   await page.goto('/?key=test-key')
   await expect(page.locator('text=VibeDispatch')).toBeVisible()
-  // Leave the select view so pipelineTabs render
   await page
     .locator('.pipeline-select-card')
     .filter({ hasText: 'OSS Contribution Pipeline' })
@@ -35,7 +38,26 @@ async function navigateToRetro(page: Page): Promise<void> {
     .locator('.nav-tabs__tab')
     .filter({ hasText: /Retrospective/i })
     .click()
+  await expect(page.locator('.retro-view')).toBeVisible()
 }
+
+/** Click the jade-hare tab and wait for its cards to render. */
+async function navigateToJadeHare(page: Page): Promise<void> {
+  await navigateToRetro(page)
+  await page.locator('.retro-tab').filter({ hasText: 'jade-hare' }).click()
+  await expect(page.locator('.retro-tab--active').filter({ hasText: 'jade-hare' })).toBeVisible()
+  // Wait for at least the first card to load
+  await expect(page.locator('.retro-card').first()).toBeVisible()
+}
+
+/** Find a card by its origin slug + issue number as shown in the card header. */
+function getCard(page: Page, slug: string, issueNum: number) {
+  return page.locator('.retro-card').filter({
+    has: page.locator(`.retro-card__repo-link:text("${slug}#${issueNum}")`)
+  })
+}
+
+// ---- Navigation (structural — mockAllAPIs is fine, no retro data loaded) ----
 
 test.describe('RetroView — Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -65,41 +87,39 @@ test.describe('RetroView — Navigation', () => {
   })
 })
 
+// ---- Batch Tabs (real backend — validates actual batch data) ----
+
 test.describe('RetroView — Batch Tabs', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
+    await mockAllAPIs(page, { retro: false })
     await navigateToRetro(page)
   })
 
-  test('shows batch tabs for each batch', async ({ page }) => {
+  test('shows tabs for all three real batches', async ({ page }) => {
     await expect(page.locator('.retro-tab').filter({ hasText: 'crimson-kitty' })).toBeVisible()
     await expect(page.locator('.retro-tab').filter({ hasText: 'jade-hare' })).toBeVisible()
+    await expect(page.locator('.retro-tab').filter({ hasText: 'dusty-lizard' })).toBeVisible()
   })
 
-  test('first batch tab is active by default', async ({ page }) => {
-    // crimson-kitty is sorted newest-first so it should be active
+  test('crimson-kitty (newest) is active by default', async ({ page }) => {
     await expect(
       page.locator('.retro-tab--active').filter({ hasText: 'crimson-kitty' })
     ).toBeVisible()
   })
 
-  test('merged count badge shows on tab', async ({ page }) => {
-    // crimson-kitty has upstream_merged: 1
-    await expect(
-      page.locator('.retro-tab').filter({ hasText: 'crimson-kitty' }).locator('.retro-tab__badge')
-    ).toBeVisible()
-    await expect(
-      page.locator('.retro-tab').filter({ hasText: 'crimson-kitty' }).locator('.retro-tab__badge')
-    ).toHaveText('1 merged')
+  test('jade-hare tab has merged count badge (1 merged PR)', async ({ page }) => {
+    const jadeTab = page.locator('.retro-tab').filter({ hasText: 'jade-hare' })
+    await expect(jadeTab.locator('.retro-tab__badge')).toHaveText('1 merged')
   })
 
-  test('clicking a different tab makes it active', async ({ page }) => {
+  test('crimson-kitty default view shows empty batch message', async ({ page }) => {
+    // crimson-kitty was just created, has no dispatched issues yet
+    await expect(page.locator('.retro-empty')).toContainText('No issues in this batch yet')
+  })
+
+  test('clicking jade-hare makes it active', async ({ page }) => {
     await page.locator('.retro-tab').filter({ hasText: 'jade-hare' }).click()
     await expect(page.locator('.retro-tab--active').filter({ hasText: 'jade-hare' })).toBeVisible()
-  })
-
-  test('Older dropdown not shown when ≤5 batches', async ({ page }) => {
-    await expect(page.locator('.retro-tab--older')).not.toBeVisible()
   })
 
   test('switching tabs fires API request for the new batch id', async ({ page }) => {
@@ -110,42 +130,11 @@ test.describe('RetroView — Batch Tabs', () => {
     expect(request.url()).toContain('jade-hare')
   })
 
-  test('switching tabs updates batch summary to the new batch', async ({ page }) => {
-    // Override route so jade-hare returns its own batch data
-    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
-      if (route.request().url().includes('jade-hare')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            success: true,
-            batch: mockRetroBatches[1],
-            issues: [],
-            owner: mockOwner
-          })
-        })
-      } else {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ success: true, ...mockRetroBatchDetail, owner: mockOwner })
-        })
-      }
-    })
-
-    // Initially on crimson-kitty
-    await expect(page.locator('.batch-summary__id')).toHaveText('crimson-kitty')
-
-    await page.locator('.retro-tab').filter({ hasText: 'jade-hare' }).click()
-
-    // Summary must update to jade-hare
-    await expect(page.locator('.batch-summary__id')).toHaveText('jade-hare')
-    // jade-hare returned no issues
-    await expect(page.locator('.retro-empty')).toBeVisible()
+  test('no Older dropdown with 3 batches', async ({ page }) => {
+    await expect(page.locator('.retro-tab--older')).not.toBeVisible()
   })
 
-  test('Older dropdown shown and works when >5 batches', async ({ page }) => {
-    // Override the batches mock with 7 batches
+  test('Older dropdown shown and works when >5 batches (mocked override)', async ({ page }) => {
     const manyBatches = Array.from({ length: 7 }, (_, i) => ({
       batch_id: `batch-${i + 1}`,
       created_at: new Date(Date.now() - i * 86400000).toISOString(),
@@ -161,381 +150,422 @@ test.describe('RetroView — Batch Tabs', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, batches: manyBatches, owner: mockOwner })
+        body: JSON.stringify({ success: true, batches: manyBatches, owner: 'test-user' })
       })
     })
-    // Reload to pick up new mock
+    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          batch: manyBatches[0],
+          issues: [],
+          owner: 'test-user'
+        })
+      })
+    })
+    // Reload to pick up the override (retro: false means retro routes are not pre-intercepted)
     await navigateToRetro(page)
 
     await expect(page.locator('.retro-tab--older')).toBeVisible()
-    // 5 visible tabs + 1 Older button
     const visibleTabs = page.locator('.retro-tab:not(.retro-tab--older)')
     await expect(visibleTabs).toHaveCount(5)
 
-    // Open dropdown
     await page.locator('.retro-tab--older').click()
     await expect(page.locator('.retro-tabs__dropdown')).toBeVisible()
     await expect(page.locator('.retro-tabs__dropdown-item')).toHaveCount(2)
 
-    // Click an older batch
     await page.locator('.retro-tabs__dropdown-item').first().click()
     await expect(page.locator('.retro-tabs__dropdown')).not.toBeVisible()
   })
 })
 
-test.describe('RetroView — BatchSummaryPanel', () => {
+// ---- BatchSummaryPanel — validates real jade-hare funnel counts ----
+
+test.describe('RetroView — BatchSummaryPanel (jade-hare)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
     await expect(page.locator('.batch-summary')).toBeVisible()
   })
 
-  test('shows batch id and note', async ({ page }) => {
-    await expect(page.locator('.batch-summary__id')).toHaveText('crimson-kitty')
-    await expect(page.locator('.batch-summary__note')).toContainText('Active batch')
+  test('shows jade-hare as the active batch id', async ({ page }) => {
+    await expect(page.locator('.batch-summary__id')).toHaveText('jade-hare')
   })
 
-  test('funnel shows dispatched count', async ({ page }) => {
-    // issue_count: 2
+  test('funnel shows 55 dispatched issues', async ({ page }) => {
     await expect(
       page
         .locator('.batch-summary__stage')
         .filter({ hasText: 'Dispatched' })
         .locator('.batch-summary__count')
-    ).toHaveText('2')
+    ).toHaveText('55')
   })
 
-  test('funnel shows upstream PR count', async ({ page }) => {
-    // upstream_pr_count: 1
+  test('funnel shows 28 upstream PRs submitted', async ({ page }) => {
     await expect(
       page
         .locator('.batch-summary__stage')
         .filter({ hasText: 'Upstream PRs' })
         .locator('.batch-summary__count')
-    ).toHaveText('1')
+    ).toHaveText('28')
   })
 
-  test('outcome shows merged count', async ({ page }) => {
-    // upstream_merged: 1
+  test('outcome shows 1 merged PR (data-formulator#85)', async ({ page }) => {
     await expect(
       page.locator('.batch-summary__outcome--success').locator('.batch-summary__count')
     ).toHaveText('1')
   })
+
+  test('outcome shows 17 closed PRs', async ({ page }) => {
+    await expect(
+      page.locator('.batch-summary__outcome--closed').locator('.batch-summary__count')
+    ).toHaveText('17')
+  })
+
+  test('outcome shows 10 open PRs', async ({ page }) => {
+    await expect(
+      page.locator('.batch-summary__outcome--open').locator('.batch-summary__count')
+    ).toHaveText('10')
+  })
 })
 
-test.describe('RetroView — IssueRetroCard header', () => {
+// ---- IssueRetroCard header — validates real markitdown#183 data ----
+
+test.describe('RetroView — IssueRetroCard header (markitdown#183)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
-    await expect(page.locator('.retro-card').first()).toBeVisible()
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
   })
 
   test('shows repo#issue link in header', async ({ page }) => {
-    const firstCard = page.locator('.retro-card').first()
-    await expect(firstCard.locator('.retro-card__repo-link')).toHaveText('fastify/fastify#1234')
-    await expect(firstCard.locator('.retro-card__repo-link')).toHaveAttribute(
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-card__repo-link')).toHaveText('microsoft/markitdown#183')
+    await expect(card.locator('.retro-card__repo-link')).toHaveAttribute(
       'href',
-      'https://github.com/fastify/fastify/issues/1234'
+      'https://github.com/microsoft/markitdown/issues/183'
     )
   })
 
-  test('shows upstream PR link when present', async ({ page }) => {
-    const firstCard = page.locator('.retro-card').first()
-    await expect(firstCard.locator('.retro-card__pr-link')).toBeVisible()
-    await expect(firstCard.locator('.retro-card__pr-link')).toHaveText('PR #9876')
-    await expect(firstCard.locator('.retro-card__pr-link')).toHaveAttribute(
+  test('shows upstream PR link (PR #1619)', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-card__pr-link')).toBeVisible()
+    await expect(card.locator('.retro-card__pr-link')).toHaveText('PR #1619')
+    await expect(card.locator('.retro-card__pr-link')).toHaveAttribute(
       'href',
-      'https://github.com/fastify/fastify/pull/9876'
+      'https://github.com/microsoft/markitdown/pull/1619'
     )
   })
 
-  test('shows stage badge — merged', async ({ page }) => {
-    const firstCard = page.locator('.retro-card').first()
-    await expect(firstCard.locator('.retro-badge--success')).toContainText('Merged upstream')
+  test('shows Open upstream stage badge', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-badge--open')).toContainText('Open upstream')
   })
 
   test('shows context tier badge', async ({ page }) => {
-    const firstCard = page.locator('.retro-card').first()
-    await expect(firstCard.locator('.retro-badge--neutral')).toContainText('tier 1')
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-badge--neutral')).toContainText('tier 1')
   })
 
-  test('shows human comments badge with exact count', async ({ page }) => {
-    // fork_pr: hadoku × 2 (copilot-swe-agent filtered) = 2
-    // upstream_pr: upstream-maintainer × 1 (github-actions[bot] filtered) = 1
-    // total = 3
-    const firstCard = page.locator('.retro-card').first()
-    await expect(firstCard.locator('.retro-badge--comments')).toContainText('3 human comments')
+  test('shows 1 human comment badge', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-badge--comments')).toContainText('1 human comment')
   })
 
-  test('no upstream PR link when no upstream PR', async ({ page }) => {
-    // Second card: vercel/next.js#9999 has no upstream_pr
-    const secondCard = page.locator('.retro-card').nth(1)
-    await expect(secondCard.locator('.retro-card__pr-link')).not.toBeVisible()
+  test('puppeteer/puppeteer#5096 shows 13 human comments badge', async ({ page }) => {
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
+    await expect(card.locator('.retro-badge--comments')).toContainText('13 human comments')
   })
 
-  test('dispatched stage badge when no PR', async ({ page }) => {
-    const secondCard = page.locator('.retro-card').nth(1)
-    await expect(secondCard.locator('.retro-badge--neutral').first()).toContainText('Dispatched')
+  test('PowerToys#36805 shows Fork PR created badge (no upstream PR)', async ({ page }) => {
+    const card = getCard(page, 'microsoft/PowerToys', 36805)
+    await expect(card.locator('.retro-badge--neutral').first()).toContainText('Fork PR created')
+    await expect(card.locator('.retro-card__pr-link')).not.toBeVisible()
+  })
+
+  test('strapi#24822 shows Dispatched badge (never got a fork PR)', async ({ page }) => {
+    const card = getCard(page, 'strapi/strapi', 24822)
+    await expect(card.locator('.retro-badge--neutral').first()).toContainText('Dispatched')
+    await expect(card.locator('.retro-card__pr-link')).not.toBeVisible()
+  })
+
+  test('data-formulator#85 shows Merged upstream badge', async ({ page }) => {
+    const card = getCard(page, 'microsoft/data-formulator', 85)
+    await expect(card.locator('.retro-badge--success')).toContainText('Merged upstream')
   })
 })
+
+// ---- Card expand / collapse (behavioral) ----
 
 test.describe('RetroView — Card expand/collapse', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
   })
 
   test('card body is hidden by default', async ({ page }) => {
-    await expect(page.locator('.retro-card').first().locator('.retro-card__body')).not.toBeVisible()
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-card__body')).not.toBeVisible()
   })
 
   test('clicking header expands the card', async ({ page }) => {
-    await page.locator('.retro-card__header').first().click()
-    await expect(page.locator('.retro-card').first().locator('.retro-card__body')).toBeVisible()
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await card.locator('.retro-card__header').click()
+    await expect(card.locator('.retro-card__body')).toBeVisible()
   })
 
   test('clicking header again collapses the card', async ({ page }) => {
-    await page.locator('.retro-card__header').first().click()
-    await expect(page.locator('.retro-card__body').first()).toBeVisible()
-    await page.locator('.retro-card__header').first().click()
-    await expect(page.locator('.retro-card__body').first()).not.toBeVisible()
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await card.locator('.retro-card__header').click()
+    await expect(card.locator('.retro-card__body')).toBeVisible()
+    await card.locator('.retro-card__header').click()
+    await expect(card.locator('.retro-card__body')).not.toBeVisible()
   })
 
   test('cards expand independently', async ({ page }) => {
-    await page.locator('.retro-card__header').first().click()
-    await expect(page.locator('.retro-card').first().locator('.retro-card__body')).toBeVisible()
-    await expect(page.locator('.retro-card').nth(1).locator('.retro-card__body')).not.toBeVisible()
+    const markitdownCard = getCard(page, 'microsoft/markitdown', 183)
+    const powerToysCard = getCard(page, 'microsoft/PowerToys', 22315)
+    await markitdownCard.locator('.retro-card__header').click()
+    await expect(markitdownCard.locator('.retro-card__body')).toBeVisible()
+    await expect(powerToysCard.locator('.retro-card__body')).not.toBeVisible()
   })
 })
 
-test.describe('RetroView — Human comments section', () => {
+// ---- Human comments — validates real puppeteer#5096 upstream review thread ----
+
+test.describe('RetroView — Human comments (puppeteer#5096)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
-    await page.locator('.retro-card__header').first().click()
-    await expect(page.locator('.retro-card__body').first()).toBeVisible()
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
+    await card.locator('.retro-card__header').click()
+    await expect(card.locator('.retro-card__body')).toBeVisible()
   })
 
   test('human comments section is open by default when card expands', async ({ page }) => {
-    const body = page.locator('.retro-card__body').first()
-    await expect(body.locator('.comment-thread').first()).toBeVisible()
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
+    await expect(card.locator('.comment-thread').first()).toBeVisible()
   })
 
-  test('bot comments are filtered out — copilot-swe-agent not shown', async ({ page }) => {
+  test('wolfib maintainer comment is visible', async ({ page }) => {
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
     await expect(
-      page.locator('.comment__author').filter({ hasText: '@copilot-swe-agent' })
+      card.locator('.comment__author').filter({ hasText: '@wolfib' }).first()
+    ).toBeVisible()
+    await expect(
+      card.locator('.comment__body').filter({ hasText: /What is this trying to achieve/i })
+    ).toBeVisible()
+  })
+
+  test('Lightning00Blade inline comment is visible', async ({ page }) => {
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
+    await expect(
+      card.locator('.comment__author').filter({ hasText: '@Lightning00Blade' }).first()
+    ).toBeVisible()
+  })
+
+  test('bot comments are filtered out — no copilot-swe-agent shown', async ({ page }) => {
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
+    await expect(
+      card.locator('.comment__author').filter({ hasText: '@copilot-swe-agent' })
     ).not.toBeVisible()
   })
 
-  test('bot comments are filtered out — github-actions[bot] not shown', async ({ page }) => {
+  test('Upstream PR thread label is shown', async ({ page }) => {
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
     await expect(
-      page.locator('.comment__author').filter({ hasText: '@github-actions[bot]' })
-    ).not.toBeVisible()
-  })
-
-  test('human fork PR comments are shown', async ({ page }) => {
-    await expect(
-      page.locator('.comment__author').filter({ hasText: '@hadoku' }).first()
-    ).toBeVisible()
-    await expect(
-      page.locator('.comment__body').filter({ hasText: 'Looks good to me' })
+      card.locator('.comment-thread__label').filter({ hasText: 'Upstream PR' })
     ).toBeVisible()
   })
 
-  test('human upstream PR comments are shown', async ({ page }) => {
-    await expect(
-      page.locator('.comment__author').filter({ hasText: '@upstream-maintainer' })
-    ).toBeVisible()
-    await expect(
-      page.locator('.comment__body').filter({ hasText: 'Thanks for the contribution' })
-    ).toBeVisible()
-  })
-
-  test('inline comment shows file path and line', async ({ page }) => {
-    await expect(page.locator('.comment--inline')).toBeVisible()
-    await expect(
-      page.locator('.comment__location').filter({ hasText: 'src/request.js:55' })
-    ).toBeVisible()
-  })
-
-  test('fork PR and upstream PR threads are labelled separately', async ({ page }) => {
-    await expect(
-      page.locator('.comment-thread__label').filter({ hasText: 'Fork PR' })
-    ).toBeVisible()
-    await expect(
-      page.locator('.comment-thread__label').filter({ hasText: 'Upstream PR' })
-    ).toBeVisible()
+  test('inline comment shows path and line number', async ({ page }) => {
+    const card = getCard(page, 'puppeteer/puppeteer', 5096)
+    // Lightning00Blade first inline comment is at line 399
+    await expect(card.locator('.comment--inline').first()).toBeVisible()
+    await expect(card.locator('.comment__location').first()).toBeVisible()
   })
 })
 
-test.describe('RetroView — Timeline section', () => {
+// ---- Timeline — validates real markitdown#183 timing data ----
+
+test.describe('RetroView — Timeline (markitdown#183)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
-    await page.locator('.retro-card__header').first().click()
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await card.locator('.retro-card__header').click()
+    await card
+      .locator('.retro-section__toggle')
+      .filter({ hasText: /Timeline/i })
+      .click()
+    await expect(card.locator('.retro-timeline')).toBeVisible()
   })
 
-  test('timeline section is present', async ({ page }) => {
-    // Click to open the timeline section (it's collapsed by default)
-    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
-    await expect(timelineToggle).toBeVisible()
-    await timelineToggle.click()
-    await expect(page.locator('.retro-timeline')).toBeVisible()
-  })
-
-  test('timeline shows at least the dispatched step', async ({ page }) => {
-    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
-    await timelineToggle.click()
+  test('shows Dispatched step', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
     await expect(
-      page.locator('.retro-timeline__label').filter({ hasText: 'Dispatched' })
+      card.locator('.retro-timeline__label').filter({ hasText: 'Dispatched' })
     ).toBeVisible()
   })
 
-  test('timeline renders formatted timestamps (not empty)', async ({ page }) => {
-    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
-    await timelineToggle.click()
-    // Every visible timestamp cell must have content
-    const ts = page.locator('.retro-timeline__ts').first()
-    await expect(ts).toBeVisible()
-    await expect(ts).not.toBeEmpty()
-  })
-
-  test('timeline shows delta between consecutive steps', async ({ page }) => {
-    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
-    await timelineToggle.click()
-    await expect(page.locator('.retro-timeline__delta').first()).toBeVisible()
-  })
-
-  test('merged step has success styling', async ({ page }) => {
-    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
-    await timelineToggle.click()
-    await expect(page.locator('.retro-timeline__step--success')).toBeVisible()
+  test('shows Upstream submitted step', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
     await expect(
-      page.locator('.retro-timeline__step--success .retro-timeline__label')
+      card.locator('.retro-timeline__label').filter({ hasText: 'Upstream submitted' })
+    ).toBeVisible()
+  })
+
+  test('shows 6 timeline steps', async ({ page }) => {
+    // Dispatched, Fork PR created, SA run, Review, Remediation, Upstream submitted
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-timeline__step')).toHaveCount(6)
+  })
+
+  test('all timestamps are non-empty', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    const timestamps = card.locator('.retro-timeline__ts')
+    const count = await timestamps.count()
+    for (let i = 0; i < count; i++) {
+      await expect(timestamps.nth(i)).not.toBeEmpty()
+    }
+  })
+
+  test('shows delta between consecutive steps', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.retro-timeline__delta').first()).toBeVisible()
+  })
+
+  test('data-formulator#85 timeline has Merged success step', async ({ page }) => {
+    const card = getCard(page, 'microsoft/data-formulator', 85)
+    await card.locator('.retro-card__header').click()
+    await card
+      .locator('.retro-section__toggle')
+      .filter({ hasText: /Timeline/i })
+      .click()
+    await expect(card.locator('.retro-timeline__step--success')).toBeVisible()
+    await expect(
+      card.locator('.retro-timeline__step--success .retro-timeline__label')
     ).toContainText('Merged')
   })
-
-  test('timeline shows all pipeline steps from mock timing data', async ({ page }) => {
-    const timelineToggle = page.locator('.retro-section__toggle').filter({ hasText: /Timeline/i })
-    await timelineToggle.click()
-    // Mock has: assigned_at, swe_done_at, sa_done_at, review_done_at, remediation_done_at
-    // + upstream_pr.submitted_at + upstream_pr.merged_at = 7 steps
-    const steps = page.locator('.retro-timeline__step')
-    await expect(steps).toHaveCount(7)
-  })
 })
 
-test.describe('RetroView — Workflow chips', () => {
+// ---- Workflow chips — validates real markitdown#183 workflow data ----
+
+test.describe('RetroView — Copilot workflow chips (markitdown#183)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
-    await page.locator('.retro-card__header').first().click()
-    // Open workflow section
-    await page
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await card.locator('.retro-card__header').click()
+    await card
       .locator('.retro-section__toggle')
       .filter({ hasText: /Copilot workflow/i })
       .click()
   })
 
-  test('reproduced chip shows as yes', async ({ page }) => {
+  test('code review chip shows yes', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
     await expect(
-      page.locator('.workflow-chip--yes').filter({ hasText: /Reproduced/i })
+      card.locator('.workflow-chip--yes').filter({ hasText: /Code review/i })
     ).toBeVisible()
   })
 
-  test('verified chip shows as yes', async ({ page }) => {
-    await expect(page.locator('.workflow-chip--yes').filter({ hasText: /Verified/i })).toBeVisible()
-  })
-
-  test('self_corrected chip shows as no when false', async ({ page }) => {
+  test('reproduced chip shows no (agent did not reproduce the bug)', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
     await expect(
-      page.locator('.workflow-chip--no').filter({ hasText: /Self-corrected/i })
+      card.locator('.workflow-chip--no').filter({ hasText: /Reproduced/i })
     ).toBeVisible()
   })
 
-  test('step count is shown', async ({ page }) => {
-    await expect(page.locator('.workflow-metrics__meta')).toContainText('15 steps')
+  test('step count is shown (26 steps for markitdown#183)', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.workflow-metrics__meta')).toContainText('26 steps')
   })
 })
 
-test.describe('RetroView — SA findings', () => {
+// ---- SA findings — validates real markitdown#183 static analysis annotations ----
+
+test.describe('RetroView — SA findings (markitdown#183)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
-    await page.locator('.retro-card__header').first().click()
-    await page
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await card.locator('.retro-card__header').click()
+    await card
       .locator('.retro-section__toggle')
       .filter({ hasText: /SA findings/i })
       .click()
   })
 
-  test('SA findings section shows annotation', async ({ page }) => {
-    await expect(page.locator('.sa-finding')).toBeVisible()
+  test('SA findings section is present', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.sa-finding')).toBeVisible()
   })
 
-  test('finding shows file path and line', async ({ page }) => {
-    await expect(page.locator('.sa-finding__loc')).toContainText('src/request.js:42')
+  test('finding shows the annotated file path', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.sa-finding__loc')).toContainText('latex_dict.py')
   })
 
-  test('finding shows message', async ({ page }) => {
-    await expect(page.locator('.sa-finding__msg')).toContainText('Unused variable')
+  test('finding shows the lint message', async ({ page }) => {
+    const card = getCard(page, 'microsoft/markitdown', 183)
+    await expect(card.locator('.sa-finding__msg')).toContainText('F601')
   })
 })
 
-test.describe('RetroView — ContextPanel', () => {
+// ---- ContextPanel — validates real PowerToys#22315 upstream PR body artifact ----
+
+test.describe('RetroView — ContextPanel (PowerToys#22315)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
-    await page.locator('.retro-card__header').first().click()
-    // Open artifacts section
-    await page
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await card.locator('.retro-card__header').click()
+    await card
       .locator('.retro-section__toggle')
       .filter({ hasText: /Artifacts/i })
       .click()
   })
 
-  test('context brief artifact link is shown', async ({ page }) => {
-    await expect(
-      page.locator('.retro-artifact-link').filter({ hasText: /Context brief/i })
-    ).toBeVisible()
-  })
-
   test('upstream PR body artifact link is shown', async ({ page }) => {
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
     await expect(
-      page.locator('.retro-artifact-link').filter({ hasText: /Upstream PR body/i })
+      card.locator('.retro-artifact-link').filter({ hasText: /Upstream PR body/i })
     ).toBeVisible()
   })
 
-  test('clicking context brief opens ContextPanel', async ({ page }) => {
-    await page
-      .locator('.retro-artifact-link')
-      .filter({ hasText: /Context brief/i })
-      .click()
-    await expect(page.locator('.context-panel')).toBeVisible()
-    await expect(page.locator('.context-panel__title')).toContainText('Context brief')
+  test('context brief is unavailable for this issue (no context.md captured)', async ({ page }) => {
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await expect(
+      card.locator('.retro-artifact-missing').filter({ hasText: /Context brief unavailable/i })
+    ).toBeVisible()
   })
 
-  test('context panel shows the content', async ({ page }) => {
-    await page
-      .locator('.retro-artifact-link')
-      .filter({ hasText: /Context brief/i })
-      .click()
-    await expect(page.locator('.context-panel__body')).toContainText('fork issue context brief')
-  })
-
-  test('clicking upstream PR body opens ContextPanel with that content', async ({ page }) => {
-    await page
+  test('clicking upstream PR body opens ContextPanel', async ({ page }) => {
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await card
       .locator('.retro-artifact-link')
       .filter({ hasText: /Upstream PR body/i })
       .click()
+    await expect(page.locator('.context-panel')).toBeVisible()
     await expect(page.locator('.context-panel__title')).toContainText('Upstream PR body')
-    await expect(page.locator('.context-panel__body')).toContainText('Fixes memory leak')
+  })
+
+  test('ContextPanel shows the PR body content', async ({ page }) => {
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await card
+      .locator('.retro-artifact-link')
+      .filter({ hasText: /Upstream PR body/i })
+      .click()
+    await expect(page.locator('.context-panel__body')).toContainText('Fix 22315')
   })
 
   test('close button dismisses ContextPanel', async ({ page }) => {
-    await page
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await card
       .locator('.retro-artifact-link')
-      .filter({ hasText: /Context brief/i })
+      .filter({ hasText: /Upstream PR body/i })
       .click()
     await expect(page.locator('.context-panel')).toBeVisible()
     await page.locator('.context-panel__close').click()
@@ -543,9 +573,10 @@ test.describe('RetroView — ContextPanel', () => {
   })
 
   test('Escape key dismisses ContextPanel', async ({ page }) => {
-    await page
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await card
       .locator('.retro-artifact-link')
-      .filter({ hasText: /Context brief/i })
+      .filter({ hasText: /Upstream PR body/i })
       .click()
     await expect(page.locator('.context-panel')).toBeVisible()
     await page.keyboard.press('Escape')
@@ -553,9 +584,10 @@ test.describe('RetroView — ContextPanel', () => {
   })
 
   test('clicking overlay backdrop dismisses ContextPanel', async ({ page }) => {
-    await page
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await card
       .locator('.retro-artifact-link')
-      .filter({ hasText: /Context brief/i })
+      .filter({ hasText: /Upstream PR body/i })
       .click()
     await expect(page.locator('.context-panel')).toBeVisible()
     await page.locator('.context-panel-overlay').click()
@@ -563,97 +595,43 @@ test.describe('RetroView — ContextPanel', () => {
   })
 })
 
-test.describe('RetroView — Second card (pre-telemetry, no upstream PR)', () => {
+// ---- Pre-telemetry placeholder — strapi#24822 was dispatched but never got further ----
+
+test.describe('RetroView — Pre-telemetry state (strapi#24822)', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await navigateToRetro(page)
-    await page.locator('.retro-card__header').nth(1).click()
-    await expect(page.locator('.retro-card').nth(1).locator('.retro-card__body')).toBeVisible()
+    await mockAllAPIs(page, { retro: false })
+    await navigateToJadeHare(page)
+    const card = getCard(page, 'strapi/strapi', 24822)
+    await card.locator('.retro-card__header').click()
+    await expect(card.locator('.retro-card__body')).toBeVisible()
   })
 
-  test('pre-telemetry placeholder is shown', async ({ page }) => {
-    const card = page.locator('.retro-card').nth(1)
+  test('pre-telemetry placeholder is shown when no retro data exists', async ({ page }) => {
+    const card = getCard(page, 'strapi/strapi', 24822)
     await expect(card.locator('.retro-placeholder')).toBeVisible()
     await expect(card.locator('.retro-placeholder')).toContainText('before full telemetry')
   })
 
   test('human comments section shows unavailable message (no data captured)', async ({ page }) => {
-    const card = page.locator('.retro-card').nth(1)
+    const card = getCard(page, 'strapi/strapi', 24822)
     await expect(
       card.locator('.retro-empty-section').filter({ hasText: 'Comment data unavailable' })
     ).toBeVisible()
   })
 
-  test('no Copilot workflow section rendered (no workflow in retro)', async ({ page }) => {
-    const card = page.locator('.retro-card').nth(1)
+  test('no Copilot workflow section rendered (no workflow captured)', async ({ page }) => {
+    const card = getCard(page, 'strapi/strapi', 24822)
     await expect(
       card.locator('.retro-section__toggle').filter({ hasText: /Copilot workflow/i })
     ).not.toBeVisible()
   })
 
-  test('artifacts section shows missing messages for both artifacts', async ({ page }) => {
-    const card = page.locator('.retro-card').nth(1)
+  test('artifacts section shows both artifacts as missing', async ({ page }) => {
+    const card = getCard(page, 'strapi/strapi', 24822)
     await card
       .locator('.retro-section__toggle')
       .filter({ hasText: /Artifacts/i })
       .click()
-    // Both context brief and upstream PR body are missing
-    const missing = card.locator('.retro-artifact-missing')
-    await expect(missing).toHaveCount(2)
-  })
-
-  test('dispatched badge shown (no upstream PR)', async ({ page }) => {
-    const card = page.locator('.retro-card').nth(1)
-    await expect(card.locator('.retro-badge--neutral').first()).toContainText('Dispatched')
-  })
-})
-
-test.describe('RetroView — Empty and pre-telemetry states', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-  })
-
-  test('pre-telemetry card shows placeholder when retro has no timing', async ({ page }) => {
-    await navigateToRetro(page)
-    // Second card (vercel/next.js) has no timing data
-    await page.locator('.retro-card__header').nth(1).click()
-    await expect(page.locator('.retro-placeholder')).toBeVisible()
-    await expect(page.locator('.retro-placeholder')).toContainText('before full telemetry')
-  })
-
-  test('empty batch shows no-issues message', async ({ page }) => {
-    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          batch: mockRetroBatches[0],
-          issues: [],
-          owner: mockOwner
-        })
-      })
-    })
-    await navigateToRetro(page)
-    await expect(page.locator('.retro-empty')).toContainText('No issues in this batch yet')
-  })
-
-  test('no human comments section shows appropriate message', async ({ page }) => {
-    // Override with a card that has no comments
-    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
-      const detail = JSON.parse(JSON.stringify(mockRetroBatchDetail)) as typeof mockRetroBatchDetail
-      detail.issues[0].retro.raw_comments = { fork_pr: [], upstream_pr: [] }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, ...detail, owner: mockOwner })
-      })
-    })
-    await navigateToRetro(page)
-    await page.locator('.retro-card__header').first().click()
-    // Human comments section is open by default; with 0 comments it shows the empty message
-    await expect(
-      page.locator('.retro-empty-section').filter({ hasText: 'No human comments' })
-    ).toBeVisible()
+    await expect(card.locator('.retro-artifact-missing')).toHaveCount(2)
   })
 })

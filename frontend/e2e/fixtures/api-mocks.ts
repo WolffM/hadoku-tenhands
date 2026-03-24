@@ -636,14 +636,17 @@ export const mockRetroBatchDetail = {
 // ============ Mock Setup Functions ============
 
 /**
- * Set up all API mocks for a page (vibecheck + OSS + health)
+ * Set up all API mocks for a page (vibecheck + OSS + health).
+ *
+ * Pass `{ retro: false }` to leave retro endpoints unmocked so tests hit the
+ * real backend and can catch actual data bugs.
  */
-export async function mockAllAPIs(page: Page): Promise<void> {
+export async function mockAllAPIs(page: Page, options?: { retro?: boolean }): Promise<void> {
   await mockOwnerAPI(page)
   await mockStageAPIs(page)
   await mockHealthAPIs(page)
   await mockActionAPIs(page)
-  await mockOSSAPIs(page)
+  await mockOSSAPIs(page, options)
 }
 
 /**
@@ -833,9 +836,12 @@ export async function mockActionAPIs(page: Page): Promise<void> {
 }
 
 /**
- * Mock all OSS pipeline endpoints
+ * Mock all OSS pipeline endpoints.
+ *
+ * Pass `{ retro: false }` to skip mocking retro endpoints so tests can hit
+ * the real backend for genuine data validation.
  */
-export async function mockOSSAPIs(page: Page): Promise<void> {
+export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Promise<void> {
   // Stage endpoints
   await page.route('**/dispatch/api/oss/stage1-targets', async route => {
     await route.fulfill({
@@ -1019,21 +1025,23 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/retro/batches', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, batches: mockRetroBatches, owner: mockOwner })
+  if (options?.retro !== false) {
+    await page.route('**/dispatch/api/oss/retro/batches', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, batches: mockRetroBatches, owner: mockOwner })
+      })
     })
-  })
 
-  await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, ...mockRetroBatchDetail, owner: mockOwner })
+    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, ...mockRetroBatchDetail, owner: mockOwner })
+      })
     })
-  })
+  }
 
   await page.route('**/dispatch/api/oss/advance-pipeline', async route => {
     await route.fulfill({
