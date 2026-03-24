@@ -13,7 +13,7 @@ import sys
 try:
     from services.github_api import run_gh_command
 except ImportError:
-    from github_api import run_gh_command
+    from .github_api import run_gh_command
 
 logger = logging.getLogger(__name__)
 

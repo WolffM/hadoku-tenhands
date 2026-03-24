@@ -135,9 +135,12 @@ test.describe('Health View Filters', () => {
 
 test.describe('Health View Loading States', () => {
   test('shows loading state initially', async ({ page }) => {
-    // Set up a delayed response to catch loading state
+    // Mock all APIs for a stable baseline, then override global-workflow-runs
+    // with a delayed response so we can observe the loading state.
+    // Playwright uses last-registered-wins, so this override takes precedence.
+    await mockAllAPIs(page)
     await page.route('**/dispatch/api/global-workflow-runs', async route => {
-      await new Promise(resolve => setTimeout(resolve, 500))
+      await new Promise(resolve => setTimeout(resolve, 2000))
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -145,19 +148,6 @@ test.describe('Health View Loading States', () => {
           success: true,
           runs: [],
           owner: 'test-user'
-        })
-      })
-    })
-
-    await page.route('**/dispatch/api/healthcheck', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          status: 'healthy',
-          owner: 'test-user',
-          api_version: '2.0.0'
         })
       })
     })

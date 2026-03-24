@@ -17,9 +17,9 @@ try:
         fetch_fork_diff,
     )
 except ImportError:
-    from github_api import run_gh_command
-    from oss_state import save_session_artifact, get_session_artifact
-    from pipeline_session_analysis import (
+    from .github_api import run_gh_command
+    from .oss_state import save_session_artifact, get_session_artifact
+    from .pipeline_session_analysis import (
         fetch_workflow_analysis,
         fetch_session_log,
         fetch_fork_diff,

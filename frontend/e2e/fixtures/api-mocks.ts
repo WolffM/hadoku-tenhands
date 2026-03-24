@@ -487,6 +487,152 @@ export const mockOSSIssueBrief = {
     '## Contribution Brief\n\nThis issue involves fixing a memory leak in the request handler.\n\n### Key Points\n- Focus on the `onRequest` hook lifecycle\n- Add cleanup in `onResponse`\n- Follow fastify plugin patterns'
 }
 
+// ============ Retrospective Batch Mock Data ============
+
+export const mockRetroBatches = [
+  {
+    batch_id: 'crimson-kitty',
+    created_at: new Date(Date.now() - 86400000).toISOString(),
+    note: 'Active batch — Mar 24 2026',
+    issue_count: 2,
+    upstream_pr_count: 1,
+    upstream_merged: 1,
+    upstream_closed: 0,
+    upstream_open: 0,
+    has_fork_pr: 2
+  },
+  {
+    batch_id: 'jade-hare',
+    created_at: new Date(Date.now() - 864000000).toISOString(),
+    note: '55-issue run Mar 13–17 2026',
+    issue_count: 55,
+    upstream_pr_count: 28,
+    upstream_merged: 3,
+    upstream_closed: 5,
+    upstream_open: 20,
+    has_fork_pr: 40
+  }
+]
+
+export const mockRetroBatchDetail = {
+  batch: mockRetroBatches[0],
+  issues: [
+    {
+      assignment: {
+        origin_slug: 'fastify/fastify',
+        issue_number: 1234,
+        assigned_at: new Date(Date.now() - 7200000).toISOString(),
+        stage4_pr_number: 10,
+        context_tier: 1,
+        batch_id: 'crimson-kitty'
+      },
+      upstream_pr: {
+        pr_url: 'https://github.com/fastify/fastify/pull/9876',
+        pr_number: 9876,
+        title: 'Fix memory leak in request handler',
+        state: 'merged',
+        submitted_at: new Date(Date.now() - 3600000).toISOString(),
+        merged_at: new Date(Date.now() - 1800000).toISOString(),
+        issue_number: 1234
+      },
+      retro: {
+        origin_slug: 'fastify/fastify',
+        issue_number: 1234,
+        batch_id: 'crimson-kitty',
+        timing: {
+          assigned_at: new Date(Date.now() - 7200000).toISOString(),
+          swe_done_at: new Date(Date.now() - 5400000).toISOString(),
+          sa_done_at: new Date(Date.now() - 3600000).toISOString(),
+          review_done_at: new Date(Date.now() - 1800000).toISOString(),
+          remediation_done_at: new Date(Date.now() - 900000).toISOString()
+        },
+        workflow: {
+          reproduced: true,
+          verified: true,
+          self_corrected: false,
+          code_review: true,
+          step_count: 15,
+          tools_used: ['bash', 'editor']
+        },
+        static_analysis: {
+          conclusion: 'success',
+          jobs: [
+            {
+              name: 'lint',
+              conclusion: 'success',
+              annotations: [
+                {
+                  path: 'src/request.js',
+                  line: 42,
+                  level: 'warning',
+                  message: 'Unused variable'
+                }
+              ]
+            }
+          ]
+        },
+        context_issue_body: '## Context\n\nThis is the fork issue context brief.',
+        upstream_pr_body: '## Summary\n\nFixes memory leak in request handler.',
+        raw_comments: {
+          fork_pr: [
+            {
+              author: 'hadoku',
+              body: 'Looks good to me, nice fix!',
+              created_at: new Date(Date.now() - 4000000).toISOString(),
+              comment_type: 'regular'
+            },
+            {
+              author: 'copilot-swe-agent',
+              body: 'I have fixed the issue as requested.',
+              created_at: new Date(Date.now() - 4200000).toISOString(),
+              comment_type: 'regular'
+            },
+            {
+              author: 'hadoku',
+              body: 'This line looks off.',
+              created_at: new Date(Date.now() - 3800000).toISOString(),
+              comment_type: 'inline',
+              path: 'src/request.js',
+              line: 55
+            }
+          ],
+          upstream_pr: [
+            {
+              author: 'upstream-maintainer',
+              body: 'Thanks for the contribution, merging!',
+              created_at: new Date(Date.now() - 1500000).toISOString(),
+              comment_type: 'regular'
+            },
+            {
+              author: 'github-actions[bot]',
+              body: 'CI passed.',
+              created_at: new Date(Date.now() - 2000000).toISOString(),
+              comment_type: 'regular'
+            }
+          ]
+        }
+      }
+    },
+    {
+      assignment: {
+        origin_slug: 'vercel/next.js',
+        issue_number: 9999,
+        assigned_at: new Date(Date.now() - 86400000).toISOString(),
+        stage4_pr_number: null,
+        context_tier: 3,
+        batch_id: 'crimson-kitty'
+      },
+      upstream_pr: null,
+      retro: {
+        origin_slug: 'vercel/next.js',
+        issue_number: 9999,
+        batch_id: 'crimson-kitty'
+        // no timing — pre-telemetry
+      }
+    }
+  ]
+}
+
 // ============ Mock Setup Functions ============
 
 /**
@@ -870,6 +1016,22 @@ renderContent();
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ success: true, message: 'Compute triggered', owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/retro/batches', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, batches: mockRetroBatches, owner: mockOwner })
+    })
+  })
+
+  await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, ...mockRetroBatchDetail, owner: mockOwner })
     })
   })
 
