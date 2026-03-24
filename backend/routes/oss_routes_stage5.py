@@ -17,12 +17,16 @@ logger = logging.getLogger(__name__)
 
 try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
+    from ..services.oss_state import save_session_artifact
+    from ..services.pipeline_retrospective import fetch_pr_comments
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
     from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
     from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
+    from services.oss_state import save_session_artifact
+    from services.pipeline_retrospective import fetch_pr_comments
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
     from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
@@ -73,13 +77,17 @@ def api_oss_submit_to_origin():
     )
 
     # Generate default body if not provided
+    issue_num = ready_item.get("issue_number", 0) if ready_item else 0
     if not body:
-        issue_number = ready_item.get("issue_number", 0) if ready_item else 0
         parts = origin_slug.split("/")
         if len(parts) == 2:
-            body = format_upstream_pr_body(origin_slug, issue_number, title, branch)
+            body = format_upstream_pr_body(origin_slug, issue_num, title, branch)
         else:
             body = f"Fixes issue in {origin_slug}"
+
+    # Save PR body for retrospective before submitting
+    if issue_num:
+        save_session_artifact(origin_slug, issue_num, "upstream-pr-body.md", body)
 
     result = run_gh_command([
         "pr", "create",
@@ -93,11 +101,8 @@ def api_oss_submit_to_origin():
     if result["success"]:
         pr_url = result["output"].strip()
         svc = OSSService()
-        svc.save_submitted_pr(origin_slug, pr_url, title)
+        svc.save_submitted_pr(origin_slug, pr_url, title, issue_number=issue_num)
         svc.remove_ready_to_submit(origin_slug, branch)
-
-        # Look up issue_number for the notification
-        issue_num = ready_item.get("issue_number", 0) if ready_item else 0
         notify_upstream_submitted(origin_slug, issue_num, pr_url, title)
 
         return jsonify({"success": True, "pr_url": pr_url, "owner": my_user})
@@ -164,6 +169,19 @@ def _poll_single_pr(pr):
     pr["comment_count"] = len(comments) if isinstance(comments, list) else 0
     labels = gh_data.get("labels", [])
     pr["labels"] = [lb.get("name", "") for lb in labels] if isinstance(labels, list) else []
+
+    # Capture all upstream PR comments for retrospective (silent on failure)
+    try:
+        all_comments = fetch_pr_comments(f"{repo_owner}/{repo_name}", int(pr_number))
+        issue_num = pr.get("issue_number")
+        origin_slug = pr.get("origin_slug", "")
+        if all_comments and issue_num and origin_slug:
+            save_session_artifact(
+                origin_slug, issue_num,
+                "upstream-pr-comments.json", json.dumps(all_comments, indent=2)
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
     # Trigger notifications on state changes
     if old_state == "open" and pr["state"] == "merged":

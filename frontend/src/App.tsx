@@ -10,7 +10,8 @@ import {
   ReviewQueueView,
   HealthCheckView,
   OSSView,
-  PipelineSelectView
+  PipelineSelectView,
+  RetroView
 } from './views'
 import type { VibeDispatchProps } from './entry'
 
@@ -70,6 +71,8 @@ export default function App(props: VibeDispatchProps = {}) {
     switch (activeView) {
       case 'oss':
         return <OSSView />
+      case 'retro':
+        return <RetroView />
       case 'review':
         return <ReviewQueueView />
       case 'health':

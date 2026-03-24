@@ -242,7 +242,8 @@ class TestSubmitToOrigin:
         assert data["success"] is True
         assert data["pr_url"] == "https://github.com/fastify/fastify/pull/123"
         svc.save_submitted_pr.assert_called_once_with(
-            "fastify/fastify", "https://github.com/fastify/fastify/pull/123", "Fix docs"
+            "fastify/fastify", "https://github.com/fastify/fastify/pull/123", "Fix docs",
+            issue_number=0,
         )
         svc.remove_ready_to_submit.assert_called_once_with("fastify/fastify", "fix-docs")
 

@@ -28,7 +28,9 @@ import type {
   OSSDossierResponse,
   PipelineStatusResponse,
   RetrospectiveLogsResponse,
-  SignoffResponse
+  SignoffResponse,
+  BatchListResponse,
+  BatchDetailResponse
 } from './types'
 
 // ============ Stage APIs ============
@@ -430,6 +432,16 @@ export async function signoffIssue(
     pr_number: prNumber,
     origin_slug: originSlug
   })
+}
+
+// --- Retrospective Batches ---
+
+export async function getRetroBatches(): Promise<BatchListResponse> {
+  return apiClient.get<BatchListResponse>('/api/oss/retro/batches')
+}
+
+export async function getRetroBatchDetail(batchId: string): Promise<BatchDetailResponse> {
+  return apiClient.get<BatchDetailResponse>(`/api/oss/retro/batch/${batchId}`)
 }
 
 // --- Repo Health (Redesigned Tab 1) ---

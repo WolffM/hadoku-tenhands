@@ -82,18 +82,23 @@ class OSSStateMixin:
     def save_assignment(self, origin_owner, repo, issue_number, fork_issue_number, fork_issue_url,
                          is_self_owned=False, default_branch="main"):
         """Record a fork-and-assign action."""
+        origin_slug = f"{origin_owner}/{repo}"
+        batch_id = self.get_active_batch()
         items = self.get_assigned_issues()
         items.append({
-            "origin_slug": f"{origin_owner}/{repo}",
+            "origin_slug": origin_slug,
             "repo": repo,
             "issue_number": issue_number,
             "fork_issue_number": int(fork_issue_number),
             "fork_issue_url": fork_issue_url,
             "is_self_owned": is_self_owned,
             "default_branch": default_branch,
+            "batch_id": batch_id,
             "assigned_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
         _save_json("assignments.json", items)
+        if batch_id:
+            self.add_issue_to_batch(batch_id, f"{origin_slug}#{issue_number}")
 
     def find_assignment_by_fork_issue(self, repo, fork_issue_number):
         """Find an assignment by repo name and fork issue number."""
@@ -154,7 +159,7 @@ class OSSStateMixin:
         """Get PRs that have been submitted to upstream repos."""
         return _load_json("submitted-prs.json")
 
-    def save_submitted_pr(self, origin_slug, pr_url, title):
+    def save_submitted_pr(self, origin_slug, pr_url, title, issue_number=None):
         """Record a PR submission to an upstream repo."""
         # Parse PR number from URL (https://github.com/owner/repo/pull/123)
         pr_number = None
@@ -169,6 +174,7 @@ class OSSStateMixin:
             "pr_url": pr_url,
             "pr_number": pr_number,
             "title": title,
+            "issue_number": issue_number,
             "state": "open",
             "review_decision": None,
             "merged_at": None,
@@ -209,6 +215,50 @@ class OSSStateMixin:
             if item["origin_slug"] == origin_slug and item["issue_number"] == issue_number:
                 return item
         return None
+
+    # --- Batches ---
+
+    def get_batches(self):
+        """Get all batches from batches.json."""
+        data = _load_json("batches.json")
+        return data if isinstance(data, list) else []
+
+    def get_active_batch(self):
+        """Return the active batch_id or None."""
+        data = _load_json("active-batch.json")
+        if isinstance(data, list):
+            return None
+        return data.get("batch_id")
+
+    def set_active_batch(self, batch_id):
+        """Set the active batch and create a batch record if it doesn't exist."""
+        _save_json("active-batch.json", {"batch_id": batch_id})
+        batches = self.get_batches()
+        if not any(b["batch_id"] == batch_id for b in batches):
+            batches.append({
+                "batch_id": batch_id,
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "issues": [],
+                "note": "",
+            })
+            _save_json("batches.json", batches)
+
+    def get_batch(self, batch_id):
+        """Return a batch record by id or None."""
+        for b in self.get_batches():
+            if b["batch_id"] == batch_id:
+                return b
+        return None
+
+    def add_issue_to_batch(self, batch_id, issue_ref):
+        """Add issue_ref (e.g. 'owner/repo#123') to the batch. Idempotent."""
+        batches = self.get_batches()
+        for b in batches:
+            if b["batch_id"] == batch_id:
+                if issue_ref not in b.get("issues", []):
+                    b.setdefault("issues", []).append(issue_ref)
+                    _save_json("batches.json", batches)
+                return
 
     # --- Dispatched repos ---
 
