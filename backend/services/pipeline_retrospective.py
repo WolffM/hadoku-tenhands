@@ -10,7 +10,7 @@ import time
 
 try:
     from services.github_api import run_gh_command
-    from services.oss_state import save_session_artifact
+    from services.oss_state import save_session_artifact, get_session_artifact
     from services.pipeline_session_analysis import (
         fetch_workflow_analysis,
         fetch_session_log,
@@ -18,7 +18,7 @@ try:
     )
 except ImportError:
     from github_api import run_gh_command
-    from oss_state import save_session_artifact
+    from oss_state import save_session_artifact, get_session_artifact
     from pipeline_session_analysis import (
         fetch_workflow_analysis,
         fetch_session_log,
@@ -26,6 +26,55 @@ except ImportError:
     )
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_pr_comments(repo_slug: str, pr_number: int) -> list:
+    """Fetch all human-readable comments on a PR (regular + inline review comments).
+
+    Args:
+        repo_slug: Full repo slug, e.g. "user/some-repo".
+        pr_number: PR number.
+
+    Returns:
+        List of comment dicts with keys: author, body, created_at,
+        comment_type ('regular'|'inline'), and optionally path, line.
+        Sorted by created_at ascending. Empty list on failure.
+    """
+    if not repo_slug or not pr_number:
+        return []
+
+    comments = []
+
+    # Regular issue comments on the PR
+    regular_result = run_gh_command([
+        "api", f"repos/{repo_slug}/issues/{pr_number}/comments",
+        "--jq", "[.[] | {author: .user.login, body: .body, created_at: .created_at}]",
+    ])
+    if regular_result.get("success"):
+        try:
+            for c in json.loads(regular_result["output"]):
+                c["comment_type"] = "regular"
+                comments.append(c)
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+
+    # Inline review comments
+    inline_result = run_gh_command([
+        "api", f"repos/{repo_slug}/pulls/{pr_number}/comments",
+        "--jq",
+        "[.[] | {author: .user.login, body: .body, created_at: .created_at,"
+        " path: .path, line: .original_line}]",
+    ])
+    if inline_result.get("success"):
+        try:
+            for c in json.loads(inline_result["output"]):
+                c["comment_type"] = "inline"
+                comments.append(c)
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+
+    comments.sort(key=lambda c: c.get("created_at", ""))
+    return comments
 
 
 def fetch_sa_details(run_id, fork_slug):
@@ -114,13 +163,17 @@ def collect_retrospective(
     fork_issue = assignment.get("fork_issue_number", 0)
     pr_number = assignment.get("stage4_pr_number")
 
+    origin_slug = assignment.get("origin_slug", "")
+    issue_number = assignment.get("issue_number")
+
     retro = {
         "id": f"{repo}/{fork_issue}/{now}",
         "created_at": now,
-        "origin_slug": assignment.get("origin_slug", ""),
+        "origin_slug": origin_slug,
         "repo": repo,
-        "issue_number": assignment.get("issue_number"),
+        "issue_number": issue_number,
         "fork_issue_number": fork_issue,
+        "batch_id": assignment.get("batch_id"),
     }
 
     # Pipeline configuration — what model/dispatcher/tools ran each stage
@@ -185,8 +238,6 @@ def collect_retrospective(
     retro["workflow"] = fetch_workflow_analysis_fn(my_user, repo, pr_number)
 
     # Session artifacts — persist full session log and fork diff for retrospective
-    origin_slug = assignment.get("origin_slug", "")
-    issue_number = assignment.get("issue_number")
     session_artifacts = {}
     if pr_number and my_user and repo and origin_slug and issue_number:
         session_log = fetch_session_log(my_user, repo, pr_number)
@@ -201,6 +252,37 @@ def collect_retrospective(
             if path:
                 session_artifacts["fork_diff"] = path
     retro["session_artifacts"] = session_artifacts
+
+    # Context and PR body artifacts (read from previously saved session files)
+    if origin_slug and issue_number:
+        retro["context_issue_body"] = get_session_artifact(
+            origin_slug, issue_number, "context.md"
+        ) or None
+        retro["upstream_pr_body"] = get_session_artifact(
+            origin_slug, issue_number, "upstream-pr-body.md"
+        ) or None
+        fork_comments_raw = get_session_artifact(
+            origin_slug, issue_number, "fork-pr-comments.json"
+        )
+        upstream_comments_raw = get_session_artifact(
+            origin_slug, issue_number, "upstream-pr-comments.json"
+        )
+        try:
+            fork_comments = json.loads(fork_comments_raw) if fork_comments_raw else []
+        except json.JSONDecodeError:
+            fork_comments = []
+        try:
+            upstream_comments = json.loads(upstream_comments_raw) if upstream_comments_raw else []
+        except json.JSONDecodeError:
+            upstream_comments = []
+        retro["raw_comments"] = {
+            "fork_pr": fork_comments,
+            "upstream_pr": upstream_comments,
+        }
+    else:
+        retro["context_issue_body"] = None
+        retro["upstream_pr_body"] = None
+        retro["raw_comments"] = {"fork_pr": [], "upstream_pr": []}
 
     # Timing — per-stage timestamps from assignment record
     retro["timing"] = {

@@ -19,6 +19,7 @@ try:
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.pipeline_orchestrator import PipelineOrchestrator
     from ..services.oss_state import save_session_artifact
+    from ..services.pipeline_retrospective import fetch_pr_comments
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
     from ..helpers.notifications import notify_fork_merged, notify_upstream_submitted
@@ -27,10 +28,33 @@ except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
     from services.oss_state import save_session_artifact
+    from services.pipeline_retrospective import fetch_pr_comments
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
     from helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from extensions import limiter
+
+
+def _capture_fork_pr_comments(my_user, repo, pr_number, origin_slug, svc):
+    """Fetch and save fork PR comments before merge. Silent on failure."""
+    try:
+        fork_slug = f"{my_user}/{repo}"
+        comments = fetch_pr_comments(fork_slug, int(pr_number))
+        if not comments:
+            return
+        assignments = svc.get_assigned_issues()
+        assignment = next(
+            (a for a in assignments
+             if a.get("origin_slug") == origin_slug and a.get("repo") == repo),
+            None
+        )
+        if assignment and assignment.get("issue_number"):
+            save_session_artifact(
+                origin_slug, assignment["issue_number"],
+                "fork-pr-comments.json", json.dumps(comments, indent=2)
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @bp.route("/api/oss/advance-pipeline", methods=["POST"])
@@ -295,6 +319,9 @@ def api_oss_merge_fork_pr():
             "-R", f"{my_user}/{repo}"
         ])
 
+    # Capture fork PR comments before merge (silent on failure)
+    _capture_fork_pr_comments(my_user, repo, pr_number, origin_slug, svc)
+
     # Merge on fork
     result = run_gh_command([
         "pr", "merge", str(pr_number),
@@ -516,6 +543,9 @@ def api_oss_signoff():
     if pr_state == "MERGED":
         steps["merge"] = {"skipped": True, "reason": "PR already merged"}
     else:
+        # Capture fork PR comments before merge (silent on failure)
+        _capture_fork_pr_comments(my_user, repo, pr_number, origin_slug, svc)
+
         # Mark draft as ready
         if pr_data.get("isDraft", False):
             run_gh_command([
@@ -581,7 +611,7 @@ def api_oss_signoff():
 
     if submit_result["success"]:
         pr_url = submit_result["output"].strip()
-        svc.save_submitted_pr(origin_slug, pr_url, pr_title)
+        svc.save_submitted_pr(origin_slug, pr_url, pr_title, issue_number=upstream_issue_number)
         # Clean up ready-to-submit if it exists
         svc.remove_ready_to_submit(origin_slug, clean_branch)
         steps["submit"] = {"success": True, "pr_url": pr_url}
@@ -618,6 +648,108 @@ def api_oss_signoff():
         "error": safe_error_message(submit_result.get("error"), "Merged but upstream submit failed"),
         "owner": my_user,
         "steps": steps,
+    })
+
+
+@bp.route("/api/oss/retro/batches", methods=["GET"])
+def api_oss_retro_batches():
+    """List all batches with funnel summary counts.
+
+    Returns { success, owner, batches: [BatchSummary] }.
+    """
+    my_user = get_authenticated_user()
+    svc = OSSService()
+    batches_raw = svc.get_batches()
+    submitted_prs = svc.get_submitted_prs()
+    assignments = svc.get_assigned_issues()
+
+    summaries = []
+    for batch in batches_raw:
+        batch_id = batch.get("batch_id")
+        issue_refs = batch.get("issues", [])
+        issue_count = len(issue_refs)
+
+        # Build set of origin_slug#issue_number refs in this batch
+        batch_assignments = [
+            a for a in assignments if a.get("batch_id") == batch_id
+        ]
+
+        # Count upstream PRs for issues in this batch
+        batch_slugs_issues = {
+            (a.get("origin_slug"), a.get("issue_number"))
+            for a in batch_assignments
+        }
+        batch_prs = [
+            p for p in submitted_prs
+            if (p.get("origin_slug"), p.get("issue_number")) in batch_slugs_issues
+        ]
+
+        summaries.append({
+            "batch_id": batch_id,
+            "created_at": batch.get("created_at"),
+            "note": batch.get("note", ""),
+            "issue_count": issue_count,
+            "upstream_pr_count": len(batch_prs),
+            "upstream_merged": sum(1 for p in batch_prs if p.get("state") == "merged"),
+            "upstream_closed": sum(1 for p in batch_prs if p.get("state") == "closed"),
+            "upstream_open": sum(1 for p in batch_prs if p.get("state") == "open"),
+            "has_fork_pr": sum(1 for a in batch_assignments if a.get("stage4_pr_number")),
+        })
+
+    return jsonify({"success": True, "owner": my_user, "batches": summaries})
+
+
+@bp.route("/api/oss/retro/batch/<batch_id>", methods=["GET"])
+def api_oss_retro_batch(batch_id):
+    """Full batch detail: assignments + submitted PRs + retro logs.
+
+    Returns { success, owner, batch, issues: [BatchIssue] }.
+    """
+    my_user = get_authenticated_user()
+    svc = OSSService()
+
+    batch = svc.get_batch(batch_id)
+    if not batch:
+        return jsonify({"success": False, "error": f"Batch '{batch_id}' not found"})
+
+    assignments = svc.get_assigned_issues()
+    submitted_prs = svc.get_submitted_prs()
+    retro_logs = svc.get_retrospective_logs()
+
+    batch_assignments = [a for a in assignments if a.get("batch_id") == batch_id]
+
+    issues = []
+    for assignment in batch_assignments:
+        origin_slug = assignment.get("origin_slug")
+        issue_number = assignment.get("issue_number")
+
+        # Find most recent upstream PR for this issue
+        upstream_pr = next(
+            (p for p in reversed(submitted_prs)
+             if p.get("origin_slug") == origin_slug
+             and p.get("issue_number") == issue_number),
+            None
+        )
+
+        # Find most recent retro log for this issue
+        retro = next(
+            (r for r in reversed(retro_logs)
+             if r.get("origin_slug") == origin_slug
+             and r.get("issue_number") == issue_number),
+            {}
+        )
+
+        issues.append({
+            "assignment": assignment,
+            "upstream_pr": upstream_pr,
+            "retro": retro,
+        })
+
+    return jsonify({
+        "success": True,
+        "owner": my_user,
+        "batch": batch,
+        "issues": issues,
     })
 
 
