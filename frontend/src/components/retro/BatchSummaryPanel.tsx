@@ -13,7 +13,6 @@ interface Props {
 export function BatchSummaryPanel({ batch }: Props) {
   const stages = [
     { label: 'Dispatched', count: batch.issue_count, variant: 'neutral' },
-    { label: 'Fork PRs', count: batch.has_fork_pr, variant: 'neutral' },
     { label: 'Upstream PRs', count: batch.upstream_pr_count, variant: 'neutral' }
   ]
 

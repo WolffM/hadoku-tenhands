@@ -2759,18 +2759,21 @@ td .pr-link {
   align-items: center;
   gap: var(--spacing-xs);
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: var(--spacing-sm);
+  border-bottom: 2px solid var(--color-border);
+  padding-bottom: 0;
 }
 
 .retro-tab {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium, 500);
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
@@ -2785,16 +2788,17 @@ td .pr-link {
 }
 
 .retro-tab--active {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  border-color: var(--color-accent);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+  border-bottom-color: var(--color-bg-surface);
 }
 
 .retro-tab__badge {
   background: var(--color-success-muted);
   color: var(--color-success);
   border-radius: var(--radius-full);
-  padding: 0 6px;
+  padding: 1px 7px;
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
 }
@@ -2842,48 +2846,53 @@ td .pr-link {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg, var(--spacing-md));
 }
 
 .batch-summary__title {
   display: flex;
-  align-items: baseline;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
 }
 
 .batch-summary__id {
   font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
 }
 
 .batch-summary__note {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 
 .batch-summary__funnel {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
   flex-wrap: wrap;
+  flex: 1;
 }
 
 .batch-summary__funnel-row {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
 }
 
 .batch-summary__stage,
 .batch-summary__outcome {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px var(--spacing-sm);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  min-width: 72px;
+  background: var(--color-bg-muted, var(--color-bg-hover));
 }
 
 .batch-summary__outcomes {
@@ -2892,7 +2901,7 @@ td .pr-link {
 }
 
 .batch-summary__count {
-  font-size: 1.4rem;
+  font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
   line-height: 1;
 }
@@ -2904,7 +2913,8 @@ td .pr-link {
 
 .batch-summary__arrow {
   color: var(--color-text-muted);
-  font-size: 1.1rem;
+  font-size: 0.9rem;
+  padding: 0 2px;
 }
 
 .batch-summary__outcome--success {
@@ -2981,6 +2991,12 @@ td .pr-link {
   text-decoration: underline;
 }
 
+.retro-card__sep {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  user-select: none;
+}
+
 .retro-card__badges {
   display: flex;
   align-items: center;
@@ -3052,29 +3068,36 @@ td .pr-link {
   border-color: var(--color-accent);
 }
 
+.retro-section--accent .retro-section__toggle {
+  background: var(--color-accent-muted, rgba(66, 99, 235, 0.06));
+}
+
 .retro-section__toggle {
   width: 100%;
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg-muted, var(--color-bg-hover));
+  padding: 6px var(--spacing-sm);
+  background: var(--color-bg-hover);
   border: none;
   cursor: pointer;
   text-align: left;
   font-size: var(--font-size-sm);
+  color: var(--color-text);
 }
 
 .retro-section__toggle:hover {
-  background: var(--color-bg-hover);
+  filter: brightness(0.97);
 }
 
 .retro-section__title {
   font-weight: var(--font-weight-semibold);
+  flex: 1;
 }
 
 .retro-section__body {
-  padding: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
 }
 
 .retro-placeholder,
