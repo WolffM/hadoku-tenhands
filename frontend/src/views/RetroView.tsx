@@ -63,7 +63,7 @@ export function RetroView() {
       .finally(() => setLoadingIssues(false))
   }, [activeBatchId])
 
-  if (loadingBatches) return <LoadingState message="Loading batches…" />
+  if (loadingBatches) return <LoadingState text="Loading batches…" />
   if (error) return <div className="retro-error">{error}</div>
 
   const visibleTabs = batches.slice(0, MAX_VISIBLE_TABS)
@@ -116,7 +116,7 @@ export function RetroView() {
       {/* Issue list */}
       <div className="retro-issue-list">
         {loadingIssues ? (
-          <LoadingState message="Loading issues…" />
+          <LoadingState text="Loading issues…" />
         ) : issues.length === 0 ? (
           <div className="retro-empty">No issues in this batch yet.</div>
         ) : (

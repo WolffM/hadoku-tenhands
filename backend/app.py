@@ -193,4 +193,4 @@ if __name__ == "__main__":
     debug_mode = os.environ.get("FLASK_ENV") == "development"
     port = int(os.environ.get("PORT", 5024))
     _kill_port(port)
-    app.run(debug=debug_mode, port=port)
+    app.run(debug=debug_mode, port=port, threaded=True)

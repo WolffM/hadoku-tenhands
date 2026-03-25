@@ -1043,6 +1043,17 @@ renderContent();
     })
   }
 
+  // Always mock pr-commits — this hits a subprocess (gh api) in the backend which
+  // would block Flask (single-threaded) during card-expand, starving subsequent
+  // requests.  Real commit data is tested via the retro_report.py CLI script.
+  await page.route('**/dispatch/api/oss/retro/pr-commits/**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, commits: [] })
+    })
+  })
+
   await page.route('**/dispatch/api/oss/advance-pipeline', async route => {
     await route.fulfill({
       status: 200,
