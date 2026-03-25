@@ -651,12 +651,23 @@ def api_oss_signoff():
     })
 
 
+_retro_batches_cache: dict = {}  # key "batches" → (timestamp, response_dict)
+_RETRO_BATCHES_CACHE_TTL = 30  # seconds
+
+
 @bp.route("/api/oss/retro/batches", methods=["GET"])
 def api_oss_retro_batches():
     """List all batches with funnel summary counts.
 
     Returns { success, owner, batches: [BatchSummary] }.
+    Response is cached for 30 s to avoid repeated file reads during serial E2E runs.
     """
+    import time as _time
+
+    cached = _retro_batches_cache.get("batches")
+    if cached and (_time.time() - cached[0]) < _RETRO_BATCHES_CACHE_TTL:
+        return jsonify(cached[1])
+
     my_user = get_authenticated_user()
     svc = OSSService()
     batches_raw = svc.get_batches()
@@ -696,7 +707,13 @@ def api_oss_retro_batches():
             "has_fork_pr": sum(1 for a in batch_assignments if a.get("stage4_pr_number")),
         })
 
-    return jsonify({"success": True, "owner": my_user, "batches": summaries})
+    result = {"success": True, "owner": my_user, "batches": summaries}
+    _retro_batches_cache["batches"] = (_time.time(), result)
+    return jsonify(result)
+
+
+_retro_batch_cache: dict = {}  # batch_id → (timestamp, response_dict)
+_RETRO_BATCH_CACHE_TTL = 30  # seconds — fast enough for dev, stale-safe for tests
 
 
 @bp.route("/api/oss/retro/batch/<batch_id>", methods=["GET"])
@@ -704,7 +721,14 @@ def api_oss_retro_batch(batch_id):
     """Full batch detail: assignments + submitted PRs + retro logs.
 
     Returns { success, owner, batch, issues: [BatchIssue] }.
+    Response is cached for 30 s (avoids hammering file I/O during serial E2E runs).
     """
+    import time as _time
+
+    cached = _retro_batch_cache.get(batch_id)
+    if cached and (_time.time() - cached[0]) < _RETRO_BATCH_CACHE_TTL:
+        return jsonify(cached[1])
+
     my_user = get_authenticated_user()
     svc = OSSService()
 
@@ -766,12 +790,49 @@ def api_oss_retro_batch(batch_id):
             "retro": retro,
         })
 
-    return jsonify({
+    result = {
         "success": True,
         "owner": my_user,
         "batch": batch,
         "issues": issues,
-    })
+    }
+    _retro_batch_cache[batch_id] = (_time.time(), result)
+    return jsonify(result)
+
+
+@bp.route("/api/oss/retro/pr-commits/<path:origin_slug>/<int:pr_number>", methods=["GET"])
+def api_oss_retro_pr_commits(origin_slug, pr_number):
+    """Fetch post-submission commits for an upstream PR.
+
+    Returns { success, commits: [{sha, date, author, message}] } sorted by date asc.
+    Only returns commits pushed after the PR was created (i.e. follow-up fix commits).
+    """
+    import subprocess
+
+    submitted_after = request.args.get("submitted_after", "")
+
+    try:
+        result = subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{origin_slug}/pulls/{pr_number}/commits",
+                "--jq",
+                '[.[] | {sha: .sha[:7], date: .commit.author.date, '
+                'author: (.author.login // .commit.author.name), '
+                'message: (.commit.message | split("\\n")[0])}]',
+            ],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return jsonify({"success": True, "commits": []})
+
+        commits = json.loads(result.stdout)
+        if submitted_after:
+            commits = [c for c in commits if c["date"] > submitted_after]
+        return jsonify({"success": True, "commits": commits})
+    except Exception as exc:
+        logger.warning("Failed to fetch PR commits for %s#%d: %s", origin_slug, pr_number, exc)
+        return jsonify({"success": True, "commits": []})
 
 
 @bp.route("/api/oss/issue-report/<repo>/<int:issue_number>", methods=["GET"])

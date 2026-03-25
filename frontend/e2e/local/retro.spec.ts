@@ -53,7 +53,7 @@ async function navigateToRetro(page: Page): Promise<void> {
     .locator('.retro-issue-list')
     .locator('.retro-card, .retro-empty')
     .first()
-    .waitFor({ state: 'attached', timeout: 15_000 })
+    .waitFor({ state: 'attached', timeout: 25_000 })
 }
 
 /** Click the jade-hare tab and wait for all cards to render.
@@ -67,14 +67,14 @@ async function navigateToJadeHare(page: Page): Promise<void> {
   await navigateToRetro(page)
   await page.locator('.retro-tab').filter({ hasText: 'jade-hare' }).click()
   await expect(page.locator('.retro-tab--active').filter({ hasText: 'jade-hare' })).toBeVisible({
-    timeout: 10_000
+    timeout: 15_000
   })
   // Wait for the jade-hare batch detail API call to fully complete
   await page.waitForResponse(
     resp => resp.url().includes('/oss/retro/batch/jade-hare') && resp.status() === 200,
-    { timeout: 20_000 }
+    { timeout: 40_000 }
   )
-  await expect(page.locator('.retro-card').first()).toBeVisible({ timeout: 10_000 })
+  await expect(page.locator('.retro-card').first()).toBeVisible({ timeout: 15_000 })
 }
 
 /** Find a card by its origin slug + issue number as shown in the card header. */

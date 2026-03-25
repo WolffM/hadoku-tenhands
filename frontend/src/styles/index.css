@@ -3170,6 +3170,23 @@ td .pr-link {
   font-style: italic;
 }
 
+.retro-timeline__step--commit {
+  flex-wrap: wrap;
+}
+
+.retro-timeline__step--commit .retro-timeline__dot {
+  background: var(--color-accent, #7c6ff7);
+}
+
+.retro-timeline__meta {
+  width: 100%;
+  padding-left: calc(8px + var(--hdk-space-md));
+  color: var(--color-text-muted);
+  font-size: var(--hdk-text-xs);
+  font-family: monospace;
+  margin-top: 1px;
+}
+
 /* Comment threads */
 
 .comment-thread {

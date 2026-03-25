@@ -482,6 +482,13 @@ export interface SignoffResponse extends OSSBaseResponse {
 
 // ============ Retrospective Batch Types ============
 
+export interface PrCommit {
+  sha: string
+  date: string
+  author: string
+  message: string
+}
+
 export interface PrComment {
   author: string
   body: string

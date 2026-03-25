@@ -10,13 +10,16 @@
  *   - Links to context brief and upstream PR body (open in side panel)
  */
 
-import React, { useState } from 'react'
-import type { BatchIssue, PrComment } from '../../api/types'
+import React, { useState, useEffect } from 'react'
+import type { BatchIssue, PrComment, PrCommit } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
+import { getRetroPRCommits } from '../../api/endpoints'
 import { ContextPanel } from './ContextPanel'
 
 const BOT_LOGINS = new Set([
   'copilot-swe-agent',
+  'app/copilot-swe-agent',
+  'copilot',
   'github-actions[bot]',
   'dependabot[bot]',
   'coderabbitai[bot]',
@@ -24,7 +27,13 @@ const BOT_LOGINS = new Set([
   'codecov[bot]',
   'snyk-bot',
   'vercel[bot]',
-  'netlify[bot]'
+  'netlify[bot]',
+  'sonarqubebot',
+  'deepsource-autofix[bot]',
+  'stale[bot]',
+  'allcontributors[bot]',
+  'imgbot[bot]',
+  'whitesource-bolt-for-github[bot]'
 ])
 
 function isBot(login: string): boolean {
@@ -45,6 +54,18 @@ export function IssueRetroCard({ item }: Props) {
   const { assignment, upstream_pr, retro } = item
   const [expanded, setExpanded] = useState(false)
   const [contextPanel, setContextPanel] = useState<{ title: string; body: string } | null>(null)
+  const [postCommits, setPostCommits] = useState<PrCommit[]>([])
+
+  useEffect(() => {
+    if (!expanded || !upstream_pr?.pr_number) return
+    getRetroPRCommits(assignment.origin_slug, upstream_pr.pr_number, upstream_pr.submitted_at)
+      .then(res => {
+        if (res.success) setPostCommits(res.commits)
+      })
+      .catch(_err => {
+        /* commit fetch is best-effort */
+      })
+  }, [expanded, assignment.origin_slug, upstream_pr?.pr_number, upstream_pr?.submitted_at])
 
   const humanForkComments = filterHuman(retro?.raw_comments?.fork_pr ?? [])
   const humanUpstreamComments = filterHuman(retro?.raw_comments?.upstream_pr ?? [])
@@ -134,7 +155,12 @@ export function IssueRetroCard({ item }: Props) {
 
           {/* Timeline */}
           <RetroSection title="Timeline">
-            <Timeline assignment={assignment} upstream_pr={upstream_pr} retro={retro} />
+            <Timeline
+              assignment={assignment}
+              upstream_pr={upstream_pr}
+              retro={retro}
+              postCommits={postCommits}
+            />
           </RetroSection>
 
           {/* Human comments — most important, shown prominently */}
@@ -244,8 +270,9 @@ function RetroSection({
 function Timeline({
   assignment,
   upstream_pr,
-  retro
-}: Pick<BatchIssue, 'assignment' | 'upstream_pr' | 'retro'>) {
+  retro,
+  postCommits
+}: Pick<BatchIssue, 'assignment' | 'upstream_pr' | 'retro'> & { postCommits: PrCommit[] }) {
   const timing = retro?.timing
   const steps: { label: string; ts: string | null | undefined; variant?: string }[] = [
     { label: 'Dispatched', ts: assignment.assigned_at },
@@ -269,20 +296,34 @@ function Timeline({
   const filled = steps.filter(s => s.ts)
   if (filled.length === 0) return <p className="retro-empty-section">No timing data.</p>
 
+  const allSteps: { label: string; ts: string; variant?: string; meta?: string }[] = filled.map(
+    s => ({ label: s.label, ts: s.ts!, variant: s.variant })
+  )
+  for (const commit of postCommits) {
+    allSteps.push({
+      label: 'Commit',
+      ts: commit.date,
+      variant: 'commit',
+      meta: `${commit.sha} — ${commit.message}`
+    })
+  }
+  allSteps.sort((a, b) => a.ts.localeCompare(b.ts))
+
   return (
     <ol className="retro-timeline">
-      {filled.map((step, i) => {
-        const prev = filled[i - 1]
+      {allSteps.map((step, i) => {
+        const prev = allSteps[i - 1]
         const delta = prev?.ts && step.ts ? timeDelta(prev.ts, step.ts) : null
         return (
           <li
-            key={step.label}
+            key={`${step.label}-${i}`}
             className={`retro-timeline__step ${step.variant ? `retro-timeline__step--${step.variant}` : ''}`}
           >
             <span className="retro-timeline__dot" />
             <span className="retro-timeline__label">{step.label}</span>
-            <span className="retro-timeline__ts">{formatDate(step.ts!)}</span>
+            <span className="retro-timeline__ts">{formatDate(step.ts)}</span>
             {delta && <span className="retro-timeline__delta">(+{delta})</span>}
+            {step.meta && <span className="retro-timeline__meta">{step.meta}</span>}
           </li>
         )
       })}

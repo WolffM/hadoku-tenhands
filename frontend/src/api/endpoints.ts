@@ -30,7 +30,8 @@ import type {
   RetrospectiveLogsResponse,
   SignoffResponse,
   BatchListResponse,
-  BatchDetailResponse
+  BatchDetailResponse,
+  PrCommit
 } from './types'
 
 // ============ Stage APIs ============
@@ -442,6 +443,15 @@ export async function getRetroBatches(): Promise<BatchListResponse> {
 
 export async function getRetroBatchDetail(batchId: string): Promise<BatchDetailResponse> {
   return apiClient.get<BatchDetailResponse>(`/api/oss/retro/batch/${batchId}`)
+}
+
+export async function getRetroPRCommits(
+  originSlug: string,
+  prNumber: number,
+  submittedAfter?: string
+): Promise<{ success: boolean; commits: PrCommit[] }> {
+  const params = submittedAfter ? `?submitted_after=${encodeURIComponent(submittedAfter)}` : ''
+  return apiClient.get(`/api/oss/retro/pr-commits/${originSlug}/${prNumber}${params}`)
 }
 
 // --- Repo Health (Redesigned Tab 1) ---
