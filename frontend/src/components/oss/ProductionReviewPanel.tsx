@@ -44,8 +44,11 @@ export function ProductionReviewPanel() {
     try {
       await loadOSSSubmittedPRs()
       addLog(`Status updated for ${submitted.length} PR(s)`, 'success')
-    } catch {
-      addLog('Failed to refresh PR statuses', 'error')
+    } catch (err) {
+      addLog(
+        `Failed to refresh PR statuses: ${err instanceof Error ? err.message : String(err)}`,
+        'error'
+      )
     }
   }
 

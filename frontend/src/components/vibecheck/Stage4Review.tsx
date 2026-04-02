@@ -65,8 +65,11 @@ export function Stage4Review() {
       } else {
         addLog(`Failed to load PR details: ${result.error}`, 'error')
       }
-    } catch {
-      addLog('Failed to load PR details', 'error')
+    } catch (err) {
+      addLog(
+        `Failed to load PR details: ${err instanceof Error ? err.message : String(err)}`,
+        'error'
+      )
     } finally {
       setLoading(false)
     }
@@ -118,8 +121,11 @@ export function Stage4Review() {
       } else {
         addLog(`Failed: ${result.error}`, 'error')
       }
-    } catch {
-      addLog('Failed to mark PR as ready', 'error')
+    } catch (err) {
+      addLog(
+        `Failed to mark PR as ready: ${err instanceof Error ? err.message : String(err)}`,
+        'error'
+      )
     }
   }
 

@@ -95,7 +95,8 @@ def _load_json(filename):
                     return json.load(f)
                 finally:
                     _unlock(f)
-        except OSError:
+        except (OSError, ValueError) as e:
+            logger.error("Failed to load %s: %s", path, e)
             return []
     return []
 

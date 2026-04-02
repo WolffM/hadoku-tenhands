@@ -86,8 +86,8 @@ export function OSSDossierPanel({ slug, onClose }: OSSDossierPanelProps) {
         } else {
           setError('Dossier not available — aggregator may be offline.')
         }
-      } catch {
-        setError('Failed to load dossier')
+      } catch (err) {
+        setError(`Failed to load dossier: ${err instanceof Error ? err.message : String(err)}`)
       } finally {
         setLoading(false)
       }

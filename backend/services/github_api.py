@@ -166,6 +166,7 @@ def get_authenticated_user():
     result = run_gh_command(["api", "user", "--jq", ".login"])
     if result["success"]:
         return result["output"].strip()
+    logger.warning("Could not authenticate GitHub user: %s", result.get("error"))
     return "unknown"
 
 
@@ -236,7 +237,11 @@ def get_workflow_runs(owner, repo, workflow_name=None, limit=10):
 
 def check_vibecheck_installed(owner, repo):
     """Check if vibecheck workflow is installed in a repo."""
-    result = run_gh_command(["api", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml"])
+    try:
+        from ..config import VIBECHECK_WORKFLOW_FILE
+    except ImportError:
+        from config import VIBECHECK_WORKFLOW_FILE
+    result = run_gh_command(["api", f"/repos/{owner}/{repo}/contents/.github/workflows/{VIBECHECK_WORKFLOW_FILE}"])
     return result["success"]
 
 

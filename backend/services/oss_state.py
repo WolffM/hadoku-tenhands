@@ -5,10 +5,13 @@ Handles reading/writing the local JSON files that track pipeline state:
 selected issues, assignments, ready-to-submit, and submitted PRs.
 """
 
+import logging
 import os
 import time
 
 from .oss_service import _load_json, _save_json, OSS_DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 # Session artifacts directory: .cache/oss/sessions/{owner}-{repo}/{issue_number}/
 SESSIONS_DIR = os.path.join(OSS_DATA_DIR, "sessions")
@@ -34,7 +37,8 @@ def save_session_artifact(origin_slug: str, issue_number: int,
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         return path
-    except OSError:
+    except OSError as e:
+        logger.error("Failed to save session artifact %s/%s: %s", origin_slug, filename, e)
         return ""
 
 

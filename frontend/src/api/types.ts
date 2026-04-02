@@ -457,11 +457,6 @@ export interface RepoHealthTarget extends OSSTarget {
   _meta?: Record<string, unknown>
 }
 
-export interface EnhancedSubmittedPR extends SubmittedPR {
-  commentCount: number
-  labels: string[]
-}
-
 // ============ OSS Pipeline Redesign Response Types ============
 
 export interface PipelineStatusResponse extends OSSBaseResponse {

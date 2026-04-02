@@ -18,7 +18,7 @@ try:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from ..config import get_vibecheck_workflow, VIBECHECK_REPO
+    from ..config import get_vibecheck_workflow, VIBECHECK_REPO, VIBECHECK_WORKFLOW_FILE, VIBECHECK_WORKFLOW_NAME
 except ImportError:
     from services import (
         run_gh_command,
@@ -26,7 +26,7 @@ except ImportError:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from config import get_vibecheck_workflow, VIBECHECK_REPO
+    from config import get_vibecheck_workflow, VIBECHECK_REPO, VIBECHECK_WORKFLOW_FILE, VIBECHECK_WORKFLOW_NAME
 
 
 @bp.route("/api/install-vibecheck", methods=["POST"])
@@ -42,7 +42,7 @@ def api_install_vibecheck():
     content_b64 = base64.b64encode(get_vibecheck_workflow().encode()).decode()
 
     result = run_gh_command([
-        "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml",
+        "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/{VIBECHECK_WORKFLOW_FILE}",
         "-f", "message=Add vibeCheck workflow",
         "-f", f"content={content_b64}"
     ])
@@ -57,7 +57,7 @@ def api_install_vibecheck():
 def api_vibecheck_template():
     """Fetch the latest vibecheck workflow template from the vibecheck repo."""
     result = run_gh_command(
-        ["api", f"repos/{VIBECHECK_REPO}/contents/examples/vibecheck.yml", "--jq", ".content"],
+        ["api", f"repos/{VIBECHECK_REPO}/contents/examples/{VIBECHECK_WORKFLOW_FILE}", "--jq", ".content"],
         timeout=30
     )
 
@@ -85,7 +85,7 @@ def api_update_vibecheck():
 
     # Get the current file SHA (required for updates)
     sha_result = run_gh_command(
-        ["api", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml", "--jq", ".sha"],
+        ["api", f"/repos/{owner}/{repo}/contents/.github/workflows/{VIBECHECK_WORKFLOW_FILE}", "--jq", ".sha"],
         timeout=30
     )
 
@@ -99,7 +99,7 @@ def api_update_vibecheck():
         workflow_content = template
     else:
         template_result = run_gh_command(
-            ["api", f"repos/{VIBECHECK_REPO}/contents/examples/vibecheck.yml", "--jq", ".content"],
+            ["api", f"repos/{VIBECHECK_REPO}/contents/examples/{VIBECHECK_WORKFLOW_FILE}", "--jq", ".content"],
             timeout=30
         )
         if template_result["success"]:
@@ -114,7 +114,7 @@ def api_update_vibecheck():
     content_b64 = base64.b64encode(workflow_content.encode()).decode()
 
     result = run_gh_command([
-        "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/vibecheck.yml",
+        "api", "-X", "PUT", f"/repos/{owner}/{repo}/contents/.github/workflows/{VIBECHECK_WORKFLOW_FILE}",
         "-f", "message=Update vibeCheck workflow to latest version",
         "-f", f"content={content_b64}",
         "-f", f"sha={sha}"
@@ -153,7 +153,7 @@ def api_run_vibecheck():
     if not owner or not repo:
         return jsonify({"success": False, "error": "Missing owner or repo"})
 
-    result = run_gh_command(["workflow", "run", "vibecheck.yml", "-R", f"{owner}/{repo}"])
+    result = run_gh_command(["workflow", "run", VIBECHECK_WORKFLOW_FILE, "-R", f"{owner}/{repo}"])
 
     if result["success"]:
         return jsonify({"success": True, "message": "vibeCheck workflow triggered!"})

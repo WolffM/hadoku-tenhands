@@ -39,7 +39,9 @@ export function RetroView() {
           }
         }
       })
-      .catch(() => setError('Failed to load batches'))
+      .catch((err: unknown) =>
+        setError(`Failed to load batches: ${err instanceof Error ? err.message : String(err)}`)
+      )
       .finally(() => setLoadingBatches(false))
   }, [])
 
@@ -59,7 +61,9 @@ export function RetroView() {
           setError(res.error ?? 'Failed to load batch')
         }
       })
-      .catch(() => setError('Failed to load batch detail'))
+      .catch((err: unknown) =>
+        setError(`Failed to load batch detail: ${err instanceof Error ? err.message : String(err)}`)
+      )
       .finally(() => setLoadingIssues(false))
   }, [activeBatchId])
 

@@ -300,7 +300,11 @@ def api_pr_details():
     ])
 
     if result["success"]:
-        pr_data = json.loads(result["output"])
+        try:
+            pr_data = json.loads(result["output"])
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("Failed to parse PR view output for %s/%s#%s: %s", owner, repo, pr_number, e)
+            return jsonify({"success": False, "error": "Failed to parse PR data from gh CLI"})
 
         diff_result = run_gh_command([
             "pr", "diff", str(pr_number), "-R", f"{owner}/{repo}"
