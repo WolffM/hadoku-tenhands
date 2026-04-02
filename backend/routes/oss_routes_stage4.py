@@ -24,6 +24,7 @@ try:
     from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
     from ..helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from ..extensions import limiter
+    from ..config import CLEAN_BRANCH_PREFIX
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.pipeline_orchestrator import PipelineOrchestrator
@@ -33,6 +34,7 @@ except ImportError:
     from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
     from helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from extensions import limiter
+    from config import CLEAN_BRANCH_PREFIX
 
 
 def _capture_fork_pr_comments(my_user, repo, pr_number, origin_slug, svc):
@@ -359,7 +361,7 @@ def api_oss_merge_fork_pr():
         if squash_sha:
             # 4.5.2: Generate clean branch name
             title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
-            clean_branch = f"fix/{upstream_issue_number}-{title_slug}"
+            clean_branch = f"{CLEAN_BRANCH_PREFIX}{upstream_issue_number}-{title_slug}"
 
             # 4.5.3: Create re-authored commit + clean branch (strip pipeline files)
             clean_commit_msg = pr_title
@@ -576,7 +578,7 @@ def api_oss_signoff():
     clean_branch = copilot_branch  # fallback
     if squash_sha:
         title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
-        clean_branch = f"fix/{upstream_issue_number}-{title_slug}"
+        clean_branch = f"{CLEAN_BRANCH_PREFIX}{upstream_issue_number}-{title_slug}"
         clean_result = svc.create_clean_branch(
             my_user, repo, squash_sha, clean_branch, pr_title,
             origin_slug=origin_slug, base_branch=base_branch,
