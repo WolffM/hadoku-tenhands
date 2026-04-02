@@ -226,7 +226,7 @@ export function HealthCheckView() {
           </div>
           <div className="health-details">
             <span>Owner: {health.owner}</span>
-            <span>API Version: {health.api_version}</span>
+            <span>API Version: {health.apiVersion}</span>
           </div>
         </div>
       )}

@@ -20,7 +20,7 @@ def api_healthcheck():
         "success": True,
         "status": "healthy",
         "owner": owner,
-        "api_version": "2.0.0"
+        "apiVersion": "2.0.0"
     })
 
 

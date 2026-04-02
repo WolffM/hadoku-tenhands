@@ -160,7 +160,7 @@ export interface HealthCheckResponse {
   success: boolean
   status: 'healthy' | 'degraded' | 'unhealthy'
   owner: string
-  api_version: string
+  apiVersion: string
 }
 
 export interface GlobalWorkflowRunsResponse {
