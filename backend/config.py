@@ -11,6 +11,11 @@ COPILOT_REVIEWER = "copilot-pull-request-reviewer[bot]"
 COPILOT_MENTION = "@copilot"
 COPILOT_CHECK_RUN_NAME = "copilot"
 GITHUB_NOREPLY_EMAIL_TEMPLATE = "{uid}+{login}@users.noreply.github.com"
+GITHUB_ACTIONS_BOT_NAME = "github-actions[bot]"
+GITHUB_ACTIONS_BOT_EMAIL = "github-actions[bot]@users.noreply.github.com"
+
+# Branch naming
+CLEAN_BRANCH_PREFIX = "fix/"
 
 # VibeCheck source repo — override with VIBECHECK_REPO env var (owner/repo format)
 VIBECHECK_REPO = os.environ.get("VIBECHECK_REPO", "WolffM/vibecheck")

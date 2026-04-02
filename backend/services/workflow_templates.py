@@ -10,6 +10,12 @@ matches the upstream repo's actual linters. Without a profile, it falls
 back to sensible language defaults.
 """
 
+try:
+    from ..config import GITHUB_ACTIONS_BOT_NAME, GITHUB_ACTIONS_BOT_EMAIL
+except ImportError:
+    from config import GITHUB_ACTIONS_BOT_NAME, GITHUB_ACTIONS_BOT_EMAIL
+
+CHECKSTYLE_VERSION = "10.21.4"
 
 _LFS_CHECKOUT = (
     "- uses: actions/checkout@v4\n"
@@ -25,8 +31,8 @@ def _COMMIT_FIXES_STEP(message):
     return (
         "- name: Commit fixes\n"
         "  run: |\n"
-        "    git config user.name 'github-actions[bot]'\n"
-        "    git config user.email 'github-actions[bot]@users.noreply.github.com'\n"
+        f"    git config user.name '{GITHUB_ACTIONS_BOT_NAME}'\n"
+        f"    git config user.email '{GITHUB_ACTIONS_BOT_EMAIL}'\n"
         "    git add -A\n"
         f"    git diff --cached --quiet || git commit -m '{message}'\n"
         "    git push || true"
@@ -203,7 +209,7 @@ def build_checkstyle_job():
             _LFS_CHECKOUT,
             "- uses: actions/setup-java@v4\n  with:\n    distribution: 'temurin'\n    java-version: '21'",
             "- name: Run checkstyle\n  run: |\n"
-            "    curl -sLO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.21.4/checkstyle-10.21.4-all.jar\n"
+            f"    curl -sLO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-{CHECKSTYLE_VERSION}/checkstyle-{CHECKSTYLE_VERSION}-all.jar\n"
             "    java -jar checkstyle-*.jar -c /google_checks.xml src/ || true",
         ],
     }
