@@ -92,7 +92,7 @@ def validate_aggregator_url(url):
             return f"AGGREGATOR_API_URL has invalid scheme: {parsed.scheme}"
         if not parsed.hostname:
             return "AGGREGATOR_API_URL has no hostname"
-    except Exception:
+    except ValueError:
         return "AGGREGATOR_API_URL is not a valid URL"
     return None
 
