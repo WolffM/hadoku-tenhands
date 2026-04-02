@@ -41,9 +41,7 @@ def _is_cache_enabled() -> bool:
     """Check if caching is enabled (evaluated at runtime)."""
     return os.environ.get("CACHE_DISABLED") != "1"
 
-# Legacy module-level cache for vibecheck status (kept for backward compatibility)
-_vibecheck_cache: dict[str, bool] = {}
-_cache_timestamp = 0
+_VIBECHECK_CACHE_KEY = "vibecheck-status"
 
 
 def _ensure_cache_dir():
@@ -225,25 +223,16 @@ def cached_endpoint(cache_key, normalize=None):
     return decorator
 
 
-# ============ Legacy functions for backward compatibility ============
-
 def get_cached_vibecheck_status():
-    """Get cached vibecheck status for all repos (legacy function)."""
-    global _vibecheck_cache, _cache_timestamp
-    if time.time() - _cache_timestamp < DEFAULT_TTL and _vibecheck_cache:
-        return _vibecheck_cache
-    return None
+    """Get cached vibecheck status for all repos."""
+    return get_cached(_VIBECHECK_CACHE_KEY, ttl=DEFAULT_TTL)
 
 
 def set_cached_vibecheck_status(status_dict):
-    """Set cached vibecheck status (legacy function)."""
-    global _vibecheck_cache, _cache_timestamp
-    _vibecheck_cache = status_dict
-    _cache_timestamp = time.time()
+    """Set cached vibecheck status."""
+    set_cached(_VIBECHECK_CACHE_KEY, status_dict)
 
 
 def clear_vibecheck_cache():
-    """Clear the vibecheck cache (legacy function)."""
-    global _vibecheck_cache, _cache_timestamp
-    _vibecheck_cache = {}
-    _cache_timestamp = 0
+    """Clear the vibecheck cache."""
+    clear_cache(_VIBECHECK_CACHE_KEY)
