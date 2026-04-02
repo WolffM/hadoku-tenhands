@@ -65,7 +65,8 @@ class OSSFirewallMixin:
             logger.info("Disabled Copilot firewall via API on %s/%s", my_user, repo)
             return
 
-        # Fall back to patchright browser automation
+        # REST API failed — fall back to patchright browser automation
+        logger.debug("Copilot firewall API call failed for %s/%s: %s — trying patchright", my_user, repo, result.get("error"))
         script_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             "scripts", "disable-copilot-firewall.py"

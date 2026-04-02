@@ -2,9 +2,13 @@
 Health routes - healthcheck and owner identity endpoints.
 """
 
+import logging
+
 from flask import jsonify
 
 from . import bp
+
+logger = logging.getLogger(__name__)
 
 try:
     from ..services import get_authenticated_user

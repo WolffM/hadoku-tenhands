@@ -136,9 +136,11 @@ def api_oss_refresh_target():
     # Convert to hyphenated format for aggregator
     hyphenated_slug = to_aggregator_slug(slug) if "/" in slug else slug
 
-    svc.trigger_refresh(hyphenated_slug)
+    if not svc.trigger_refresh(hyphenated_slug):
+        logger.warning("trigger_refresh returned falsy for %s", hyphenated_slug)
     # Trigger pre-computation so scored issues/dossier are available
-    svc.trigger_compute(hyphenated_slug)
+    if not svc.trigger_compute(hyphenated_slug):
+        logger.warning("trigger_compute returned falsy for %s", hyphenated_slug)
 
     # Invalidate cache regardless of aggregator response
     clear_cache("oss-stage1-targets")

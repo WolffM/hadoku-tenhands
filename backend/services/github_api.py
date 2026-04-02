@@ -175,6 +175,7 @@ def get_repos(limit=100):
     result = run_gh_command(["repo", "list", "--limit", str(limit), "--json", "name,url,isPrivate,description,updatedAt"])
     if result["success"]:
         return json.loads(result["output"])
+    logger.warning("get_repos failed: %s", result.get("error"))
     return []
 
 
@@ -198,7 +199,9 @@ def get_repo_issues(owner, repo, labels=None):
         try:
             return json.loads(result["output"])
         except (json.JSONDecodeError, ValueError):
+            logger.warning("get_repo_issues JSON parse failed for %s/%s", owner, repo)
             return []
+    logger.warning("get_repo_issues failed for %s/%s: %s", owner, repo, result.get("error"))
     return []
 
 

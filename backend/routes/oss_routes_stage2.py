@@ -82,6 +82,7 @@ def api_oss_stage2_issues():
         return resp
 
     # Aggregator unavailable — no fallback
+    logger.warning("Aggregator unavailable, returning empty issues for %s", my_user)
     return {"success": True, "issues": [], "owner": my_user}
 
 
