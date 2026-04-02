@@ -340,15 +340,19 @@ def _classify_command(cmd, description=""):
             return result
 
     # 3. Description-based: if the Bash: line mentions "run X", "verify", "check"
-    #    and the command invokes something non-trivial, use the description to
-    #    extract the tool name
+    #    and the command STARTS WITH that tool (not just contains it in a path).
+    #    Require the candidate to appear as the first executable token.
     desc_tool_match = re.search(
-        r"\b(?:run|verify|check|re-?run|confirm)\s+(\S+)", desc_lower,
+        r"\b(?:run|verify|re-?run|confirm)\s+(\S+)", desc_lower,
     )
     if desc_tool_match:
         candidate = _clean_tool(desc_tool_match.group(1))
-        # Verify it also appears in the actual command
-        if candidate not in noise and not _is_filename(candidate) and candidate in cmd_lower:
+        # Require candidate to appear as the actual executable (first real token)
+        first_token_match = re.search(
+            r"(?:^|&&\s*|;\s*)(?:cd\s+\S+\s*&&\s*)?(" + re.escape(candidate) + r")\b",
+            cmd_lower,
+        )
+        if first_token_match and candidate not in noise and not _is_filename(candidate):
             result["is_lint"] = True
             result["tool_name"] = candidate
             return result
@@ -391,8 +395,8 @@ def analyze_workflow(log_text):
     reproduce/verify behavior.
 
     Returns a dict with:
-    - reproduced: Did the agent run a lint/check tool before editing?
-    - verified: Did the agent re-run a lint/check tool after editing?
+    - reproduced: Did the agent run a lint/check/test tool before editing?
+    - verified: Did the agent re-run a lint/check/test tool after editing?
     - tool_installed: Did the agent install a tool?
     - code_review: Did the agent run code review?
     - codeql: Did the agent run CodeQL?
@@ -402,15 +406,24 @@ def analyze_workflow(log_text):
     """
     steps = []
     tools_used = set()
-    lint_runs_before_edit = []
-    lint_runs_after_edit = []
+    checks_before_edit = []  # lint + test runs before first edit
+    checks_after_edit = []   # lint + test runs after first edit
     first_edit_seen = False
     installed_tools = set()
 
     # Track the most recent Bash: description to pass as context
     last_bash_desc = ""
 
-    lines = log_text.split("\n")
+    # Pre-process: join wrapped command continuations so multi-line commands
+    # like "$ cd foo && pnpm\n    vitest run" become a single string.
+    raw_lines = log_text.split("\n")
+    lines = []
+    for raw in raw_lines:
+        if lines and lines[-1].startswith("$ ") and raw.startswith("    ") and not raw.lstrip().startswith("$"):
+            lines[-1] = lines[-1] + " " + raw.strip()
+        else:
+            lines.append(raw)
+
     for line in lines:
         stripped = line.rstrip()
 
@@ -437,13 +450,17 @@ def analyze_workflow(log_text):
                 if tool:
                     tools_used.add(tool)
                     if not first_edit_seen:
-                        lint_runs_before_edit.append(tool)
+                        checks_before_edit.append(tool)
                     else:
-                        lint_runs_after_edit.append(tool)
+                        checks_after_edit.append(tool)
 
             elif classification["is_test"]:
                 if tool:
                     tools_used.add(tool)
+                    if not first_edit_seen:
+                        checks_before_edit.append(tool)
+                    else:
+                        checks_after_edit.append(tool)
                 steps.append(f"Test: {tool or raw_cmd[:40]}")
 
             elif classification["is_build"]:
@@ -472,8 +489,10 @@ def analyze_workflow(log_text):
         elif stripped.startswith("Progress update:"):
             steps.append(f"Progress: {stripped[16:].strip()[:60]}")
 
-    reproduced = len(lint_runs_before_edit) > 0
-    verified = len(lint_runs_after_edit) > 0
+    reproduced = len(checks_before_edit) > 0
+    verified = len(checks_after_edit) > 0
+    lint_runs_before_edit = checks_before_edit  # keep for backward compat in output
+    lint_runs_after_edit = checks_after_edit
     tool_installed = len(installed_tools) > 0
     code_review = any("Code Review" in s for s in steps)
     codeql = any("CodeQL" in s for s in steps)
@@ -580,7 +599,7 @@ def cmd_summary(args):
 
     if args.analyze:
         print("\n" + "=" * 60)
-        analysis = analyze_workflow(log)
+        analysis = analyze_workflow(extract_thinking(log))
         print(f"Session phases:        {len(session_ids)}")
         print(f"Reproduced before fix: {'YES' if analysis['reproduced'] else 'NO'}")
         print(f"Verified after fix:    {'YES' if analysis['verified'] else 'NO'}")
@@ -611,7 +630,7 @@ def cmd_compare(args):
             continue
 
         print(f"  Found {len(session_ids)} session(s)", file=sys.stderr)
-        analysis = analyze_workflow(log)
+        analysis = analyze_workflow(extract_thinking(log))
         analysis["pr"] = pr_num
         analysis["session_ids"] = session_ids
         analysis["session_count"] = len(session_ids)
@@ -680,7 +699,7 @@ def cmd_batch(args):
         else:
             print(thinking)
 
-        analysis = analyze_workflow(log)
+        analysis = analyze_workflow(extract_thinking(log))
         print(f"\n  Phases: {len(session_ids)} | "
               f"Reproduced: {'YES' if analysis['reproduced'] else 'NO'} | "
               f"Verified: {'YES' if analysis['verified'] else 'NO'} | "
