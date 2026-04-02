@@ -530,6 +530,14 @@ export interface BatchUpstreamPR {
   issue_number?: number
 }
 
+export interface UpstreamIssueMention {
+  actor: string
+  source_url: string
+  source_title: string
+  source_type: string
+  created_at: string
+}
+
 export interface BatchRetroEntry extends RetrospectiveEntry {
   batch_id?: string
   context_issue_body?: string
@@ -538,6 +546,7 @@ export interface BatchRetroEntry extends RetrospectiveEntry {
     fork_pr: PrComment[]
     upstream_pr: PrComment[]
   }
+  upstream_issue_mentions?: UpstreamIssueMention[]
 }
 
 export interface BatchIssue {

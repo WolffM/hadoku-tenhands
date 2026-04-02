@@ -3351,6 +3351,41 @@ td .pr-link {
   font-style: italic;
 }
 
+/* Cross-reference leaks */
+
+.crossref-leaks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hdk-space-sm);
+}
+
+.crossref-leak {
+  font-size: var(--hdk-text-sm);
+  padding: var(--hdk-space-sm) var(--hdk-space-md);
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid #ef4444;
+  border-radius: 0 4px 4px 0;
+}
+
+.crossref-leak__actor {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.crossref-leak__link {
+  color: #ef4444;
+  font-family: monospace;
+  font-size: var(--hdk-text-xs);
+}
+
+.crossref-leak__date {
+  color: var(--color-text-muted);
+  font-size: var(--hdk-text-xs);
+}
+
 /* Context panel */
 
 .context-panel-overlay {
