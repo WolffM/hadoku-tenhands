@@ -18,9 +18,6 @@ sleep 0.5
 
 WT=/mnt/c/Users/Hadoku/AppData/Local/Microsoft/WindowsApps/wt.exe
 
-# wt can't handle complex bash -c strings easily — use --commandline with wsl and a login shell
 "$WT" \
-  new-tab --title "backend" --startingDirectory "$WIN_REPO\\backend" \
-    -- wsl.exe bash -l -c "cd '$REPO_DIR/backend' && python3 app.py; bash -l" \; \
-  new-tab --title "frontend" --startingDirectory "$WIN_REPO\\frontend" \
-    -- wsl.exe bash -l -c "cd '$REPO_DIR/frontend' && npm run dev; bash -l"
+  new-tab --title "backend" --startingDirectory "$WIN_REPO\\backend" -- wsl.exe -e bash -l -c "python3 app.py" \; \
+  new-tab --title "frontend" --startingDirectory "$WIN_REPO\\frontend" -- wsl.exe -e bash -l -c "npm run dev -- --host"

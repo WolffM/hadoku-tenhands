@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import type { BatchIssue, PrComment, PrCommit } from '../../api/types'
+import type { BatchIssue, PrComment, PrCommit, UpstreamIssueMention } from '../../api/types'
 import { formatTimeAgo } from '../../utils'
 import { getRetroPRCommits } from '../../api/endpoints'
 import { ContextPanel } from './ContextPanel'
@@ -146,13 +146,6 @@ export function IssueRetroCard({ item }: Props) {
       {/* Expanded body */}
       {expanded && (
         <div className="retro-card__body">
-          {!hasRetroData && (
-            <div className="retro-placeholder">
-              Comment and context data unavailable — this issue was dispatched before full
-              telemetry.
-            </div>
-          )}
-
           {/* Timeline */}
           <RetroSection title="Timeline">
             <Timeline
@@ -192,6 +185,16 @@ export function IssueRetroCard({ item }: Props) {
           {retro?.static_analysis?.jobs && retro.static_analysis.jobs.length > 0 && (
             <RetroSection title={`SA findings (${retro.static_analysis.conclusion ?? 'unknown'})`}>
               <SAFindings jobs={retro.static_analysis.jobs} />
+            </RetroSection>
+          )}
+
+          {/* Cross-reference leaks */}
+          {retro?.upstream_issue_mentions && retro.upstream_issue_mentions.length > 0 && (
+            <RetroSection
+              title={`Cross-reference leaks (${retro.upstream_issue_mentions.length})`}
+              accent
+            >
+              <CrossRefLeaks mentions={retro.upstream_issue_mentions} />
             </RetroSection>
           )}
 
@@ -402,6 +405,23 @@ function SAFindings({
             {f.path}:{f.line}
           </span>
           <span className="sa-finding__msg">{f.message}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function CrossRefLeaks({ mentions }: { mentions: UpstreamIssueMention[] }) {
+  return (
+    <ul className="crossref-leaks">
+      {mentions.map((m, i) => (
+        <li key={i} className="crossref-leak">
+          <span className="crossref-leak__actor">{m.actor}</span>
+          {' referenced the upstream issue via '}
+          <a href={m.source_url} target="_blank" rel="noreferrer" className="crossref-leak__link">
+            {m.source_url.replace('https://github.com/', '')}
+          </a>
+          <span className="crossref-leak__date"> — {formatTimeAgo(m.created_at)}</span>
         </li>
       ))}
     </ul>

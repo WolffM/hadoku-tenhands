@@ -680,16 +680,25 @@ def api_oss_retro_batches():
         issue_refs = batch.get("issues", [])
         issue_count = len(issue_refs)
 
-        # Build set of origin_slug#issue_number refs in this batch
+        # Build set of origin_slug#issue_number refs in this batch.
+        # For pre-tracking batches with no assignments, fall back to batch.issues list.
+        import re as _re
         batch_assignments = [
             a for a in assignments if a.get("batch_id") == batch_id
         ]
+        if batch_assignments:
+            batch_slugs_issues = {
+                (a.get("origin_slug"), a.get("issue_number"))
+                for a in batch_assignments
+            }
+        else:
+            batch_slugs_issues = set()
+            for ref in issue_refs:
+                m = _re.match(r"^(.+)#(\d+)$", ref)
+                if m:
+                    batch_slugs_issues.add((m.group(1), int(m.group(2))))
 
         # Count upstream PRs for issues in this batch
-        batch_slugs_issues = {
-            (a.get("origin_slug"), a.get("issue_number"))
-            for a in batch_assignments
-        }
         batch_prs = [
             p for p in submitted_prs
             if (p.get("origin_slug"), p.get("issue_number")) in batch_slugs_issues
@@ -742,6 +751,21 @@ def api_oss_retro_batch(batch_id):
 
     batch_assignments = [a for a in assignments if a.get("batch_id") == batch_id]
 
+    # For pre-tracking batches with no assignments, build stub entries from batch.issues list.
+    # Format: "owner/repo#N"
+    if not batch_assignments:
+        import re as _re
+        for ref in batch.get("issues", []):
+            m = _re.match(r"^(.+)#(\d+)$", ref)
+            if not m:
+                continue
+            batch_assignments.append({
+                "origin_slug": m.group(1),
+                "issue_number": int(m.group(2)),
+                "batch_id": batch_id,
+                "pre_tracking": True,
+            })
+
     issues = []
     for assignment in batch_assignments:
         origin_slug = assignment.get("origin_slug")
@@ -766,13 +790,19 @@ def api_oss_retro_batch(batch_id):
         # Enrich retro with session artifacts (comments, PR body, context)
         retro = dict(retro)  # copy so we don't mutate the original
 
-        # Upstream PR comments
-        raw_comments_json = get_session_artifact(origin_slug, issue_number, "upstream-pr-comments.json")
-        if raw_comments_json:
-            try:
-                retro["raw_comments"] = {"upstream_pr": json.loads(raw_comments_json)}
-            except (ValueError, TypeError):
-                pass
+        # PR comments — upstream first, fall back to fork PR comments
+        upstream_comments_json = get_session_artifact(origin_slug, issue_number, "upstream-pr-comments.json")
+        fork_comments_json = get_session_artifact(origin_slug, issue_number, "fork-pr-comments.json")
+        try:
+            upstream_comments = json.loads(upstream_comments_json) if upstream_comments_json else []
+        except (ValueError, TypeError):
+            upstream_comments = []
+        try:
+            fork_comments = json.loads(fork_comments_json) if fork_comments_json else []
+        except (ValueError, TypeError):
+            fork_comments = []
+        if upstream_comments or fork_comments:
+            retro["raw_comments"] = {"upstream_pr": upstream_comments, "fork_pr": fork_comments}
 
         # Upstream PR body
         upstream_pr_body = get_session_artifact(origin_slug, issue_number, "upstream-pr-body.md")
@@ -783,6 +813,22 @@ def api_oss_retro_batch(batch_id):
         context_body = get_session_artifact(origin_slug, issue_number, "context.md")
         if context_body:
             retro["context_issue_body"] = context_body
+
+        # Copilot workflow analysis (pre-computed by batch scrape)
+        workflow_json = get_session_artifact(origin_slug, issue_number, "workflow.json")
+        if workflow_json:
+            try:
+                retro["workflow"] = json.loads(workflow_json)
+            except (ValueError, TypeError):
+                pass
+
+        # Cross-reference leaks — fork PRs that triggered mentions on the upstream issue
+        mentions_json = get_session_artifact(origin_slug, issue_number, "upstream-issue-mentions.json")
+        if mentions_json:
+            try:
+                retro["upstream_issue_mentions"] = json.loads(mentions_json)
+            except (ValueError, TypeError):
+                pass
 
         issues.append({
             "assignment": assignment,
