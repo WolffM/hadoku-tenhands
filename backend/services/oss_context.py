@@ -15,8 +15,10 @@ from .oss_service import _sanitize_upstream_refs, _detect_tool_from_issue
 
 try:
     from ..helpers.oss_helpers import strip_leading_header
+    from ..config import CONTRIBUTING_MD_MAX_CHARS
 except ImportError:
     from helpers.oss_helpers import strip_leading_header
+    from config import CONTRIBUTING_MD_MAX_CHARS
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +149,7 @@ class OSSContextMixin:
             if contrib["success"] and contrib["output"].strip():
                 try:
                     contrib_text = base64.b64decode(contrib["output"].strip()).decode("utf-8")
-                    contrib_text = _sanitize_upstream_refs(contrib_text[:3000])
+                    contrib_text = _sanitize_upstream_refs(contrib_text[:CONTRIBUTING_MD_MAX_CHARS])
                     body += f"\n---\n## CONTRIBUTING.md\n<details><summary>Expand</summary>\n\n{contrib_text}\n\n</details>\n"
                     metadata["contributing_fetched"] = True
                     metadata["sources"].append("gh-contributing-md")
