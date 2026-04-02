@@ -46,6 +46,28 @@ except ImportError:
 _FORK_LOCKS: dict = {}
 _FORK_LOCKS_MUTEX = threading.Lock()
 
+# Shared language→setup-action YAML snippets (4-space indent, no trailing newline).
+# Used by both _build_ci_workflow and _build_copilot_setup_steps to keep
+# runtime versions consistent across both generated files.
+_LANG_SETUP_ACTION = {
+    "go": (
+        "      - uses: actions/setup-go@v5\n"
+        "        with:\n"
+        "          go-version: 'stable'"
+    ),
+    "python": (
+        "      - uses: actions/setup-python@v5\n"
+        "        with:\n"
+        "          python-version: '3.x'"
+    ),
+    "javascript": (
+        "      - uses: actions/setup-node@v4\n"
+        "        with:\n"
+        "          node-version: '20'"
+    ),
+}
+_LANG_SETUP_ACTION["typescript"] = _LANG_SETUP_ACTION["javascript"]
+
 
 def get_fork_lock(origin_slug: str) -> threading.Lock:
     """Return (or create) the per-repo serialization lock for origin_slug.
@@ -691,67 +713,35 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
     def _build_ci_workflow(language):
         """Build a CI workflow YAML appropriate for the detected language."""
         lang = (language or "").lower()
-
+        header = (
+            "name: CI\n"
+            "on: [push]\n"
+            "jobs:\n"
+            "  test:\n"
+            "    runs-on: self-hosted\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v4\n"
+        )
+        setup = _LANG_SETUP_ACTION.get(lang, "")
         if lang == "go":
+            return header + setup + "\n      - run: go vet ./...\n      - run: go test ./...\n"
+        if lang == "python":
             return (
-                "name: CI\n"
-                "on: [push]\n"
-                "jobs:\n"
-                "  test:\n"
-                "    runs-on: self-hosted\n"
-                "    steps:\n"
-                "      - uses: actions/checkout@v4\n"
-                "      - uses: actions/setup-go@v5\n"
-                "        with:\n"
-                "          go-version: 'stable'\n"
-                "      - run: go vet ./...\n"
-                "      - run: go test ./...\n"
-            )
-        elif lang == "python":
-            return (
-                "name: CI\n"
-                "on: [push]\n"
-                "jobs:\n"
-                "  test:\n"
-                "    runs-on: self-hosted\n"
-                "    steps:\n"
-                "      - uses: actions/checkout@v4\n"
-                "      - uses: actions/setup-python@v5\n"
-                "        with:\n"
-                "          python-version: '3.x'\n"
+                header + setup + "\n"
                 "      - run: pip install -r requirements.txt 2>/dev/null || true\n"
                 "      - run: pip install pytest ruff 2>/dev/null || true\n"
                 "      - run: python -m pytest || true\n"
                 "      - run: ruff check . || true\n"
             )
-        elif lang in ("javascript", "typescript"):
+        if lang in ("javascript", "typescript"):
             return (
-                "name: CI\n"
-                "on: [push]\n"
-                "jobs:\n"
-                "  test:\n"
-                "    runs-on: self-hosted\n"
-                "    steps:\n"
-                "      - uses: actions/checkout@v4\n"
-                "      - uses: actions/setup-node@v4\n"
-                "        with:\n"
-                "          node-version: '20'\n"
+                header + setup + "\n"
                 "      - run: npm ci\n"
                 "      - run: npm test || true\n"
                 "      - run: npx eslint . || true\n"
             )
-        else:
-            # Generic fallback — just checkout and list files
-            return (
-                "name: CI\n"
-                "on: [push]\n"
-                "jobs:\n"
-                "  test:\n"
-                "    runs-on: self-hosted\n"
-                "    steps:\n"
-                "      - uses: actions/checkout@v4\n"
-                "      - run: echo 'No language-specific CI configured'\n"
-            )
+        # Generic fallback — just checkout and list files
+        return header + "      - run: echo 'No language-specific CI configured'\n"
 
     @staticmethod
     def _build_copilot_setup_steps(language, use_self_hosted=True):
@@ -785,27 +775,15 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
             "      - uses: actions/checkout@v4\n"
         )
 
-        if lang == "go":
-            return header + (
-                "      - uses: actions/setup-go@v5\n"
-                "        with:\n"
-                "          go-version: 'stable'\n"
-                "      - run: go mod download 2>/dev/null || true\n"
-            )
-        elif lang == "python":
-            return header + (
-                "      - uses: actions/setup-python@v5\n"
-                "        with:\n"
-                "          python-version: '3.x'\n"
-                "      - run: pip install -r requirements.txt 2>/dev/null || true\n"
-            )
-        elif lang in ("javascript", "typescript"):
-            return header + (
-                "      - uses: actions/setup-node@v4\n"
-                "        with:\n"
-                "          node-version: '20'\n"
-                "      - run: npm ci 2>/dev/null || true\n"
-            )
-        else:
+        setup = _LANG_SETUP_ACTION.get(lang, "")
+        if not setup:
             return header
+
+        _install_cmd = {
+            "go": "      - run: go mod download 2>/dev/null || true\n",
+            "python": "      - run: pip install -r requirements.txt 2>/dev/null || true\n",
+            "javascript": "      - run: npm ci 2>/dev/null || true\n",
+            "typescript": "      - run: npm ci 2>/dev/null || true\n",
+        }
+        return header + setup + "\n" + _install_cmd[lang]
 
