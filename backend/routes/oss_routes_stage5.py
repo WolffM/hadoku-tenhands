@@ -132,6 +132,7 @@ def _poll_single_pr(pr):
         repo_owner = parts[-4]
         repo_name = parts[-3]
     except (IndexError, ValueError):
+        logger.warning("Cannot parse PR URL for polling: %r", pr_url)
         return pr
 
     result = run_gh_command([

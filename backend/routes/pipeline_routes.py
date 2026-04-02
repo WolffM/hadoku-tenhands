@@ -128,7 +128,10 @@ def api_global_workflow_runs():
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(fetch_runs_for_repo, r) for r in repos[:15]]
         for future in as_completed(futures):
-            all_runs.extend(future.result())
+            try:
+                all_runs.extend(future.result())
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Failed to fetch workflow runs for a repo: %s", e)
 
     logger.debug("[PERF] Fetched workflow runs in %.2fs", time.monotonic() - start)
 
@@ -184,7 +187,10 @@ def api_stage2_repos():
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(_get_repo_run_info, owner, r) for r in vc_repos[:20]]
         for future in as_completed(futures):
-            result.append(future.result())
+            try:
+                result.append(future.result())
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Failed to fetch run info for a repo: %s", e)
 
     result.sort(key=lambda x: (x["lastRun"] is None, -x["commitsSinceLastRun"]), reverse=True)
 
