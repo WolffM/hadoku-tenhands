@@ -180,8 +180,8 @@ def _poll_single_pr(pr):
                 origin_slug, issue_num,
                 "upstream-pr-comments.json", json.dumps(all_comments, indent=2)
             )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Upstream PR comment capture failed for %s#%s: %s", f"{repo_owner}/{repo_name}", pr_number, e)
 
     # Trigger notifications on state changes
     if old_state == "open" and pr["state"] == "merged":

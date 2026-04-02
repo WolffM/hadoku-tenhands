@@ -35,10 +35,10 @@ from .oss_service import _parse_jsonl
 
 try:
     from .oss_runner_setup import OSSRunnerSetupMixin
-    from .oss_firewall import OSSFirewallMixin, _PATCHRIGHT_LOCK
+    from .oss_firewall import OSSFirewallMixin
 except ImportError:
     from oss_runner_setup import OSSRunnerSetupMixin
-    from oss_firewall import OSSFirewallMixin, _PATCHRIGHT_LOCK
+    from oss_firewall import OSSFirewallMixin
 
 # Per-repo locks: serialize concurrent dispatches for the same upstream repo.
 # Prevents the race condition where two parallel dispatches for the same repo
@@ -130,18 +130,22 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
         from .github_api import is_saml_org
 
         # 1. Enable issues (forks inherit has_issues=false)
-        run_gh_command([
+        r = run_gh_command([
             "api", f"repos/{my_user}/{repo}",
             "-X", "PATCH", "-f", "has_issues=true"
         ])
+        if not r["success"]:
+            logger.warning("Failed to enable issues for %s/%s: %s", my_user, repo, r.get("error"))
 
         # 2. Enable Actions with "allow all" policy
-        run_gh_command([
+        r = run_gh_command([
             "api", f"repos/{my_user}/{repo}/actions/permissions",
             "-X", "PUT",
             "-f", "enabled=true",
             "-f", "allowed_actions=all"
         ])
+        if not r["success"]:
+            logger.warning("Failed to enable Actions for %s/%s: %s", my_user, repo, r.get("error"))
 
         # 3. Disable ALL inherited upstream workflows to prevent cost explosions.
         #    Large repos (vscode, playwright) have expensive CI that runs on every
@@ -610,6 +614,7 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
                 return {"success": False, "error": "commit creation failed"}
             new_commit_sha = json.loads(proc.stdout).get("sha")
         except Exception as e:
+            logger.error("Commit creation failed for %s/%s: %s", my_user, repo, e)
             return {"success": False, "error": str(e)}
 
         # Update branch ref

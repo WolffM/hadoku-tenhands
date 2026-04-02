@@ -49,8 +49,9 @@ export function useAsyncAction(
         } else {
           addLog(result.error ? `${opts.failMsg}: ${result.error}` : opts.failMsg, 'error')
         }
-      } catch {
-        addLog(opts.failMsg, 'error')
+      } catch (err) {
+        const msg = err instanceof Error ? `: ${err.message}` : ''
+        addLog(`${opts.failMsg}${msg}`, 'error')
       } finally {
         setLoading(null)
       }

@@ -33,7 +33,6 @@ from .pipeline_context_builders import (
 )
 from .pipeline_retrospective import (
     collect_retrospective as _collect_retrospective_fn,
-    fetch_sa_details,  # re-exported for backward compatibility
 )
 
 try:

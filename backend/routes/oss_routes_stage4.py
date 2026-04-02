@@ -53,8 +53,8 @@ def _capture_fork_pr_comments(my_user, repo, pr_number, origin_slug, svc):
                 origin_slug, assignment["issue_number"],
                 "fork-pr-comments.json", json.dumps(comments, indent=2)
             )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Comment capture failed for %s/%s PR#%s: %s", my_user, repo, pr_number, e)
 
 
 @bp.route("/api/oss/advance-pipeline", methods=["POST"])
@@ -853,32 +853,30 @@ def api_oss_retro_pr_commits(origin_slug, pr_number):
     Returns { success, commits: [{sha, date, author, message}] } sorted by date asc.
     Only returns commits pushed after the PR was created (i.e. follow-up fix commits).
     """
-    import subprocess
-
     submitted_after = request.args.get("submitted_after", "")
 
-    try:
-        result = subprocess.run(
-            [
-                "gh", "api",
-                f"repos/{origin_slug}/pulls/{pr_number}/commits",
-                "--jq",
-                '[.[] | {sha: .sha[:7], date: .commit.author.date, '
-                'author: (.author.login // .commit.author.name), '
-                'message: (.commit.message | split("\\n")[0])}]',
-            ],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode != 0:
-            return jsonify({"success": True, "commits": []})
+    result = run_gh_command([
+        "api",
+        f"repos/{origin_slug}/pulls/{pr_number}/commits",
+        "--jq",
+        '[.[] | {sha: .sha[:7], date: .commit.author.date, '
+        'author: (.author.login // .commit.author.name), '
+        'message: (.commit.message | split("\\n")[0])}]',
+    ], timeout=15)
 
-        commits = json.loads(result.stdout)
-        if submitted_after:
-            commits = [c for c in commits if c["date"] > submitted_after]
-        return jsonify({"success": True, "commits": commits})
-    except Exception as exc:
-        logger.warning("Failed to fetch PR commits for %s#%d: %s", origin_slug, pr_number, exc)
+    if not result["success"]:
+        logger.warning("Failed to fetch PR commits for %s#%d: %s", origin_slug, pr_number, result.get("error"))
         return jsonify({"success": True, "commits": []})
+
+    try:
+        commits = json.loads(result["output"])
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Failed to parse PR commits for %s#%d: %s", origin_slug, pr_number, exc)
+        return jsonify({"success": True, "commits": []})
+
+    if submitted_after:
+        commits = [c for c in commits if c["date"] > submitted_after]
+    return jsonify({"success": True, "commits": commits})
 
 
 @bp.route("/api/oss/issue-report/<repo>/<int:issue_number>", methods=["GET"])

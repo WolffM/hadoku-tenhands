@@ -14,6 +14,12 @@ GITHUB_NOREPLY_EMAIL_TEMPLATE = "{uid}+{login}@users.noreply.github.com"
 
 # VibeCheck source repo — override with VIBECHECK_REPO env var (owner/repo format)
 VIBECHECK_REPO = os.environ.get("VIBECHECK_REPO", "WolffM/vibecheck")
+VIBECHECK_WORKFLOW_FILE = "vibecheck.yml"
+VIBECHECK_WORKFLOW_NAME = "vibeCheck"
+
+# Dispatch guardrails — override via env vars
+MAX_REPO_SIZE_KB = int(os.environ.get("MAX_REPO_SIZE_KB", 500_000))
+MIN_CORE_REMAINING = int(os.environ.get("MIN_CORE_REMAINING", 200))
 
 # VibeCheck workflow template — uses VIBECHECK_REPO so the action reference
 # stays in sync with the env-var override.

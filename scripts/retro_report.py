@@ -31,26 +31,17 @@ from datetime import datetime, timezone
 DEFAULT_PORT = os.environ.get("VIBEDISPATCH_PORT", "5024")
 URL_PREFIX = "/dispatch"
 
-# Bots to exclude from human comment counts/display — mirrors bot_filter.py
-_BOT_LOGINS = {
-    "copilot-swe-agent",
-    "app/copilot-swe-agent",
-    "copilot",  # GitHub Copilot AI code reviewer (no [bot] suffix in author field)
-    "github-actions[bot]",
-    "dependabot[bot]",
-    "coderabbitai[bot]",
-    "renovate[bot]",
-    "codecov[bot]",
-    "snyk-bot",
-    "vercel[bot]",
-    "netlify[bot]",
-    "sonarqubebot",
-    "deepsource-autofix[bot]",
-    "stale[bot]",
-    "allcontributors[bot]",
-    "imgbot[bot]",
-    "whitesource-bolt-for-github[bot]",
-}
+# Import bot filter from backend helpers
+_BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
+try:
+    from helpers.bot_filter import BOT_LOGINS as _BOT_LOGINS, is_bot as _is_bot
+except ImportError:
+    # Fallback if running outside the repo structure
+    _BOT_LOGINS = set()
+    def _is_bot(login: str) -> bool:
+        return not login or login.lower().endswith("[bot]")
 
 TRUNCATE_BODY = 500  # chars shown in non-full mode
 
@@ -98,13 +89,6 @@ def fetch_pr_commits(origin_slug: str, pr_number: int) -> list:
 
 
 # ── Bot filter ────────────────────────────────────────────────────────────────
-
-def _is_bot(login: str) -> bool:
-    if not login:
-        return False
-    lower = login.lower()
-    return lower in _BOT_LOGINS or lower.endswith("[bot]")
-
 
 def _human_comments(comments: list) -> list:
     return [c for c in comments if not _is_bot(c.get("author", ""))]

@@ -299,7 +299,11 @@ class CopilotSWEDispatcher(StageDispatcher):
         if not result["success"]:
             return {"success": False, "error": result.get("error", "")}
 
-        pr_data = json.loads(result["output"])
+        try:
+            pr_data = json.loads(result["output"])
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error("Failed to parse PR view output for %s/%s#%s: %s", my_user, repo, pr_number, e)
+            return {"success": False, "error": "Failed to parse PR data from gh CLI"}
         return {
             "success": True,
             "outputs": {

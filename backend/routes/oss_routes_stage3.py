@@ -9,7 +9,7 @@ from flask import request, jsonify
 from . import bp
 
 try:
-    from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
+    from ..config import PLATFORM_PREFIX, COPILOT_ASSIGNEE, MAX_REPO_SIZE_KB, MIN_CORE_REMAINING
     from ..services import run_gh_command, get_authenticated_user, OSSService
     from ..services.github_api import set_saml_token_override, is_saml_org
     from ..services.oss_fork import get_fork_lock
@@ -19,7 +19,7 @@ try:
     from ..extensions import limiter
     from ..services.pipeline_logger import logger as plog, log_event, StepTimer
 except ImportError:
-    from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE
+    from config import PLATFORM_PREFIX, COPILOT_ASSIGNEE, MAX_REPO_SIZE_KB, MIN_CORE_REMAINING
     from services import run_gh_command, get_authenticated_user, OSSService
     from services.github_api import set_saml_token_override, is_saml_org
     from services.oss_fork import get_fork_lock
@@ -149,8 +149,7 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
             t.detail = "compute triggered (both dossier and brief missing)"
 
     # Preflight: repo size gate (large repos stress WSL memory during sync/configure)
-    # Threshold: 500MB compressed (GitHub reports size in KB)
-    MAX_REPO_SIZE_KB = 500_000
+    # Threshold: 500MB compressed (GitHub reports size in KB) — override via MAX_REPO_SIZE_KB env var
     if not is_self_owned:
         size_result = run_gh_command([
             "api", f"repos/{origin_owner}/{repo}", "--jq", ".size"
@@ -180,8 +179,7 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
                     "owner": my_user,
                 })
 
-    # Preflight: rate limit check (require at least 200 core REST calls remaining)
-    MIN_CORE_REMAINING = 200
+    # Preflight: rate limit check — override via MIN_CORE_REMAINING env var
     rl_result = run_gh_command(["api", "rate_limit", "--jq", ".resources.core.remaining"])
     if rl_result["success"]:
         try:

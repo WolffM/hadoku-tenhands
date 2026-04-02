@@ -3,8 +3,11 @@ Action routes - PR and issue operations (assign, approve, merge, etc.)
 """
 
 import json
+import logging
 
 from flask import request, jsonify
+
+logger = logging.getLogger(__name__)
 
 from . import bp
 
@@ -42,7 +45,9 @@ def api_assign_copilot():
     ])
 
     if result["success"]:
+        logger.info("Copilot assigned to %s/%s#%s", owner, repo, issue_number)
         return jsonify({"success": True, "message": f"Copilot assigned to issue #{issue_number}!"})
+    logger.warning("Failed to assign Copilot to %s/%s#%s: %s", owner, repo, issue_number, result.get("error"))
     return error_response(result.get("error"), "Failed to assign Copilot")
 
 
@@ -73,7 +78,9 @@ def api_approve_pr():
     ])
 
     if result["success"]:
+        logger.info("PR %s/%s#%s approved", owner, repo, pr_number)
         return jsonify({"success": True, "message": f"PR #{pr_number} approved!"})
+    logger.warning("Failed to approve PR %s/%s#%s: %s", owner, repo, pr_number, result.get("error"))
     return error_response(result.get("error"), "Operation failed")
 
 
@@ -102,7 +109,9 @@ def api_mark_pr_ready():
     ])
 
     if result["success"]:
+        logger.info("PR %s/%s#%s marked as ready", owner, repo, pr_number)
         return jsonify({"success": True, "message": f"PR #{pr_number} marked as ready!"})
+    logger.warning("Failed to mark PR %s/%s#%s as ready: %s", owner, repo, pr_number, result.get("error"))
     return error_response(result.get("error"), "Failed to mark PR as ready")
 
 
@@ -154,7 +163,9 @@ def api_merge_pr():
     ], timeout=60)
 
     if result["success"]:
+        logger.info("PR %s/%s#%s merged", owner, repo, pr_number)
         return jsonify({"success": True, "message": f"PR #{pr_number} merged!"})
+    logger.warning("Failed to merge PR %s/%s#%s: %s", owner, repo, pr_number, result.get("error"))
     return error_response(result.get("error"), "Operation failed")
 
 
