@@ -17,6 +17,9 @@ GITHUB_ACTIONS_BOT_EMAIL = "github-actions[bot]@users.noreply.github.com"
 # Branch naming
 CLEAN_BRANCH_PREFIX = "fix/"
 
+# Context building limits
+CONTRIBUTING_MD_MAX_CHARS = 3000
+
 # VibeCheck source repo — override with VIBECHECK_REPO env var (owner/repo format)
 VIBECHECK_REPO = os.environ.get("VIBECHECK_REPO", "WolffM/vibecheck")
 VIBECHECK_WORKFLOW_FILE = "vibecheck.yml"
