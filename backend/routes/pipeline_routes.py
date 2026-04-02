@@ -100,11 +100,11 @@ def _get_repo_prs_with_info(owner, repo):
 @cached_endpoint("global-workflow-runs")
 def api_global_workflow_runs():
     """Get recent workflow runs across all repositories."""
-    start_total = time.time()
+    start_total = time.monotonic()
     owner, repos, status_dict = get_repo_context()
 
     logger.debug("[PERF] Fetching workflow runs for %d repos in parallel...", min(len(repos), 15))
-    start = time.time()
+    start = time.monotonic()
 
     all_runs = []
 
@@ -130,11 +130,11 @@ def api_global_workflow_runs():
         for future in as_completed(futures):
             all_runs.extend(future.result())
 
-    logger.debug("[PERF] Fetched workflow runs in %.2fs", time.time() - start)
+    logger.debug("[PERF] Fetched workflow runs in %.2fs", time.monotonic() - start)
 
     all_runs.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
 
-    logger.debug("[PERF] Total global-workflow-runs: %.2fs", time.time() - start_total)
+    logger.debug("[PERF] Total global-workflow-runs: %.2fs", time.monotonic() - start_total)
 
     return {"success": True, "runs": all_runs[:50], "owner": owner}
 
@@ -174,7 +174,7 @@ def api_stage1_repos():
 @cached_endpoint("stage2-repos")
 def api_stage2_repos():
     """Get repos that have vibecheck installed with run info."""
-    start = time.time()
+    start = time.monotonic()
     owner, repos, status_dict = get_repo_context()
 
     vc_repos = [r for r in repos if status_dict.get(r["name"], False)]
@@ -188,7 +188,7 @@ def api_stage2_repos():
 
     result.sort(key=lambda x: (x["lastRun"] is None, -x["commitsSinceLastRun"]), reverse=True)
 
-    logger.debug("[PERF] stage2-repos: %.2fs", time.time() - start)
+    logger.debug("[PERF] stage2-repos: %.2fs", time.monotonic() - start)
     return {"success": True, "repos": result, "owner": owner}
 
 
@@ -196,7 +196,7 @@ def api_stage2_repos():
 @cached_endpoint("stage3-issues")
 def api_stage3_issues():
     """Get vibecheck issues across repos for Copilot assignment."""
-    start = time.time()
+    start = time.monotonic()
     owner, repos, status_dict = get_repo_context()
 
     vc_repos = [r for r in repos if status_dict.get(r["name"], False)]
@@ -252,7 +252,7 @@ def api_stage3_issues():
     # Sort by severity
     all_issues.sort(key=lambda i: get_severity_score(i))
 
-    logger.debug("[PERF] stage3-issues: %.2fs", time.time() - start)
+    logger.debug("[PERF] stage3-issues: %.2fs", time.monotonic() - start)
     return {
         "success": True,
         "issues": all_issues,
@@ -266,7 +266,7 @@ def api_stage3_issues():
 @cached_endpoint("stage4-prs")
 def api_stage4_prs():
     """Get open PRs across repos for review."""
-    start = time.time()
+    start = time.monotonic()
     owner, repos, _ = get_repo_context()
 
     all_prs = []
@@ -278,7 +278,7 @@ def api_stage4_prs():
 
     all_prs.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
 
-    logger.debug("[PERF] stage4-prs: %.2fs", time.time() - start)
+    logger.debug("[PERF] stage4-prs: %.2fs", time.monotonic() - start)
     return {"success": True, "prs": all_prs, "owner": owner}
 
 

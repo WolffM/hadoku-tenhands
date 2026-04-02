@@ -22,6 +22,7 @@ export default function App(props: VibeDispatchProps = {}) {
   const activeView = usePipelineStore(state => state.activeView)
   const owner = usePipelineStore(state => state.owner)
   const setOwner = usePipelineStore(state => state.setOwner)
+  const addLog = usePipelineStore(state => state.addLog)
 
   // Initialize owner from props or fetch from API
   useEffect(() => {
@@ -39,7 +40,10 @@ export default function App(props: VibeDispatchProps = {}) {
             setOwner(response.owner)
           }
         } catch (err) {
-          console.error('Failed to fetch owner:', err)
+          addLog(
+            `Failed to fetch owner: ${err instanceof Error ? err.message : String(err)}`,
+            'error'
+          )
         }
       }
     }

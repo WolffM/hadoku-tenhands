@@ -59,7 +59,7 @@ def _capture_fork_pr_comments(my_user, repo, pr_number, origin_slug, svc):
 
 @bp.route("/api/oss/advance-pipeline", methods=["POST"])
 def api_oss_advance_pipeline():
-    """Advance an assignment through the Stage 4 pipeline (4a -> 4b -> 4c).
+    """Advance an assignment through the Stage 4 pipeline (4a -> 4b -> 4c -> 4d -> retrospective_complete).
 
     Idempotent — each call moves the assignment forward at most one step.
     The frontend can poll this endpoint to drive the pipeline.

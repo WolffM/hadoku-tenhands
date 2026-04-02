@@ -106,15 +106,6 @@ export function StageDetails({ item }: StageDetailsProps) {
           >
             {assignLoading ? 'Assigning...' : 'Assign Copilot'}
           </button>
-          <button
-            className="action-btn action-btn-secondary"
-            onClick={() => {
-              // Could implement yolo mode here
-              addLog('Yolo mode not yet implemented', 'warning')
-            }}
-          >
-            Yolo (Skip Review)
-          </button>
         </div>
       </div>
     )

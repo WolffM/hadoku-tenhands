@@ -22,9 +22,9 @@ import os
 import re
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
+
+import requests
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -51,9 +51,10 @@ TRUNCATE_BODY = 500  # chars shown in non-full mode
 def _get(base_url: str, path: str) -> dict:
     url = f"{base_url}{URL_PREFIX}/api/oss{path}"
     try:
-        with urllib.request.urlopen(url, timeout=20) as resp:
-            return json.loads(resp.read())
-    except urllib.error.URLError as exc:
+        resp = requests.get(url, timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as exc:
         print(f"ERROR: could not reach backend at {url}\n  {exc}", file=sys.stderr)
         sys.exit(1)
 
