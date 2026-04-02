@@ -266,6 +266,33 @@ def api_oss_approve_fork_pr():
     return error_response(result.get("error"), "Failed to approve PR", my_user)
 
 
+def _run_sanitization(my_user, repo, squash_sha, pr_title, upstream_issue_number,
+                       copilot_branch, fork_issue_number, origin_slug, base_branch, svc):
+    """Extract squash commit, create a clean branch, delete Copilot's branch, close fork issue.
+
+    Returns (clean_branch, result_dict) where result_dict has a 'success' key.
+    Falls back to copilot_branch if squash_sha is missing or sanitization fails.
+    """
+    if not squash_sha:
+        return copilot_branch, {"skipped": True, "reason": "No squash SHA"}
+
+    title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
+    clean_branch = f"{CLEAN_BRANCH_PREFIX}{upstream_issue_number}-{title_slug}"
+    result = svc.create_clean_branch(
+        my_user, repo, squash_sha, clean_branch, pr_title,
+        origin_slug=origin_slug, base_branch=base_branch,
+    )
+
+    if result.get("success"):
+        if copilot_branch:
+            svc.delete_branch(my_user, repo, copilot_branch)
+        if fork_issue_number:
+            svc.close_fork_issue(my_user, repo, fork_issue_number)
+        return clean_branch, result
+
+    return copilot_branch, {**result, "warning": "Fallback to original branch"}
+
+
 def _check_remaining_pr_conflicts(my_user, repo, merged_pr_number):
     """After merging a PR, check if remaining open PRs now have merge conflicts."""
     result = run_gh_command([
@@ -347,91 +374,45 @@ def api_oss_merge_fork_pr():
         base_branch = pr_data.get("baseRefName", stored_default)
 
         # --- Stage 4.5: Clean & Prepare ---
-        # Rewrite the squash commit with user's identity, create a clean branch,
-        # delete the Copilot branch, and close the fork context issue.
-        sanitization_log = {}
-
-        # 4.5.1: Get the squash commit SHA from fork's default branch HEAD
+        # Get squash SHA, create clean branch, delete Copilot's branch, close fork issue.
         head_result = run_gh_command([
             "api", f"repos/{my_user}/{repo}/git/ref/heads/{base_branch}",
             "--jq", ".object.sha"
         ])
         squash_sha = head_result["output"].strip() if head_result["success"] else None
 
-        if squash_sha:
-            # 4.5.2: Generate clean branch name
-            title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
-            clean_branch = f"{CLEAN_BRANCH_PREFIX}{upstream_issue_number}-{title_slug}"
+        clean_branch, sanitization_log = _run_sanitization(
+            my_user, repo, squash_sha, pr_title, upstream_issue_number,
+            copilot_branch, fork_issue_number, origin_slug, base_branch, svc,
+        )
 
-            # 4.5.3: Create re-authored commit + clean branch (strip pipeline files)
-            clean_commit_msg = pr_title
-            clean_result = svc.create_clean_branch(
-                my_user, repo, squash_sha, clean_branch, clean_commit_msg,
-                origin_slug=origin_slug, base_branch=base_branch,
-            )
-            sanitization_log["create_clean_branch"] = clean_result
-
-            if clean_result.get("success"):
-                # 4.5.4: Delete Copilot's feature branch
-                if copilot_branch:
-                    del_result = svc.delete_branch(my_user, repo, copilot_branch)
-                    sanitization_log["delete_copilot_branch"] = {
-                        "branch": copilot_branch,
-                        "success": del_result.get("success", False),
-                    }
-
-                # 4.5.5: Close the fork context issue
-                if fork_issue_number:
-                    close_result = svc.close_fork_issue(my_user, repo, fork_issue_number)
-                    sanitization_log["close_fork_issue"] = {
-                        "issue": fork_issue_number,
-                        "success": close_result.get("success", False),
-                    }
-
-                # Save with CLEAN branch name
-                svc.save_ready_to_submit(
-                    origin_slug=origin_slug,
-                    repo=repo,
-                    branch=clean_branch,
-                    title=pr_title,
-                    base_branch=base_branch,
-                    issue_number=upstream_issue_number,
-                )
-
-                notify_fork_merged(
-                    origin_slug, upstream_issue_number, pr_title, clean_branch,
-                )
-
-                # Check remaining PRs for merge conflicts
-                conflict_warnings = _check_remaining_pr_conflicts(my_user, repo, pr_number)
-
-                return jsonify({
-                    "success": True,
-                    "message": f"PR #{pr_number} merged and sanitized!",
-                    "owner": my_user,
-                    "sanitization": sanitization_log,
-                    "clean_branch": clean_branch,
-                    "conflict_warnings": conflict_warnings,
-                })
-
-        # Fallback: sanitization failed or no squash SHA — save with original branch
         svc.save_ready_to_submit(
             origin_slug=origin_slug,
             repo=repo,
-            branch=copilot_branch,
+            branch=clean_branch,
             title=pr_title,
             base_branch=base_branch,
             issue_number=upstream_issue_number,
         )
+
+        if sanitization_log.get("success"):
+            notify_fork_merged(origin_slug, upstream_issue_number, pr_title, clean_branch)
+            msg = f"PR #{pr_number} merged and sanitized!"
+        else:
+            msg = f"PR #{pr_number} merged! (sanitization skipped)"
+
         conflict_warnings = _check_remaining_pr_conflicts(my_user, repo, pr_number)
-        return jsonify({
+        response = {
             "success": True,
-            "message": f"PR #{pr_number} merged! (sanitization skipped)",
+            "message": msg,
             "owner": my_user,
             "sanitization": sanitization_log,
-            "warning": "Could not sanitize — saved with original branch name",
+            "clean_branch": clean_branch,
             "conflict_warnings": conflict_warnings,
-        })
+        }
+        if not sanitization_log.get("success"):
+            response["warning"] = "Could not sanitize — saved with original branch name"
+        return jsonify(response)
 
     return error_response(result.get("error"), "Failed to merge PR", my_user)
 
@@ -575,26 +556,10 @@ def api_oss_signoff():
     ])
     squash_sha = head_result["output"].strip() if head_result["success"] else None
 
-    clean_branch = copilot_branch  # fallback
-    if squash_sha:
-        title_slug = re.sub(r"[^a-z0-9]+", "-", pr_title.lower()).strip("-")[:50]
-        clean_branch = f"{CLEAN_BRANCH_PREFIX}{upstream_issue_number}-{title_slug}"
-        clean_result = svc.create_clean_branch(
-            my_user, repo, squash_sha, clean_branch, pr_title,
-            origin_slug=origin_slug, base_branch=base_branch,
-        )
-        steps["sanitize"] = clean_result
-
-        if clean_result.get("success"):
-            if copilot_branch:
-                svc.delete_branch(my_user, repo, copilot_branch)
-            if fork_issue_number:
-                svc.close_fork_issue(my_user, repo, fork_issue_number)
-        else:
-            clean_branch = copilot_branch
-            steps["sanitize"]["warning"] = "Fallback to original branch"
-    else:
-        steps["sanitize"] = {"skipped": True, "reason": "No squash SHA"}
+    clean_branch, steps["sanitize"] = _run_sanitization(
+        my_user, repo, squash_sha, pr_title, upstream_issue_number,
+        copilot_branch, fork_issue_number, origin_slug, base_branch, svc,
+    )
 
     # --- Step 5: Create upstream PR ---
     body = format_upstream_pr_body(origin_slug, upstream_issue_number, pr_title, clean_branch)
