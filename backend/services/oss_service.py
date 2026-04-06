@@ -10,6 +10,7 @@ import os
 import re
 import json
 import logging
+import tempfile
 import requests
 
 from .cache import CACHE_DIR
@@ -64,37 +65,13 @@ _AUTOCLOSE_RE = re.compile(
 
 # ============ Private Helpers ============
 
-def _lock(f, exclusive=False):
-    """Cross-platform file locking (fcntl on Unix, msvcrt on Windows)."""
-    try:
-        import fcntl
-        fcntl.flock(f, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-    except ImportError:
-        import msvcrt
-        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if exclusive else msvcrt.LK_NBLCK, 1)
-
-
-def _unlock(f):
-    """Cross-platform file unlock."""
-    try:
-        import fcntl
-        fcntl.flock(f, fcntl.LOCK_UN)
-    except ImportError:
-        import msvcrt
-        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-
-
 def _load_json(filename):
     """Load a JSON file from the OSS data directory. Returns [] if missing."""
     path = os.path.join(OSS_DATA_DIR, filename)
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8") as f:
-                _lock(f)
-                try:
-                    return json.load(f)
-                finally:
-                    _unlock(f)
+                return json.load(f)
         except (OSError, ValueError) as e:
             logger.error("Failed to load %s: %s", path, e)
             return []
@@ -102,15 +79,17 @@ def _load_json(filename):
 
 
 def _save_json(filename, data):
-    """Save data as JSON to the OSS data directory."""
+    """Save data as JSON to the OSS data directory (atomic write)."""
     os.makedirs(OSS_DATA_DIR, exist_ok=True)
     path = os.path.join(OSS_DATA_DIR, filename)
-    with open(path, "w", encoding="utf-8") as f:
-        _lock(f, exclusive=True)
-        try:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        finally:
-            _unlock(f)
+        os.replace(tmp, path)
+    except Exception:
+        os.unlink(tmp)
+        raise
 
 
 def _call_aggregator(endpoint, method="GET", data=None, timeout=10):
