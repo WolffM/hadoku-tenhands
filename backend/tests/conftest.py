@@ -8,6 +8,18 @@ import pytest
 # Add the backend directory to sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import helpers.notifications as _notifications  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def suppress_discord(monkeypatch):
+    """Suppress real Discord webhook calls in all tests.
+
+    Tests in test_notifications.py that explicitly @patch DISCORD_WEBHOOK_URL
+    to a test value will override this — their decorator applies on top of it.
+    """
+    monkeypatch.setattr(_notifications, "DISCORD_WEBHOOK_URL", "")
+
 
 @pytest.fixture(autouse=True)
 def clean_data_dir(tmp_path, monkeypatch):
