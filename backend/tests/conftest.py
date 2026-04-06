@@ -13,12 +13,16 @@ import helpers.notifications as _notifications  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def suppress_discord(monkeypatch):
-    """Suppress real Discord webhook calls in all tests.
+    """Route Discord notifications to the test channel during test runs.
+
+    If DISCORD_TEST_WEBHOOK_URL is set in the environment, notifications fire
+    to the test channel. Otherwise they are suppressed entirely.
 
     Tests in test_notifications.py that explicitly @patch DISCORD_WEBHOOK_URL
-    to a test value will override this — their decorator applies on top of it.
+    to a specific value will override this — their decorator applies on top.
     """
-    monkeypatch.setattr(_notifications, "DISCORD_WEBHOOK_URL", "")
+    test_url = os.environ.get("DISCORD_TEST_WEBHOOK_URL", "")
+    monkeypatch.setattr(_notifications, "DISCORD_WEBHOOK_URL", test_url)
 
 
 @pytest.fixture(autouse=True)

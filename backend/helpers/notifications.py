@@ -13,6 +13,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+DISCORD_TEST_WEBHOOK_URL = os.environ.get("DISCORD_TEST_WEBHOOK_URL", "")
 
 # Colors for Discord embeds
 COLOR_SUCCESS = 0x2ECC71  # Green
@@ -136,8 +137,18 @@ def notify_upstream_merged(origin_slug, pr_url, title):
     )
 
 
+def notify_upstream_comment(origin_slug, pr_url, author, comment_body):
+    """Notify when a human comments on a submitted upstream PR."""
+    snippet = comment_body[:1000] + ("…" if len(comment_body) > 1000 else "")
+    send_discord_notification(
+        title="Upstream PR: New Comment",
+        description=f"**@{author}** on [{origin_slug}]({pr_url})\n\n{snippet}",
+        color=COLOR_INFO,
+    )
+
+
 def notify_upstream_feedback(origin_slug, pr_url, review_decision):
-    """Notify when a submitted PR receives actionable review feedback."""
+    """Notify when a submitted PR receives a formal review decision (changes requested)."""
     send_discord_notification(
         title="Upstream PR: Changes Requested",
         description=f"**{origin_slug}**",

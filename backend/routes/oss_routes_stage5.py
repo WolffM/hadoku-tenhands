@@ -20,7 +20,8 @@ try:
     from ..services.oss_state import save_session_artifact
     from ..services.pipeline_retrospective import fetch_pr_comments
     from ..helpers.oss_helpers import format_upstream_pr_body
-    from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
+    from ..helpers.bot_filter import filter_human_comments
+    from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted, notify_upstream_comment
     from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
     from ..extensions import limiter
 except ImportError:
@@ -28,7 +29,8 @@ except ImportError:
     from services.oss_state import save_session_artifact
     from services.pipeline_retrospective import fetch_pr_comments
     from helpers.oss_helpers import format_upstream_pr_body
-    from helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted
+    from helpers.bot_filter import filter_human_comments
+    from helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted, notify_upstream_comment
     from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
     from extensions import limiter
 
@@ -171,7 +173,8 @@ def _poll_single_pr(pr):
     labels = gh_data.get("labels", [])
     pr["labels"] = [lb.get("name", "") for lb in labels] if isinstance(labels, list) else []
 
-    # Capture all upstream PR comments for retrospective (silent on failure)
+    # Fetch comments: used for both retrospective archiving and new-comment detection
+    all_comments = []
     try:
         all_comments = fetch_pr_comments(f"{repo_owner}/{repo_name}", int(pr_number))
         issue_num = pr.get("issue_number")
@@ -183,6 +186,21 @@ def _poll_single_pr(pr):
             )
     except Exception as e:  # noqa: BLE001
         logger.debug("Upstream PR comment capture failed for %s#%s: %s", f"{repo_owner}/{repo_name}", pr_number, e)
+
+    # Detect new human comments and notify.
+    # Baseline: last_notified_comment_at (updated each poll), falling back to
+    # submitted_at so we don't spam comments that existed before we started tracking.
+    last_seen = pr.get("last_notified_comment_at") or pr.get("submitted_at", "")
+    human_comments = filter_human_comments(all_comments)
+    new_comments = [c for c in human_comments if c.get("created_at", "") > last_seen]
+    for comment in new_comments:
+        notify_upstream_comment(
+            pr.get("origin_slug", ""), pr_url,
+            comment.get("author", "unknown"),
+            comment.get("body", ""),
+        )
+    if human_comments:
+        pr["last_notified_comment_at"] = max(c.get("created_at", "") for c in human_comments)
 
     # Trigger notifications on state changes
     if old_state == "open" and pr["state"] == "merged":
