@@ -7,7 +7,12 @@ vibedispatch is the **orchestration layer** in a three-repo pipeline:
 - **hadoku-aggregator** — reads KV, computes CVS scores, builds dossiers → serves API at `/recon/...`
 - **vibedispatch** (this repo) — calls aggregator API, orchestrates: forking, context issues, Copilot assignment, PR review, upstream submission
 
-vibedispatch does NOT own: scoring (CVS), sentiment analysis, reaction analysis, dossiers, repo health, issue briefs — these belong to hadoku-aggregator. The only scoring code here is the minimal fallback in `backend/helpers/oss_helpers.py` for graceful degradation — do not extend it.
+## Ownership Boundaries
+
+- Does NOT compute CVS scores, repo health, sentiment, reaction analysis, dossiers, or issue briefs → `hadoku-aggregator`
+- Does NOT scrape external APIs or write to Cloudflare KV → `hadoku-scrape`
+- Does NOT host the UI or manage worker deployment → `hadoku_site`
+- Minimal scoring fallback in `backend/helpers/oss_helpers.py` for graceful degradation — do not extend
 
 ## Aggregator API Contract
 
@@ -39,17 +44,13 @@ This has leaked in 3 consecutive runs. If cross-references reach upstream, the s
 
 ## Copilot Agent Behavior
 
-- Agents create **draft PRs** and never undraft them
-- Work is done when **commits appear** on the branch — don't wait for PR status changes
-- PRs authored by `app/copilot-swe-agent`
+- Agents create **draft PRs** and never undraft. Work done when **commits appear** on branch — don't wait for PR status. Author: `app/copilot-swe-agent`.
 
 ## Development
 
 - **Production:** pm2 service managed by hadoku_site. Deploy by pushing to `main` (triggers deploy.yml → hadoku_site dispatch). Never start manually in prod.
-- **Local backend:** `cd backend && python3 app.py` (loads `.env` from project root, port 5024, routes under `/dispatch`)
-- **Local frontend:** `cd frontend && pnpm dev` (Vite on port 5184, proxies to backend)
-- **Tests:** `cd backend && python3 -m pytest tests/ -v` (use `python3` on WSL)
-- **Notifications:** `DISCORD_WEBHOOK_URL` (prod), `DISCORD_TEST_WEBHOOK_URL` (test channel). Tests route to test channel via autouse fixture.
+- **Local:** backend `python3 app.py` (port 5024, `/dispatch`); frontend `pnpm dev` (port 5184, proxies to backend)
+- **Tests:** `cd backend && python3 -m pytest tests/ -v`. Discord: `DISCORD_WEBHOOK_URL` (prod), `DISCORD_TEST_WEBHOOK_URL` (test). Tests auto-route to test channel.
 
 ## hadoku-site Contract
 
@@ -57,9 +58,3 @@ This has leaked in 3 consecutive runs. If cross-references reach upstream, the s
 - Exports: `mount(el, props)`, `unmount(el)` from `frontend/src/entry.tsx`
 - Triggers `packages_updated` dispatch to hadoku_site on publish
 - Backend: Flask on port 5024 behind `/dispatch` prefix, deployed via `redeploy_service` dispatch
-
-## Rules
-
-- Never add scoring, sentiment, or reaction analysis — those belong in hadoku-aggregator.
-- If a feature needs new data analysis, determine which upstream repo should own it.
-- Slug format: `owner/repo` internally, `owner-repo` for aggregator API calls.
