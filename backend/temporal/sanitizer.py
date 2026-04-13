@@ -1,62 +1,32 @@
-"""Commit-rewriter sanitizer pipeline.
+"""Two-layer upstream-ref sanitizer.
 
-Broadens the existing backend.services.oss_firewall._sanitize_upstream_refs
-to operate on git history (commit messages, author info), not just the
-final PR body. Runs at the `submittable` state transition, before the
-clean branch is pushed to the public WolffM/{repo} fork.
+Replaces the jade-hare-era backend.services.oss_firewall._sanitize_upstream_refs
+with a sanitizer that operates at both ends of the pipeline:
 
-Catches:
-- URLs to upstream issues in commit messages (markitdown class)
-- Short refs `owner/repo#N` in commit messages
-- Keyword refs `Fixes #N`, `Closes #N` (allowed only in the final PR body
-  via render_pr_body, never in commits)
-- Author identity that links back to Copilot (we re-author as WolffM)
+1. scrub_brief(brief, upstream_slug, issue_number) — input-side
+   Strips real upstream URLs, slash-form short refs, bare upstream slugs,
+   and identifying issue numbers from the aggregator brief BEFORE it is
+   handed to the agent. Runs at the `eligible → forked` transition.
+   Output: scrubbed brief text + scrub_report (list of substitutions).
 
-See docs/crimson-kitty/quarantine.md for the full pipeline.
+2. scan_outputs(pr_title, pr_body, commit_messages,
+                upstream_slug, issue_number) — output-side
+   Scans the proposed upstream PR title, body, and every commit message for
+   any surviving real upstream ref. Runs at the `submittable → submitted`
+   transition. Raises SanitizerError on any leak — blocks the upstream PR
+   open. Hallucinated refs (numbers/slugs that don't match the recorded
+   upstream identity) are tolerated as cosmetic noise.
+
+See docs/crimson-kitty/cross-ref-isolation.md for the full model.
 
 Reuses:
-    backend.services.oss_firewall._sanitize_upstream_refs (the regex set)
-    backend.services.github_api.run_gh_command
-    git filter-branch via subprocess
+    backend.services.oss_firewall._sanitize_upstream_refs (the regex set,
+        broadened for the two-layer model)
+    backend.temporal.evidence.scanner (the leak-detection primitives)
 
-Not yet implemented. Pseudocode:
-
-    def materialize_to_public_fork(issue, evidence) -> str:
-        '''Returns the public branch name pushed to WolffM/{repo}.'''
-        quarantine_url = evidence.read_text("02-forked/quarantine_url")
-        qbranch        = evidence.read_text("02-forked/branch_name")
-        upstream       = issue.upstream_slug
-        issue_num      = issue.upstream_number
-
-        with temp_clone(quarantine_url) as repo:
-            repo.checkout(qbranch)
-
-            # 1. Rewrite every commit message via filter-branch.
-            repo.git("filter-branch", "--msg-filter",
-                     _msg_sanitize_filter(upstream, issue_num))
-
-            # 2. Re-author as WolffM, drop Copilot identity.
-            repo.git("filter-branch", "-f", "--env-filter",
-                     _reauthor_filter("WolffM"))
-
-            # 3. Optionally squash to a single commit.
-            if should_squash(repo, evidence):
-                repo.git("rebase", "-i", "base", "--autosquash")
-
-            # 4. Defense in depth: scan the rewritten history.
-            for sha in repo.git("rev-list", "HEAD").splitlines():
-                msg = repo.git("show", "--no-patch", "--format=%B", sha)
-                if has_upstream_ref(msg, upstream, issue_num):
-                    raise SanitizerError(
-                        f"upstream ref survived rewrite in commit {sha}"
-                    )
-
-            # 5. Push to public fork under a clean, descriptive name.
-            public_branch = generate_clean_branch_name(issue, evidence)
-            repo.add_remote("public",
-                            f"git@github.com:WolffM/{upstream.split('/')[1]}.git")
-            repo.git("push", "public", f"HEAD:{public_branch}",
-                     "--force-with-lease")
-
-        return public_branch
+Not yet implemented. Stub for design review — Phase 1B.1.
 """
+
+
+class SanitizerError(Exception):
+    """Raised when scan_outputs finds any real upstream ref in outbound text."""

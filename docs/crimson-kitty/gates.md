@@ -90,27 +90,42 @@ def eligibility(issue, evidence) -> GateResult:
     return Pass()
 ```
 
-### `quarantine_isolation`
+### `input_context_clean`
 
 **Kind**: mechanical
 **Runs after**: `forked`
-**Kills**: cross-reference leaks from fork branch names or initial commits
-(mermaid#4099 class).
+**Kills**: the input-side leak class — any case where the agent's brief
+still contains a real upstream URL/slug/issue number after the scrubber
+runs (mermaid#4099 class — Copilot was given the upstream number and
+echoed it).
 
 ```python
 @gate(after=State.FORKED, kind="mechanical")
-def quarantine_isolation(issue, evidence) -> GateResult:
-    branch  = evidence.read_text("02-forked/branch_name").strip()
-    qurl    = evidence.read_text("02-forked/quarantine_url").strip()
+def input_context_clean(issue, evidence) -> GateResult:
+    brief = evidence.read_text("02-forked/scrubbed_brief.md")
 
-    if not qurl.startswith("https://github.com/WolffM-temporal/"):
-        return Fail(f"fork is not in WolffM-temporal: {qurl}")
-    if str(issue.upstream_number) in branch:
-        return Fail(f"branch name leaks issue number: {branch}")
-    if not _is_hash_branch(branch):
-        return Fail(f"branch name is not hashed: {branch}")
+    upstream  = issue.upstream_slug          # e.g. "microsoft/markitdown"
+    issue_num = str(issue.upstream_number)   # e.g. "183"
+
+    leaks = []
+    leaks += scan_for_url(brief, upstream)
+    leaks += scan_for_short_ref(brief, upstream)
+    leaks += scan_for_keyword_ref(brief, issue_num)
+    if upstream in brief:
+        leaks.append(f"bare upstream slug present: {upstream}")
+
+    if leaks:
+        return Fail(
+            f"scrubbed brief still contains upstream refs: {leaks}",
+            evidence="02-forked/scrubbed_brief.md",
+        )
     return Pass()
 ```
+
+The branch name is not checked here — branches are operator-controlled and
+descriptive (`fix-blank-cells-xlsx`). Branch-level leaks are caught by the
+output sanitizer at the `submittable → submitted` transition along with
+title/body/commit refs.
 
 ### `environment_works`
 
@@ -392,7 +407,7 @@ paragraph of reasoning:
 
 | jade-hare bug class | Kills it |
 |---|---|
-| Cross-reference leaks (markitdown, mermaid, hoppscotch) | `no_upstream_refs` (mechanical) + `quarantine_isolation` (mechanical, defense in depth) |
+| Cross-reference leaks (markitdown, mermaid, hoppscotch) | `input_context_clean` (mechanical, primary — agent never sees the real ref) + `no_upstream_refs` (mechanical, defense in depth at submission) |
 | Empty PRs (≥6 confirmed) | `diff_non_empty` (mechanical) |
 | AI-slop callouts (5 PRs) | `submission_judge` (judge) + `pr_template_compliance` (mechanical) + `relevance` (judge) |
 | Bucket A: never-started (10 issues) | `environment_works` (mechanical) + better failure surfacing |
@@ -425,6 +440,6 @@ After the F1 rebalance:
 
 | Kind | Count | Gates |
 |---|---|---|
-| mechanical | 9 | `eligibility`, `quarantine_isolation`, `environment_works`, `repro_evidence_present`, `diff_non_empty`, `verified_evidence_present`, `remediation_complete`, `no_upstream_refs`, `pr_template_compliance` |
+| mechanical | 9 | `eligibility`, `input_context_clean`, `environment_works`, `repro_evidence_present`, `diff_non_empty`, `verified_evidence_present`, `remediation_complete`, `no_upstream_refs`, `pr_template_compliance` |
 | judge | 2 | `relevance` (after fixed), `submission_judge` (after submittable) |
 | human | 0 | (reserved) |

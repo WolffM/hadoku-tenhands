@@ -52,14 +52,19 @@ candidate ──► eligible ──► forked ──► environment_ready ──
 already-claimed issues, or issues without a fixable scope.
 
 ### `forked`
-**Entry**: Quarantine fork created in `WolffM-temporal/{repo-hash}`.
+**Entry**: Fork ensured at `WolffM/{repo}` (created on first use via
+`gh repo fork`, reused otherwise) AND the issue brief has been scrubbed of
+all real upstream refs.
 **Evidence required**:
-- `forked/quarantine_url` — `WolffM-temporal/...`
-- `forked/clone_log.txt`
-- `forked/branch_name` — hashed, no issue ref
+- `forked/fork_url` — `https://github.com/WolffM/{repo}`
+- `forked/branch_name` — operator-readable, e.g. `fix-blank-cells-xlsx`
+- `forked/scrubbed_brief.md` — the brief that will be handed to the agent
+- `forked/scrub_report.json` — `{stripped: [{pattern, span, replacement}, ...]}`
 **Next**: `environment_ready` | `aborted`
-**Notes**: Public `WolffM/{repo}` is **not** touched at this stage. The fork
-exists in the quarantine org only.
+**Notes**: This is where input-context isolation happens. The agent never
+sees `forked/` evidence directly — it receives `scrubbed_brief.md` as its
+assignment context. The `input_context_clean` gate scans the scrubbed brief
+for any real upstream ref that survived; survival aborts the workflow.
 
 ### `environment_ready`
 **Entry**: Repo cloneable, dependencies install, dev server starts (where
@@ -140,11 +145,11 @@ both documented in [gates.md](gates.md).
 - `submittable/pr_body.md` — rendered against upstream's PULL_REQUEST_TEMPLATE
 - `submittable/sanitizer_scan.json` — confirmed no upstream refs
 - `submittable/template_compliance.json` — confirmed template fields filled
-- `submittable/public_fork_url` — `WolffM/{repo}` (created here, not earlier)
 **Next**: `submitted` | `aborted`
-**Notes**: This is where we cross the line from quarantine to public. The
-sanitizer-rewritten branch gets pushed to the public fork, and only then do
-we open the upstream PR.
+**Notes**: The fork branch already lives at `WolffM/{repo}` from the
+`forked` state — submission opens the upstream PR pointing at it. The
+`no_upstream_refs` gate runs the output sanitizer on title, body, and
+commit messages here; any real upstream ref blocks the submission.
 
 ### `submitted`
 **Entry**: Upstream PR opened.
@@ -198,7 +203,7 @@ to the next state (or aborts).
 |---|---|---|---|
 | `candidate` | `eligible` | activity: `check_eligibility` | `eligibility` |
 | `candidate` | `aborted` | gate: `eligibility` fail | — |
-| `eligible` | `forked` | activity: `fork_to_quarantine` | `quarantine_isolation` |
+| `eligible` | `forked` | activity: `fork_and_scrub_brief` | `input_context_clean` |
 | `forked` | `environment_ready` | activity: `setup_environment` | `environment_works` |
 | `environment_ready` | `reproduced` | activity: `agent_reproduce` | `repro_evidence_present` |
 | `reproduced` | `fixed` | activity: `agent_fix` | `diff_non_empty` + `relevance` |
@@ -226,9 +231,10 @@ state/
         contributing_check.json
         decision.json
       02-forked/
-        quarantine_url
-        clone_log.txt
+        fork_url
         branch_name
+        scrubbed_brief.md
+        scrub_report.json
       03-environment/
         install_log.txt
         dev_server_log.txt
@@ -255,7 +261,6 @@ state/
         pr_body.md
         sanitizer_scan.json
         template_compliance.json
-        public_fork_url
       10-submitted/
         upstream_pr_url
         upstream_pr_number

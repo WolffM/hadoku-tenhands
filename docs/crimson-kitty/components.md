@@ -37,7 +37,7 @@ under Temporal.
 | `services/oss_state.py` | 294 | Evidence store under `state/{batch}/{issue}/` + Temporal's PostgreSQL for workflow state |
 | `services/dispatchers.py` | 753 | Per-stage Temporal activities (`activities/agent_assign.py`, `activities/agent_poll.py`, etc.) |
 | `services/oss_service.py` | 357 | Thin facade for legacy routes; new pipeline does not use it |
-| `services/oss_fork.py` | 789 | Split: `services/quarantine_fork.py` (new, for `WolffM-temporal` ops) + activities for public fork materialization |
+| `services/oss_fork.py` | 789 | Replaced by `temporal/activities/fork.py` — single layer, since there's no quarantine boundary. Wraps `gh repo fork` + branch creation against the existing `WolffM/{repo}` namespace. |
 | `services/oss_context.py` | 247 | Folded into `activities/build_context.py` |
 | `services/pipeline_context_builders.py` | 131 | Folded into `activities/build_review_context.py` and `activities/build_remediation_context.py` |
 
@@ -53,7 +53,7 @@ New modules introduced by crimson-kitty.
 | `temporal/workflows/issue_workflow.py` | `IssueWorkflow` — the per-issue state machine |
 | `temporal/workflows/batch_workflow.py` | `BatchWorkflow` — fans out to many `IssueWorkflow`s |
 | `temporal/activities/eligibility.py` | `check_eligibility`, `fetch_dossier`, `fetch_issue_brief`, `scan_contributing_md` |
-| `temporal/activities/quarantine.py` | `create_quarantine_repo`, `clone_quarantine`, `delete_quarantine` |
+| `temporal/activities/fork.py` | `ensure_fork`, `create_branch`, `scrub_brief` (writes `02-forked/scrubbed_brief.md` + `scrub_report.json`) |
 | `temporal/activities/environment.py` | `setup_environment`, `start_dev_server`, `health_check` |
 | `temporal/activities/agent.py` | `assign_copilot`, `poll_copilot`, `harvest_copilot_result` (uses Agent adapter) |
 | `temporal/activities/repro.py` | `request_repro`, `validate_repro_artifacts` |
@@ -66,7 +66,7 @@ New modules introduced by crimson-kitty.
 | `temporal/activities/inbox.py` | `enqueue_for_human_review`, `await_human_decision` |
 | `temporal/gates/__init__.py` | Gate registry decorator and runner |
 | `temporal/gates/eligibility.py` | `eligibility` gate |
-| `temporal/gates/quarantine_isolation.py` | `quarantine_isolation` gate |
+| `temporal/gates/input_context_clean.py` | `input_context_clean` gate — scans the scrubbed brief for any surviving real upstream ref |
 | `temporal/gates/environment.py` | `environment_works` gate |
 | `temporal/gates/repro.py` | `repro_evidence_present` gate (mechanical only — judge-based `repro_quality` was dropped per F1 in favor of stronger structural checks) |
 | `temporal/gates/fix.py` | `diff_non_empty`, `relevance` gates |
@@ -76,7 +76,7 @@ New modules introduced by crimson-kitty.
 | `temporal/evidence/__init__.py` | `EvidenceStore` class, file/dir helpers, JSONL append helpers |
 | `temporal/evidence/store.py` | `EvidenceStore` implementation |
 | `temporal/evidence/scanner.py` | `scan_for_url`, `scan_for_short_ref`, `scan_for_keyword_ref`, `scan_commit_messages` |
-| `temporal/sanitizer.py` | The commit-rewriter pipeline — broadened from `oss_firewall._sanitize_upstream_refs` |
+| `temporal/sanitizer.py` | Two-layer scrubber: (1) `scrub_brief()` strips upstream URL/slug/issue-number from the agent's input brief; (2) `scan_outputs()` runs at submission against PR title/body/commits and blocks any real upstream ref. Broadened from `oss_firewall._sanitize_upstream_refs`. |
 | `temporal/agents/__init__.py` | `Agent` protocol |
 | `temporal/agents/copilot.py` | `CopilotAgent` implementation |
 | `temporal/agents/noop.py` | `NoopAgent` for tests |

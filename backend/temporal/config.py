@@ -10,9 +10,9 @@ Env vars:
     TEMPORAL_NAMESPACE         — Temporal namespace (default: crimson-kitty)
     TEMPORAL_TASK_QUEUE        — task queue for the worker
                                  (default: crimson-kitty-tq)
-    TEMPORAL_QUARANTINE_PAT    — GitHub PAT scoped to WolffM-temporal org
-    TEMPORAL_JUDGE_API_KEY     — Anthropic API key for judge gates
-                                 (Q5 — TBD)
+    (No new GitHub PAT — pipeline reuses the existing gh user token plus
+    SAML_ORG_TOKEN routing in services/github_api.py. See
+    docs/crimson-kitty/cross-ref-isolation.md.)
 
 Not yet implemented. Stub for design review.
 """
@@ -26,8 +26,6 @@ class TemporalConfig:
     host: str
     namespace: str
     task_queue: str
-    quarantine_pat: str | None
-    judge_api_key: str | None
 
 
 def load_config() -> TemporalConfig:
@@ -35,6 +33,4 @@ def load_config() -> TemporalConfig:
         host=os.environ.get("TEMPORAL_HOST", "localhost:7233"),
         namespace=os.environ.get("TEMPORAL_NAMESPACE", "crimson-kitty"),
         task_queue=os.environ.get("TEMPORAL_TASK_QUEUE", "crimson-kitty-tq"),
-        quarantine_pat=os.environ.get("TEMPORAL_QUARANTINE_PAT"),
-        judge_api_key=os.environ.get("TEMPORAL_JUDGE_API_KEY"),
     )

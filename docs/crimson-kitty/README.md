@@ -17,7 +17,7 @@ callouts, 49% never reached upstream).
 | # | Decision | Date |
 |---|---|---|
 | 1 | Workflow engine: **Temporal** (self-hosted) | 2026-04-13 |
-| 2 | Quarantine GitHub org: **`WolffM-temporal`** | 2026-04-13 |
+| 2 | Cross-ref isolation: **input-context scrubbing** — strip upstream URL/slug/number from the brief before the agent sees it. Agent works directly on existing `WolffM/{repo}` forks. (Supersedes earlier "quarantine org" decision, 2026-04-13.) | 2026-04-13 |
 | 3 | Agent for v1: **Copilot SWE** via a modular `Agent` adapter (cost optimization) | 2026-04-13 |
 | 4 | Operator UX: **inbox model** — easy issues flow through, blocked issues queue | 2026-04-13 |
 | 5 | Coexistence: **new pipeline tab** in the UI alongside vibecheck and oss-contribution; old pipelines stay forever (archival, no cutover required) | 2026-04-13 |
@@ -27,7 +27,7 @@ callouts, 49% never reached upstream).
 | 9 | Temporal hosting: **same WSL host, Docker Compose, pm2-managed via mgmt-api** (no unmanaged daemons) | 2026-04-13 |
 | 10 | Aggregator endpoints: **add new scrapes to hadoku-aggregator** (CONTRIBUTING, PR template, issue templates, codeowners, ai labels) | 2026-04-13 |
 | 11 | LLM judge: **spawn local `claude` CLI subprocess** (uses existing Claude Max subscription, no API key required) | 2026-04-13 |
-| 12 | Quarantine PAT: **stored in `.env`** as `TEMPORAL_QUARANTINE_PAT`, hadoku_site manages prod secret injection | 2026-04-13 |
+| 12 | ~~Quarantine PAT~~ — **WITHDRAWN**: no new PAT needed. Pipeline uses the existing `gh` user token + `SAML_ORG_TOKEN` routing in `services/github_api.py`. (Superseded when decision #2 was revised, 2026-04-13.) | 2026-04-13 |
 | 13 | retro_report: **separate tool per pipeline** (`retro_report.py` for legacy, `temporal_retro_report.py` for crimson-kitty); RetroView UI gets tabs | 2026-04-13 |
 | 14 | Smoke test: **first batch dispatches against your own repos** before going to external upstreams | 2026-04-13 |
 | 15 | Eligibility failure: **no auto-retry** — first failure escalates to inbox | 2026-04-13 |
@@ -40,7 +40,7 @@ callouts, 49% never reached upstream).
 | [architecture.md](architecture.md) | Five principles, Temporal rationale, system diagram |
 | [state-machine.md](state-machine.md) | Issue states, transitions, evidence requirements per state |
 | [gates.md](gates.md) | Gate registry; each jade-hare bug class mapped to its killing gate |
-| [quarantine.md](quarantine.md) | `WolffM-temporal` org, fork model, sanitizer pipeline |
+| [cross-ref-isolation.md](cross-ref-isolation.md) | Input-context scrubbing model, output sanitizer, leak vector mapping |
 | [components.md](components.md) | Reuse map across vibedispatch, hadoku-aggregator, hadoku-scrape, hadoku-site |
 | [pipeline-config.md](pipeline-config.md) | How crimson-kitty plugs into the existing pipeline-select UI |
 | [phase-1-plan.md](phase-1-plan.md) | Ordered build plan with exit criteria per phase |
@@ -54,6 +54,6 @@ callouts, 49% never reached upstream).
 - ✓ Frontend `temporal/` components scaffolded
 - ✓ All 10 original open questions resolved
 - ⏳ 5 follow-up questions outstanding (F1-F5 in [open-questions.md](open-questions.md))
-- ⏳ Phase 0 prereqs (org creation, PAT, fork cleanup, aggregator endpoints) — see [phase-1-plan.md](phase-1-plan.md#phase-0--prerequisites-this-week-before-any-new-code-lands)
+- ⏳ Phase 0 prereqs (legacy fork cleanup, aggregator endpoint deploy, claude CLI on prod) — see [phase-1-plan.md](phase-1-plan.md#phase-0--prerequisites)
 
 Next: answer F1-F4, then begin Phase 1.

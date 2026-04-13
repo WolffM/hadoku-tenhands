@@ -71,20 +71,24 @@ Today we trust Copilot's output. In jade-hare, that trust failed:
 - We trusted the diff would be on-topic (markitdown got unrelated import
   cleanup mixed in)
 
-The new design assumes the agent produces dirty output. Every artifact gets
-sanitized and validated *before* it reaches anything GitHub indexes. Concretely:
+The new design assumes the agent produces dirty output AND assumes the agent
+echoes whatever it was shown. Both ends of the pipeline get sanitized:
 
-- Copilot pushes to **quarantine** repos in `WolffM-temporal` (private,
-  separate org from `WolffM`)
-- Branch names are hashed, never `fix-issue-1234`
-- Commit messages and PR titles are rewritten via `git commit-tree` before
-  being pushed to the public `WolffM/{repo}` fork
-- The public fork is only created/updated at the very end, after all gates
-  have passed
-- The upstream PR is opened from the public fork only after `no_upstream_refs`
-  gate passes
+- **Input scrubbing** (primary): the issue brief is stripped of every real
+  upstream URL, slash-form short ref, slug, and identifying issue number
+  *before* it's passed to Copilot. The agent fixes the bug without knowing
+  the upstream issue identity, so it cannot echo what it was never given.
+- **Output sanitizer at submission** (defense in depth): the PR title, PR
+  body, and all commit messages are scanned for real upstream refs at the
+  `submittable → submitted` transition. Any real ref blocks the upstream
+  PR open. Hallucinated refs (numbers the agent invented that don't match
+  a real upstream issue) are tolerated as cosmetic noise.
+- The agent's branches live directly on the existing `WolffM/{repo}` forks.
+  No quarantine org, no PAT separation, no commit rewriting.
+- The upstream PR is opened from the existing fork only after
+  `no_upstream_refs` gate passes.
 
-See [quarantine.md](quarantine.md).
+See [cross-ref-isolation.md](cross-ref-isolation.md).
 
 ### 5. Throughput is the wrong metric — confidence is
 
@@ -167,7 +171,7 @@ Self-hosted; no Temporal Cloud bill.
 │                  │    │  │   - BatchWorkflow              │   │
 │                  │    │  │  Activities:                   │   │
 │                  │    │  │   - fetch_dossier              │   │
-│                  │    │  │   - fork_to_quarantine         │   │
+│                  │    │  │   - fork_and_scrub_brief       │   │
 │                  │    │  │   - assign_copilot             │   │
 │                  │    │  │   - poll_copilot               │   │
 │                  │    │  │   - run_sanitizer              │   │

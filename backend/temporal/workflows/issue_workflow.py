@@ -14,9 +14,9 @@ Not yet implemented. Pseudocode:
     from temporalio.common import RetryPolicy
 
     from ..activities import (
-        check_eligibility, fork_to_quarantine, setup_environment,
+        check_eligibility, fork_and_scrub_brief, setup_environment,
         agent_reproduce, agent_fix, agent_verify, run_review,
-        agent_remediate, materialize_to_public_fork, submit_upstream_pr,
+        agent_remediate, submit_upstream_pr,
     )
     from ..gates import run_gates
     from ..evidence import EvidenceStore
@@ -32,7 +32,7 @@ Not yet implemented. Pseudocode:
             ev = EvidenceStore(issue_ref)
 
             await self._transition("eligible", check_eligibility, ev, issue_ref)
-            await self._transition("forked",   fork_to_quarantine, ev, issue_ref)
+            await self._transition("forked",   fork_and_scrub_brief, ev, issue_ref)
             await self._transition("environment_ready", setup_environment, ev, issue_ref)
             await self._transition("reproduced", agent_reproduce, ev, issue_ref)
             await self._transition("fixed",      agent_fix, ev, issue_ref)
@@ -40,8 +40,7 @@ Not yet implemented. Pseudocode:
             await self._transition("reviewed",   run_review, ev, issue_ref)
             if self._has_blockers(ev):
                 await self._transition("remediated", agent_remediate, ev, issue_ref)
-            await self._transition("submittable", materialize_to_public_fork, ev, issue_ref)
-            await self._transition("submitted",   submit_upstream_pr, ev, issue_ref)
+            await self._transition("submitted",  submit_upstream_pr, ev, issue_ref)
 
             return await self._watch_until_terminal(ev, issue_ref)
 

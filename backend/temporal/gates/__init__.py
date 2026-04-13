@@ -43,7 +43,7 @@ Pseudocode:
 
 The actual gate implementations live in sibling modules:
     eligibility.py
-    quarantine_isolation.py
+    input_context_clean.py
     environment.py
     repro.py
     fix.py
