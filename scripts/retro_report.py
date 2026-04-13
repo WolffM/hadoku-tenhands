@@ -150,6 +150,26 @@ def _truncate(text: str | None, limit: int = TRUNCATE_BODY) -> tuple[str, bool]:
     return text[:limit].rstrip() + " …", True
 
 
+def _extract_rule(msg: str) -> str:
+    """Extract the rule code from a SA annotation message.
+
+    Messages typically look like:
+      "path/to/file.py:119:5: F601 Dictionary key literal ..."
+      "path/to/file.js:42: prefer-const Use const ..."
+    The first space-separated token AFTER the path:line:col: prefix is the rule.
+    """
+    if not msg:
+        return "?"
+    # Strip leading "path:line:col:" or "path:line:" prefix(es).
+    rest = msg
+    while ":" in rest.split(" ", 1)[0]:
+        head, _, tail = rest.partition(": ")
+        if not tail:
+            break
+        rest = tail
+    return rest.split()[0] if rest else "?"
+
+
 def _stage_label(assignment: dict, upstream_pr: dict | None) -> str:
     if upstream_pr:
         state = upstream_pr.get("state", "")
@@ -299,19 +319,46 @@ def print_pr_report(issue: dict, full: bool = False) -> None:
                     print(f"    {preview}")
                 print()
 
+    # ── Cross-Reference Leaks ─────────────────────────────────────────────────
+    mentions = retro.get("upstream_issue_mentions") or []
+    if mentions:
+        print(_hr("Cross-Reference Leaks"))
+        for m in mentions:
+            actor = m.get("actor", "?")
+            ts = _fmt_ts(m.get("created_at"))[:10]
+            src_url = m.get("source_url", "?")
+            src_title = m.get("source_title", "")
+            src_type = m.get("source_type", "?")
+            print(f"  ✗ by @{actor} on {ts} via {src_type}")
+            print(f"    {src_url}")
+            if src_title:
+                print(f"    title: \"{src_title[:90]}\"")
+        print()
+
     # ── SA Findings ───────────────────────────────────────────────────────────
     print(_hr("SA Findings"))
+    job_lines = []
+    for job in sa.get("jobs", []):
+        name = job.get("name", "?")
+        conclusion = job.get("conclusion", "?")
+        ann_count = len(job.get("annotations", []))
+        job_lines.append(f"  {name}: {conclusion}" + (f"  ({ann_count} findings)" if ann_count else ""))
+    if job_lines:
+        for line in job_lines:
+            print(line)
     if not all_annotations:
-        conclusion = sa.get("conclusion", "")
-        print(f"  (none{' — ' + conclusion if conclusion else ''})")
+        if not job_lines:
+            print("  (no SA jobs)")
     else:
+        print()
         for ann in all_annotations:
-            level = ann.get("annotation_level", "").upper() or "NOTE"
+            level = (ann.get("level") or ann.get("annotation_level") or "note").upper()
             path = ann.get("path", "")
-            line_no = ann.get("start_line") or ann.get("end_line") or ""
+            line_no = ann.get("line") or ann.get("start_line") or ann.get("end_line") or ""
             msg = ann.get("message", "").replace("\n", " ")
+            rule = _extract_rule(msg)
             loc = f"{path}:{line_no}" if line_no else path
-            print(f"  {level:<10}  {loc:<35}  {msg[:60]}")
+            print(f"  {level:<8}  {rule:<14}  {loc:<40}  {msg[:80]}")
     print()
 
     # ── Copilot Workflow ──────────────────────────────────────────────────────
@@ -418,30 +465,85 @@ def print_batch_report(data: dict, full: bool = False) -> None:
                 print(f"    @{author}  ·  {ts}{suffix}")
                 print(f"    \"{preview}\"")
 
+    # ── Cross-Reference Leaks ─────────────────────────────────────────────────
+    print()
+    print(_hr("Cross-Reference Leaks"))
+    leaks = []
+    for issue in issues:
+        a = issue.get("assignment", {})
+        mentions = issue.get("retro", {}).get("upstream_issue_mentions") or []
+        for m in mentions:
+            leaks.append((a.get("origin_slug", "?"), a.get("issue_number", "?"), m))
+    if not leaks:
+        print("  (none detected)")
+    else:
+        print(f"  {len(leaks)} leak(s) across {len({(s,n) for s,n,_ in leaks})} upstream issue(s)")
+        print()
+        for slug, num, m in leaks:
+            actor = m.get("actor", "?")
+            ts = _fmt_ts(m.get("created_at"))[:10]
+            src_url = m.get("source_url", "?")
+            src_title = m.get("source_title", "")
+            src_type = m.get("source_type", "?")
+            print(f"  ✗ {slug}#{num}")
+            print(f"      by @{actor} on {ts} via {src_type}")
+            print(f"      {src_url}")
+            if src_title:
+                title_preview = src_title[:90] + (" …" if len(src_title) > 90 else "")
+                print(f"      title: \"{title_preview}\"")
+            print()
+
     # ── SA Patterns ───────────────────────────────────────────────────────────
     print()
     print(_hr("SA Patterns"))
 
+    # Job-level: count distinct issues where each (tool, conclusion) appeared.
+    job_outcomes: dict[tuple[str, str], int] = {}
+    issues_with_sa = 0
+    issues_without_sa = 0
+
+    # Rule-level: count individual annotations and remember severity.
     rule_counts: dict[str, int] = {}
     rule_levels: dict[str, str] = {}
+
     for issue in issues:
         retro = issue.get("retro", {})
         sa = retro.get("static_analysis", {})
-        for job in sa.get("jobs", []):
+        jobs = sa.get("jobs", [])
+        if jobs:
+            issues_with_sa += 1
+        else:
+            issues_without_sa += 1
+        for job in jobs:
+            tool = job.get("name", "?")
+            conclusion = job.get("conclusion", "?")
+            job_outcomes[(tool, conclusion)] = job_outcomes.get((tool, conclusion), 0) + 1
             for ann in job.get("annotations", []):
                 msg = ann.get("message", "")
-                level = ann.get("annotation_level", "note").upper()
-                # Extract rule code (first word of message, or path-based)
-                rule = msg.split()[0] if msg else "?"
+                level = (ann.get("level") or ann.get("annotation_level") or "note").upper()
+                rule = _extract_rule(msg)
                 rule_counts[rule] = rule_counts.get(rule, 0) + 1
-                rule_levels[rule] = level
+                # Keep most severe level seen for this rule.
+                if level == "FAILURE" or rule not in rule_levels:
+                    rule_levels[rule] = level
 
-    if not rule_counts:
-        print("  (none)")
+    print(f"  SA coverage: {issues_with_sa} issues with SA, {issues_without_sa} without")
+    print()
+
+    if not job_outcomes:
+        print("  (no SA jobs)")
     else:
-        for rule, count in sorted(rule_counts.items(), key=lambda x: -x[1])[:20]:
+        print("  Job conclusions (issue count):")
+        for (tool, conclusion), count in sorted(job_outcomes.items(), key=lambda x: (-x[1], x[0])):
+            marker = "✗" if conclusion == "failure" else ("✓" if conclusion == "success" else "·")
+            print(f"    {marker} {tool}: {conclusion:<10}  ×{count}")
+
+    if rule_counts:
+        print()
+        print("  Top rule codes (annotation count):")
+        for rule, count in sorted(rule_counts.items(), key=lambda x: -x[1])[:15]:
             level = rule_levels.get(rule, "")
-            print(f"  {rule:<20}  ×{count:<4}  {level}")
+            print(f"    {rule:<20}  ×{count:<4}  {level}")
 
     # ── Per-issue Summary ─────────────────────────────────────────────────────
     print()
