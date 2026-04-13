@@ -41,6 +41,28 @@ from typing import Any, Callable
 
 import requests
 
+
+def _load_env_file() -> None:
+    """Best-effort .env loader so the script just works outside pm2.
+
+    Only sets vars not already present in os.environ — explicit env wins.
+    """
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if key and key not in os.environ:
+                os.environ[key] = value.strip().strip('"').strip("'")
+
+
+_load_env_file()
+
 DEFAULT_REPOS = [
     "WolffM-vibedispatch",
     "microsoft-markitdown",
