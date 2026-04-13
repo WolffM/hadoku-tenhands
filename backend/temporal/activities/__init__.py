@@ -8,7 +8,8 @@ than reimplementing them.
 Reuse map (see docs/crimson-kitty/components.md):
 
     eligibility.py   → _call_aggregator (oss_service), validation helpers
-    quarantine.py    → run_gh_command (github_api), new quarantine_fork svc
+    fork.py          → run_gh_command (github_api) for `gh repo fork`,
+                       sanitizer.scrub_brief for input-side scrubbing
     environment.py   → run_gh_command, oss_runner_setup
     agent.py         → CopilotAgent (new) wrapping existing dispatchers logic
     repro.py         → agent.py + evidence I/O

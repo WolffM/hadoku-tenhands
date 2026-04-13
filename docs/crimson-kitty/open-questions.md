@@ -34,11 +34,11 @@ prerequisite for crimson-kitty Phase 1.
 These need to be wired into hadoku-scrape's KV writes too. Coordinate as
 a one-time prerequisite milestone.
 
-### Q4. Quarantine PAT — RESOLVED
-**Decision**: classic PAT under `WolffM` account, stored in `.env` as
-`TEMPORAL_QUARANTINE_PAT`. Scopes: `repo`, `delete_repo`, `workflow`.
-hadoku_site manages production secret injection (existing pattern, same
-as `MSFT_SSO`).
+### Q4. Quarantine PAT — WITHDRAWN (2026-04-13)
+Originally resolved with a new `TEMPORAL_QUARANTINE_PAT`. Withdrawn when
+decision #2 was revised away from a separate quarantine org. The pipeline
+uses the existing `gh` user token plus `MSFT_SSO` routing in
+`services/github_api.py`. No new PAT is created.
 
 ### Q5. LLM judge — RESOLVED with follow-up
 **Decision**: spawn local `claude` CLI subprocess. Uses the existing
@@ -86,7 +86,7 @@ After the smoke test passes, batch 2 uses the aggregator's
 ### Q9. Eligibility failure handling — RESOLVED
 **Decision (b)**: no auto-retry. First failure escalates to inbox.
 The Temporal activity retry policy is `RetryPolicy(maximum_attempts=1)`
-for eligibility, environment, and quarantine activities. Other activities
+for eligibility, environment, and fork activities. Other activities
 (GitHub API calls that may flake) keep `maximum_attempts=3`.
 
 ### Q10. Existing `WolffM/{repo}` forks — RESOLVED with follow-up

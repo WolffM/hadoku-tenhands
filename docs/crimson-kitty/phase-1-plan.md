@@ -36,19 +36,14 @@ Operator-driven setup. No vibedispatch code lands in this phase.
 - Test: every Q has a "RESOLVED" header
 - Done when: ✓ already done (2026-04-13)
 
-### Step 0.2 — `WolffM-temporal` org
-- Output: private GitHub org
-- Test: `gh api orgs/WolffM-temporal` returns 200 with `"type": "Organization"`; org settings page shows "Members can create private repositories"
-- Done when: API check passes + screenshot of org settings saved to `docs/runbooks/wolffm-temporal-org-setup.md`
+### Step 0.2 — ~~`WolffM-temporal` org~~ — WITHDRAWN
+Superseded when decision #2 was revised on 2026-04-13 to the input-context
+scrubbing model. No new org needed; the pipeline uses existing `WolffM/{repo}`
+forks. See [cross-ref-isolation.md](cross-ref-isolation.md).
 
-### Step 0.3 — Quarantine PAT
-- Output: classic PAT in `.env` as `TEMPORAL_QUARANTINE_PAT`; same value in hadoku_site secret store
-- Test: smoke script `scripts/test_quarantine_pat.py` does:
-  1. Create a test repo `WolffM-temporal/_pat-canary-{ts}`
-  2. Push a single empty commit
-  3. Delete the repo
-  4. Verify deletion
-- Done when: smoke script exits 0; PAT scopes verified to include `repo`, `delete_repo`, `workflow`
+### Step 0.3 — ~~Quarantine PAT~~ — WITHDRAWN
+Superseded with step 0.2. The pipeline uses the existing `gh` user token
+plus `MSFT_SSO` routing in `services/github_api.py`. No new PAT needed.
 
 ### Step 0.4 — `cleanup_legacy_forks.py`
 - Output: `scripts/cleanup_legacy_forks.py` with `--dry-run` and `--confirm` modes
@@ -98,8 +93,6 @@ Operator-driven setup. No vibedispatch code lands in this phase.
 
 **ALL of these must be checked before any vibedispatch code lands for crimson-kitty:**
 
-- [ ] `gh api orgs/WolffM-temporal` returns 200
-- [ ] PAT smoke script (`scripts/test_quarantine_pat.py`) exits 0
 - [ ] `cleanup_legacy_forks.py --dry-run` output reviewed and approved by operator
 - [ ] `cleanup_legacy_forks.py --confirm` executed; post-cleanup fork count is 0
 - [ ] `state/legacy-forks-backup.jsonl` exists with N records (N matches pre-cleanup count) and is committed
@@ -143,7 +136,7 @@ work in isolation. **No workflow code yet.**
 - Output: replace stub with real implementation; loads from env, validates required fields, raises clear errors on missing
 - Test: `tests/temporal/test_config.py`:
   - `load_config()` returns valid config with all env vars set
-  - `load_config()` raises `MissingConfigError` with helpful message when `TEMPORAL_QUARANTINE_PAT` is missing
+  - `load_config()` raises `MissingConfigError` with helpful message when a required Temporal config var is missing (e.g. `TEMPORAL_HOST`)
 - Done when: pytest passes + manual `python -c "from backend.temporal.config import load_config; print(load_config())"` works
 
 ### Step 1A.5 — `EvidenceStore` implementation
@@ -169,7 +162,7 @@ work in isolation. **No workflow code yet.**
     - URL spread across two lines with markdown formatting
   - **Negative cases** (must NOT catch):
     - `#183` alone with no upstream context
-    - `WolffM-temporal/markitdown-a3f9b1#1` (quarantine ref)
+    - `WolffM/markitdown#9` (our own fork ref, not upstream)
     - URL to a different repo
 - Done when: all positive cases return non-empty leak lists; all negatives return empty
 
@@ -212,13 +205,18 @@ work in isolation. **No workflow code yet.**
 ## Phase 1B — Sanitizer + Agent adapter
 
 ### Step 1B.1 — `temporal/sanitizer.py` implementation
-- Output: full commit-rewriter pipeline; `materialize_to_public_fork()` function
+- Output: two functions: `scrub_brief(brief, upstream_slug, issue_number)` for input-side scrubbing, `scan_outputs(pr_title, pr_body, commits, upstream_slug, issue_number)` for output-side scanning at submission. Plus the `SanitizerError` exception class.
 - Test: `tests/temporal/test_sanitizer.py`:
-  - **Round-trip test**: create a temp git repo with 3 commits, each containing an upstream URL in the message; run sanitizer; verify all 3 rewritten commits have no upstream refs
-  - **Author rewrite test**: original commits authored by "Copilot"; rewritten commits authored by "WolffM"
-  - **Defense-in-depth test**: a deliberately broken sanitizer regex (mocked) leaves a ref in commit 2; verify the post-rewrite scan catches it and raises `SanitizerError`
-  - **Squash test**: 5 commits get squashed to 1 via the autosquash path
-- Done when: 4 tests pass; manual smoke with a real quarantine-style branch confirms sanitization
+  - **scrub_brief: URL stripping**: brief containing `https://github.com/microsoft/markitdown/issues/183` → URL replaced with neutral placeholder; `scrub_report` records the substitution
+  - **scrub_brief: short ref stripping**: `microsoft/markitdown#183` → replaced; recorded
+  - **scrub_brief: bare slug stripping**: standalone `microsoft/markitdown` → replaced with "the upstream project"; recorded
+  - **scrub_brief: keyword stripping**: `Fixes #183` and `Closes microsoft/markitdown#183` → removed entirely
+  - **scrub_brief: idempotent**: scrubbing already-clean text returns unchanged text and an empty scrub_report
+  - **scrub_brief: preserves code**: a fenced code block containing the upstream slug as part of an import path is left alone IF the slug isn't an issue ref (best-effort; document the heuristic)
+  - **scan_outputs: catches all 3 jade-hare leak fixtures** (markitdown#183, mermaid#4099, hoppscotch#3331) — fixtures pulled from the real PRs
+  - **scan_outputs: tolerates hallucinated refs**: `Fixes #99999` against an upstream that has no #99999 → does NOT raise (only flags refs matching the workflow's recorded `upstream_slug + issue_number`)
+  - **scan_outputs: catches commit-message leaks**: a commit whose message contains the upstream URL is detected even if title/body are clean
+- Done when: 9 tests pass
 
 ### Step 1B.2 — `Agent` protocol
 - Output: `backend/temporal/agents/__init__.py` with the `Agent` Protocol class, `AgentJob`, `AgentStatus`, `AgentResult` dataclasses
@@ -269,13 +267,14 @@ group's phase gate**.
   - `tests/temporal/test_gate_eligibility.py`: 4 cases — pass, ai_policy=banned, assignee set, activity too low
 - Done when: both test files pass
 
-### Step 1C.2 — Quarantine activity + gate
-- Output: `activities/quarantine.py`, `gates/quarantine_isolation.py`, `services/quarantine_fork.py` (new low-level service used by the activity)
+### Step 1C.2 — Fork + scrub-brief activity + `input_context_clean` gate
+- Output: `activities/fork.py` (`ensure_fork`, `create_branch`, `scrub_brief`), `gates/input_context_clean.py`
 - Test:
-  - Unit: mock `gh` calls; verify quarantine repo creation under `WolffM-temporal` with hashed branch name
-  - Unit: gate rejects fork URL not under `WolffM-temporal`, rejects branch name containing the issue number
-  - Integration: actually create + delete a quarantine repo via the test PAT
-- Done when: 2 unit + 1 integration test pass
+  - Unit `ensure_fork`: mock `gh` calls; verify `gh repo fork upstream/repo --clone=false` is invoked when the fork doesn't exist; verify the call is skipped when it already exists
+  - Unit `create_branch`: mock `gh` calls; verify a descriptive operator-readable branch is created via the API
+  - Unit `scrub_brief`: takes a real aggregator brief fixture with upstream URL/slug/number, runs the sanitizer, writes `02-forked/scrubbed_brief.md` + `scrub_report.json` to the evidence store, asserts the scrubbed file contains zero real refs
+  - Unit `input_context_clean` gate: 4 cases — pass (clean brief), fail (URL survived), fail (short ref survived), fail (bare slug survived)
+- Done when: all 4 tests pass
 
 ### Step 1C.3 — Environment activity + gate
 - Output: `activities/environment.py`, `gates/environment.py`
@@ -338,7 +337,7 @@ group's phase gate**.
 - [ ] All 11 gate test files pass
 - [ ] **`diff_non_empty` test fixtures include all 6 jade-hare empty-PR examples**
 - [ ] **`no_upstream_refs` test fixtures include the 3 jade-hare leak examples** (markitdown#183, mermaid#4099, hoppscotch#3331)
-- [ ] Quarantine integration test successfully creates and deletes a real test repo
+- [ ] `input_context_clean` gate test rejects all 3 leak forms (URL, short ref, bare slug)
 - [ ] Visual diff helper produces correct scores for known image pairs
 - [ ] Operator writes "Phase Gate 1C → 1D: PASS"
 
@@ -613,7 +612,7 @@ Every test file we'll write across all phases.
 - `test_noop_agent.py` — canned responses
 - `test_copilot_agent.py` — mocked gh commands
 - `test_activity_eligibility.py` — dossier + brief + contributing scan
-- `test_activity_quarantine.py` — fork creation under WolffM-temporal
+- `test_activity_fork.py` — ensure_fork, create_branch, scrub_brief
 - `test_activity_environment.py` — install + dev server logs
 - `test_activity_repro.py` — evidence presence
 - `test_activity_fix.py` — diff + commits + relevance
@@ -624,7 +623,7 @@ Every test file we'll write across all phases.
 - `test_activity_watchers.py` — notify_human_comments wrapping
 - `test_activity_inbox.py` — enqueue + Discord notify
 - `test_gate_eligibility.py`
-- `test_gate_quarantine_isolation.py`
+- `test_gate_input_context_clean.py`
 - `test_gate_environment.py`
 - `test_gate_repro.py`
 - `test_gate_fix.py` (diff_non_empty + relevance) — **includes 6 jade-hare empty-PR fixtures**
@@ -633,7 +632,6 @@ Every test file we'll write across all phases.
 - `test_gate_submission.py` (no_upstream_refs + pr_template + submission_judge) — **includes 3 jade-hare leak fixtures**
 
 ### Integration tests (`backend/tests/temporal/`)
-- `test_quarantine_integration.py` — real PAT, real repo create+delete
 - `test_judge_integration.py` — real `claude` CLI call
 - `test_e2e_noop.py` — full pipeline with NoopAgent
 - `test_e2e_copilot.py` — full pipeline with real Copilot, manual fixture
