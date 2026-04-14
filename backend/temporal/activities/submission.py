@@ -74,6 +74,7 @@ def submit_upstream_pr(
     base_branch: str,
     evidence,
     *,
+    issue_number: int | None = None,
     run_gh=None,
 ) -> dict:
     """Open the upstream PR via gh pr create.
@@ -82,6 +83,11 @@ def submit_upstream_pr(
       - no_upstream_refs: title/body/commits clean
       - pr_template_compliance: required sections present
 
+    The intentional `Fixes #<issue_number>` close keyword is appended to
+    the body HERE — after the sanitizer gate has run and verified the
+    rest of the body is leak-free. Reading `issue_number` from
+    evidence/issue_brief.json if not passed explicitly.
+
     Returns the upstream PR URL + number on success.
     """
     if run_gh is None:
@@ -89,6 +95,15 @@ def submit_upstream_pr(
 
     title = evidence.read_text("09-submittable/pr_title.txt").strip()
     body = evidence.read_text("09-submittable/pr_body.md")
+
+    if issue_number is None and evidence.exists("01-eligible/issue_brief.json"):
+        brief = evidence.read_json("01-eligible/issue_brief.json")
+        if isinstance(brief, dict):
+            issue_obj = brief.get("issue") or {}
+            issue_number = issue_obj.get("number")
+
+    if issue_number:
+        body = body.rstrip() + f"\n\nFixes #{issue_number}\n"
 
     head = f"{fork_slug.split('/')[0]}:{branch_name}"
     create = run_gh([
@@ -124,7 +139,12 @@ def _build_title(issue_title: str) -> str:
 
 
 def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
-    """Render a generic 4-section body when upstream has no template."""
+    """Render a generic 4-section body when upstream has no template.
+
+    Does NOT include a `Fixes #N` close keyword — that's added at
+    submit_upstream_pr time, AFTER the no_upstream_refs gate runs. The
+    body the gate sees must be free of any real upstream ref.
+    """
     diff_bytes = 0
     files_touched: list[str] = []
     commit_count = 0
@@ -142,7 +162,7 @@ def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
     parts = [
         "## Summary",
         "",
-        f"Fixes the issue described in the upstream tracker.",
+        "Fixes the issue described in the upstream tracker.",
         "",
         "## Root cause",
         "",
@@ -158,14 +178,16 @@ def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
         "## Verification",
         "",
         "Verification artifacts attached to the linked issue's evidence directory.",
-        "",
-        f"Fixes #{issue_number}",
     ])
     return "\n".join(parts)
 
 
 def _render_against_template(template, evidence, upstream_slug, issue_number, issue_title) -> str:
-    """Walk the template's section list and fill each one from evidence."""
+    """Walk the template's section list and fill each one from evidence.
+
+    Same rule as _render_default: NO `Fixes #N` keyword in the body;
+    that's added at submission time after the sanitizer gate.
+    """
     raw = template.get("raw_text") or ""
     sections = template.get("sections") or []
 
@@ -189,7 +211,6 @@ def _render_against_template(template, evidence, upstream_slug, issue_number, is
                 1,
             )
 
-    body += f"\n\nFixes #{issue_number}\n"
     return body
 
 

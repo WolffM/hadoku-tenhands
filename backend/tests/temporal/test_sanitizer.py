@@ -277,3 +277,113 @@ def test_sanitizer_error_carries_leak_list():
     assert isinstance(err.leaks, list)
     assert len(err.leaks) >= 1
     assert all(hasattr(l, "kind") for l in err.leaks)
+
+
+# ── Phase 1E.6: 10-fixture leak corpus ────────────────────────────────────
+#
+# The plan calls for 10 sanitizer fixtures covering distinct leak forms.
+# The 3 jade-hare cases above are the historical anchors. The 7 below
+# cover the rest of the leak surface we want strict coverage on.
+
+
+_FIXTURES = [
+    # 1. Bare URL in PR body
+    ("body_url", {
+        "title": "Fix x",
+        "body": "See https://github.com/microsoft/markitdown/issues/183 for context",
+        "commits": [],
+    }),
+    # 2. URL with comment fragment
+    ("body_url_fragment", {
+        "title": "Fix x",
+        "body": "Reply at https://github.com/microsoft/markitdown/issues/183#issuecomment-456",
+        "commits": [],
+    }),
+    # 3. Slash short ref in PR body
+    ("body_short_ref", {
+        "title": "Fix x",
+        "body": "Same root cause as microsoft/markitdown#183",
+        "commits": [],
+    }),
+    # 4. Slash short ref in PR title (mermaid#4099 class)
+    ("title_short_ref", {
+        "title": "Address microsoft/markitdown#183 cell coalescing",
+        "body": "Clean body",
+        "commits": [],
+    }),
+    # 5. Bare upstream slug standalone in body
+    ("body_bare_slug", {
+        "title": "Fix x",
+        "body": "Originally reported in microsoft/markitdown by alice",
+        "commits": [],
+    }),
+    # 6. Auto-close keyword targeting the recorded number
+    ("body_keyword", {
+        "title": "Fix x",
+        "body": "Closes #183 when merged",
+        "commits": [],
+    }),
+    # 7. Slug-form auto-close in body
+    ("body_slug_keyword", {
+        "title": "Fix x",
+        "body": "Resolves microsoft/markitdown#183",
+        "commits": [],
+    }),
+    # 8. URL leaked in commit message (hoppscotch class)
+    ("commit_url", {
+        "title": "Fix x",
+        "body": "Clean body",
+        "commits": [{"sha": "aaa", "message": "see https://github.com/microsoft/markitdown/issues/183"}],
+    }),
+    # 9. Slash ref leaked in commit message
+    ("commit_short_ref", {
+        "title": "Fix x",
+        "body": "Clean body",
+        "commits": [{"sha": "bbb", "message": "fixes microsoft/markitdown#183"}],
+    }),
+    # 10. Multiple leaks across multiple commits
+    ("multi_commit_leak", {
+        "title": "Fix x",
+        "body": "Clean body",
+        "commits": [
+            {"sha": "ccc", "message": "first commit, see microsoft/markitdown#183"},
+            {"sha": "ddd", "message": "second commit, https://github.com/microsoft/markitdown/issues/183"},
+        ],
+    }),
+]
+
+
+@pytest.mark.parametrize("name, fixture", _FIXTURES, ids=[f[0] for f in _FIXTURES])
+def test_scan_outputs_catches_every_fixture(name, fixture):
+    """All 10 fixtures must raise SanitizerError with at least one leak."""
+    with pytest.raises(SanitizerError) as exc_info:
+        scan_outputs(
+            pr_title=fixture["title"],
+            pr_body=fixture["body"],
+            commit_messages=fixture["commits"],
+            upstream_slug=UPSTREAM,
+            issue_number=ISSUE_NUM,
+        )
+    assert len(exc_info.value.leaks) >= 1, f"fixture {name!r} produced 0 leaks"
+
+
+def test_scan_outputs_clean_corpus():
+    """Sanity: each fixture's leak source IS the only thing the scanner
+    flags. If we scrub the leaks, the corpus passes cleanly."""
+    clean_title = "Fix the merged-cell handling"
+    clean_body = (
+        "## Summary\n\n"
+        "The XLSX converter dropped header text from merged ranges. "
+        "After this fix, anchor resolution returns the header on every read.\n"
+    )
+    clean_commits = [
+        {"sha": "abc", "message": "fix: resolve merged-range anchor before reading cell value"},
+    ]
+    # Should not raise
+    scan_outputs(
+        pr_title=clean_title,
+        pr_body=clean_body,
+        commit_messages=clean_commits,
+        upstream_slug=UPSTREAM,
+        issue_number=ISSUE_NUM,
+    )

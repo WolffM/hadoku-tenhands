@@ -223,6 +223,7 @@ class SubmitInput:
     fork_slug: str
     branch_name: str
     base_branch: str
+    issue_number: int
     state_root: str
 
 
@@ -237,6 +238,7 @@ async def act_submit_upstream_pr(inp: SubmitInput) -> dict:
         branch_name=inp.branch_name,
         base_branch=inp.base_branch,
         evidence=ev,
+        issue_number=inp.issue_number,
     )
 
 
@@ -290,6 +292,14 @@ async def act_run_gates(inp: GateInput) -> list[dict]:
         upstream_number=inp.issue_number,
     )
     results = run_gates(inp.state, issue, ev)
+    # Persist every result to gates.jsonl as the audit trail
+    for r in results:
+        ev.record_gate(
+            gate_name=r.name,
+            verdict=r.verdict,
+            reason=r.reason,
+            evidence_data=r.evidence_data,
+        )
     return [
         {
             "name": r.name,

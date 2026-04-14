@@ -218,6 +218,7 @@ class IssueWorkflow:
                     fork_slug=inp.fork_slug,
                     branch_name=inp.branch_name,
                     base_branch=inp.base_branch,
+                    issue_number=inp.issue_number,
                     state_root=inp.state_root,
                 ),
                 start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
