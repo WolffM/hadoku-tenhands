@@ -305,7 +305,10 @@ def test_render_pr_body_without_template(ev):
     assert "Fix the merged-cell bug" in title
     assert "## Summary" in body
     assert "src/x.py" in body
-    assert "Fixes #183" in body
+    # Fixes #N is intentionally NOT in the rendered body — it gets
+    # appended at submit_upstream_pr time, after the no_upstream_refs
+    # gate has run on the leak-free body. See cross-ref-isolation.md.
+    assert "Fixes #" not in body
 
 
 def test_render_pr_body_with_template(ev):
@@ -330,7 +333,8 @@ def test_render_pr_body_with_template(ev):
     body = ev.read_text("09-submittable/pr_body.md")
     assert "## Summary" in body
     assert "## Test plan" in body
-    assert "Fixes #183" in body
+    # Fixes #N appended at submit time, not render time
+    assert "Fixes #" not in body
     assert ev.exists("09-submittable/template.json")
 
 
@@ -340,18 +344,32 @@ def test_submit_upstream_pr_writes_evidence_on_success(ev):
     ev.write_text("09-submittable/pr_title.txt", "Fix x")
     ev.write_text("09-submittable/pr_body.md", "## Summary\n\nFix\n")
 
+    captured_body = []
+
     def fake_gh(args, stdin_data=None):
         if args[:2] == ["pr", "create"]:
+            # Capture the --body arg for the close-keyword assertion below
+            for i, a in enumerate(args):
+                if a == "--body":
+                    captured_body.append(args[i + 1])
+                    break
             return {"success": True, "output": "https://github.com/microsoft/markitdown/pull/9999\n"}
         raise AssertionError(f"unexpected gh call: {args}")
 
     result = submit_upstream_pr(
         "microsoft/markitdown", "WolffM/markitdown", "fix-x", "main", ev,
+        issue_number=183,
         run_gh=fake_gh,
     )
     assert result["pr_number"] == 9999
     assert "9999" in result["pr_url"]
     assert ev.read_text("10-submitted/upstream_pr_url").strip().endswith("9999")
+
+    # The intentional close keyword was appended to the body at submit time
+    # (not present in the on-disk pr_body.md, which is what no_upstream_refs scanned)
+    assert len(captured_body) == 1
+    assert "Fixes #183" in captured_body[0]
+    assert "Fixes #183" not in ev.read_text("09-submittable/pr_body.md")
 
 
 def test_submit_upstream_pr_raises_on_failure(ev):
