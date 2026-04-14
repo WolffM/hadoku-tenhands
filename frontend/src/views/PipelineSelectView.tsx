@@ -21,6 +21,14 @@ const pipelines = [
     description: 'Repo health, issue selection, pipeline runs, upstream review',
     stages: ['Repo Health', 'Fork & Assign', 'Pipeline Runs', 'Review'],
     icon: '\u{1F310}'
+  },
+  {
+    id: 'temporal' as const,
+    title: 'Crimson-Kitty (Temporal)',
+    description:
+      'Evidence-gated contribution pipeline: per-state artifacts, mechanical gates, operator inbox',
+    stages: ['Eligible', 'Reproduced', 'Verified', 'Submittable'],
+    icon: '\u{1F408}'
   }
 ]
 

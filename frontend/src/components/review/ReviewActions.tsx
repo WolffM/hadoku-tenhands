@@ -15,7 +15,7 @@ export function ReviewActions({ onMerge, onSkip, loading = false }: ReviewAction
     <div className="review-actions">
       <div className="review-actions-primary">
         <button
-          className="action-btn action-btn-success"
+          className="btn btn--success"
           onClick={onMerge}
           disabled={loading}
           title="Mark ready, approve, and merge"
@@ -25,7 +25,7 @@ export function ReviewActions({ onMerge, onSkip, loading = false }: ReviewAction
       </div>
       <div className="review-actions-secondary">
         <button
-          className="action-btn action-btn-ghost"
+          className="btn btn--ghost"
           onClick={onSkip}
           disabled={loading}
           title="Skip to next item without action"

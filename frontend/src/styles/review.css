@@ -1,0 +1,519 @@
+/* ============ Review Carousel ============ */
+
+.review-carousel {
+  padding: 1rem;
+}
+
+/* Review Carousel - actual class names used in component */
+.review-carousel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.review-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: all 0.15s ease;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background-color: var(--color-primary);
+  color: var(--color-bg);
+  transform: scale(1.1);
+}
+
+.nav-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.nav-position {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  min-width: 4rem;
+  text-align: center;
+}
+
+.review-item-info {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--font-size-sm);
+}
+
+.review-repo {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+}
+
+.review-separator {
+  color: var(--color-text-muted);
+}
+
+.review-identifier {
+  color: var(--color-text-secondary);
+}
+
+.review-link {
+  margin-left: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  transition: all 0.2s ease;
+}
+
+.review-link:hover {
+  background-color: var(--color-primary-bg);
+  border-color: var(--color-primary);
+}
+
+.review-title {
+  margin-bottom: 1rem;
+}
+
+.review-title h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.review-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.meta-separator {
+  color: var(--color-text-muted);
+}
+
+.meta-draft {
+  padding: 0.125rem 0.375rem;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-warning-text);
+  background-color: var(--color-warning-bg);
+  border-radius: var(--border-radius-sm);
+}
+
+/* PR Description (Copilot response) */
+.review-description {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background-color: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.review-description__title {
+  margin: 0 0 0.75rem 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.review-description__content {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+/* Markdown content styles */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin: 1rem 0 0.5rem 0;
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.markdown-content h1:first-child,
+.markdown-content h2:first-child,
+.markdown-content h3:first-child,
+.markdown-content h4:first-child {
+  margin-top: 0;
+}
+
+.markdown-content h1 {
+  font-size: 1.25rem;
+}
+.markdown-content h2 {
+  font-size: 1.1rem;
+}
+.markdown-content h3 {
+  font-size: 1rem;
+}
+.markdown-content h4 {
+  font-size: 0.95rem;
+}
+
+.markdown-content p {
+  margin: 0.5rem 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-content li {
+  margin: 0.25rem 0;
+}
+
+.markdown-content code {
+  font-family: var(--font-family-mono);
+  font-size: 0.85em;
+  padding: 0.15rem 0.4rem;
+  background-color: var(--color-bg-hover);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-text);
+}
+
+.markdown-content pre {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background-color: var(--color-bg-hover);
+  border-radius: var(--border-radius);
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  padding: 0;
+  background: none;
+  font-size: 0.8rem;
+}
+
+.markdown-content blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--color-primary);
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.markdown-content a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content hr {
+  margin: 1rem 0;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.markdown-content th {
+  background-color: var(--color-bg-hover);
+  font-weight: var(--font-weight-semibold);
+}
+
+.review-content {
+  min-height: 300px;
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: var(--color-bg);
+}
+
+.no-diff-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--color-text-secondary);
+}
+
+.review-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ============ Diff Viewer ============ */
+
+.diff-viewer {
+  font-family: var(--font-family-mono, 'SF Mono', Consolas, monospace);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* ============ Health Check View ============ */
+
+.health-view {
+  padding: 1rem;
+}
+
+/* ============ Review Actions ============ */
+
+.review-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.review-actions__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.review-actions__status--loading {
+  color: var(--color-primary);
+}
+
+.review-actions__status--success {
+  color: var(--color-success);
+}
+
+.review-actions__status--error {
+  color: var(--color-danger);
+}
+
+/* Review Actions - actual class names used in component */
+.review-actions-primary,
+.review-actions-secondary {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.review-actions-secondary {
+  margin-left: auto;
+}
+
+/* ============ Diff Viewer - Generated HTML Styles ============ */
+
+.diff-viewer-stats {
+  display: flex;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: var(--color-bg-alt);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+}
+
+.stat-files {
+  color: var(--color-text-secondary);
+}
+
+.stat-additions {
+  color: var(--color-success);
+  font-weight: var(--font-weight-semibold);
+}
+
+.stat-deletions {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
+}
+
+.diff-viewer-content {
+  overflow-x: auto;
+}
+
+.diff-viewer-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--color-text-secondary);
+}
+
+/* Diff File */
+.diff-file {
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.diff-file:last-child {
+  border-bottom: none;
+}
+
+.diff-file-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.625rem 1rem;
+  background-color: var(--color-neutral-light);
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-family-mono, 'SF Mono', Consolas, monospace);
+  font-size: var(--font-size-xs);
+}
+
+.diff-filename {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.diff-stats {
+  display: flex;
+  gap: 0.75rem;
+  font-size: var(--font-size-xs);
+}
+
+.diff-additions {
+  color: var(--color-success);
+  font-weight: var(--font-weight-semibold);
+}
+
+.diff-deletions {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Diff Table */
+.diff-content {
+  overflow-x: auto;
+}
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-family-mono, 'SF Mono', Consolas, monospace);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.diff-line {
+  border: none;
+}
+
+.diff-line-header {
+  background-color: var(--color-bg-alt);
+  color: var(--color-text-muted);
+}
+
+.diff-line-hunk {
+  background-color: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.diff-line-addition {
+  background-color: var(--color-success-bg);
+}
+
+.diff-line-deletion {
+  background-color: var(--color-danger-light);
+}
+
+.diff-line-context {
+  background-color: var(--color-bg);
+}
+
+.diff-line-num {
+  width: 3rem;
+  min-width: 3rem;
+  padding: 0 0.5rem;
+  text-align: right;
+  color: var(--color-text-muted);
+  user-select: none;
+  vertical-align: top;
+  border-right: 1px solid var(--color-border-light);
+}
+
+.diff-line-num-old {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.diff-line-num-new {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.diff-line-addition .diff-line-num-new {
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.diff-line-deletion .diff-line-num-old {
+  background-color: var(--color-danger-light);
+  color: var(--color-danger);
+}
+
+.diff-line-content {
+  padding: 0 1rem;
+  white-space: pre;
+  word-break: break-all;
+}
+
+.diff-prefix {
+  display: inline-block;
+  width: 1ch;
+  margin-right: 0.5rem;
+  color: var(--color-text-muted);
+}
+
+.diff-line-addition .diff-prefix {
+  color: var(--color-success);
+}
+
+.diff-line-deletion .diff-prefix {
+  color: var(--color-danger);
+}
+
+.diff-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+}

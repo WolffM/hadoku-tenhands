@@ -1,0 +1,506 @@
+/* ============ Dossier Side Panel ============ */
+
+.dossier-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-bg-overlay);
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dossier-panel {
+  width: 600px;
+  max-width: 90vw;
+  height: 100vh;
+  background-color: var(--color-bg-card);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideInRight 0.2s ease;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.dossier-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dossier-panel__header h3 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dossier-panel__tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.dossier-tab {
+  padding: 0.375rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+  white-space: nowrap;
+}
+
+.dossier-tab:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.dossier-tab--active {
+  background-color: var(--color-primary);
+  color: var(--color-primary-text);
+}
+
+.dossier-panel__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.dossier-panel__markdown {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.dossier-panel__error {
+  padding: 1.5rem;
+  color: var(--color-danger);
+  text-align: center;
+}
+
+/* ============ Pipeline Selection ============ */
+
+.pipeline-select {
+  padding: 2rem;
+}
+
+.pipeline-select__header {
+  margin-bottom: 1.5rem;
+}
+
+.pipeline-select__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.pipeline-select__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pipeline-select-card {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  width: 100%;
+  padding: 1.5rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.pipeline-select-card:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.pipeline-select-card__icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.pipeline-select-card__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pipeline-select-card__title {
+  margin: 0 0 0.25rem 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.pipeline-select-card__description {
+  margin: 0 0 0.75rem 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.pipeline-select-card__stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.pipeline-select-card__stage {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding: 0.125rem 0.5rem;
+  background-color: var(--color-neutral-light);
+  border-radius: 9999px;
+}
+
+.pipeline-select-card__arrow {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  padding: 0 0.125rem;
+  background: none;
+}
+
+/* Home button style */
+.nav-tabs__tab--home {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ============ Repo Health Panel ============ */
+
+.repo-health-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.repo-health-card {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 1rem 1.25rem;
+}
+
+.repo-health-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.repo-health-card__slug {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-base);
+}
+
+.repo-health-card__scores {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.repo-health-card__score {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: var(--font-size-sm);
+}
+
+.repo-health-card__timestamps {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: var(--font-size-xs);
+}
+
+.repo-health-card__dossier {
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.repo-health-card__section {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.repo-health-card__section:last-child {
+  border-bottom: none;
+}
+
+.repo-health-card__section-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem 0;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.repo-health-card__section-toggle:hover {
+  color: var(--color-primary);
+}
+
+.repo-health-card__section-toggle--open {
+  color: var(--color-primary);
+}
+
+.repo-health-card__section-content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  margin: 0 0 0.75rem 0;
+  padding: 0.5rem;
+  background-color: var(--color-bg);
+  border-radius: var(--border-radius-sm);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.repo-health-card__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ============ Repo Filter Popover ============ */
+
+.repo-filter-popover {
+  position: relative;
+  display: inline-block;
+}
+
+.repo-filter-trigger {
+  white-space: nowrap;
+}
+
+.repo-filter-popover__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 280px;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.repo-filter-popover__search {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.repo-filter-popover__search input {
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  font-size: var(--font-size-sm);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  outline: none;
+}
+
+.repo-filter-popover__search input:focus {
+  border-color: var(--color-primary);
+}
+
+.repo-filter-popover__actions {
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.repo-filter-popover__list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+
+.repo-filter-popover__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.repo-filter-popover__item:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.repo-filter-popover__item input {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.repo-filter-popover__empty {
+  padding: 0.75rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.repo-filter-popover__footer {
+  padding: 0.375rem 0.75rem;
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+/* ============ Pipeline Progress Bar ============ */
+
+.pipeline-progress {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: var(--color-border);
+  min-width: 100px;
+  gap: 1px;
+}
+
+.pipeline-progress__seg {
+  flex: 1;
+  height: 100%;
+  background-color: var(--color-border);
+  transition: background-color 0.2s;
+}
+
+.pipeline-progress__seg--filled.seg--swe {
+  background-color: var(--color-info, #58a6ff);
+}
+
+.pipeline-progress__seg--filled.seg--sa {
+  background-color: var(--color-info-purple, #bc8cff);
+}
+
+.pipeline-progress__seg--filled.seg--review {
+  background-color: var(--color-warning, #d29922);
+}
+
+.pipeline-progress__seg--filled.seg--remediation {
+  background-color: var(--color-info-cyan, #39d2c0);
+}
+
+.pipeline-progress__seg--filled.seg--done {
+  background-color: var(--color-success, #3fb950);
+}
+
+/* ============ Metric Cards ============ */
+
+.metric-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.metric-card {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 0.75rem 1rem;
+  min-width: 80px;
+}
+
+.metric-card__label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.125rem;
+}
+
+.metric-card__value {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+/* ============ Report Modal ============ */
+
+.report-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-bg-overlay);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.report-modal__content {
+  width: 90vw;
+  height: 90vh;
+  max-width: 1200px;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.report-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.report-modal__header h3 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.report-modal__iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+}

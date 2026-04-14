@@ -1,0 +1,187 @@
+/* ============ Health View ============ */
+
+.health-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.health-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.health-subtitle {
+  margin: 0.25rem 0 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+}
+
+.stat-card__label {
+  margin: 0 0 0.5rem 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.stat-card__value {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+
+.stat-card__value--success {
+  color: var(--color-success);
+}
+
+.stat-card__value--danger {
+  color: var(--color-danger);
+}
+
+.stat-card__value--warning {
+  color: var(--color-warning);
+}
+
+/* Filter Card */
+.filter-card {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  margin-bottom: 1.5rem;
+}
+
+.filter-card__header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.filter-card__body {
+  padding: 1rem;
+}
+
+.filter-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* Health Status Card */
+.health-status-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  margin-bottom: 1.5rem;
+}
+
+.health-indicator {
+  padding: 0.5rem 1rem;
+  border-radius: var(--border-radius);
+  font-weight: var(--font-weight-semibold);
+}
+
+.health-indicator--healthy {
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.health-indicator--degraded {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.health-indicator--unhealthy {
+  background-color: var(--color-danger-light);
+  color: var(--color-danger);
+}
+
+.health-details {
+  display: flex;
+  gap: 1.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.error-message {
+  padding: 1rem;
+  background-color: var(--color-danger-light);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--border-radius);
+  color: var(--color-danger);
+  margin-bottom: 1.5rem;
+}
+
+/* Workflow Card */
+.workflow-card {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.workflow-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.workflow-card__body {
+  padding: 1rem;
+}
+
+/* Responsive Health View */
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .pr-modal__content {
+    grid-template-columns: 1fr;
+  }
+
+  .pr-modal__sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    padding-right: 0;
+    padding-bottom: 1rem;
+  }
+
+  .stage-tabs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stage-tabs__actions {
+    margin-left: 0;
+    margin-top: 0.5rem;
+  }
+}

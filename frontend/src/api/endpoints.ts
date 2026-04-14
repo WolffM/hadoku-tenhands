@@ -31,7 +31,17 @@ import type {
   SignoffResponse,
   BatchListResponse,
   BatchDetailResponse,
-  PrCommit
+  PrCommit,
+  TemporalEnvelope,
+  TemporalHealth,
+  TemporalBatchSummary,
+  TemporalBatchDetail,
+  TemporalIssueDetail,
+  TemporalInboxItem,
+  TemporalDispatchIssueInput,
+  TemporalDispatchResult,
+  TemporalSignalDecision,
+  TemporalSignalResult
 } from './types'
 
 // ============ Stage APIs ============
@@ -462,4 +472,80 @@ export async function computeOSSTarget(
   return apiClient.post<OSSBaseResponse & { message?: string }>('/api/oss/compute-target', {
     slug
   })
+}
+
+// ============ Temporal (crimson-kitty) APIs ============
+
+function unwrap<T>(env: TemporalEnvelope<T>): T {
+  if (!env.success) {
+    throw new Error(env.error || 'temporal request failed')
+  }
+  return env.data
+}
+
+export async function getTemporalHealth(): Promise<TemporalHealth> {
+  return unwrap(await apiClient.get<TemporalEnvelope<TemporalHealth>>('/api/temporal/health'))
+}
+
+export async function getTemporalBatches(): Promise<TemporalBatchSummary[]> {
+  const data = unwrap(
+    await apiClient.get<TemporalEnvelope<{ batches: TemporalBatchSummary[] }>>(
+      '/api/temporal/batches'
+    )
+  )
+  return data.batches
+}
+
+export async function getTemporalBatch(batchId: string): Promise<TemporalBatchDetail> {
+  return unwrap(
+    await apiClient.get<TemporalEnvelope<TemporalBatchDetail>>(
+      `/api/temporal/batch/${encodeURIComponent(batchId)}`
+    )
+  )
+}
+
+export async function getTemporalIssue(
+  batchId: string,
+  issueId: string
+): Promise<TemporalIssueDetail> {
+  return unwrap(
+    await apiClient.get<TemporalEnvelope<TemporalIssueDetail>>(
+      `/api/temporal/issue/${encodeURIComponent(batchId)}/${encodeURIComponent(issueId)}`
+    )
+  )
+}
+
+export async function getTemporalInbox(): Promise<{
+  items: TemporalInboxItem[]
+  count: number
+}> {
+  return unwrap(
+    await apiClient.get<TemporalEnvelope<{ items: TemporalInboxItem[]; count: number }>>(
+      '/api/temporal/inbox'
+    )
+  )
+}
+
+export async function dispatchTemporalBatch(
+  batchId: string,
+  issues: TemporalDispatchIssueInput[]
+): Promise<TemporalDispatchResult> {
+  return unwrap(
+    await apiClient.post<TemporalEnvelope<TemporalDispatchResult>>('/api/temporal/dispatch', {
+      batch_id: batchId,
+      issues
+    })
+  )
+}
+
+export async function sendTemporalSignal(
+  workflowId: string,
+  decision: TemporalSignalDecision
+): Promise<TemporalSignalResult> {
+  return unwrap(
+    await apiClient.post<TemporalEnvelope<TemporalSignalResult>>(
+      `/api/temporal/issue/${encodeURIComponent(workflowId)}/signal`,
+      { decision }
+    )
+  )
 }

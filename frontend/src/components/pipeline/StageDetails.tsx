@@ -98,7 +98,7 @@ export function StageDetails({ item }: StageDetailsProps) {
 
         <div className="details-actions">
           <button
-            className="action-btn action-btn-primary"
+            className="btn btn--primary"
             onClick={() => {
               void handleAssignCopilot()
             }}
@@ -160,11 +160,11 @@ export function StageDetails({ item }: StageDetailsProps) {
         </div>
 
         <div className="details-actions">
-          <button className="action-btn action-btn-primary" onClick={handleViewInReview}>
+          <button className="btn btn--primary" onClick={handleViewInReview}>
             View Diff
           </button>
           <button
-            className="action-btn action-btn-secondary"
+            className="btn btn--secondary"
             onClick={() => {
               void approve(item.repo, pr.number)
             }}
@@ -173,7 +173,7 @@ export function StageDetails({ item }: StageDetailsProps) {
             {actionLoading ? 'Processing...' : 'Approve'}
           </button>
           <button
-            className="action-btn action-btn-success"
+            className="btn btn--success"
             onClick={() => {
               void merge(item.repo, pr.number)
             }}
