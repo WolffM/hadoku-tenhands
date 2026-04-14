@@ -1,0 +1,257 @@
+"""Unit + integration tests for backend.temporal.judge — Phase 1A.7.
+
+Per the test plan in phase-1-plan.md step 1A.7:
+  - 6 unit tests (canary + parse + coerce + exception classes)
+  - 1 integration test against the locally-installed `claude` CLI
+
+Integration test is skipped if either:
+  - `claude` binary is not on PATH
+  - `CLAUDE_CODE_OAUTH_TOKEN` is not set in the environment
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from unittest.mock import MagicMock
+
+import pytest
+
+from temporal import judge as J
+from temporal.config import MissingConfigError
+
+
+# ── canary unit tests ─────────────────────────────────────────────────────
+
+
+def test_canary_raises_unreachable_on_nonzero_exit(monkeypatch):
+    fake = MagicMock(returncode=1, stdout="", stderr="auth failed")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout: fake)
+
+    with pytest.raises(J.JudgeUnreachable, match="canary exit 1"):
+        J._canary_or_raise()
+
+
+def test_canary_raises_unreachable_on_timeout(monkeypatch):
+    def boom(args, timeout):
+        raise subprocess.TimeoutExpired(cmd=["claude"], timeout=timeout)
+
+    monkeypatch.setattr(J, "_run_claude", boom)
+    with pytest.raises(J.JudgeUnreachable, match="canary timed out"):
+        J._canary_or_raise()
+
+
+def test_canary_raises_unreachable_when_binary_missing(monkeypatch):
+    def boom(args, timeout):
+        raise FileNotFoundError("claude")
+
+    monkeypatch.setattr(J, "_run_claude", boom)
+    with pytest.raises(J.JudgeUnreachable, match="claude binary not found"):
+        J._canary_or_raise()
+
+
+def test_canary_raises_unreachable_on_unexpected_output(monkeypatch):
+    fake = MagicMock(returncode=0, stdout="something else", stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout: fake)
+
+    with pytest.raises(J.JudgeUnreachable, match="unexpected output"):
+        J._canary_or_raise()
+
+
+def test_canary_passes_on_ok(monkeypatch):
+    fake = MagicMock(returncode=0, stdout="OK\n", stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout: fake)
+    J._canary_or_raise()  # no raise
+
+
+# ── _extract_json unit tests ──────────────────────────────────────────────
+
+
+def test_extract_json_from_envelope_form():
+    """`--output-format json` wraps the model text in a {result: ...} envelope."""
+    rubric_json = '{"verdict": "pass", "score": 0.85, "reasoning": "looks good"}'
+    text = f"Here is my analysis.\n\n```json\n{rubric_json}\n```\n"
+    envelope = json.dumps({"result": text, "session_id": "abc"})
+
+    parsed = J._extract_json(envelope)
+    assert parsed == {"verdict": "pass", "score": 0.85, "reasoning": "looks good"}
+
+
+def test_extract_json_from_plain_text_form():
+    """Without --output-format json, stdout is plain markdown with a fenced block."""
+    text = "Reasoning here.\n\n```json\n{\"verdict\": \"fail\", \"score\": 0.2, \"reasoning\": \"empty\"}\n```\n"
+    parsed = J._extract_json(text)
+    assert parsed["verdict"] == "fail"
+    assert parsed["score"] == 0.2
+
+
+def test_extract_json_raises_on_empty_stdout():
+    with pytest.raises(J.JudgeParseError, match="empty stdout"):
+        J._extract_json("")
+
+
+def test_extract_json_raises_when_no_fenced_block():
+    text = "I am just text with no fenced JSON block at all."
+    with pytest.raises(J.JudgeParseError, match="no fenced"):
+        J._extract_json(text)
+
+
+def test_extract_json_raises_on_malformed_inside_block():
+    text = "```json\n{not valid json}\n```"
+    with pytest.raises(J.JudgeParseError, match="not valid JSON"):
+        J._extract_json(text)
+
+
+def test_extract_json_raises_on_multiple_blocks():
+    text = "```json\n{\"a\": 1}\n```\n\n```json\n{\"b\": 2}\n```"
+    with pytest.raises(J.JudgeParseError, match="multiple fenced"):
+        J._extract_json(text)
+
+
+def test_extract_json_raises_when_inner_is_not_object():
+    text = "```json\n[1, 2, 3]\n```"
+    with pytest.raises(J.JudgeParseError, match="must be an object"):
+        J._extract_json(text)
+
+
+# ── _coerce_result unit tests ─────────────────────────────────────────────
+
+
+def test_coerce_result_happy_path():
+    result = J._coerce_result({
+        "verdict": "pass",
+        "score": 0.9,
+        "reasoning": "all sections present",
+    })
+    assert result.verdict == "pass"
+    assert result.score == 0.9
+    assert result.reasoning == "all sections present"
+    assert result.raw["score"] == 0.9
+
+
+@pytest.mark.parametrize("payload, fragment", [
+    ({"verdict": "maybe", "score": 0.5, "reasoning": ""}, "invalid verdict"),
+    ({"verdict": "pass", "score": "high", "reasoning": ""}, "invalid score"),
+    ({"verdict": "pass", "score": 1.5, "reasoning": ""}, "out of"),
+    ({"verdict": "pass", "score": 0.5, "reasoning": 123}, "reasoning"),
+])
+def test_coerce_result_rejects_invalid(payload, fragment):
+    with pytest.raises(J.JudgeParseError, match=fragment):
+        J._coerce_result(payload)
+
+
+# ── score() integration with mocked subprocess ────────────────────────────
+
+
+def test_score_raises_missing_config_when_token_unset(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    with pytest.raises(MissingConfigError):
+        J.score("rubric text", "payload")
+
+
+def test_score_full_path_with_mocked_subprocess(monkeypatch):
+    """End-to-end through score() with the subprocess seam mocked."""
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
+
+    rubric_json = '{"verdict": "pass", "score": 0.75, "reasoning": "fine"}'
+    judge_envelope = json.dumps({"result": f"Done.\n```json\n{rubric_json}\n```\n"})
+
+    call_log = []
+
+    def fake_run(args, timeout):
+        call_log.append(list(args))
+        if "respond with exactly: OK" in args:
+            return MagicMock(returncode=0, stdout="OK\n", stderr="")
+        return MagicMock(returncode=0, stdout=judge_envelope, stderr="")
+
+    monkeypatch.setattr(J, "_run_claude", fake_run)
+
+    result = J.score("rubric text", "payload data")
+    assert result.verdict == "pass"
+    assert result.score == 0.75
+    assert result.reasoning == "fine"
+
+    # Canary first, judge second
+    assert len(call_log) == 2
+    assert "respond with exactly: OK" in call_log[0]
+    assert "--output-format" in call_log[1]
+
+
+def test_score_unreachable_when_judge_subprocess_times_out(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
+
+    def fake_run(args, timeout):
+        if "respond with exactly: OK" in args:
+            return MagicMock(returncode=0, stdout="OK", stderr="")
+        raise subprocess.TimeoutExpired(cmd=["claude"], timeout=timeout)
+
+    monkeypatch.setattr(J, "_run_claude", fake_run)
+    with pytest.raises(J.JudgeUnreachable, match="judge call timed out"):
+        J.score("rubric", "payload")
+
+
+def test_score_parse_error_when_judge_returns_garbage(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
+
+    def fake_run(args, timeout):
+        if "respond with exactly: OK" in args:
+            return MagicMock(returncode=0, stdout="OK", stderr="")
+        return MagicMock(returncode=0, stdout="just prose, no fenced block", stderr="")
+
+    monkeypatch.setattr(J, "_run_claude", fake_run)
+    with pytest.raises(J.JudgeParseError):
+        J.score("rubric", "payload")
+
+
+def test_exception_hierarchy():
+    """All judge errors derive from JudgeError so callers can catch broadly."""
+    assert issubclass(J.JudgeUnreachable, J.JudgeError)
+    assert issubclass(J.JudgeParseError, J.JudgeError)
+
+
+# ── integration test against the real claude CLI ─────────────────────────
+
+
+def _claude_available() -> bool:
+    if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip():
+        return False
+    if not shutil.which(os.environ.get("CRIMSON_CLAUDE_BIN", "claude")):
+        # Also check the user-local install path
+        home_bin = os.path.expanduser("~/.npm-global/bin/claude")
+        return os.path.exists(home_bin)
+    return True
+
+
+@pytest.mark.skipif(
+    not _claude_available(),
+    reason="claude CLI or CLAUDE_CODE_OAUTH_TOKEN not available",
+)
+def test_score_integration_real_cli():
+    """Hit the real claude CLI with a tiny rubric + payload.
+
+    Skipped unless both `claude` is installed and the OAuth token is set.
+    Verifies the full pipeline: subprocess invocation, canary, real call,
+    JSON extraction, coercion to JudgeResult.
+    """
+    # Make sure user-local install path is on PATH for the subprocess.
+    home_bin = os.path.expanduser("~/.npm-global/bin")
+    if os.path.isdir(home_bin) and home_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = home_bin + os.pathsep + os.environ.get("PATH", "")
+
+    rubric = """# Tiny test rubric
+
+Score the input on a single criterion: does it contain the word "hello"?
+
+- verdict: "pass" if hello is present, "fail" if not
+- score: 1.0 if pass, 0.0 if fail
+- reasoning: one short sentence
+
+Output a fenced ```json block with keys: verdict, score, reasoning."""
+
+    result = J.score(rubric, "the payload says hello world")
+    assert isinstance(result, J.JudgeResult)
+    assert result.verdict in ("pass", "fail", "defer")
+    assert 0.0 <= result.score <= 1.0
+    assert isinstance(result.reasoning, str) and len(result.reasoning) > 0
