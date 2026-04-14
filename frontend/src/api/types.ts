@@ -559,3 +559,121 @@ export interface BatchDetailResponse extends OSSBaseResponse {
 export interface BatchListResponse extends OSSBaseResponse {
   batches: BatchSummary[]
 }
+
+// ============ Temporal (crimson-kitty) Types ============
+
+export type TemporalState =
+  | 'candidate'
+  | 'eligible'
+  | 'forked'
+  | 'environment_ready'
+  | 'reproduced'
+  | 'fixed'
+  | 'verified'
+  | 'reviewed'
+  | 'remediated'
+  | 'submittable'
+  | 'submitted'
+  | 'merged'
+  | 'closed_by_upstream'
+  | 'aborted'
+  | 'awaiting_human_review'
+
+export type TemporalGateVerdict = 'pass' | 'fail' | 'defer'
+export type TemporalSignalDecision = 'approve' | 'abort' | 'retry'
+
+export interface TemporalEnvelope<T> {
+  success: boolean
+  data: T
+  _meta?: Record<string, unknown>
+  error?: string
+}
+
+export interface TemporalBatchSummary {
+  batch_id: string
+  issue_count: number
+}
+
+export interface TemporalIssueSummary {
+  batch_id: string
+  issue_id: string
+  current_state: string
+  is_deferred: boolean
+  deferred_at: string | null
+  deferred_gate: string | null
+  transition_count: number
+  gate_count: number
+}
+
+export interface TemporalTransition {
+  from: string
+  to: string
+  reason: string
+  decided_by: string
+  ts: string
+}
+
+export interface TemporalGateRecord {
+  gate: string
+  verdict: string
+  reason: string
+  evidence_data: Record<string, unknown> | null
+  ts: string
+}
+
+export interface TemporalEventRecord {
+  ts?: string
+  type?: string
+  [key: string]: unknown
+}
+
+export interface TemporalIssueDetail extends TemporalIssueSummary {
+  transitions: TemporalTransition[]
+  gates: TemporalGateRecord[]
+  events: TemporalEventRecord[]
+}
+
+export interface TemporalBatchDetail {
+  batch_id: string
+  issue_count: number
+  issues: TemporalIssueSummary[]
+}
+
+export interface TemporalInboxItem {
+  batch_id: string
+  issue_id: string
+  // fields from inbox_entry.json (shape varies — keep flexible)
+  state?: string
+  gate?: string
+  reason?: string
+  queued_at?: string
+  workflow_id?: string
+  [key: string]: unknown
+}
+
+export interface TemporalHealth {
+  state_root: string
+  state_root_exists: boolean
+  batch_count: number
+  cluster_check: string
+}
+
+export interface TemporalDispatchIssueInput {
+  upstream_slug: string
+  fork_slug?: string
+  issue_number: number
+  raw_brief?: string
+  branch_name?: string
+  base_branch?: string
+}
+
+export interface TemporalDispatchResult {
+  batch_id: string
+  workflow_id: string
+  issue_count: number
+}
+
+export interface TemporalSignalResult {
+  workflow_id: string
+  decision: TemporalSignalDecision
+}

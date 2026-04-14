@@ -22,6 +22,7 @@ export function Navigation() {
   const pipelineTabs: { id: ViewType; label: string }[] = [
     { id: 'list', label: 'Pipelines' },
     { id: 'oss', label: 'OSS Contrib' },
+    { id: 'temporal', label: 'Crimson-Kitty' },
     { id: 'retro', label: 'Retrospective' }
   ]
 

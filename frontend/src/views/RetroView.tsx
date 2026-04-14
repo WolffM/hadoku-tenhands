@@ -1,8 +1,11 @@
 /**
  * RetroView — batch retrospective page.
  *
- * Batch tabs (last 5 + Older dropdown), BatchSummaryPanel funnel,
- * and per-issue IssueRetroCards.
+ * Tab strip:
+ *   - Legacy   → existing oss-contribution batches (default tab)
+ *   - Temporal → crimson-kitty batches from the Temporal pipeline
+ *
+ * Each tab is lazy: the Temporal tab does not fetch until selected.
  */
 
 import { useState, useEffect } from 'react'
@@ -11,10 +14,44 @@ import type { BatchSummary, BatchIssue } from '../api/types'
 import { BatchSummaryPanel } from '../components/retro/BatchSummaryPanel'
 import { IssueRetroCard } from '../components/retro/IssueRetroCard'
 import { LoadingState } from '../components/common'
+import { useTemporalStore } from '../store/temporalStore'
+import { StateBadge } from '../components/temporal'
 
 const MAX_VISIBLE_TABS = 5
 
+type RetroTab = 'legacy' | 'temporal'
+
 export function RetroView() {
+  const [activeTab, setActiveTab] = useState<RetroTab>('legacy')
+
+  return (
+    <div className="retro-view" data-testid="retro-view">
+      <div className="retro-view__tab-strip" data-testid="retro-tab-strip">
+        <button
+          type="button"
+          data-testid="retro-tab-legacy"
+          className={`retro-view__tab ${activeTab === 'legacy' ? 'retro-view__tab--active' : ''}`}
+          onClick={() => setActiveTab('legacy')}
+        >
+          Legacy
+        </button>
+        <button
+          type="button"
+          data-testid="retro-tab-temporal"
+          className={`retro-view__tab ${activeTab === 'temporal' ? 'retro-view__tab--active' : ''}`}
+          onClick={() => setActiveTab('temporal')}
+        >
+          Temporal
+        </button>
+      </div>
+      {activeTab === 'legacy' ? <LegacyRetroTab /> : <TemporalRetroTab />}
+    </div>
+  )
+}
+
+// ── Legacy tab: prior behavior, unchanged ────────────────────────────────
+
+function LegacyRetroTab() {
   const [batches, setBatches] = useState<BatchSummary[]>([])
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
   const [issues, setIssues] = useState<BatchIssue[]>([])
@@ -29,13 +66,12 @@ export function RetroView() {
     getRetroBatches()
       .then(res => {
         if (res.success && res.batches) {
-          // Sort newest first
           const sorted = [...res.batches].sort(
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           )
           setBatches(sorted)
-          if (sorted.length > 0 && !activeBatchId) {
-            setActiveBatchId(sorted[0].batch_id)
+          if (sorted.length > 0) {
+            setActiveBatchId(prev => prev ?? sorted[0].batch_id)
           }
         }
       })
@@ -53,8 +89,6 @@ export function RetroView() {
       .then(res => {
         if (res.success) {
           setIssues(res.issues ?? [])
-          // Use the batch from the already-loaded batches list (has computed counts)
-          // res.batch is raw data without summary counts
           const summary = batches.find(b => b.batch_id === activeBatchId)
           setActiveBatch(summary ?? null)
         } else {
@@ -65,7 +99,7 @@ export function RetroView() {
         setError(`Failed to load batch detail: ${err instanceof Error ? err.message : String(err)}`)
       )
       .finally(() => setLoadingIssues(false))
-  }, [activeBatchId])
+  }, [activeBatchId, batches])
 
   if (loadingBatches) return <LoadingState text="Loading batches…" />
   if (error) return <div className="retro-error">{error}</div>
@@ -74,7 +108,7 @@ export function RetroView() {
   const olderBatches = batches.slice(MAX_VISIBLE_TABS)
 
   return (
-    <div className="retro-view">
+    <div data-testid="retro-tab-content-legacy">
       {/* Batch tabs */}
       <div className="retro-tabs">
         {visibleTabs.map(b => (
@@ -114,10 +148,8 @@ export function RetroView() {
         )}
       </div>
 
-      {/* Batch summary funnel */}
       {activeBatch && <BatchSummaryPanel batch={activeBatch} />}
 
-      {/* Issue list */}
       <div className="retro-issue-list">
         {loadingIssues ? (
           <LoadingState text="Loading issues…" />
@@ -127,6 +159,71 @@ export function RetroView() {
           issues.map((item, i) => <IssueRetroCard key={i} item={item} />)
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Temporal tab: crimson-kitty batches, lazy ────────────────────────────
+
+function TemporalRetroTab() {
+  const batches = useTemporalStore(s => s.batches)
+  const batchDetail = useTemporalStore(s => s.batchDetail)
+  const loadBatches = useTemporalStore(s => s.loadBatches)
+  const loadBatch = useTemporalStore(s => s.loadBatch)
+
+  useEffect(() => {
+    void loadBatches()
+  }, [loadBatches])
+
+  if (batches.loading && batches.items.length === 0) {
+    return <LoadingState text="Loading temporal batches…" />
+  }
+  if (batches.error) {
+    return (
+      <div className="retro-error" data-testid="retro-temporal-error">
+        {batches.error}
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid="retro-tab-content-temporal">
+      <div className="retro-tabs">
+        {batches.items.length === 0 ? (
+          <p data-testid="retro-temporal-empty">No temporal batches yet.</p>
+        ) : (
+          batches.items.map(b => (
+            <button
+              key={b.batch_id}
+              type="button"
+              data-testid="retro-temporal-batch-button"
+              className="retro-tab"
+              onClick={() => {
+                void loadBatch(b.batch_id)
+              }}
+            >
+              {b.batch_id} ({b.issue_count})
+            </button>
+          ))
+        )}
+      </div>
+
+      {batchDetail.loading && <LoadingState text="Loading batch…" />}
+      {batchDetail.data && (
+        <div className="retro-issue-list" data-testid="retro-temporal-issues">
+          <h3>{batchDetail.data.batch_id}</h3>
+          <ul>
+            {batchDetail.data.issues.map(i => (
+              <li key={i.issue_id} data-testid="retro-temporal-issue">
+                <span>{i.issue_id}</span> <StateBadge state={i.current_state} />{' '}
+                <span>
+                  {i.transition_count} transitions · {i.gate_count} gates
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

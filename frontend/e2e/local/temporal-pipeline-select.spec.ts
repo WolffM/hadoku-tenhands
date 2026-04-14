@@ -1,0 +1,47 @@
+/**
+ * Crimson-Kitty pipeline-select + main view integration.
+ *
+ * Covers phase-1-plan.md step 2.7:
+ *   - PipelineSelectView shows 3 tiles (vibecheck / oss / crimson-kitty)
+ *   - clicking the crimson-kitty tile navigates to the temporal view
+ */
+
+import { test, expect } from '../fixtures/base'
+import { mockAllAPIs } from '../fixtures/api-mocks'
+import { mockTemporalAPIs } from '../fixtures/temporal-mocks'
+
+test.describe('Temporal pipeline select', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAPIs(page)
+    await mockTemporalAPIs(page)
+  })
+
+  test('picker shows 3 tiles', async ({ page }) => {
+    await page.goto('/?key=test-key')
+    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
+
+    const cards = page.locator('.pipeline-select-card')
+    await expect(cards).toHaveCount(3)
+    await expect(cards.filter({ hasText: 'Vibecheck Pipeline' })).toBeVisible()
+    await expect(cards.filter({ hasText: 'OSS Contribution Pipeline' })).toBeVisible()
+    await expect(cards.filter({ hasText: 'Crimson-Kitty' })).toBeVisible()
+  })
+
+  test('clicking crimson-kitty tile navigates to temporal view', async ({ page }) => {
+    await page.goto('/?key=test-key')
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Crimson-Kitty' }).click()
+
+    await expect(page.locator('text=Select a Pipeline')).not.toBeVisible()
+    await expect(page.getByTestId('temporal-pipeline-view')).toBeVisible()
+    await expect(page.getByTestId('temporal-batches-pane')).toBeVisible()
+    await expect(page.getByTestId('temporal-inbox')).toBeVisible()
+  })
+
+  test('Crimson-Kitty nav tab switches into the view', async ({ page }) => {
+    await page.goto('/?key=test-key')
+    // enter any pipeline first to reveal pipeline tabs
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
+    await page.getByRole('button', { name: /Crimson-Kitty/i }).click()
+    await expect(page.getByTestId('temporal-pipeline-view')).toBeVisible()
+  })
+})

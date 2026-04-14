@@ -1,3 +1,6 @@
+# Ephemeral review artifacts
+screenshots/
+
 # Python
 __pycache__/
 *.py[cod]

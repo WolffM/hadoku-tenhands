@@ -1,0 +1,84 @@
+/* ============ Activity Log Styles ============ */
+
+.progress-log {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: var(--color-bg-alt);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--color-border);
+}
+
+/* Progress Log - actual class names used in component */
+.progress-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.progress-log-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.progress-log-clear {
+  padding: 0.25rem 0.5rem;
+  font-size: var(--font-size-xs);
+  background-color: var(--color-bg);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.progress-log-clear:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.progress-log-content {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.progress-log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono, 'SF Mono', Consolas, monospace);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.progress-log-entry:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.log-message {
+  flex: 1;
+  color: var(--color-text);
+}
+
+.log-success .log-message {
+  color: var(--color-success);
+}
+
+.log-error .log-message {
+  color: var(--color-danger);
+}
+
+.log-warning .log-message {
+  color: var(--color-warning);
+}
+
+.log-info .log-message {
+  color: var(--color-primary);
+}
