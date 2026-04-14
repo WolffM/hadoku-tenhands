@@ -76,6 +76,7 @@ pipeline-report.html
 
 # Billing/usage reports
 *.csv
+!docs/runbooks/*.csv
 
 # Temporary
 .tmp/
