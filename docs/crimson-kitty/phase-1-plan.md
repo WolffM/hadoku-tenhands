@@ -77,10 +77,13 @@ plus `SAML_ORG_TOKEN` routing in `services/github_api.py`. No new PAT needed.
 - Test: `claude --version` returns the pinned version
 - Done when: version output matches expected; pinned version recorded in `docs/runbooks/claude-cli-prod-auth.md`
 
-### Step 0.10 — Authenticate `claude` CLI on prod
-- Output: `~/.claude/credentials.json` on prod host (machine-local)
-- Test: `claude -p "respond with OK" --model haiku --output-format json` returns within 10s with exit 0
-- Done when: canary command succeeds + runbook documents the OAuth steps for re-auth on host reprovision
+### Step 0.10 — Authenticate `claude` CLI via long-lived OAuth token
+- Output: `CLAUDE_CODE_OAUTH_TOKEN` env var set in `.env` (and in the prod
+  secret store). Token is generated locally via `claude setup-token`,
+  printed once, copied into the secret store. Valid 1 year, no rotation,
+  no `~/.claude/credentials.json` needed.
+- Test: `CLAUDE_CODE_OAUTH_TOKEN=... claude -p "respond with OK" --model haiku` returns within 10s with exit 0
+- Done when: canary command succeeds against the env-var-only auth path on the dev host AND `CLAUDE_CODE_OAUTH_TOKEN` is propagated to the prod secret store
 
 ### Step 0.11 — Canary baseline measurement
 - Output: 10 consecutive canary calls on prod, recorded with timing
