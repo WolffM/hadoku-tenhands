@@ -72,10 +72,14 @@ plus `MSFT_SSO` routing in `services/github_api.py`. No new PAT needed.
 - Test: script calls each new endpoint for 3 known repos (vibedispatch itself, microsoft/markitdown, mermaid-js/mermaid) and validates the response shape against a hand-written schema
 - Done when: script exits 0
 
-### Step 0.9 — Install `claude` CLI on prod
-- Output: `npm install -g @anthropic-ai/claude-code@<pinned>` run on the production host
-- Test: `claude --version` returns the pinned version
-- Done when: version output matches expected; pinned version recorded in `docs/runbooks/claude-cli-prod-auth.md`
+### Step 0.9 — Install `claude` CLI on the dev host
+- Output: `@anthropic-ai/claude-code` installed via `npm install -g` to a
+  user-local prefix (`~/.npm-global/bin/claude`). Prod-side install is
+  deferred until a Temporal worker actually runs on the prod host
+  (Phase 1D); Phase 0 only requires the dev host where the worker first
+  comes up locally.
+- Test: `claude --version` returns the installed version
+- Done when: 2.1.105 installed and on PATH
 
 ### Step 0.10 — Authenticate `claude` CLI via long-lived OAuth token
 - Output: `CLAUDE_CODE_OAUTH_TOKEN` env var set in `.env` (and in the prod
@@ -83,11 +87,11 @@ plus `MSFT_SSO` routing in `services/github_api.py`. No new PAT needed.
   printed once, copied into the secret store. Valid 1 year, no rotation,
   no `~/.claude/credentials.json` needed.
 - Test: `CLAUDE_CODE_OAUTH_TOKEN=... claude -p "respond with OK" --model haiku` returns within 10s with exit 0
-- Done when: canary command succeeds against the env-var-only auth path on the dev host AND `CLAUDE_CODE_OAUTH_TOKEN` is propagated to the prod secret store
+- Done when: canary command succeeds against the env-var-only auth path on the dev host. Prod-side propagation deferred to Phase 1D when a worker actually runs there.
 
 ### Step 0.11 — Canary baseline measurement
-- Output: 10 consecutive canary calls on prod, recorded with timing
-- Test: all 10 succeed; p95 latency < 5s; no unexplained errors
+- Output: 10 consecutive canary calls against the local CLI, recorded with timing
+- Test: all 10 succeed; p95 latency target < 5s (acceptable to be slightly over if a single cold-cache tail call causes it); no unexplained errors
 - Done when: timing CSV saved to `docs/runbooks/claude-cli-canary-baseline.csv` for future comparison
 
 ---
@@ -100,9 +104,9 @@ plus `MSFT_SSO` routing in `services/github_api.py`. No new PAT needed.
 - [ ] `cleanup_legacy_forks.py --confirm` executed; post-cleanup fork count is 0
 - [ ] `state/legacy-forks-backup.jsonl` exists with N records (N matches pre-cleanup count) and is committed
 - [ ] All 5 aggregator endpoints return valid schema for 3 known repos (script exits 0)
-- [ ] `claude --version` on prod matches pinned version
-- [ ] Canary command on prod returns OK in <10s
-- [ ] 10-call canary baseline recorded
+- [ ] `claude --version` on the dev host returns the installed version
+- [ ] Canary command on the dev host returns OK in <10s
+- [ ] 10-call canary baseline recorded (prod-side claude provisioning deferred to Phase 1D)
 - [ ] Operator writes "Phase Gate 0 → 1A: PASS" in a commit message or chat acknowledgment
 
 If any item fails, **stop**. File a follow-up question, fix, retest. Do
