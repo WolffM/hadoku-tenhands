@@ -1,7 +1,7 @@
 /* ============ Retrospective View ============ */
 
 .retro-error {
-  color: var(--color-error);
+  color: var(--color-danger);
   padding: var(--hdk-space-xl);
 }
 
@@ -434,7 +434,7 @@
 }
 
 .retro-timeline__step--commit .retro-timeline__dot {
-  background: var(--color-accent, #7c6ff7);
+  background: var(--color-primary);
 }
 
 .retro-timeline__meta {
@@ -624,8 +624,8 @@
 .crossref-leak {
   font-size: var(--hdk-text-sm);
   padding: var(--hdk-space-sm) var(--hdk-space-md);
-  background: rgba(239, 68, 68, 0.08);
-  border-left: 3px solid #ef4444;
+  background: var(--color-danger-light);
+  border-left: 3px solid var(--color-danger);
   border-radius: 0 4px 4px 0;
 }
 
@@ -635,7 +635,7 @@
 }
 
 .crossref-leak__link {
-  color: #ef4444;
+  color: var(--color-danger);
   font-family: monospace;
   font-size: var(--hdk-text-xs);
 }
@@ -650,7 +650,7 @@
 .context-panel-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--color-bg-overlay);
   z-index: 200;
 }
 

@@ -43,7 +43,7 @@
 
 .dossier-panel__header h3 {
   margin: 0;
-  font-size: var(--font-size-base);
+  font-size: var(--hdk-text-base);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -60,9 +60,9 @@
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   cursor: pointer;
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   white-space: nowrap;
 }
 
@@ -72,7 +72,7 @@
 
 .dossier-tab--active {
   background-color: var(--color-primary);
-  color: var(--color-primary-text);
+  color: var(--color-on-primary);
 }
 
 .dossier-panel__content {
@@ -85,7 +85,7 @@
   white-space: pre-wrap;
   word-wrap: break-word;
   font-family: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   line-height: 1.6;
   margin: 0;
 }
@@ -108,7 +108,7 @@
 
 .pipeline-select__title {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
@@ -127,7 +127,7 @@
   padding: 1.5rem;
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   cursor: pointer;
   transition: all 0.2s ease;
   text-align: left;
@@ -140,7 +140,7 @@
   border-color: var(--color-primary);
   background-color: var(--color-bg-hover);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--hdk-shadow-sm);
 }
 
 .pipeline-select-card__icon {
@@ -155,14 +155,14 @@
 
 .pipeline-select-card__title {
   margin: 0 0 0.25rem 0;
-  font-size: var(--font-size-base);
+  font-size: var(--hdk-text-base);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
 
 .pipeline-select-card__description {
   margin: 0 0 0.75rem 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
 
@@ -174,7 +174,7 @@
 }
 
 .pipeline-select-card__stage {
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-secondary);
   padding: 0.125rem 0.5rem;
   background-color: var(--color-neutral-light);
@@ -183,7 +183,7 @@
 
 .pipeline-select-card__arrow {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   padding: 0 0.125rem;
   background: none;
 }
@@ -204,7 +204,7 @@
 .repo-health-card {
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   padding: 1rem 1.25rem;
 }
 
@@ -217,7 +217,7 @@
 
 .repo-health-card__slug {
   font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-base);
+  font-size: var(--hdk-text-base);
 }
 
 .repo-health-card__scores {
@@ -230,14 +230,14 @@
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
 }
 
 .repo-health-card__timestamps {
   display: flex;
   gap: 1rem;
   margin-bottom: 0.75rem;
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
 }
 
 .repo-health-card__dossier {
@@ -263,7 +263,7 @@
   background: none;
   border: none;
   color: var(--color-text);
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   cursor: pointer;
   font-family: inherit;
 }
@@ -280,12 +280,12 @@
   white-space: pre-wrap;
   word-wrap: break-word;
   font-family: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   line-height: 1.6;
   margin: 0 0 0.75rem 0;
   padding: 0.5rem;
   background-color: var(--color-bg);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   max-height: 300px;
   overflow-y: auto;
 }
@@ -316,8 +316,8 @@
   width: 280px;
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  border-radius: var(--hdk-radius);
+  box-shadow: var(--hdk-shadow-lg);
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -331,11 +331,11 @@
 .repo-filter-popover__search input {
   width: 100%;
   padding: 0.375rem 0.5rem;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   background-color: var(--color-bg);
   color: var(--color-text);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   outline: none;
 }
 
@@ -361,7 +361,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.25rem 0.75rem;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   cursor: pointer;
   user-select: none;
 }
@@ -379,13 +379,13 @@
   padding: 0.75rem;
   text-align: center;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
 }
 
 .repo-filter-popover__footer {
   padding: 0.375rem 0.75rem;
   border-top: 1px solid var(--color-border);
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-secondary);
   text-align: center;
 }
@@ -410,23 +410,23 @@
 }
 
 .pipeline-progress__seg--filled.seg--swe {
-  background-color: var(--color-info, #58a6ff);
+  background-color: var(--color-primary);
 }
 
 .pipeline-progress__seg--filled.seg--sa {
-  background-color: var(--color-info-purple, #bc8cff);
+  background-color: var(--color-primary-dark);
 }
 
 .pipeline-progress__seg--filled.seg--review {
-  background-color: var(--color-warning, #d29922);
+  background-color: var(--color-warning);
 }
 
 .pipeline-progress__seg--filled.seg--remediation {
-  background-color: var(--color-info-cyan, #39d2c0);
+  background-color: var(--color-success-hover);
 }
 
 .pipeline-progress__seg--filled.seg--done {
-  background-color: var(--color-success, #3fb950);
+  background-color: var(--color-success);
 }
 
 /* ============ Metric Cards ============ */
@@ -440,13 +440,13 @@
 .metric-card {
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   padding: 0.75rem 1rem;
   min-width: 80px;
 }
 
 .metric-card__label {
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-secondary);
@@ -454,7 +454,7 @@
 }
 
 .metric-card__value {
-  font-size: var(--font-size-lg);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-bold);
 }
 
@@ -479,7 +479,7 @@
   max-width: 1200px;
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -495,7 +495,7 @@
 
 .report-modal__header h3 {
   margin: 0;
-  font-size: var(--font-size-base);
+  font-size: var(--hdk-text-base);
   font-weight: var(--font-weight-semibold);
 }
 

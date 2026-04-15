@@ -210,12 +210,13 @@ function TemporalRetroTab() {
 
       {batchDetail.loading && <LoadingState text="Loading batch…" />}
       {batchDetail.data && (
-        <div className="retro-issue-list" data-testid="retro-temporal-issues">
+        <div className="retro-temporal-batch-card" data-testid="retro-temporal-issues">
           <h3>{batchDetail.data.batch_id}</h3>
           <ul>
             {batchDetail.data.issues.map(i => (
               <li key={i.issue_id} data-testid="retro-temporal-issue">
-                <span>{i.issue_id}</span> <StateBadge state={i.current_state} />{' '}
+                <span>{i.issue_id}</span>
+                <StateBadge state={i.current_state} />
                 <span>
                   {i.transition_count} transitions · {i.gate_count} gates
                 </span>

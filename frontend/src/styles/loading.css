@@ -26,7 +26,7 @@
 }
 
 .loading-state__text {
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
 }
 
 .empty-state {
@@ -46,14 +46,14 @@
 
 .empty-state__title {
   margin: 0 0 0.5rem 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
 
 .empty-state__description {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
   max-width: 24rem;
 }
@@ -66,7 +66,7 @@
   padding: 3rem;
   text-align: center;
   background-color: var(--color-danger-light);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
 }
 
 .error-state__icon {
@@ -77,13 +77,13 @@
 
 .error-state__title {
   margin: 0 0 0.5rem 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-danger);
 }
 
 .error-state__message {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text);
 }

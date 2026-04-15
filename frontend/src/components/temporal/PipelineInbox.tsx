@@ -47,6 +47,7 @@ function InboxRow({ item, onSignal, pending }: RowProps) {
       <div className="temporal-inbox__actions">
         <button
           type="button"
+          className="btn btn--success btn--sm"
           data-testid="temporal-inbox-approve"
           disabled={isPending}
           onClick={() => {
@@ -57,6 +58,7 @@ function InboxRow({ item, onSignal, pending }: RowProps) {
         </button>
         <button
           type="button"
+          className="btn btn--danger btn--sm"
           data-testid="temporal-inbox-abort"
           disabled={isPending}
           onClick={() => {
@@ -67,6 +69,7 @@ function InboxRow({ item, onSignal, pending }: RowProps) {
         </button>
         <button
           type="button"
+          className="btn btn--secondary btn--sm"
           data-testid="temporal-inbox-retry"
           disabled={isPending}
           onClick={() => {
@@ -111,6 +114,7 @@ export function PipelineInbox() {
         <h2>Pipeline Inbox</h2>
         <button
           type="button"
+          className="btn btn--secondary btn--sm"
           onClick={() => {
             void loadInbox()
           }}

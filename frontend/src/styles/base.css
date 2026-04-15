@@ -29,7 +29,7 @@
 .vibedispatch__title {
   margin: 0;
   color: var(--color-primary);
-  font-size: var(--font-size-lg);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-bold);
 }
 
@@ -41,7 +41,7 @@
 
 .vibedispatch__content {
   background-color: var(--color-bg-card);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   box-shadow: var(--shadow-sm);
 }
 
@@ -57,10 +57,10 @@
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--hdk-text-sm);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   transition: all 0.2s ease;
 }
 
@@ -71,12 +71,12 @@
 
 .nav-tabs__tab--active {
   background-color: var(--color-primary);
-  color: var(--color-primary-text);
+  color: var(--color-on-primary);
 }
 
 .nav-tabs__tab--active:hover {
   background-color: var(--color-primary-dark);
-  color: var(--color-primary-text);
+  color: var(--color-on-primary);
 }
 
 .nav-tabs__badge {
@@ -87,10 +87,10 @@
   height: 1.25rem;
   padding: 0 0.375rem;
   margin-left: 0.375rem;
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   font-weight: var(--font-weight-semibold);
   background-color: var(--color-warning);
-  color: var(--color-warning-text);
+  color: var(--color-on-warning);
   border-radius: 9999px;
 }
 

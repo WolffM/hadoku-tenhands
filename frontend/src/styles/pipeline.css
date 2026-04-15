@@ -11,7 +11,7 @@
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
   background-color: var(--color-bg);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   border: 1px solid var(--color-border);
 }
 
@@ -26,9 +26,9 @@
   border: 1px solid var(--color-border);
   background: var(--color-bg);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   cursor: pointer;
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   transition: all 0.2s ease;
 }
 
@@ -38,7 +38,7 @@
 }
 
 .pipeline-list__selection-count {
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
 
@@ -46,11 +46,11 @@
   padding: 0.5rem 1rem;
   border: none;
   background-color: var(--color-primary);
-  color: var(--color-primary-text);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  color: var(--color-on-primary);
+  font-size: var(--hdk-text-sm);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   transition: all 0.2s ease;
 }
 
@@ -74,7 +74,7 @@
 .pipeline-row {
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   overflow: hidden;
   transition: box-shadow 0.2s ease;
 }
@@ -111,7 +111,7 @@
   width: 1.5rem;
   height: 1.5rem;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   transition: transform 0.2s ease;
 }
 
@@ -130,13 +130,13 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
 
 .pipeline-row__repo {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
 }
 
 .pipeline-row__progress {
@@ -144,7 +144,7 @@
 }
 
 .pipeline-row__stage {
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
   white-space: nowrap;
 }
@@ -200,8 +200,8 @@
   align-items: center;
   gap: 0.375rem;
   padding: 0.25rem 0.625rem;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--hdk-text-xs);
+  font-weight: var(--font-weight-semibold);
   border-radius: 9999px;
   white-space: nowrap;
 }
@@ -292,7 +292,7 @@
 }
 
 .stage-details__label {
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-secondary);
   text-transform: uppercase;
@@ -300,7 +300,7 @@
 }
 
 .stage-details__value {
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text);
 }
 
