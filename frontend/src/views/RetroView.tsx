@@ -9,8 +9,8 @@
  */
 
 import { useState, useEffect } from 'react'
-import { getRetroBatches, getRetroBatchDetail } from '../api/endpoints'
-import type { BatchSummary, BatchIssue } from '../api/types'
+import { getRetroBatches, getRetroBatchDetail, getTemporalBatch } from '../api/endpoints'
+import type { BatchSummary, BatchIssue, TemporalBatchDetail } from '../api/types'
 import { BatchSummaryPanel } from '../components/retro/BatchSummaryPanel'
 import { IssueRetroCard } from '../components/retro/IssueRetroCard'
 import { LoadingState } from '../components/common'
@@ -164,16 +164,40 @@ function LegacyRetroTab() {
 }
 
 // ── Temporal tab: crimson-kitty batches, lazy ────────────────────────────
+//
+// Owns its own selected-batch state via local useState + raw API calls so
+// it doesn't share `batchDetail` with the TemporalPipelineView singleton
+// store. Otherwise, navigating pipeline → retro would carry over whichever
+// batch you last clicked in the pipeline view, making the retro tab look
+// like it had a selection when it should start empty.
 
 function TemporalRetroTab() {
   const batches = useTemporalStore(s => s.batches)
-  const batchDetail = useTemporalStore(s => s.batchDetail)
   const loadBatches = useTemporalStore(s => s.loadBatches)
-  const loadBatch = useTemporalStore(s => s.loadBatch)
+
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<TemporalBatchDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
 
   useEffect(() => {
     void loadBatches()
   }, [loadBatches])
+
+  const handleSelectBatch = async (batchId: string) => {
+    setSelectedBatchId(batchId)
+    setDetail(null)
+    setDetailLoading(true)
+    setDetailError(null)
+    try {
+      const data = await getTemporalBatch(batchId)
+      setDetail(data)
+    } catch (err) {
+      setDetailError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   if (batches.loading && batches.items.length === 0) {
     return <LoadingState text="Loading temporal batches…" />
@@ -197,9 +221,9 @@ function TemporalRetroTab() {
               key={b.batch_id}
               type="button"
               data-testid="retro-temporal-batch-button"
-              className="retro-tab"
+              className={`retro-tab ${selectedBatchId === b.batch_id ? 'retro-tab--active' : ''}`}
               onClick={() => {
-                void loadBatch(b.batch_id)
+                void handleSelectBatch(b.batch_id)
               }}
             >
               {b.batch_id} ({b.issue_count})
@@ -208,12 +232,26 @@ function TemporalRetroTab() {
         )}
       </div>
 
-      {batchDetail.loading && <LoadingState text="Loading batch…" />}
-      {batchDetail.data && (
+      {!selectedBatchId && (
+        <p
+          className="retro-empty"
+          data-testid="retro-temporal-no-selection"
+          style={{ padding: 'var(--hdk-space-xl)', textAlign: 'center' }}
+        >
+          Select a batch above to see its issues.
+        </p>
+      )}
+      {detailLoading && <LoadingState text="Loading batch…" />}
+      {detailError && (
+        <div className="retro-error" data-testid="retro-temporal-detail-error">
+          {detailError}
+        </div>
+      )}
+      {detail && (
         <div className="retro-temporal-batch-card" data-testid="retro-temporal-issues">
-          <h3>{batchDetail.data.batch_id}</h3>
+          <h3>{detail.batch_id}</h3>
           <ul>
-            {batchDetail.data.issues.map(i => (
+            {detail.issues.map(i => (
               <li key={i.issue_id} data-testid="retro-temporal-issue">
                 <span>{i.issue_id}</span>
                 <StateBadge state={i.current_state} />
