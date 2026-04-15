@@ -11,14 +11,14 @@
 
 .health-title {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
 
 .health-subtitle {
   margin: 0.25rem 0 0 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
 
@@ -33,20 +33,20 @@
 .stat-card {
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   padding: 1rem;
 }
 
 .stat-card__label {
   margin: 0 0 0.5rem 0;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--hdk-text-sm);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-secondary);
 }
 
 .stat-card__value {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-bold);
   color: var(--color-text);
 }
@@ -67,7 +67,7 @@
 .filter-card {
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   margin-bottom: 1.5rem;
 }
 
@@ -96,13 +96,13 @@
   padding: 1rem;
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   margin-bottom: 1.5rem;
 }
 
 .health-indicator {
   padding: 0.5rem 1rem;
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -124,7 +124,7 @@
 .health-details {
   display: flex;
   gap: 1.5rem;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
 
@@ -132,7 +132,7 @@
   padding: 1rem;
   background-color: var(--color-danger-light);
   border: 1px solid var(--color-danger);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   color: var(--color-danger);
   margin-bottom: 1.5rem;
 }
@@ -141,7 +141,7 @@
 .workflow-card {
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
 }
 
 .workflow-card__header {

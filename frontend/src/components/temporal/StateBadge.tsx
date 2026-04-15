@@ -14,11 +14,11 @@ import { Badge, type BadgeVariant } from '../common/Badge'
 
 const STATE_VARIANT: Record<string, BadgeVariant> = {
   merged: 'success',
-  aborted: 'danger',
-  closed_by_upstream: 'danger',
+  submittable: 'success',
+  submitted: 'primary',
   awaiting_human_review: 'warning',
-  submittable: 'info',
-  submitted: 'info'
+  aborted: 'danger',
+  closed_by_upstream: 'danger'
 }
 
 function variantFor(state: string): BadgeVariant {

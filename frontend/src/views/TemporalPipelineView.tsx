@@ -35,6 +35,7 @@ export function TemporalPipelineView() {
             <h2>Batches</h2>
             <button
               type="button"
+              className="btn btn--secondary btn--sm"
               onClick={() => {
                 void loadBatches()
               }}

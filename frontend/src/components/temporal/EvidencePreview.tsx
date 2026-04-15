@@ -64,26 +64,26 @@ function renderDiff(text: string): ReactElement {
 
 const diffContainerStyle: CSSProperties = {
   fontFamily: 'monospace',
-  fontSize: '12px',
+  fontSize: 'var(--hdk-text-xs)',
   whiteSpace: 'pre',
   overflowX: 'auto',
-  padding: '8px',
-  background: 'var(--color-bg-alt, #0f1419)',
-  borderRadius: '4px'
+  padding: 'var(--hdk-space-sm)',
+  background: 'var(--color-bg-alt)',
+  borderRadius: 'var(--hdk-radius-sm)'
 }
 
 function lineStyle(line: string): CSSProperties {
   if (line.startsWith('+++') || line.startsWith('---')) {
-    return { color: 'var(--color-text-muted, #888)', fontWeight: 'bold' }
+    return { color: 'var(--color-text-muted)', fontWeight: 'bold' }
   }
   if (line.startsWith('@@')) {
-    return { color: 'var(--color-info, #4ea1f3)' }
+    return { color: 'var(--color-primary)' }
   }
   if (line.startsWith('+')) {
-    return { color: 'var(--color-success, #4caf50)' }
+    return { color: 'var(--color-success)' }
   }
   if (line.startsWith('-')) {
-    return { color: 'var(--color-danger, #f44336)' }
+    return { color: 'var(--color-danger)' }
   }
   return {}
 }

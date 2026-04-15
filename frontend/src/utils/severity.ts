@@ -49,15 +49,15 @@ export function getSeverityClass(severity: SeverityLevel): string {
 export function getSeverityColor(severity: SeverityLevel): string {
   switch (severity) {
     case 'critical':
-      return 'var(--color-error, #dc3545)'
+      return 'var(--color-danger)'
     case 'high':
-      return 'var(--color-warning, #fd7e14)'
+      return 'var(--color-warning)'
     case 'medium':
-      return 'var(--color-info, #0dcaf0)'
+      return 'var(--color-primary)'
     case 'low':
-      return 'var(--color-success, #198754)'
+      return 'var(--color-success)'
     default:
-      return 'var(--color-text-secondary, #6c757d)'
+      return 'var(--color-text-secondary)'
   }
 }
 

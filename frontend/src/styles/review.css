@@ -52,8 +52,8 @@
 }
 
 .nav-position {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--hdk-text-sm);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-secondary);
   min-width: 4rem;
   text-align: center;
@@ -63,7 +63,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
 }
 
 .review-repo {
@@ -82,11 +82,11 @@
 .review-link {
   margin-left: 0.75rem;
   padding: 0.25rem 0.5rem;
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
   color: var(--color-primary);
   text-decoration: none;
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   transition: all 0.2s ease;
 }
 
@@ -101,7 +101,7 @@
 
 .review-title h2 {
   margin: 0 0 0.5rem 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
@@ -110,7 +110,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
 
@@ -120,11 +120,11 @@
 
 .meta-draft {
   padding: 0.125rem 0.375rem;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-warning-text);
+  font-size: var(--hdk-text-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-on-warning);
   background-color: var(--color-warning-bg);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
 }
 
 /* PR Description (Copilot response) */
@@ -133,18 +133,18 @@
   padding: 1rem;
   background-color: var(--color-bg-alt);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
 }
 
 .review-description__title {
   margin: 0 0 0.75rem 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
 
 .review-description__content {
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
   word-break: break-word;
   max-height: 300px;
@@ -197,11 +197,11 @@
 }
 
 .markdown-content code {
-  font-family: var(--font-family-mono);
+  font-family: 'SF Mono', Consolas, monospace;
   font-size: 0.85em;
   padding: 0.15rem 0.4rem;
   background-color: var(--color-bg-hover);
-  border-radius: var(--border-radius-sm);
+  border-radius: var(--hdk-radius-sm);
   color: var(--color-text);
 }
 
@@ -209,7 +209,7 @@
   margin: 0.75rem 0;
   padding: 0.75rem;
   background-color: var(--color-bg-hover);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   overflow-x: auto;
 }
 
@@ -266,7 +266,7 @@
   max-height: 60vh;
   overflow-y: auto;
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--hdk-radius);
   background-color: var(--color-bg);
 }
 
@@ -291,8 +291,8 @@
 /* ============ Diff Viewer ============ */
 
 .diff-viewer {
-  font-family: var(--font-family-mono, 'SF Mono', Consolas, monospace);
-  font-size: var(--font-size-xs);
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: var(--hdk-text-xs);
   line-height: 1.5;
   overflow-x: auto;
 }
@@ -316,7 +316,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem;
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
 
@@ -351,7 +351,7 @@
   padding: 0.75rem 1rem;
   background-color: var(--color-bg-alt);
   border-bottom: 1px solid var(--color-border);
-  font-size: var(--font-size-sm);
+  font-size: var(--hdk-text-sm);
   font-family: var(--font-family);
 }
 
@@ -398,8 +398,8 @@
   padding: 0.625rem 1rem;
   background-color: var(--color-neutral-light);
   border-bottom: 1px solid var(--color-border);
-  font-family: var(--font-family-mono, 'SF Mono', Consolas, monospace);
-  font-size: var(--font-size-xs);
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: var(--hdk-text-xs);
 }
 
 .diff-filename {
@@ -410,7 +410,7 @@
 .diff-stats {
   display: flex;
   gap: 0.75rem;
-  font-size: var(--font-size-xs);
+  font-size: var(--hdk-text-xs);
 }
 
 .diff-additions {
@@ -431,8 +431,8 @@
 .diff-table {
   width: 100%;
   border-collapse: collapse;
-  font-family: var(--font-family-mono, 'SF Mono', Consolas, monospace);
-  font-size: var(--font-size-xs);
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: var(--hdk-text-xs);
   line-height: 1.5;
 }
 
@@ -474,11 +474,11 @@
 }
 
 .diff-line-num-old {
-  background-color: rgba(0, 0, 0, 0.02);
+  background-color: var(--color-muted-bg);
 }
 
 .diff-line-num-new {
-  background-color: rgba(0, 0, 0, 0.02);
+  background-color: var(--color-muted-bg);
 }
 
 .diff-line-addition .diff-line-num-new {
