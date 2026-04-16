@@ -81,6 +81,11 @@ pipeline-report.html
 *.csv
 !docs/runbooks/*.csv
 
+# Temporal pipeline state (runtime evidence, survives deploys)
+state/smoke-*
+state/batch-*
+state/crimson-kitty-*
+
 # Temporary
 .tmp/
 .cache/
