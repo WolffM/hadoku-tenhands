@@ -183,17 +183,17 @@ class TestForkExists:
     def test_fork_exists(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.check_fork_exists.return_value = True
-        resp = client.get(f"{PREFIX}/api/oss/debug/fork-exists?repo=fastify")
+        resp = client.get(f"{PREFIX}/api/oss/debug/fork-exists?repo=widget-api")
         data = resp.get_json()
         assert data["exists"] is True
-        assert data["fork_url"] == "https://github.com/testuser/fastify"
+        assert data["fork_url"] == "https://github.com/testuser/widget-api"
 
     @patch(f"{_fork}.OSSService")
     @patch(f"{_fork}.get_authenticated_user", return_value="testuser")
     def test_fork_not_exists(self, mock_user, mock_svc_class, client):
         mock_svc = mock_svc_class.return_value
         mock_svc.check_fork_exists.return_value = False
-        resp = client.get(f"{PREFIX}/api/oss/debug/fork-exists?repo=fastify")
+        resp = client.get(f"{PREFIX}/api/oss/debug/fork-exists?repo=widget-api")
         data = resp.get_json()
         assert data["exists"] is False
         assert data["fork_url"] is None
@@ -215,7 +215,7 @@ class TestForkRepo:
         mock_svc.fork_repo.return_value = {"success": True, "output": ""}
         resp = client.post(
             f"{PREFIX}/api/oss/debug/fork-repo",
-            json={"origin_owner": "fastify", "repo": "fastify"},
+            json={"origin_owner": "acme-corp", "repo": "widget-api"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -225,7 +225,7 @@ class TestForkRepo:
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/debug/fork-repo",
-            json={"origin_owner": "fastify"},
+            json={"origin_owner": "acme-corp"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -242,7 +242,7 @@ class TestSyncFork:
         mock_svc.sync_fork.return_value = {"success": True, "output": ""}
         resp = client.post(
             f"{PREFIX}/api/oss/debug/sync-fork",
-            json={"repo": "fastify"},
+            json={"repo": "widget-api"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -262,11 +262,11 @@ class TestBuildContext:
         resp = client.post(
             f"{PREFIX}/api/oss/debug/build-context",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 1234,
                 "issue_title": "Fix memory leak",
-                "issue_url": "https://github.com/fastify/fastify/issues/1234",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/1234",
             },
             content_type="application/json",
         )
@@ -278,7 +278,7 @@ class TestBuildContext:
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/debug/build-context",
-            json={"origin_owner": "fastify"},
+            json={"origin_owner": "acme-corp"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -293,11 +293,11 @@ class TestCreateContextIssue:
     def test_create_issue_succeeds(self, mock_user, mock_gh, client):
         mock_gh.return_value = {
             "success": True,
-            "output": '{"html_url": "https://github.com/testuser/fastify/issues/5", "number": 5}',
+            "output": '{"html_url": "https://github.com/testuser/widget-api/issues/5", "number": 5}',
         }
         resp = client.post(
             f"{PREFIX}/api/oss/debug/create-context-issue",
-            json={"repo": "fastify", "title": "Fix #1234", "body": "Context body"},
+            json={"repo": "widget-api", "title": "Fix #1234", "body": "Context body"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -314,7 +314,7 @@ class TestAssignCopilot:
         mock_gh.return_value = {"success": True, "output": ""}
         resp = client.post(
             f"{PREFIX}/api/oss/debug/assign-copilot",
-            json={"repo": "fastify", "issue_number": 5},
+            json={"repo": "widget-api", "issue_number": 5},
             content_type="application/json",
         )
         data = resp.get_json()

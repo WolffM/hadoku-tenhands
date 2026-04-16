@@ -21,9 +21,9 @@ class TestBuildAgentContext:
         ]
         svc = OSSService()
 
-        body = svc.build_agent_context("fastify", "fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
+        body = svc.build_agent_context("acme-corp", "widget-api", 42, "Fix docs", "https://github.com/acme-corp/widget-api/issues/42")
 
-        assert "fastify/fastify" in body
+        assert "acme-corp/widget-api" in body
         assert "Fix docs" in body
         assert "Original issue body" in body
         # Workflow section comes FIRST (before issue context)
@@ -42,7 +42,7 @@ class TestBuildAgentContext:
         ]
         svc = OSSService()
 
-        body = svc.build_agent_context("fastify", "fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
+        body = svc.build_agent_context("acme-corp", "widget-api", 42, "Fix docs", "https://github.com/acme-corp/widget-api/issues/42")
 
         assert "CONTRIBUTING.md" in body
         assert "style guide" in body
@@ -53,7 +53,7 @@ class TestBuildAgentContext:
         svc = OSSService()
 
         dossier = {"contributionRules": "Always add tests", "successPatterns": "Keep PRs small"}
-        body = svc.build_agent_context("fastify", "fastify", 42, "Fix", "https://example.com", dossier)
+        body = svc.build_agent_context("acme-corp", "widget-api", 42, "Fix", "https://example.com", dossier)
 
         assert "Contribution Rules" in body
         assert "Always add tests" in body

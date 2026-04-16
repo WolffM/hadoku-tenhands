@@ -34,7 +34,7 @@ export const mockTemporalBatchDetail = {
     },
     {
       batch_id: 'crimson-kitty',
-      issue_id: 'fastify__fastify-42',
+      issue_id: 'acme-corp__widget-api-42',
       current_state: 'awaiting_human_review',
       is_deferred: true,
       deferred_at: 'fixed',
@@ -129,8 +129,8 @@ export const mockTemporalIssueDetail = {
 export const mockTemporalInboxItems = [
   {
     batch_id: 'crimson-kitty',
-    issue_id: 'fastify__fastify-42',
-    workflow_id: 'issue-crimson-kitty-fastify__fastify-42',
+    issue_id: 'acme-corp__widget-api-42',
+    workflow_id: 'issue-crimson-kitty-acme-corp__widget-api-42',
     state: 'fixed',
     gate: 'relevance',
     reason: 'judge returned low confidence',

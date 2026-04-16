@@ -13,13 +13,13 @@ class TestClaimManagement:
     @patch("services.oss_service._call_aggregator")
     def test_report_claim_converts_slug_format(self, mock_agg):
         svc = OSSService()
-        svc.report_claim("fastify/fastify", "github-fastify-fastify-42", "testuser", "https://example.com/issues/1")
+        svc.report_claim("acme-corp/widget-api", "github-acme-corp-widget-api-42", "testuser", "https://example.com/issues/1")
 
         mock_agg.assert_called_once_with(
-            "/recon/fastify-fastify/claim",
+            "/recon/acme-corp-widget-api/claim",
             method="POST",
             data={
-                "issueId": "github-fastify-fastify-42",
+                "issueId": "github-acme-corp-widget-api-42",
                 "claimedBy": "testuser",
                 "forkIssueUrl": "https://example.com/issues/1",
             },
@@ -28,12 +28,12 @@ class TestClaimManagement:
     @patch("services.oss_service._call_aggregator")
     def test_report_unclaim_converts_slug_format(self, mock_agg):
         svc = OSSService()
-        svc.report_unclaim("fastify/fastify", "github-fastify-fastify-42")
+        svc.report_unclaim("acme-corp/widget-api", "github-acme-corp-widget-api-42")
 
         mock_agg.assert_called_once_with(
-            "/recon/fastify-fastify/unclaim",
+            "/recon/acme-corp-widget-api/unclaim",
             method="POST",
-            data={"issueId": "github-fastify-fastify-42"},
+            data={"issueId": "github-acme-corp-widget-api-42"},
         )
 
     @patch("services.oss_service._call_aggregator")

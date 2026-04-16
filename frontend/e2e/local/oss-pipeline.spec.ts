@@ -48,12 +48,12 @@ test.describe('OSS Pipeline - Tab 1: Repo Health', () => {
   })
 
   test('renders repo health cards with slugs', async ({ page }) => {
-    await expect(page.locator('text=fastify-fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp-widget-api').first()).toBeVisible()
     await expect(page.locator('text=vercel-next.js').first()).toBeVisible()
   })
 
   test('shows health badge with overall viability score', async ({ page }) => {
-    // fastify-fastify has overallViability = 82
+    // acme-corp-widget-api has overallViability = 82
     await expect(page.locator('.badge').filter({ hasText: '82' })).toBeVisible()
     // vercel-next.js has overallViability = 58
     await expect(page.locator('.badge').filter({ hasText: '58' })).toBeVisible()
@@ -83,7 +83,7 @@ test.describe('OSS Pipeline - Tab 1: Repo Health', () => {
   })
 
   test('Re-scrape button triggers refresh-target API call', async ({ page }) => {
-    await expect(page.locator('text=fastify-fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp-widget-api').first()).toBeVisible()
 
     const [request] = await Promise.all([
       page.waitForRequest(
@@ -100,7 +100,7 @@ test.describe('OSS Pipeline - Tab 1: Repo Health', () => {
   })
 
   test('Re-compute button triggers compute-target API call', async ({ page }) => {
-    await expect(page.locator('text=fastify-fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp-widget-api').first()).toBeVisible()
 
     const [request] = await Promise.all([
       page.waitForRequest(
@@ -141,7 +141,7 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
 
   test('displays scored issues in table', async ({ page }) => {
     await expect(page.locator('text=Fix memory leak').first()).toBeVisible()
-    await expect(page.locator('text=fastify/fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp/widget-api').first()).toBeVisible()
   })
 
   test('shows CVS score and tier badge', async ({ page }) => {
@@ -169,7 +169,7 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
     // Close popover by clicking trigger again
     await trigger.click()
 
-    // Should only show 2 fastify issues
+    // Should only show 2 widget-api issues
     await expect(page.locator('text=All Issues (2)')).toBeVisible()
     await expect(page.locator('text=Fix hydration warning')).not.toBeVisible()
   })
@@ -283,7 +283,7 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
   })
 
   test('renders assignment rows with origin repo and issue number', async ({ page }) => {
-    await expect(page.locator('text=fastify/fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp/widget-api').first()).toBeVisible()
     await expect(page.locator('text=#1234').first()).toBeVisible()
     await expect(page.locator('text=vercel/next.js').first()).toBeVisible()
     await expect(page.locator('text=#9999').first()).toBeVisible()
@@ -394,9 +394,9 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
     ])
 
     const body = request.postDataJSON() as Record<string, unknown>
-    expect(body.repo).toBe('fastify')
+    expect(body.repo).toBe('widget-api')
     expect(body.pr_number).toBe(10)
-    expect(body.origin_slug).toBe('fastify/fastify')
+    expect(body.origin_slug).toBe('acme-corp/widget-api')
   })
 
   test('Signoff button shows loading state', async ({ page }) => {
@@ -408,7 +408,7 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          pr_url: 'https://github.com/fastify/fastify/pull/5555',
+          pr_url: 'https://github.com/acme-corp/widget-api/pull/5555',
           owner: mockOwner
         })
       })
@@ -461,7 +461,7 @@ test.describe('OSS Pipeline - Tab 4: Review', () => {
   })
 
   test('shows PR data correctly', async ({ page }) => {
-    await expect(page.locator('text=fastify/fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp/widget-api').first()).toBeVisible()
     await expect(page.locator('text=#9876')).toBeVisible()
     await expect(page.locator('text=Fix memory leak in request handler').first()).toBeVisible()
   })
@@ -474,7 +474,7 @@ test.describe('OSS Pipeline - Tab 4: Review', () => {
   })
 
   test('comment count is displayed', async ({ page }) => {
-    // fastify PR has comment_count: 3
+    // widget-api PR has comment_count: 3
     await expect(page.locator('td').filter({ hasText: '3' }).first()).toBeVisible()
   })
 
@@ -616,14 +616,14 @@ test.describe('OSS Pipeline - Global Repo Filter', () => {
     await trigger.click()
 
     const searchInput = page.locator('.repo-filter-popover__search input')
-    await searchInput.fill('fastify')
+    await searchInput.fill('widget-api')
 
-    // Only fastify repos should show
+    // Only widget-api repos should show
     const items = page.locator('.repo-filter-popover__item')
     const count = await items.count()
     expect(count).toBeGreaterThan(0)
     for (let i = 0; i < count; i++) {
-      await expect(items.nth(i)).toContainText('fastify')
+      await expect(items.nth(i)).toContainText('widget-api')
     }
   })
 
@@ -670,7 +670,7 @@ test.describe('OSS Pipeline - Global Repo Filter', () => {
       page.locator('.data-table td').filter({ hasText: 'vercel/next.js' })
     ).not.toBeVisible()
     await expect(
-      page.locator('.data-table td').filter({ hasText: 'fastify/fastify' }).first()
+      page.locator('.data-table td').filter({ hasText: 'acme-corp/widget-api' }).first()
     ).toBeVisible()
 
     // Tab 2 (Fork & Assign) — vercel issues should be hidden
@@ -763,7 +763,7 @@ renderContent();
         body: JSON.stringify({
           success: true,
           dossier: {
-            slug: 'fastify-fastify',
+            slug: 'acme-corp-widget-api',
             generatedAt: new Date().toISOString(),
             sections: {
               overview: 'Popular framework',
@@ -814,7 +814,7 @@ renderContent();
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          fork_issue_url: 'https://github.com/test-user/fastify/issues/3',
+          fork_issue_url: 'https://github.com/test-user/widget-api/issues/3',
           fork_issue_number: 3,
           owner: mockOwner
         })
@@ -829,7 +829,7 @@ renderContent();
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          pr_url: 'https://github.com/fastify/fastify/pull/5555',
+          pr_url: 'https://github.com/acme-corp/widget-api/pull/5555',
           owner: mockOwner
         })
       })
@@ -889,7 +889,7 @@ renderContent();
 
     // -------- Tab 1: Repo Health --------
     await page.locator('.stage-tab').filter({ hasText: 'Repo Health' }).click()
-    await expect(page.locator('text=fastify-fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp-widget-api').first()).toBeVisible()
 
     // Re-scrape
     await page
@@ -917,7 +917,7 @@ renderContent();
 
     // -------- Tab 3: Pipeline Runs --------
     await page.locator('.stage-tab').filter({ hasText: 'Pipeline Runs' }).click()
-    await expect(page.locator('text=fastify/fastify').first()).toBeVisible()
+    await expect(page.locator('text=acme-corp/widget-api').first()).toBeVisible()
 
     // Open report and verify iframe content loads
     await page

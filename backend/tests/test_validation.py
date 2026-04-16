@@ -20,7 +20,7 @@ class TestValidateSlug:
     """Tests for validate_slug()."""
 
     def test_valid_slugs(self):
-        assert validate_slug("fastify/fastify") is None
+        assert validate_slug("acme-corp/widget-api") is None
         assert validate_slug("vercel/next.js") is None
         assert validate_slug("WolffM/hadoku-watchparty") is None
         assert validate_slug("a/b") is None
@@ -32,7 +32,7 @@ class TestValidateSlug:
         assert validate_slug(None) is not None
 
     def test_no_slash(self):
-        assert validate_slug("fastify") is not None
+        assert validate_slug("acme-corp") is not None
 
     def test_path_traversal(self):
         assert validate_slug("../../../etc/passwd") is not None
@@ -63,7 +63,7 @@ class TestValidateOwner:
     """Tests for validate_owner()."""
 
     def test_valid_owners(self):
-        assert validate_owner("fastify") is None
+        assert validate_owner("acme-corp") is None
         assert validate_owner("WolffM") is None
         assert validate_owner("user-name") is None
         assert validate_owner("user_name") is None
@@ -87,7 +87,7 @@ class TestValidateRepoName:
     """Tests for validate_repo_name()."""
 
     def test_valid_repos(self):
-        assert validate_repo_name("fastify") is None
+        assert validate_repo_name("acme-corp") is None
         assert validate_repo_name("next.js") is None
         assert validate_repo_name("hadoku-watchparty") is None
         assert validate_repo_name("my_repo") is None
@@ -124,7 +124,7 @@ class TestValidateGithubUrl:
     """Tests for validate_github_url()."""
 
     def test_valid_urls(self):
-        assert validate_github_url("https://github.com/fastify/fastify/issues/1234") is None
+        assert validate_github_url("https://github.com/acme-corp/widget-api/issues/1234") is None
         assert validate_github_url("https://github.com/vercel/next.js/issues/1") is None
 
     def test_invalid_urls(self):
@@ -154,7 +154,7 @@ class TestNormalizeRepoName:
 
     def test_extracts_repo(self):
         assert normalize_repo_name("owner/repo") == "repo"
-        assert normalize_repo_name("fastify/fastify") == "fastify"
+        assert normalize_repo_name("acme-corp/widget-api") == "widget-api"
 
     def test_plain_name(self):
         assert normalize_repo_name("repo") == "repo"
@@ -167,11 +167,11 @@ class TestToAggregatorSlug:
     """Tests for to_aggregator_slug()."""
 
     def test_converts(self):
-        assert to_aggregator_slug("fastify/fastify") == "fastify-fastify"
+        assert to_aggregator_slug("acme-corp/widget-api") == "acme-corp-widget-api"
         assert to_aggregator_slug("vercel/next.js") == "vercel-next.js"
 
     def test_already_hyphenated(self):
-        assert to_aggregator_slug("fastify-fastify") == "fastify-fastify"
+        assert to_aggregator_slug("acme-corp-widget-api") == "acme-corp-widget-api"
 
 
 
@@ -202,16 +202,16 @@ class TestValidateRequiredFields:
     """Tests for validate_required_fields()."""
 
     def test_all_present(self):
-        data = {"owner": "fastify", "repo": "fastify", "issue_number": 42}
+        data = {"owner": "acme-corp", "repo": "acme-corp", "issue_number": 42}
         assert validate_required_fields(data, ["owner", "repo", "issue_number"]) is None
 
     def test_missing_one(self):
-        data = {"owner": "fastify", "repo": ""}
+        data = {"owner": "acme-corp", "repo": ""}
         err = validate_required_fields(data, ["owner", "repo"])
         assert "repo" in err
 
     def test_missing_key(self):
-        data = {"owner": "fastify"}
+        data = {"owner": "acme-corp"}
         err = validate_required_fields(data, ["owner", "repo"])
         assert "repo" in err
 

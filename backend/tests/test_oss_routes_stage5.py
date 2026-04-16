@@ -40,8 +40,8 @@ class TestPollSubmittedPRs:
     def test_detects_state_transition_to_merged(self, mock_gh, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
-            "origin_slug": "fastify/fastify",
-            "pr_url": "https://github.com/fastify/fastify/pull/100",
+            "origin_slug": "acme-corp/widget-api",
+            "pr_url": "https://github.com/acme-corp/widget-api/pull/100",
             "pr_number": 100,
             "title": "Fix bug",
             "state": "open",
@@ -79,8 +79,8 @@ class TestPollSubmittedPRs:
         """PRs in merged/closed state should not trigger gh CLI calls."""
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
-            "origin_slug": "fastify/fastify",
-            "pr_url": "https://github.com/fastify/fastify/pull/50",
+            "origin_slug": "acme-corp/widget-api",
+            "pr_url": "https://github.com/acme-corp/widget-api/pull/50",
             "pr_number": 50,
             "title": "Old fix",
             "state": "merged",
@@ -222,14 +222,14 @@ class TestSubmitToOrigin:
         svc = mock_svc_cls.return_value
         mock_gh.return_value = {
             "success": True,
-            "output": "https://github.com/fastify/fastify/pull/123\n",
+            "output": "https://github.com/acme-corp/widget-api/pull/123\n",
         }
 
         resp = client.post(
             f"{PREFIX}/api/oss/submit-to-origin",
             json={
-                "origin_slug": "fastify/fastify",
-                "repo": "fastify",
+                "origin_slug": "acme-corp/widget-api",
+                "repo": "widget-api",
                 "branch": "fix-docs",
                 "title": "Fix docs",
                 "body": "## Summary\nFixes docs",
@@ -240,12 +240,12 @@ class TestSubmitToOrigin:
         data = resp.get_json()
 
         assert data["success"] is True
-        assert data["pr_url"] == "https://github.com/fastify/fastify/pull/123"
+        assert data["pr_url"] == "https://github.com/acme-corp/widget-api/pull/123"
         svc.save_submitted_pr.assert_called_once_with(
-            "fastify/fastify", "https://github.com/fastify/fastify/pull/123", "Fix docs",
+            "acme-corp/widget-api", "https://github.com/acme-corp/widget-api/pull/123", "Fix docs",
             issue_number=0,
         )
-        svc.remove_ready_to_submit.assert_called_once_with("fastify/fastify", "fix-docs")
+        svc.remove_ready_to_submit.assert_called_once_with("acme-corp/widget-api", "fix-docs")
 
     @patch("routes.oss_routes_stage5.get_authenticated_user", return_value="testuser")
     @patch("routes.oss_routes_stage5.OSSService")
@@ -254,18 +254,18 @@ class TestSubmitToOrigin:
         """Tests the 'if not body' branch — route should call format_upstream_pr_body."""
         svc = mock_svc_cls.return_value
         svc.get_ready_to_submit.return_value = [
-            {"origin_slug": "fastify/fastify", "branch": "fix-docs", "issue_number": 42}
+            {"origin_slug": "acme-corp/widget-api", "branch": "fix-docs", "issue_number": 42}
         ]
         mock_gh.return_value = {
             "success": True,
-            "output": "https://github.com/fastify/fastify/pull/123\n",
+            "output": "https://github.com/acme-corp/widget-api/pull/123\n",
         }
 
         client.post(
             f"{PREFIX}/api/oss/submit-to-origin",
             json={
-                "origin_slug": "fastify/fastify",
-                "repo": "fastify",
+                "origin_slug": "acme-corp/widget-api",
+                "repo": "widget-api",
                 "branch": "fix-docs",
                 "title": "Fix docs",
             },
@@ -281,7 +281,7 @@ class TestSubmitToOrigin:
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/submit-to-origin",
-            json={"origin_slug": "fastify/fastify"},
+            json={"origin_slug": "acme-corp/widget-api"},
             content_type="application/json",
         )
 

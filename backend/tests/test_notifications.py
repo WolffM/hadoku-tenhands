@@ -138,15 +138,15 @@ class TestNotifyUpstreamMerged:
     @patch("helpers.notifications.requests.post")
     def test_sends_merged_notification(self, mock_post):
         notify_upstream_merged(
-            "fastify/fastify",
-            "https://github.com/fastify/fastify/pull/100",
+            "acme-corp/widget-api",
+            "https://github.com/acme-corp/widget-api/pull/100",
             "Fix memory leak",
         )
 
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
         embed = payload["embeds"][0]
         assert "Merged" in embed["title"]
-        assert "fastify/fastify" in embed["description"]
+        assert "acme-corp/widget-api" in embed["description"]
         assert embed["color"] == COLOR_SUCCESS
 
 
@@ -156,8 +156,8 @@ class TestNotifyUpstreamFeedback:
     @patch("helpers.notifications.requests.post")
     def test_changes_requested_uses_warning_color(self, mock_post):
         notify_upstream_feedback(
-            "fastify/fastify",
-            "https://github.com/fastify/fastify/pull/100",
+            "acme-corp/widget-api",
+            "https://github.com/acme-corp/widget-api/pull/100",
             "CHANGES_REQUESTED",
         )
 

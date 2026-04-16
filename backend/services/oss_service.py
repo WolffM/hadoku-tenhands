@@ -280,7 +280,7 @@ class OSSService(OSSStateMixin, OSSForkMixin, OSSContextMixin):
         """Get a pre-built issue brief from the aggregator.
 
         Args:
-            slug: Hyphenated repo slug (e.g., "fastify-fastify")
+            slug: Hyphenated repo slug (e.g., "acme-corp-widget-api")
             issue_id: Issue identifier (e.g., "github-fastify-fastify-1234")
             include_meta: If True, return (data, meta) tuple.
 
