@@ -49,6 +49,10 @@ def check_eligibility(
     dossier = _unwrap(dossier_envelope, "dossier")
     evidence.write_json("01-eligible/dossier.json", dossier)
 
+    health_envelope = aggregator_get(f"/recon/{slug_h}/health")
+    health = _unwrap(health_envelope, "health")
+    evidence.write_json("01-eligible/health.json", health)
+
     brief_envelope = aggregator_get(f"/recon/{slug_h}/issue-brief/{issue_number}")
     brief = _unwrap(brief_envelope, "issue_brief")
     evidence.write_json("01-eligible/issue_brief.json", brief)

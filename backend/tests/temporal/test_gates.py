@@ -57,7 +57,8 @@ def ev(tmp_path: Path) -> EvidenceStore:
 
 
 def _seed_eligibility_clean(ev: EvidenceStore):
-    ev.write_json("01-eligible/dossier.json", {"health": {"activity_score": 0.8}})
+    ev.write_json("01-eligible/dossier.json", {"sections": []})
+    ev.write_json("01-eligible/health.json", {"maintainerHealthScore": 80})
     ev.write_json("01-eligible/issue_brief.json", {"issue": {"state": "open", "assignee": None, "title": "x", "body": "y"}})
     ev.write_json("01-eligible/contributing_check.json", {"ai_policy": "unknown", "dco_required": False, "license_check_required": False})
 
@@ -83,7 +84,7 @@ def test_eligibility_fails_when_already_assigned(issue, ev):
 
 def test_eligibility_fails_on_low_activity(issue, ev):
     _seed_eligibility_clean(ev)
-    ev.write_json("01-eligible/dossier.json", {"health": {"activity_score": 0.1}})
+    ev.write_json("01-eligible/health.json", {"maintainerHealthScore": 5})
     r = eligibility(issue, ev)
     assert r.verdict == "fail" and "activity" in r.reason
 

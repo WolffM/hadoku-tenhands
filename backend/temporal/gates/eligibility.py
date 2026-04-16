@@ -21,7 +21,6 @@ def eligibility(issue: IssueRef, evidence) -> GateResult:
     if not evidence.exists("01-eligible/contributing_check.json"):
         return Fail("01-eligible/contributing_check.json missing")
 
-    dossier = evidence.read_json("01-eligible/dossier.json")
     brief = evidence.read_json("01-eligible/issue_brief.json")
     contrib = evidence.read_json("01-eligible/contributing_check.json")
 
@@ -40,9 +39,9 @@ def eligibility(issue: IssueRef, evidence) -> GateResult:
     if issue_obj.get("state") and issue_obj["state"] != "open":
         return Fail(f"issue state is {issue_obj['state']}, not open")
 
-    health = dossier.get("health", {}) if isinstance(dossier, dict) else {}
-    activity = health.get("activity_score", 0)
-    if isinstance(activity, (int, float)) and activity < 0.3:
+    health = evidence.read_json("01-eligible/health.json") if evidence.exists("01-eligible/health.json") else {}
+    activity = health.get("maintainerHealthScore", 0)
+    if isinstance(activity, (int, float)) and activity < 10:
         return Fail(
             f"repo activity below threshold: {activity}",
             evidence_data={"activity_score": activity},
