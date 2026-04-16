@@ -188,6 +188,14 @@ def test_repro_evidence_present_fails_missing_section(issue, ev):
     assert r.verdict == "fail" and "Observed" in r.reason
 
 
+def test_repro_evidence_present_pass_with_lint_output(issue, ev):
+    ev.write_text("04-reproduced/lint_output.txt", "test_signer.py:1:1: F401 'os' imported but unused")
+    ev.write_text("04-reproduced/notes.md", _NOTES)
+    r = repro_evidence_present(issue, ev)
+    assert r.verdict == "pass"
+    assert "lint_output.txt" in r.evidence_data["artifacts"]
+
+
 def test_repro_evidence_present_fails_dir_missing(issue, ev):
     r = repro_evidence_present(issue, ev)
     assert r.verdict == "fail"
