@@ -34,11 +34,8 @@ def request_repro(
     job = agent.assign(issue, brief=scrubbed_brief, instruction=instruction or _REPRO_INSTRUCTION)
     result = _wait_and_harvest(agent, job)
 
-    # The agent is responsible for writing test.* / before.png / notes.md
-    # into the working directory. The orchestrator is expected to copy
-    # those files into 04-reproduced/ before this activity returns. For
-    # the activity itself, we just record the agent's structured output.
     evidence.write_json("04-reproduced/agent_result.json", _result_to_dict(result))
+    _download_agent_files(agent, issue, result, "04-reproduced", evidence)
     return {"ok": result.exit_reason == "success", "exit_reason": result.exit_reason}
 
 
@@ -69,6 +66,7 @@ def request_fix(
         "05-fixed/commits.json",
         [{"sha": sha, "message": ""} for sha in result.commit_shas],
     )
+    _download_agent_files(agent, issue, result, "05-fixed", evidence)
     return {"ok": result.exit_reason == "success", "exit_reason": result.exit_reason}
 
 
@@ -85,6 +83,7 @@ def request_verify(
     result = _wait_and_harvest(agent, job)
 
     evidence.write_json("06-verified/agent_result.json", _result_to_dict(result))
+    _download_agent_files(agent, issue, result, "06-verified", evidence)
     return {"ok": result.exit_reason == "success", "exit_reason": result.exit_reason}
 
 
@@ -119,6 +118,56 @@ def request_remediation(
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
+
+
+def _download_agent_files(
+    agent: Agent,
+    issue: IssueRef,
+    result: AgentResult,
+    evidence_subdir: str,
+    evidence,
+) -> None:
+    """Download files the agent created on the PR branch into the evidence store.
+
+    CopilotAgent commits files to a remote branch — they don't exist locally.
+    This fetches each touched file via the GitHub API and writes it into the
+    evidence directory so gates can read them.
+    """
+    if not result.files_touched or not result.pr_url:
+        return
+
+    # Best-effort: don't let download failures block the pipeline.
+    try:
+        from services.github_api import run_gh_command  # type: ignore
+    except ImportError:
+        return
+
+    owner, repo = issue.fork_slug.split("/", 1)
+
+    # Get the PR branch name from the PR URL
+    pr_number = result.pr_url.rstrip("/").rsplit("/", 1)[-1]
+    branch_call = run_gh_command([
+        "api", f"repos/{owner}/{repo}/pulls/{pr_number}",
+        "--jq", ".head.ref",
+    ])
+    branch = (branch_call.get("output", "").strip()) if branch_call.get("success") else ""
+    if not branch:
+        return
+
+    for filepath in result.files_touched:
+        try:
+            content_call = run_gh_command([
+                "api", f"repos/{owner}/{repo}/contents/{filepath}",
+                "-H", "Accept: application/vnd.github.raw+json",
+                "--method", "GET",
+                "-f", f"ref={branch}",
+            ])
+            if content_call.get("success") and content_call.get("output"):
+                # Use just the filename, not the full path from the repo
+                filename = filepath.rsplit("/", 1)[-1]
+                evidence.write_text(f"{evidence_subdir}/{filename}", content_call["output"])
+        except Exception:
+            continue  # best-effort
 
 
 def _wait_and_harvest(agent: Agent, job: AgentJob, max_polls: int = 1000) -> AgentResult:
