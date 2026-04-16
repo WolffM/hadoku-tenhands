@@ -49,17 +49,24 @@ class BatchWorkflow:
             for issue in inp.issues
         ]
 
-        # Gather. Failed children surface as exceptions, which we catch
-        # so one bad issue doesn't blow up the whole batch.
+        # Gather in parallel. Failed children surface as exceptions, which
+        # we catch so one bad issue doesn't blow up the whole batch.
+        import asyncio
+
+        raw = await asyncio.gather(*coros, return_exceptions=True)
         results: list[IssueResult] = []
-        for coro in coros:
-            try:
-                r = await coro
+        for r in raw:
+            if isinstance(r, IssueResult):
                 results.append(r)
-            except Exception as e:
+            elif isinstance(r, Exception):
                 results.append(IssueResult(
                     final_state="aborted",
-                    abort_reason=f"child workflow crashed: {type(e).__name__}: {e}",
+                    abort_reason=f"child workflow crashed: {type(r).__name__}: {r}",
+                ))
+            else:
+                results.append(IssueResult(
+                    final_state="aborted",
+                    abort_reason=f"unexpected child result: {type(r).__name__}",
                 ))
 
         submitted = sum(1 for r in results if r.final_state == "submitted")
