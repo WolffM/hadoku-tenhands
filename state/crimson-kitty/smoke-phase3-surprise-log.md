@@ -89,6 +89,19 @@ smoke test. Each surprise is tagged with operator disposition.
 - **Fix**: Wrapper now probes `docker version`, launches Docker Desktop if unreachable, polls for 180s
 - **Disposition**: fix in v1 (DONE - commit 0cfa313 in hadoku_site)
 
+### S13. First 3 transitions are no-ops — agent flies blind
+- **Observed**: candidate→eligible→forked→environment_ready all completed in <3 seconds total. Eligibility fetched a `{"status": "pending"}` issue brief but passed. Fork already existed so it was skipped. Environment ran `python -c "0"` (a no-op) and reported `installable: true`.
+- **Root cause**: Three gaps compound:
+  1. **No issue brief from aggregator** — the `/issue-brief/{id}` endpoint returned `{"status": "pending"}` for all 5 issues. The eligibility gate doesn't check whether the brief has actual content, only that the file exists and the issue state is open.
+  2. **No raw_brief_text in dispatch payload** — the dispatch route derives an empty brief when none is provided, so the fork's context issue body is empty. Copilot gets a title ("Crimson-kitty: scrubbed task") but no body describing what to fix.
+  3. **No real environment setup** — the default install_cmd is a no-op (`python -c "0"`). No clone, no deps installed. The environment gate just checks `installable: true` which the no-op always returns.
+- **Impact**: HIGH — the agent is working completely blind. It has to infer the entire task from the context issue title. This explains why Copilot produced repro artifacts but empty fix diffs: it couldn't determine what the actual code change should be.
+- **Fix needed**: 
+  - Dispatch should fetch the actual issue body from GitHub and pass it as `raw_brief_text`
+  - Eligibility gate should fail (or defer) when the issue brief is `{"status": "pending"}`
+  - Environment activity needs a real install_cmd per-repo (or at minimum a `git clone` step)
+- **Disposition**: fix in v1 (TODO — highest impact remaining surprise)
+
 ## Prediction scorecard
 
 From `smoke-targets.md` "Expected surprises":
@@ -101,6 +114,6 @@ From `smoke-targets.md` "Expected surprises":
 
 Ranked by impact (would block a real batch in Phase 4):
 
-1. **S9 — Evidence download gap** (fixed): Without this, no Copilot-driven issue can ever pass the repro gate. Highest impact.
-2. **S10 — CLAUDE_CODE_OAUTH_TOKEN missing**: The relevance judge gate is required for submission. Any real fix would be blocked here. Config fix needed.
-3. **S11 — All targets stale**: Prevents validation of the submission/upstream-PR path. Need fresh targets.
+1. **S13 — Agent flies blind** (TODO): No issue brief, no context body, no environment setup. The agent can't produce a meaningful fix without knowing what to fix. Highest impact — affects every dispatch.
+2. **S10 — CLAUDE_CODE_OAUTH_TOKEN missing** (DONE): Transferred token to hadoku_site/.env. Needs ecosystem reload to take effect.
+3. **S11 — All targets stale**: Prevents validation of the submission/upstream-PR path. Need fresh targets for a re-test after S13 is fixed.

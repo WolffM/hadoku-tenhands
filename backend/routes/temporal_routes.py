@@ -163,6 +163,46 @@ def temporal_issue(batch_id: str, issue_id: str):
     return _envelope(summary)
 
 
+@bp.route("/api/temporal/evidence/<batch_id>/<issue_id>/<path:filepath>", methods=["GET"])
+def temporal_evidence(batch_id: str, issue_id: str, filepath: str):
+    """Serve a raw evidence file from the issue's state directory.
+
+    Example: GET /api/temporal/evidence/smoke-phase3-r5/WolffM__hadoku-scraper-2/04-reproduced/notes.md
+    """
+    import re
+    # Validate path components to prevent directory traversal
+    if ".." in filepath or not re.match(r"^[\w./-]+$", filepath):
+        return _error("invalid filepath", status=400)
+
+    d = _issue_dir(batch_id, issue_id)
+    target = d / filepath
+    if not target.exists() or not target.is_file():
+        return _error(f"file not found: {filepath}", status=404)
+    # Ensure the resolved path is still inside the issue directory
+    try:
+        target.resolve().relative_to(d.resolve())
+    except ValueError:
+        return _error("path traversal rejected", status=403)
+
+    content = target.read_text(encoding="utf-8", errors="replace")
+    return _envelope({"path": filepath, "content": content})
+
+
+@bp.route("/api/temporal/evidence/<batch_id>/<issue_id>", methods=["GET"])
+def temporal_evidence_list(batch_id: str, issue_id: str):
+    """List all evidence files for an issue, grouped by stage directory."""
+    d = _issue_dir(batch_id, issue_id)
+    if not d.exists():
+        return _error(f"issue not found: {batch_id}/{issue_id}", status=404)
+
+    stages: dict = {}
+    for child in sorted(d.iterdir()):
+        if child.is_dir() and child.name[0:2].isdigit():
+            files = [f.name for f in sorted(child.iterdir()) if f.is_file()]
+            stages[child.name] = files
+    return _envelope({"stages": stages})
+
+
 @bp.route("/api/temporal/inbox", methods=["GET"])
 def temporal_inbox():
     """List all currently-deferred issues across every batch."""

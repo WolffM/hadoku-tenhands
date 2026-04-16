@@ -515,6 +515,29 @@ export async function getTemporalIssue(
   )
 }
 
+export async function getTemporalEvidenceList(
+  batchId: string,
+  issueId: string
+): Promise<{ stages: Record<string, string[]> }> {
+  return unwrap(
+    await apiClient.get<TemporalEnvelope<{ stages: Record<string, string[]> }>>(
+      `/api/temporal/evidence/${encodeURIComponent(batchId)}/${encodeURIComponent(issueId)}`
+    )
+  )
+}
+
+export async function getTemporalEvidenceFile(
+  batchId: string,
+  issueId: string,
+  filepath: string
+): Promise<{ path: string; content: string }> {
+  return unwrap(
+    await apiClient.get<TemporalEnvelope<{ path: string; content: string }>>(
+      `/api/temporal/evidence/${encodeURIComponent(batchId)}/${encodeURIComponent(issueId)}/${filepath}`
+    )
+  )
+}
+
 export async function getTemporalInbox(): Promise<{
   items: TemporalInboxItem[]
   count: number

@@ -850,3 +850,91 @@
   white-space: pre-wrap;
   color: var(--color-text);
 }
+
+/* ── Evidence file browser ─────────────────────────────────────────────── */
+
+.retro-evidence-browser {
+  margin-top: var(--hdk-space-md);
+}
+
+.retro-evidence-browser__stage {
+  margin-top: var(--hdk-space-md);
+}
+
+.retro-evidence-browser__stage h5 {
+  margin: 0 0 var(--hdk-space-xs);
+  font-size: var(--hdk-text-xs);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
+}
+
+.retro-evidence-browser__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hdk-space-xs);
+}
+
+.retro-evidence-browser__file {
+  padding: var(--hdk-space-xs) var(--hdk-space-sm);
+  font-size: var(--hdk-text-xs);
+  font-family: var(--font-family-mono);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.retro-evidence-browser__file:hover {
+  background: var(--color-surface-hover);
+}
+
+.retro-evidence-browser__file--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.retro-evidence-browser__viewer {
+  margin-top: var(--hdk-space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius);
+  overflow: hidden;
+}
+
+.retro-evidence-browser__viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--hdk-space-sm) var(--hdk-space-md);
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--hdk-text-xs);
+  font-family: var(--font-family-mono);
+  color: var(--color-text-muted);
+}
+
+.retro-evidence-browser__close {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--hdk-text-xs);
+  padding: 2px 6px;
+}
+
+.retro-evidence-browser__close:hover {
+  color: var(--color-text);
+}
+
+.retro-evidence-browser__content {
+  margin: 0;
+  padding: var(--hdk-space-md);
+  font-size: var(--hdk-text-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--color-text);
+}
