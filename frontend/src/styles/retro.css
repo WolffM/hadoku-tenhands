@@ -701,3 +701,152 @@
   font-size: var(--hdk-text-sm);
   line-height: 1.6;
 }
+
+/* ── Temporal retro batch card ─────────────────────────────────────────── */
+
+.retro-temporal-batch-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--hdk-space-md);
+  padding: var(--hdk-space-lg) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.retro-temporal-batch-card__header h3 {
+  margin: 0;
+}
+
+.retro-temporal-batch-card__count {
+  color: var(--color-text-muted);
+  font-size: var(--hdk-text-sm);
+}
+
+/* ── Temporal retro issue card (expandable) ────────────────────────────── */
+
+.retro-temporal-issue-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius);
+  margin-top: var(--hdk-space-md);
+  background: var(--color-surface);
+}
+
+.retro-temporal-issue-card--expanded {
+  border-color: var(--color-primary);
+}
+
+.retro-temporal-issue-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--hdk-space-md);
+  width: 100%;
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: var(--hdk-text-sm);
+  text-align: left;
+}
+
+.retro-temporal-issue-card__header:hover {
+  background: var(--color-surface-hover);
+}
+
+.retro-temporal-issue-card__id {
+  font-family: var(--font-family-mono);
+  font-weight: var(--font-weight-semibold);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retro-temporal-issue-card__stats {
+  color: var(--color-text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.retro-temporal-issue-card__chevron {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.retro-temporal-issue-card__body {
+  padding: var(--hdk-space-md) var(--hdk-space-lg) var(--hdk-space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.retro-temporal-issue-card__section {
+  margin-top: var(--hdk-space-lg);
+}
+
+.retro-temporal-issue-card__section:first-child {
+  margin-top: 0;
+}
+
+.retro-temporal-issue-card__section h4 {
+  margin: 0 0 var(--hdk-space-sm);
+  font-size: var(--hdk-text-sm);
+  color: var(--color-text-muted);
+}
+
+.retro-temporal-issue-card__gate-summary {
+  font-weight: normal;
+  color: var(--color-text-muted);
+}
+
+.retro-temporal-issue-card__transitions {
+  list-style: decimal;
+  padding-left: var(--hdk-space-xl);
+  margin: 0;
+  font-size: var(--hdk-text-sm);
+}
+
+.retro-temporal-issue-card__transitions li {
+  padding: var(--hdk-space-xs) 0;
+  display: flex;
+  gap: var(--hdk-space-md);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.retro-temporal-issue-card__transition-states {
+  font-family: var(--font-family-mono);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.retro-temporal-issue-card__transition-reason {
+  color: var(--color-text-muted);
+  flex: 1;
+  min-width: 0;
+}
+
+.retro-temporal-issue-card__transition-ts {
+  color: var(--color-text-muted);
+  font-size: var(--hdk-text-xs);
+  white-space: nowrap;
+}
+
+.retro-temporal-issue-card__evidence {
+  margin-top: var(--hdk-space-sm);
+  padding: var(--hdk-space-sm) var(--hdk-space-md);
+  background: var(--color-surface-alt);
+  border-radius: var(--hdk-radius-sm);
+}
+
+.retro-temporal-issue-card__evidence-gate {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--hdk-text-xs);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.retro-temporal-issue-card__evidence pre {
+  margin: var(--hdk-space-xs) 0 0;
+  font-size: var(--hdk-text-xs);
+  white-space: pre-wrap;
+  color: var(--color-text);
+}
