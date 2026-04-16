@@ -37,12 +37,14 @@ def ev(tmp_path: Path) -> EvidenceStore:
 # ── eligibility activity ──────────────────────────────────────────────────
 
 
-def test_eligibility_activity_writes_three_files(ev):
+def test_eligibility_activity_writes_evidence_files(ev):
     from temporal.activities.eligibility import check_eligibility
 
     def fake_get(endpoint: str):
         if "dossier" in endpoint:
-            return {"success": True, "data": {"health": {"activity_score": 0.8}}}
+            return {"success": True, "data": {"sections": []}}
+        if "health" in endpoint:
+            return {"success": True, "data": {"maintainerHealthScore": 80}}
         if "issue-brief" in endpoint:
             return {"success": True, "data": {"issue": {"state": "open", "title": "x", "body": "y"}}}
         if "contributing" in endpoint:
@@ -55,6 +57,7 @@ def test_eligibility_activity_writes_three_files(ev):
     )
     assert result["ok"] is True
     assert ev.exists("01-eligible/dossier.json")
+    assert ev.exists("01-eligible/health.json")
     assert ev.exists("01-eligible/issue_brief.json")
     assert ev.exists("01-eligible/contributing_check.json")
 

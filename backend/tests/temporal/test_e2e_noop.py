@@ -53,9 +53,11 @@ from temporal.workflows import IssueInput, IssueResult, IssueWorkflow
 
 def _fake_aggregator_get(endpoint: str):
     """Return canned aggregator envelopes for every endpoint."""
+    if "health" in endpoint:
+        return {"success": True, "data": {"maintainerHealthScore": 80}}
     if "dossier" in endpoint:
         return {"success": True, "data": {
-            "health": {"activity_score": 0.85},
+            "sections": [],
             "slug": "microsoft/markitdown",
         }}
     if "issue-brief" in endpoint:
