@@ -9,13 +9,23 @@
  */
 
 import { useState, useEffect } from 'react'
-import { getRetroBatches, getRetroBatchDetail, getTemporalBatch } from '../api/endpoints'
-import type { BatchSummary, BatchIssue, TemporalBatchDetail } from '../api/types'
+import {
+  getRetroBatches,
+  getRetroBatchDetail,
+  getTemporalBatch,
+  getTemporalIssue
+} from '../api/endpoints'
+import type {
+  BatchSummary,
+  BatchIssue,
+  TemporalBatchDetail,
+  TemporalIssueDetail
+} from '../api/types'
 import { BatchSummaryPanel } from '../components/retro/BatchSummaryPanel'
 import { IssueRetroCard } from '../components/retro/IssueRetroCard'
 import { LoadingState } from '../components/common'
 import { useTemporalStore } from '../store/temporalStore'
-import { StateBadge } from '../components/temporal'
+import { StateBadge, GateResultRow } from '../components/temporal'
 
 const MAX_VISIBLE_TABS = 5
 
@@ -249,18 +259,142 @@ function TemporalRetroTab() {
       )}
       {detail && (
         <div className="retro-temporal-batch-card" data-testid="retro-temporal-issues">
-          <h3>{detail.batch_id}</h3>
-          <ul>
-            {detail.issues.map(i => (
-              <li key={i.issue_id} data-testid="retro-temporal-issue">
-                <span>{i.issue_id}</span>
-                <StateBadge state={i.current_state} />
-                <span>
-                  {i.transition_count} transitions · {i.gate_count} gates
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="retro-temporal-batch-card__header">
+            <h3>{detail.batch_id}</h3>
+            <span className="retro-temporal-batch-card__count">{detail.issues.length} issues</span>
+          </div>
+          {detail.issues.map(i => (
+            <TemporalIssueCard
+              key={i.issue_id}
+              batchId={detail.batch_id}
+              issueId={i.issue_id}
+              currentState={i.current_state}
+              gateCount={i.gate_count}
+              transitionCount={i.transition_count}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Expandable issue card for Temporal retro ────────────────────────────
+
+interface TemporalIssueCardProps {
+  batchId: string
+  issueId: string
+  currentState: string
+  gateCount: number
+  transitionCount: number
+}
+
+function TemporalIssueCard({
+  batchId,
+  issueId,
+  currentState,
+  gateCount,
+  transitionCount
+}: TemporalIssueCardProps) {
+  const [expanded, setExpanded] = useState(false)
+  const [detail, setDetail] = useState<TemporalIssueDetail | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleToggle = async () => {
+    if (!expanded && !detail) {
+      setLoading(true)
+      setError(null)
+      try {
+        setDetail(await getTemporalIssue(batchId, issueId))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setLoading(false)
+      }
+    }
+    setExpanded(v => !v)
+  }
+
+  const gatesPassed = detail?.gates.filter(g => g.verdict === 'pass').length ?? 0
+  const gatesFailed = detail?.gates.filter(g => g.verdict === 'fail').length ?? 0
+
+  return (
+    <div
+      className={`retro-temporal-issue-card ${expanded ? 'retro-temporal-issue-card--expanded' : ''}`}
+      data-testid="retro-temporal-issue"
+    >
+      <button
+        type="button"
+        className="retro-temporal-issue-card__header"
+        onClick={() => {
+          void handleToggle()
+        }}
+      >
+        <span className="retro-temporal-issue-card__id">{issueId}</span>
+        <StateBadge state={currentState} />
+        <span className="retro-temporal-issue-card__stats">
+          {transitionCount} transitions · {gateCount} gates
+        </span>
+        <span className="retro-temporal-issue-card__chevron">{expanded ? '▾' : '▸'}</span>
+      </button>
+
+      {expanded && (
+        <div className="retro-temporal-issue-card__body">
+          {loading && <LoadingState text="Loading issue detail..." />}
+          {error && <div className="retro-error">{error}</div>}
+          {detail && (
+            <>
+              {/* Gate results */}
+              <div className="retro-temporal-issue-card__section">
+                <h4>
+                  Gates ({detail.gates.length})
+                  <span className="retro-temporal-issue-card__gate-summary">
+                    {' '}
+                    {gatesPassed} passed · {gatesFailed} failed
+                  </span>
+                </h4>
+                {detail.gates.map((g, i) => (
+                  <GateResultRow key={`${g.gate}-${i}`} record={g} />
+                ))}
+              </div>
+
+              {/* Transitions */}
+              <div className="retro-temporal-issue-card__section">
+                <h4>Transitions ({detail.transitions.length})</h4>
+                <ol className="retro-temporal-issue-card__transitions">
+                  {detail.transitions.map((t, i) => (
+                    <li key={`${t.ts}-${i}`}>
+                      <span className="retro-temporal-issue-card__transition-states">
+                        {t.from} → {t.to}
+                      </span>
+                      <span className="retro-temporal-issue-card__transition-reason">
+                        {t.reason}
+                      </span>
+                      <time className="retro-temporal-issue-card__transition-ts">
+                        {new Date(t.ts).toLocaleTimeString()}
+                      </time>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* Evidence data from gates */}
+              {detail.gates.some(g => g.evidence_data) && (
+                <div className="retro-temporal-issue-card__section">
+                  <h4>Evidence</h4>
+                  {detail.gates
+                    .filter(g => g.evidence_data)
+                    .map((g, i) => (
+                      <div key={`ev-${i}`} className="retro-temporal-issue-card__evidence">
+                        <span className="retro-temporal-issue-card__evidence-gate">{g.gate}</span>
+                        <pre>{JSON.stringify(g.evidence_data, null, 2)}</pre>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
