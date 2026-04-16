@@ -1,0 +1,22 @@
+{
+  "completeness": {
+    "antiPatterns": false,
+    "contributionRules": true,
+    "environmentSetup": true,
+    "issueBoard": true,
+    "overview": true,
+    "score": 5,
+    "successPatterns": true,
+    "total": 6
+  },
+  "generatedAt": "2026-04-16T05:01:02.851Z",
+  "sections": {
+    "antiPatterns": "## Anti-Patterns\n\nNo significant anti-patterns detected.\n",
+    "contributionRules": "## Contribution Rules\n\n**Default branch:** `main`\n**Merge style:** squash\n\n### CONTRIBUTING.md\n\n# Contributing to Hadoku Task Manager\r\n\r\n## Getting Started\r\n\r\n```bash\r\ngit clone https://github.com/YOUR_USERNAME/hadoku-task.git\r\ncd hadoku-task\r\npnpm install\r\npnpm run dev\r\n```\r\n\r\n## Development Workflow\r\n\r\n1. **Create a feature branch**: `git checkout -b feature/your-feature`\r\n2. **Make changes** following guidelines below\r\n3. **Test** - user types, themes, drag & drop, localStorage, cross-tab sync\r\n4. **Build**: `pnpm run build:all`\r\n5. **Commit** - pre-commit hooks auto-lint and bump versions (see `.husky/README.md`)\r\n6. **Open a Pull Request** with clear description\r\n\r\n## Coding Guidelines\r\n\r\n### TypeScript\r\n\r\n- Use TypeScript for all new code\r\n- Provide proper type definitions, avoid `any`\r\n\r\n### File Organization\r\n\r\n- Keep files under 250 lines\r\n- Components in `src/components/`\r\n- Utilities in `src/utils/` or `src/domain/utils/`\r\n\r\n### Styling\r\n\r\n- Use CSS custom properties for colors/spacing\r\n- Add styles to appropriate CSS file (`base.css`, `main.css`, `buttons.css`, etc.)\r\n\r\n## Adding Features\r\n\r\n### New Theme\r\n\r\n1. Add definition in `themes/src/style.css` (~40 CSS variables: 34 color + 6 shadow)\r\n2. Update `THEMES` array in `themes/src/index.ts`\r\n3. Add theme family entry in `src/app/themeConfig.tsx`\r\n\r\n### New API Endpoint\r\n\r\n1. Add handler in `src/domain/handlers/handlers.ts`\r\n2. Update types in `src/domain/types.ts`\r\n3. Export in `src/server/index.ts`\r\n4. Document in `docs/API.md`\r\n\r\n## Code Style\r\n\r\n- 2 space indentation\r\n- Semicolons, single quotes, trailing commas\r\n\r\n## Critical Build Files\r\n\r\nSome manually-maintained files must be committed despite `.gitignore` patterns:\r\n\r\n- `src/app/entry.d.ts` - Public API type definitions\r\n- `themes/src/style.css` - Theme CSS source\r\n- CSS files in `task-ui-components/src/` (theme-picker.css, toaster.css, context-menu.css)\r\n\r\nIf CI fails with \"file missing\" errors, check these files exist and are committed.\r\n\r\n## License\r\n\r\nMIT License\r\n\n",
+    "environmentSetup": "## Environment Setup\n\n**Language:** TypeScript\n\n| Resource | Available |\n|---|---|\n| CONTRIBUTING.md | Yes |\n| PR Template | No |\n| Code of Conduct | No |\n| CODEOWNERS | No |\n\n[View CONTRIBUTING.md](https://github.com/WolffM/hadoku-task/blob/main/CONTRIBUTING.md)\n",
+    "issueBoard": "## Issue Board\n\n| # | Title | CVS | Tier | Lifecycle | Complexity | Competition |\n|---|---|---|---|---|---|---|\n| 1 | [vibeCheck] markdownlint: MD026 (7 occurrences)... | 38 | risky | stale | medium | none |\n| 2 | [vibeCheck] TypeScript: TS2307 in version.ts | 38 | risky | stale | medium | none |\n| 3 | [vibeCheck] markdownlint: MD040 in README.md | 36 | risky | stale | medium | none |\n| 4 | [vibeCheck] shellcheck: SC2250 (5 occurrences) in... | 36 | risky | stale | medium | none |\n| 5 | [vibeCheck] markdownlint: MD033 in README.md | 33 | risky | stale | medium | medium |\n| 6 | [vibeCheck] Unused Type in useToast.ts | 33 | risky | stale | high | none |\n| 7 | [vibeCheck] Unused Export (3 occurrences) in... | 33 | risky | stale | high | none |\n| 8 | [vibeCheck] Unused File in index.ts | 33 | risky | stale | high | none |\n| 9 | [vibeCheck] Duplicate Code: 23 lines in... | 33 | risky | stale | high | none |\n",
+    "overview": "## Overview\n\n**WolffM/hadoku-task**\n\nStars: 0 | Forks: 0 | Language: TypeScript | License: MIT\n\n**Viability: Not Viable** (score: 31/100)\n\n| Metric | Score |\n|---|---|\n| Maintainer Health | 15/100 |\n| Merge Accessibility | 15/100 |\n| Availability | 80/100 |\n",
+    "successPatterns": "## Success Patterns\n\n| Metric | Value |\n|---|---|\n| Median files changed | 1 |\n| Median additions | 10.5 |\n| Median time to merge | 0.1 days |\n| Merge style | squash |\n| External contributor merge rate | 100% |\n\n**Common branch prefixes:** `copilot/` (10 PRs)\n"
+  },
+  "slug": "WolffM-hadoku-task"
+}

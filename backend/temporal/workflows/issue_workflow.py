@@ -52,9 +52,7 @@ class IssueInput:
     raw_brief_text: str         # the unscrubbed brief text from the operator
     branch_name: str            # operator-readable branch (e.g. "fix-merged-cells")
     base_branch: str = "main"
-    # Optional install command for the environment activity. Defaults to a
-    # generic pip install so test workflows don't need to provide one.
-    install_cmd: list[str] = field(default_factory=lambda: ["true"])
+    install_cmd: list[str] = field(default_factory=lambda: ["python", "-c", "0"])
     workdir: str = "."
     pr_number_for_review: int | None = None  # set after fix/agent PR is identified
 

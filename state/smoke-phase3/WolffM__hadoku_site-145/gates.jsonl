@@ -1,0 +1,2 @@
+{"evidence_data": null, "gate": "eligibility", "reason": "", "ts": "2026-04-16T05:24:27.904262+00:00", "verdict": "pass"}
+{"evidence_data": null, "gate": "input_context_clean", "reason": "", "ts": "2026-04-16T05:24:28.306676+00:00", "verdict": "pass"}
