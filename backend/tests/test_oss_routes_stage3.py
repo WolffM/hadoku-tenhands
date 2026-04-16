@@ -26,7 +26,7 @@ def disable_cache(monkeypatch):
 
 
 def _fork_assign_gh_mock(
-    issue_output='{"html_url": "https://github.com/testuser/fastify/issues/1", "number": 1}\n',
+    issue_output='{"html_url": "https://github.com/testuser/widget-api/issues/1", "number": 1}\n',
 ):
     """Build a run_gh_command side_effect for fork-and-assign tests.
 
@@ -60,16 +60,16 @@ class TestSelectIssue:
     def test_select_issue_already_selected_returns_flag(self, mock_svc_cls, mock_user, client):
         """Tests the dedup branch — different response shape when already selected."""
         svc = mock_svc_cls.return_value
-        svc.find_selected_issue.return_value = {"origin_slug": "fastify/fastify", "issue_number": 42}
+        svc.find_selected_issue.return_value = {"origin_slug": "acme-corp/widget-api", "issue_number": 42}
 
         resp = client.post(
             f"{PREFIX}/api/oss/select-issue",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
@@ -83,7 +83,7 @@ class TestSelectIssue:
     def test_select_issue_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/select-issue",
-            json={"origin_owner": "fastify"},
+            json={"origin_owner": "acme-corp"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -102,17 +102,17 @@ class TestForkAndAssign:
         svc.get_dossier.return_value = (None, None)
         svc.get_issue_brief.return_value = (None, None)
         svc.find_assignment.return_value = {
-            "fork_issue_url": "https://github.com/testuser/fastify/issues/1"
+            "fork_issue_url": "https://github.com/testuser/widget-api/issues/1"
         }
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
@@ -120,13 +120,13 @@ class TestForkAndAssign:
 
         assert data["success"] is True
         assert data["already_assigned"] is True
-        assert data["fork_issue_url"] == "https://github.com/testuser/fastify/issues/1"
+        assert data["fork_issue_url"] == "https://github.com/testuser/widget-api/issues/1"
 
     @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
-            json={"origin_owner": "fastify", "repo": "fastify"},
+            json={"origin_owner": "acme-corp", "repo": "widget-api"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -147,11 +147,11 @@ class TestForkAndAssign:
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
@@ -173,11 +173,11 @@ class TestForkAndAssign:
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
@@ -195,7 +195,7 @@ class TestForkAndAssign:
         svc.check_fork_exists.return_value = True
         svc.wait_for_fork.return_value = True
         svc.get_dossier.return_value = (
-            {"slug": "fastify-fastify", "sections": {"contributionRules": "Follow the style guide"}},
+            {"slug": "acme-corp-widget-api", "sections": {"contributionRules": "Follow the style guide"}},
             {"scraped_at": "2026-02-24T00:00:00Z"},
         )
         svc.get_issue_brief.return_value = (None, None)
@@ -206,16 +206,16 @@ class TestForkAndAssign:
         client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
 
-        svc.get_dossier.assert_called_once_with("fastify-fastify", include_meta=True)
+        svc.get_dossier.assert_called_once_with("acme-corp-widget-api", include_meta=True)
         call_args = svc.build_agent_context.call_args
         assert call_args[0][5] == {"contributionRules": "Follow the style guide"}
 
@@ -273,11 +273,11 @@ class TestForkAndAssign:
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
@@ -310,11 +310,11 @@ class TestForkAndAssign:
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
@@ -343,17 +343,17 @@ class TestForkAndAssign:
         resp = client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
 
         assert resp.get_json()["success"] is True
-        svc.track_dispatched_repo.assert_called_once_with("fastify/fastify")
+        svc.track_dispatched_repo.assert_called_once_with("acme-corp/widget-api")
 
     @patch("routes.oss_routes_stage3.get_authenticated_user", return_value="testuser")
     @patch("routes.oss_routes_stage3.OSSService")
@@ -363,17 +363,17 @@ class TestForkAndAssign:
         svc.get_dossier.return_value = (None, None)
         svc.get_issue_brief.return_value = (None, None)
         svc.find_assignment.return_value = {
-            "fork_issue_url": "https://github.com/testuser/fastify/issues/1"
+            "fork_issue_url": "https://github.com/testuser/widget-api/issues/1"
         }
 
         client.post(
             f"{PREFIX}/api/oss/fork-and-assign",
             json={
-                "origin_owner": "fastify",
-                "repo": "fastify",
+                "origin_owner": "acme-corp",
+                "repo": "widget-api",
                 "issue_number": 42,
                 "issue_title": "Fix docs",
-                "issue_url": "https://github.com/fastify/fastify/issues/42",
+                "issue_url": "https://github.com/acme-corp/widget-api/issues/42",
             },
             content_type="application/json",
         )
@@ -434,11 +434,11 @@ class TestRateLimiting:
                     resp = client.post(
                         f"{PREFIX}/api/oss/fork-and-assign",
                         json={
-                            "origin_owner": "fastify",
-                            "repo": "fastify",
+                            "origin_owner": "acme-corp",
+                            "repo": "widget-api",
                             "issue_number": i + 1,
                             "issue_title": "Fix",
-                            "issue_url": f"https://github.com/fastify/fastify/issues/{i + 1}",
+                            "issue_url": f"https://github.com/acme-corp/widget-api/issues/{i + 1}",
                         },
                         content_type="application/json",
                     )

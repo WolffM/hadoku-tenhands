@@ -65,7 +65,7 @@ class OSSRunnerSetupMixin:
 
             # Look for an existing runner install to symlink/copy from
             home = os.path.expanduser("~")
-            for candidate in ["actions-runner", "actions-runner-fastify"]:
+            for candidate in ["actions-runner", "actions-runner-widget-api"]:
                 candidate_path = os.path.join(home, candidate)
                 if os.path.exists(os.path.join(candidate_path, "run.sh")):
                     template_dir = candidate_path

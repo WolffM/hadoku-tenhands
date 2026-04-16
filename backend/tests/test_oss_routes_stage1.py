@@ -39,7 +39,7 @@ class TestDispatchedReposEndpoint:
     def test_returns_dispatched_list(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
         svc.get_dispatched_repos.return_value = [
-            {"origin_slug": "fastify/fastify", "aggregator_slug": "fastify-fastify",
+            {"origin_slug": "acme-corp/widget-api", "aggregator_slug": "acme-corp-widget-api",
              "dispatch_count": 2},
         ]
 
@@ -48,7 +48,7 @@ class TestDispatchedReposEndpoint:
 
         assert data["success"] is True
         assert len(data["dispatched_repos"]) == 1
-        assert data["dispatched_repos"][0]["origin_slug"] == "fastify/fastify"
+        assert data["dispatched_repos"][0]["origin_slug"] == "acme-corp/widget-api"
         assert data["owner"] == "testuser"
 
     @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
@@ -71,18 +71,18 @@ class TestStage1AlreadyDispatched:
     @patch("routes.oss_routes_stage1.OSSService")
     def test_already_dispatched_true_for_matching_slug(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = [{"repoSlug": "fastify-fastify"}]
+        svc.get_scored_issues.return_value = [{"repoSlug": "acme-corp-widget-api"}]
         svc.get_health.return_value = (None, None)
         svc.get_dossier.return_value = (None, None)
         svc.get_dispatched_repos.return_value = [
-            {"aggregator_slug": "fastify-fastify"},
+            {"aggregator_slug": "acme-corp-widget-api"},
         ]
 
         resp = client.get(f"{PREFIX}/api/oss/stage1-targets")
         data = resp.get_json()
 
         assert data["success"] is True
-        target = next(t for t in data["targets"] if t["slug"] == "fastify-fastify")
+        target = next(t for t in data["targets"] if t["slug"] == "acme-corp-widget-api")
         assert target["already_dispatched"] is True
 
     @patch("routes.oss_routes_stage1.get_authenticated_user", return_value="testuser")
@@ -93,7 +93,7 @@ class TestStage1AlreadyDispatched:
         svc.get_health.return_value = (None, None)
         svc.get_dossier.return_value = (None, None)
         svc.get_dispatched_repos.return_value = [
-            {"aggregator_slug": "fastify-fastify"},
+            {"aggregator_slug": "acme-corp-widget-api"},
         ]
 
         resp = client.get(f"{PREFIX}/api/oss/stage1-targets")
@@ -106,7 +106,7 @@ class TestStage1AlreadyDispatched:
     @patch("routes.oss_routes_stage1.OSSService")
     def test_already_dispatched_false_when_no_dispatches(self, mock_svc_cls, mock_user, client):
         svc = mock_svc_cls.return_value
-        svc.get_scored_issues.return_value = [{"repoSlug": "fastify-fastify"}]
+        svc.get_scored_issues.return_value = [{"repoSlug": "acme-corp-widget-api"}]
         svc.get_health.return_value = (None, None)
         svc.get_dossier.return_value = (None, None)
         svc.get_dispatched_repos.return_value = []
@@ -130,8 +130,8 @@ class TestRefreshTarget:
 
         client.post(
             f"{PREFIX}/api/oss/refresh-target",
-            json={"slug": "fastify/fastify"},
+            json={"slug": "acme-corp/widget-api"},
             content_type="application/json",
         )
 
-        svc.trigger_refresh.assert_called_once_with("fastify-fastify")
+        svc.trigger_refresh.assert_called_once_with("acme-corp-widget-api")

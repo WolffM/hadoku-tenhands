@@ -41,14 +41,14 @@ class TestStage4ForkPRs:
         """Tests that _get_fork_prs adds repo/originSlug fields to each PR dict."""
         svc = mock_svc_cls.return_value
         svc.get_assigned_issues.return_value = [
-            {"origin_slug": "fastify/fastify", "repo": "fastify"},
+            {"origin_slug": "acme-corp/widget-api", "repo": "widget-api"},
         ]
 
         mock_gh.return_value = {
             "success": True,
             "output": json.dumps([{
                 "number": 1, "title": "Fix docs",
-                "url": "https://github.com/testuser/fastify/pull/1",
+                "url": "https://github.com/testuser/widget-api/pull/1",
                 "headRefName": "fix-docs", "additions": 10, "deletions": 2,
                 "changedFiles": 1, "reviewDecision": None, "isDraft": False,
                 "createdAt": "2026-02-19T00:00:00Z",
@@ -59,8 +59,8 @@ class TestStage4ForkPRs:
         data = resp.get_json()
 
         assert len(data["prs"]) == 1
-        assert data["prs"][0]["repo"] == "fastify"
-        assert data["prs"][0]["originSlug"] == "fastify/fastify"
+        assert data["prs"][0]["repo"] == "widget-api"
+        assert data["prs"][0]["originSlug"] == "acme-corp/widget-api"
 
     @patch("routes.oss_routes_stage4.get_authenticated_user", return_value="testuser")
     @patch("routes.oss_routes_stage4.OSSService")
@@ -69,8 +69,8 @@ class TestStage4ForkPRs:
         """Two assignments for same repo should only fetch PRs once."""
         svc = mock_svc_cls.return_value
         svc.get_assigned_issues.return_value = [
-            {"origin_slug": "fastify/fastify", "repo": "fastify"},
-            {"origin_slug": "fastify/fastify", "repo": "fastify"},
+            {"origin_slug": "acme-corp/widget-api", "repo": "widget-api"},
+            {"origin_slug": "acme-corp/widget-api", "repo": "widget-api"},
         ]
 
         mock_gh.return_value = {"success": True, "output": json.dumps([])}
@@ -94,7 +94,7 @@ class TestForkPRDetails:
 
         resp = client.post(
             f"{PREFIX}/api/oss/fork-pr-details",
-            json={"repo": "fastify", "pr_number": 1},
+            json={"repo": "widget-api", "pr_number": 1},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -108,7 +108,7 @@ class TestForkPRDetails:
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/fork-pr-details",
-            json={"repo": "fastify"},
+            json={"repo": "widget-api"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -124,7 +124,7 @@ class TestApproveForkPR:
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/approve-fork-pr",
-            json={"repo": "fastify"},
+            json={"repo": "widget-api"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -142,7 +142,7 @@ class TestMergeForkPR:
         """Tests the multi-step merge flow: view → draft check → merge → sanitize → save."""
         svc = mock_svc_cls.return_value
         svc.get_assigned_issues.return_value = [
-            {"origin_slug": "fastify/fastify", "repo": "fastify", "issue_number": 42,
+            {"origin_slug": "acme-corp/widget-api", "repo": "widget-api", "issue_number": 42,
              "default_branch": "main", "fork_issue_number": 3}
         ]
         svc.create_clean_branch.return_value = {"success": True, "sha": "abc123"}
@@ -162,7 +162,7 @@ class TestMergeForkPR:
 
         resp = client.post(
             f"{PREFIX}/api/oss/merge-fork-pr",
-            json={"repo": "fastify", "pr_number": 1, "origin_slug": "fastify/fastify"},
+            json={"repo": "widget-api", "pr_number": 1, "origin_slug": "acme-corp/widget-api"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -171,8 +171,8 @@ class TestMergeForkPR:
         assert "clean_branch" in data
         assert data["clean_branch"].startswith("fix/42-")
         svc.create_clean_branch.assert_called_once()
-        svc.delete_branch.assert_called_once_with("testuser", "fastify", "copilot/fix-docs")
-        svc.close_fork_issue.assert_called_once_with("testuser", "fastify", 3)
+        svc.delete_branch.assert_called_once_with("testuser", "widget-api", "copilot/fix-docs")
+        svc.close_fork_issue.assert_called_once_with("testuser", "widget-api", 3)
         svc.save_ready_to_submit.assert_called_once()
         call_kwargs = svc.save_ready_to_submit.call_args[1]
         assert call_kwargs["issue_number"] == 42
@@ -185,7 +185,7 @@ class TestMergeForkPR:
         """Tests the isDraft branch — should call 'pr ready' before 'pr merge'."""
         svc = mock_svc_cls.return_value
         svc.get_assigned_issues.return_value = [
-            {"origin_slug": "fastify/fastify", "repo": "fastify", "issue_number": 10,
+            {"origin_slug": "acme-corp/widget-api", "repo": "widget-api", "issue_number": 10,
              "default_branch": "main", "fork_issue_number": 1}
         ]
         svc.create_clean_branch.return_value = {"success": True, "sha": "abc123"}
@@ -207,7 +207,7 @@ class TestMergeForkPR:
 
         resp = client.post(
             f"{PREFIX}/api/oss/merge-fork-pr",
-            json={"repo": "fastify", "pr_number": 1, "origin_slug": "fastify/fastify"},
+            json={"repo": "widget-api", "pr_number": 1, "origin_slug": "acme-corp/widget-api"},
             content_type="application/json",
         )
 
@@ -234,7 +234,7 @@ class TestMergeForkPR:
 
         resp = client.post(
             f"{PREFIX}/api/oss/merge-fork-pr",
-            json={"repo": "fastify", "pr_number": 1, "origin_slug": "fastify/fastify"},
+            json={"repo": "widget-api", "pr_number": 1, "origin_slug": "acme-corp/widget-api"},
             content_type="application/json",
         )
         data = resp.get_json()
@@ -248,7 +248,7 @@ class TestMergeForkPR:
     def test_missing_fields(self, mock_user, client):
         resp = client.post(
             f"{PREFIX}/api/oss/merge-fork-pr",
-            json={"repo": "fastify", "pr_number": 1},
+            json={"repo": "widget-api", "pr_number": 1},
             content_type="application/json",
         )
 

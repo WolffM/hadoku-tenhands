@@ -13,24 +13,24 @@ class TestForkManagement:
 
     @patch("services.oss_fork.run_gh_command")
     def test_check_fork_exists_true(self, mock_gh):
-        mock_gh.return_value = {"success": True, "output": '{"name": "fastify"}'}
+        mock_gh.return_value = {"success": True, "output": '{"name": "acme-corp"}'}
         svc = OSSService()
 
-        assert svc.check_fork_exists("testuser", "fastify") is True
+        assert svc.check_fork_exists("testuser", "acme-corp") is True
 
     @patch("services.oss_fork.run_gh_command")
     def test_check_fork_exists_false(self, mock_gh):
         mock_gh.return_value = {"success": False, "error": "Not found"}
         svc = OSSService()
 
-        assert svc.check_fork_exists("testuser", "fastify") is False
+        assert svc.check_fork_exists("testuser", "acme-corp") is False
 
     @patch("services.oss_fork.run_gh_command")
     def test_wait_for_fork_succeeds_immediately(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": "{}"}
         svc = OSSService()
 
-        result = svc.wait_for_fork("testuser", "fastify", timeout=6, interval=1)
+        result = svc.wait_for_fork("testuser", "acme-corp", timeout=6, interval=1)
         assert result is True
 
     @patch("services.oss_fork.time.sleep")
@@ -43,7 +43,7 @@ class TestForkManagement:
         ]
         svc = OSSService()
 
-        result = svc.wait_for_fork("testuser", "fastify", timeout=9, interval=3)
+        result = svc.wait_for_fork("testuser", "acme-corp", timeout=9, interval=3)
         assert result is True
         assert mock_sleep.call_count == 2
 
@@ -53,7 +53,7 @@ class TestForkManagement:
         mock_gh.return_value = {"success": False, "error": "Not found"}
         svc = OSSService()
 
-        result = svc.wait_for_fork("testuser", "fastify", timeout=6, interval=3)
+        result = svc.wait_for_fork("testuser", "acme-corp", timeout=6, interval=3)
         assert result is False
 
 
@@ -153,20 +153,20 @@ class TestDispatchedRepos:
 
     def test_first_dispatch_creates_entry(self, clean_data_dir):
         svc = OSSService()
-        svc.track_dispatched_repo("fastify/fastify")
+        svc.track_dispatched_repo("acme-corp/widget-api")
 
         items = svc.get_dispatched_repos()
         assert len(items) == 1
-        assert items[0]["origin_slug"] == "fastify/fastify"
-        assert items[0]["aggregator_slug"] == "fastify-fastify"
+        assert items[0]["origin_slug"] == "acme-corp/widget-api"
+        assert items[0]["aggregator_slug"] == "acme-corp-widget-api"
         assert items[0]["dispatch_count"] == 1
         assert "first_dispatched_at" in items[0]
         assert "last_dispatched_at" in items[0]
 
     def test_second_dispatch_increments_count(self, clean_data_dir):
         svc = OSSService()
-        svc.track_dispatched_repo("fastify/fastify")
-        svc.track_dispatched_repo("fastify/fastify")
+        svc.track_dispatched_repo("acme-corp/widget-api")
+        svc.track_dispatched_repo("acme-corp/widget-api")
 
         items = svc.get_dispatched_repos()
         assert len(items) == 1
@@ -174,13 +174,13 @@ class TestDispatchedRepos:
 
     def test_different_slugs_create_separate_entries(self, clean_data_dir):
         svc = OSSService()
-        svc.track_dispatched_repo("fastify/fastify")
+        svc.track_dispatched_repo("acme-corp/widget-api")
         svc.track_dispatched_repo("vercel/next.js")
 
         items = svc.get_dispatched_repos()
         assert len(items) == 2
         slugs = {i["origin_slug"] for i in items}
-        assert slugs == {"fastify/fastify", "vercel/next.js"}
+        assert slugs == {"acme-corp/widget-api", "vercel/next.js"}
 
     def test_aggregator_slug_format(self, clean_data_dir):
         """aggregator_slug replaces only the first slash."""
@@ -197,11 +197,11 @@ class TestDispatchedRepos:
     def test_second_dispatch_updates_last_dispatched_at(self, clean_data_dir):
         import time
         svc = OSSService()
-        svc.track_dispatched_repo("fastify/fastify")
+        svc.track_dispatched_repo("acme-corp/widget-api")
         first_at = svc.get_dispatched_repos()[0]["last_dispatched_at"]
 
         time.sleep(0.01)
-        svc.track_dispatched_repo("fastify/fastify")
+        svc.track_dispatched_repo("acme-corp/widget-api")
         second_at = svc.get_dispatched_repos()[0]["last_dispatched_at"]
 
         # last_dispatched_at must be updated (may be same second but field exists)

@@ -53,8 +53,8 @@ class TestPollSubmittedPRsIntegration:
     ):
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
-            "origin_slug": "fastify/fastify",
-            "pr_url": "https://github.com/fastify/fastify/pull/100",
+            "origin_slug": "acme-corp/widget-api",
+            "pr_url": "https://github.com/acme-corp/widget-api/pull/100",
             "pr_number": 100,
             "title": "Fix memory leak",
             "state": "open",
@@ -90,7 +90,7 @@ class TestPollSubmittedPRsIntegration:
         payload = mock_discord_post.call_args.kwargs.get("json") or mock_discord_post.call_args[1].get("json")
         embed = payload["embeds"][0]
         assert "Merged" in embed["title"]
-        assert "fastify/fastify" in embed["description"]
+        assert "acme-corp/widget-api" in embed["description"]
         assert embed["color"] == 0x2ECC71  # COLOR_SUCCESS
 
     @patch("helpers.notifications.requests.post")
@@ -148,8 +148,8 @@ class TestPollSubmittedPRsIntegration:
     ):
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
-            "origin_slug": "fastify/fastify",
-            "pr_url": "https://github.com/fastify/fastify/pull/100",
+            "origin_slug": "acme-corp/widget-api",
+            "pr_url": "https://github.com/acme-corp/widget-api/pull/100",
             "pr_number": 100,
             "title": "Fix bug",
             "state": "open",
@@ -187,8 +187,8 @@ class TestPollSubmittedPRsIntegration:
         with patch("helpers.notifications.DISCORD_WEBHOOK_URL", ""):
             svc = mock_svc_cls.return_value
             svc.get_submitted_prs.return_value = [{
-                "origin_slug": "fastify/fastify",
-                "pr_url": "https://github.com/fastify/fastify/pull/100",
+                "origin_slug": "acme-corp/widget-api",
+                "pr_url": "https://github.com/acme-corp/widget-api/pull/100",
                 "pr_number": 100,
                 "title": "Fix bug",
                 "state": "open",
@@ -227,8 +227,8 @@ class TestPollSubmittedPRsIntegration:
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [
             {
-                "origin_slug": "fastify/fastify",
-                "pr_url": "https://github.com/fastify/fastify/pull/100",
+                "origin_slug": "acme-corp/widget-api",
+                "pr_url": "https://github.com/acme-corp/widget-api/pull/100",
                 "pr_number": 100,
                 "title": "Fix memory leak",
                 "state": "open",
@@ -293,8 +293,8 @@ class TestPollSubmittedPRsIntegration:
     ):
         svc = mock_svc_cls.return_value
         svc.get_submitted_prs.return_value = [{
-            "origin_slug": "fastify/fastify",
-            "pr_url": "https://github.com/fastify/fastify/pull/100",
+            "origin_slug": "acme-corp/widget-api",
+            "pr_url": "https://github.com/acme-corp/widget-api/pull/100",
             "pr_number": 100,
             "title": "Fix memory leak",
             "state": "open",

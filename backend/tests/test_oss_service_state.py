@@ -17,8 +17,8 @@ class TestSubmittedPRs:
     def test_save_submitted_pr_parses_pr_number(self, clean_data_dir):
         svc = OSSService()
         svc.save_submitted_pr(
-            "fastify/fastify",
-            "https://github.com/fastify/fastify/pull/123",
+            "acme-corp/widget-api",
+            "https://github.com/acme-corp/widget-api/pull/123",
             "Fix bug",
         )
 
@@ -41,8 +41,8 @@ class TestSubmittedPRs:
     def test_update_submitted_prs_overwrites(self, clean_data_dir):
         svc = OSSService()
         svc.save_submitted_pr(
-            "fastify/fastify",
-            "https://github.com/fastify/fastify/pull/100",
+            "acme-corp/widget-api",
+            "https://github.com/acme-corp/widget-api/pull/100",
             "Fix bug",
         )
 
@@ -73,33 +73,33 @@ class TestSelectedIssues:
 
     def test_select_issue_adds_to_list(self, clean_data_dir):
         svc = OSSService()
-        svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
+        svc.select_issue("acme-corp/widget-api", 42, "Fix docs", "https://github.com/acme-corp/widget-api/issues/42")
 
         items = svc.get_selected_issues()
         assert len(items) == 1
-        assert items[0]["origin_slug"] == "fastify/fastify"
+        assert items[0]["origin_slug"] == "acme-corp/widget-api"
         assert items[0]["issue_number"] == 42
         assert "selected_at" in items[0]
 
     def test_select_issue_deduplicates(self, clean_data_dir):
         svc = OSSService()
-        svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
-        svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
+        svc.select_issue("acme-corp/widget-api", 42, "Fix docs", "https://github.com/acme-corp/widget-api/issues/42")
+        svc.select_issue("acme-corp/widget-api", 42, "Fix docs", "https://github.com/acme-corp/widget-api/issues/42")
 
         items = svc.get_selected_issues()
         assert len(items) == 1
 
     def test_find_selected_issue_returns_match(self, clean_data_dir):
         svc = OSSService()
-        svc.select_issue("fastify/fastify", 42, "Fix docs", "https://github.com/fastify/fastify/issues/42")
+        svc.select_issue("acme-corp/widget-api", 42, "Fix docs", "https://github.com/acme-corp/widget-api/issues/42")
 
-        found = svc.find_selected_issue("fastify/fastify", 42)
+        found = svc.find_selected_issue("acme-corp/widget-api", 42)
         assert found is not None
         assert found["issue_number"] == 42
 
     def test_find_selected_issue_returns_none(self, clean_data_dir):
         svc = OSSService()
-        assert svc.find_selected_issue("fastify/fastify", 99) is None
+        assert svc.find_selected_issue("acme-corp/widget-api", 99) is None
 
 
 class TestAssignments:
@@ -107,26 +107,26 @@ class TestAssignments:
 
     def test_save_assignment(self, clean_data_dir):
         svc = OSSService()
-        svc.save_assignment("fastify", "fastify", 42, 1, "https://github.com/testuser/fastify/issues/1")
+        svc.save_assignment("acme-corp", "widget-api", 42, 1, "https://github.com/testuser/widget-api/issues/1")
 
         items = svc.get_assigned_issues()
         assert len(items) == 1
-        assert items[0]["origin_slug"] == "fastify/fastify"
-        assert items[0]["repo"] == "fastify"
+        assert items[0]["origin_slug"] == "acme-corp/widget-api"
+        assert items[0]["repo"] == "widget-api"
         assert items[0]["fork_issue_number"] == 1
         assert "assigned_at" in items[0]
 
     def test_find_assignment_returns_match(self, clean_data_dir):
         svc = OSSService()
-        svc.save_assignment("fastify", "fastify", 42, 1, "https://github.com/testuser/fastify/issues/1")
+        svc.save_assignment("acme-corp", "widget-api", 42, 1, "https://github.com/testuser/widget-api/issues/1")
 
-        found = svc.find_assignment("fastify/fastify", 42)
+        found = svc.find_assignment("acme-corp/widget-api", 42)
         assert found is not None
         assert found["fork_issue_number"] == 1
 
     def test_find_assignment_returns_none(self, clean_data_dir):
         svc = OSSService()
-        assert svc.find_assignment("fastify/fastify", 99) is None
+        assert svc.find_assignment("acme-corp/widget-api", 99) is None
 
 
 class TestReadyToSubmit:
@@ -134,21 +134,21 @@ class TestReadyToSubmit:
 
     def test_save_ready_to_submit(self, clean_data_dir):
         svc = OSSService()
-        svc.save_ready_to_submit("fastify/fastify", "fastify", "fix-docs", "Fix docs", "main")
+        svc.save_ready_to_submit("acme-corp/widget-api", "acme-corp", "fix-docs", "Fix docs", "main")
 
         items = svc.get_ready_to_submit()
         assert len(items) == 1
-        assert items[0]["origin_slug"] == "fastify/fastify"
+        assert items[0]["origin_slug"] == "acme-corp/widget-api"
         assert items[0]["branch"] == "fix-docs"
         assert items[0]["base_branch"] == "main"
         assert "merged_at" in items[0]
 
     def test_remove_ready_to_submit(self, clean_data_dir):
         svc = OSSService()
-        svc.save_ready_to_submit("fastify/fastify", "fastify", "fix-docs", "Fix docs", "main")
+        svc.save_ready_to_submit("acme-corp/widget-api", "acme-corp", "fix-docs", "Fix docs", "main")
         svc.save_ready_to_submit("vercel/next.js", "next.js", "fix-routing", "Fix routing", "canary")
 
-        svc.remove_ready_to_submit("fastify/fastify", "fix-docs")
+        svc.remove_ready_to_submit("acme-corp/widget-api", "fix-docs")
 
         items = svc.get_ready_to_submit()
         assert len(items) == 1
@@ -156,7 +156,7 @@ class TestReadyToSubmit:
 
     def test_remove_nonexistent_ready_to_submit(self, clean_data_dir):
         svc = OSSService()
-        svc.save_ready_to_submit("fastify/fastify", "fastify", "fix-docs", "Fix docs", "main")
+        svc.save_ready_to_submit("acme-corp/widget-api", "acme-corp", "fix-docs", "Fix docs", "main")
 
         svc.remove_ready_to_submit("nonexistent/repo", "branch")
 

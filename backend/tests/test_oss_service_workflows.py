@@ -159,10 +159,10 @@ class TestSanitizeUpstreamRefs:
         assert "reisepass/email-verifier issue 4" in result
 
     def test_strips_github_pr_url(self):
-        text = "See https://github.com/fastify/fastify/pull/123 for details"
+        text = "See https://github.com/acme-corp/widget-api/pull/123 for details"
         result = _sanitize_upstream_refs(text)
         assert "https://github.com" not in result
-        assert "fastify/fastify PR 123" in result
+        assert "acme-corp/widget-api PR 123" in result
 
     def test_strips_cross_repo_ref(self):
         text = "This fixes reisepass/email-verifier#4"

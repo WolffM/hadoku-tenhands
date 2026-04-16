@@ -177,7 +177,7 @@ index abc123..def456 100644
 
 export const mockOSSTargets = [
   {
-    slug: 'fastify-fastify',
+    slug: 'acme-corp-widget-api',
     health: {
       maintainerHealthScore: 85,
       mergeAccessibilityScore: 72,
@@ -244,11 +244,11 @@ export const mockOSSTargets = [
 
 export const mockOSSScoredIssues = [
   {
-    id: 'github-fastify-fastify-1234',
-    repo: 'fastify/fastify',
+    id: 'github-acme-corp-widget-api-1234',
+    repo: 'acme-corp/widget-api',
     number: 1234,
     title: 'Fix memory leak in request handler',
-    url: 'https://github.com/fastify/fastify/issues/1234',
+    url: 'https://github.com/acme-corp/widget-api/issues/1234',
     cvs: 92,
     cvsTier: 'go' as const,
     lifecycleStage: 'fresh',
@@ -262,11 +262,11 @@ export const mockOSSScoredIssues = [
     repoKilled: false
   },
   {
-    id: 'github-fastify-fastify-5678',
-    repo: 'fastify/fastify',
+    id: 'github-acme-corp-widget-api-5678',
+    repo: 'acme-corp/widget-api',
     number: 5678,
     title: 'Add TypeScript generics to route handler',
-    url: 'https://github.com/fastify/fastify/issues/5678',
+    url: 'https://github.com/acme-corp/widget-api/issues/5678',
     cvs: 65,
     cvsTier: 'likely' as const,
     lifecycleStage: 'triaged',
@@ -301,11 +301,11 @@ export const mockOSSScoredIssues = [
 
 export const mockOSSAssignments = [
   {
-    originSlug: 'fastify/fastify',
-    repo: 'fastify',
+    originSlug: 'acme-corp/widget-api',
+    repo: 'widget-api',
     issueNumber: 1234,
     forkIssueNumber: 1,
-    forkIssueUrl: 'https://github.com/test-user/fastify/issues/1',
+    forkIssueUrl: 'https://github.com/test-user/widget-api/issues/1',
     assignedAt: new Date(Date.now() - 3600000).toISOString()
   }
 ]
@@ -314,9 +314,9 @@ export const mockOSSForkPRs = [
   {
     number: 1,
     title: 'Fix memory leak in request handler',
-    url: 'https://github.com/test-user/fastify/pull/1',
-    repo: 'fastify',
-    originSlug: 'fastify/fastify',
+    url: 'https://github.com/test-user/widget-api/pull/1',
+    repo: 'widget-api',
+    originSlug: 'acme-corp/widget-api',
     headRefName: 'fix/memory-leak',
     additions: 25,
     deletions: 8,
@@ -328,9 +328,9 @@ export const mockOSSForkPRs = [
   {
     number: 2,
     title: '[WIP] Add TypeScript generics',
-    url: 'https://github.com/test-user/fastify/pull/2',
-    repo: 'fastify',
-    originSlug: 'fastify/fastify',
+    url: 'https://github.com/test-user/widget-api/pull/2',
+    repo: 'widget-api',
+    originSlug: 'acme-corp/widget-api',
     headRefName: 'feat/ts-generics',
     additions: 50,
     deletions: 0,
@@ -344,12 +344,12 @@ export const mockOSSForkPRs = [
 export const mockOSSForkPRDetails = {
   number: 1,
   title: 'Fix memory leak in request handler',
-  body: 'This PR fixes the memory leak described in fastify/fastify#1234.',
+  body: 'This PR fixes the memory leak described in acme-corp/widget-api#1234.',
   author: { login: 'copilot[bot]' },
   createdAt: new Date(Date.now() - 1800000).toISOString(),
   headRefName: 'fix/memory-leak',
   baseRefName: 'main',
-  repo: 'fastify',
+  repo: 'widget-api',
   files: [
     { path: 'lib/request.js', additions: 15, deletions: 5 },
     { path: 'lib/handler.js', additions: 8, deletions: 3 },
@@ -358,7 +358,7 @@ export const mockOSSForkPRDetails = {
   commits: 1,
   reviewDecision: null,
   state: 'open',
-  url: 'https://github.com/test-user/fastify/pull/1',
+  url: 'https://github.com/test-user/widget-api/pull/1',
   isDraft: false,
   additions: 25,
   deletions: 8,
@@ -374,8 +374,8 @@ index abc123..def456 100644
 
 export const mockOSSReadyToSubmit = [
   {
-    originSlug: 'fastify/fastify',
-    repo: 'fastify',
+    originSlug: 'acme-corp/widget-api',
+    repo: 'widget-api',
     branch: 'fix/memory-leak',
     title: 'Fix memory leak in request handler',
     baseBranch: 'main'
@@ -384,8 +384,8 @@ export const mockOSSReadyToSubmit = [
 
 export const mockOSSSubmittedPRs = [
   {
-    originSlug: 'fastify/fastify',
-    prUrl: 'https://github.com/fastify/fastify/pull/9876',
+    originSlug: 'acme-corp/widget-api',
+    prUrl: 'https://github.com/acme-corp/widget-api/pull/9876',
     prNumber: 9876,
     title: 'Fix memory leak in request handler',
     state: 'open',
@@ -412,11 +412,11 @@ export const mockOSSSubmittedPRs = [
 // Pipeline assignment mock data for Tab 3 (Pipeline Runs)
 export const mockPipelineStatuses = [
   {
-    originSlug: 'fastify/fastify',
-    repo: 'fastify',
+    originSlug: 'acme-corp/widget-api',
+    repo: 'widget-api',
     issueNumber: 1234,
     forkIssueNumber: 1,
-    forkIssueUrl: 'https://github.com/test-user/fastify/issues/1',
+    forkIssueUrl: 'https://github.com/test-user/widget-api/issues/1',
     assignedAt: new Date(Date.now() - 7200000).toISOString(),
     stage4Status: 'retrospective_complete',
     stage4PrNumber: 10,
@@ -455,7 +455,7 @@ export const mockPipelineStatuses = [
 
 export const mockRetrospectiveLogs = [
   {
-    repo: 'fastify',
+    repo: 'widget-api',
     issue_number: 1234,
     timestamp: new Date(Date.now() - 900000).toISOString(),
     swe: { reproduced: true, verified: true, tool_installed: true },
@@ -471,7 +471,7 @@ export const mockRetrospectiveLogs = [
 
 export const mockOSSIssueBrief = {
   issue: {
-    id: 'github-fastify-fastify-1234',
+    id: 'github-acme-corp-widget-api-1234',
     number: 1234,
     title: 'Fix memory leak in request handler',
     cvs: 92,
@@ -484,7 +484,7 @@ export const mockOSSIssueBrief = {
     overallViability: 82
   },
   brief:
-    '## Contribution Brief\n\nThis issue involves fixing a memory leak in the request handler.\n\n### Key Points\n- Focus on the `onRequest` hook lifecycle\n- Add cleanup in `onResponse`\n- Follow fastify plugin patterns'
+    '## Contribution Brief\n\nThis issue involves fixing a memory leak in the request handler.\n\n### Key Points\n- Focus on the `onRequest` hook lifecycle\n- Add cleanup in `onResponse`\n- Follow widget-api patterns'
 }
 
 // ============ Retrospective Batch Mock Data ============
@@ -519,7 +519,7 @@ export const mockRetroBatchDetail = {
   issues: [
     {
       assignment: {
-        origin_slug: 'fastify/fastify',
+        origin_slug: 'acme-corp/widget-api',
         issue_number: 1234,
         assigned_at: new Date(Date.now() - 7200000).toISOString(),
         stage4_pr_number: 10,
@@ -527,7 +527,7 @@ export const mockRetroBatchDetail = {
         batch_id: 'crimson-kitty'
       },
       upstream_pr: {
-        pr_url: 'https://github.com/fastify/fastify/pull/9876',
+        pr_url: 'https://github.com/acme-corp/widget-api/pull/9876',
         pr_number: 9876,
         title: 'Fix memory leak in request handler',
         state: 'merged',
@@ -536,7 +536,7 @@ export const mockRetroBatchDetail = {
         issue_number: 1234
       },
       retro: {
-        origin_slug: 'fastify/fastify',
+        origin_slug: 'acme-corp/widget-api',
         issue_number: 1234,
         batch_id: 'crimson-kitty',
         timing: {
@@ -915,7 +915,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
       body: JSON.stringify({
         success: true,
         dossier: {
-          slug: 'fastify-fastify',
+          slug: 'acme-corp-widget-api',
           generatedAt: new Date().toISOString(),
           sections: {
             overview: 'Popular Node.js framework for building web applications.',
@@ -1010,7 +1010,7 @@ renderContent();
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        pr_url: 'https://github.com/fastify/fastify/pull/5555',
+        pr_url: 'https://github.com/acme-corp/widget-api/pull/5555',
         clean_branch: 'clean/memory-leak',
         owner: mockOwner
       })
@@ -1084,7 +1084,7 @@ renderContent();
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        fork_issue_url: 'https://github.com/test-user/fastify/issues/2',
+        fork_issue_url: 'https://github.com/test-user/widget-api/issues/2',
         fork_issue_number: 2,
         owner: mockOwner
       })
@@ -1113,7 +1113,7 @@ renderContent();
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        pr_url: 'https://github.com/fastify/fastify/pull/5555',
+        pr_url: 'https://github.com/acme-corp/widget-api/pull/5555',
         owner: mockOwner
       })
     })

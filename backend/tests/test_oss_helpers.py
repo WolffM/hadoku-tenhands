@@ -204,7 +204,7 @@ class TestFormatUpstreamPrBody:
     """Tests for format_upstream_pr_body — PR template for upstream submissions."""
 
     def test_contains_title_and_closes(self):
-        body = format_upstream_pr_body("fastify/fastify", 42, "Fix memory leak", "fix-memleak")
+        body = format_upstream_pr_body("acme-corp/widget-api", 42, "Fix memory leak", "fix-memleak")
         assert "Fix memory leak" in body
         assert "Closes #42" in body
 
