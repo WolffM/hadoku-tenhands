@@ -13,7 +13,9 @@ import {
   getRetroBatches,
   getRetroBatchDetail,
   getTemporalBatch,
-  getTemporalIssue
+  getTemporalIssue,
+  getTemporalEvidenceList,
+  getTemporalEvidenceFile
 } from '../api/endpoints'
 import type {
   BatchSummary,
@@ -382,7 +384,7 @@ function TemporalIssueCard({
               {/* Evidence data from gates */}
               {detail.gates.some(g => g.evidence_data) && (
                 <div className="retro-temporal-issue-card__section">
-                  <h4>Evidence</h4>
+                  <h4>Gate Evidence</h4>
                   {detail.gates
                     .filter(g => g.evidence_data)
                     .map((g, i) => (
@@ -393,7 +395,111 @@ function TemporalIssueCard({
                     ))}
                 </div>
               )}
+
+              {/* Evidence file browser */}
+              <EvidenceFileBrowser batchId={batchId} issueId={issueId} />
             </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Evidence file browser ───────────────────────────────────────────────
+
+function EvidenceFileBrowser({ batchId, issueId }: { batchId: string; issueId: string }) {
+  const [stages, setStages] = useState<Record<string, string[]> | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [viewingFile, setViewingFile] = useState<{ path: string; content: string } | null>(null)
+  const [fileLoading, setFileLoading] = useState(false)
+
+  const handleOpen = async () => {
+    if (!open && !stages) {
+      setLoading(true)
+      try {
+        const data = await getTemporalEvidenceList(batchId, issueId)
+        setStages(data.stages)
+      } catch {
+        setStages({})
+      } finally {
+        setLoading(false)
+      }
+    }
+    setOpen(v => !v)
+  }
+
+  const handleViewFile = async (stage: string, filename: string) => {
+    const filepath = `${stage}/${filename}`
+    if (viewingFile?.path === filepath) {
+      setViewingFile(null)
+      return
+    }
+    setFileLoading(true)
+    try {
+      const data = await getTemporalEvidenceFile(batchId, issueId, filepath)
+      setViewingFile(data)
+    } catch {
+      setViewingFile({ path: filepath, content: '(failed to load)' })
+    } finally {
+      setFileLoading(false)
+    }
+  }
+
+  return (
+    <div className="retro-temporal-issue-card__section">
+      <button
+        type="button"
+        className="btn btn--secondary"
+        onClick={() => {
+          void handleOpen()
+        }}
+      >
+        {open ? 'Hide' : 'Browse'} Evidence Files
+      </button>
+
+      {open && loading && <LoadingState text="Loading evidence tree..." />}
+      {open && stages && (
+        <div className="retro-evidence-browser">
+          {Object.keys(stages).length === 0 ? (
+            <p className="retro-empty">No evidence directories found.</p>
+          ) : (
+            Object.entries(stages).map(([stage, files]) => (
+              <div key={stage} className="retro-evidence-browser__stage">
+                <h5>{stage}</h5>
+                <div className="retro-evidence-browser__files">
+                  {files.map(f => (
+                    <button
+                      key={f}
+                      type="button"
+                      className={`retro-evidence-browser__file ${viewingFile?.path === `${stage}/${f}` ? 'retro-evidence-browser__file--active' : ''}`}
+                      onClick={() => {
+                        void handleViewFile(stage, f)
+                      }}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+          {fileLoading && <LoadingState text="Loading file..." />}
+          {viewingFile && (
+            <div className="retro-evidence-browser__viewer">
+              <div className="retro-evidence-browser__viewer-header">
+                <span>{viewingFile.path}</span>
+                <button
+                  type="button"
+                  className="retro-evidence-browser__close"
+                  onClick={() => setViewingFile(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <pre className="retro-evidence-browser__content">{viewingFile.content}</pre>
+            </div>
           )}
         </div>
       )}
