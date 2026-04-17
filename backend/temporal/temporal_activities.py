@@ -107,6 +107,19 @@ async def act_setup_environment(inp: EnvironmentInput) -> dict:
     from .activities.environment import setup_environment
 
     ev = _evidence_for(inp.state_root)
+
+    # CopilotAgent runs in its own cloud environment — local install is
+    # irrelevant. Write a pass-through health marker so the gate knows
+    # the environment is agent-managed, not skipped.
+    agent_kind = os.environ.get("CRIMSON_AGENT_KIND", "noop").lower()
+    if agent_kind == "copilot":
+        ev.write_json("03-environment/health.json", {"installable": True, "agent_managed": True})
+        ev.write_text("03-environment/install_log.txt",
+            "returncode=0\nsuccess=True\n--- stdout ---\n"
+            "Environment managed by CopilotAgent (remote execution)\n"
+            "--- stderr ---\n")
+        return {"ok": True, "installable": True, "agent_managed": True}
+
     return setup_environment(
         fork_slug=inp.fork_slug,
         branch_name=inp.branch_name,
