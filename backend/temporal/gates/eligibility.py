@@ -24,6 +24,15 @@ def eligibility(issue: IssueRef, evidence) -> GateResult:
     brief = evidence.read_json("01-eligible/issue_brief.json")
     contrib = evidence.read_json("01-eligible/contributing_check.json")
 
+    # Reject if the aggregator returned a stub instead of real brief data.
+    # {"status": "pending"} means the issue hasn't been indexed — there's
+    # nothing for the agent to work from.
+    if brief.get("status") == "pending" or not brief.get("issue"):
+        return Fail(
+            "issue brief has no content (aggregator returned pending/empty)",
+            evidence_data={"brief_keys": list(brief.keys()) if isinstance(brief, dict) else []},
+        )
+
     if contrib.get("ai_policy") == "banned":
         return Fail(
             "repo CONTRIBUTING.md bans AI-generated PRs",

@@ -24,6 +24,12 @@ def input_context_clean(issue: IssueRef, evidence) -> GateResult:
         return Fail("02-forked/scrubbed_brief.md missing")
 
     brief = evidence.read_text("02-forked/scrubbed_brief.md")
+
+    # An empty brief means the agent will have zero context about what to
+    # fix. Fail early rather than letting it hallucinate.
+    if not brief.strip():
+        return Fail("scrubbed brief is empty - agent would have no context")
+
     upstream = issue.upstream_slug
     issue_num = issue.upstream_number
 

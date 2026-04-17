@@ -94,7 +94,33 @@ def test_eligibility_fails_when_dossier_missing(issue, ev):
     assert r.verdict == "fail" and "dossier" in r.reason
 
 
+def test_eligibility_fails_when_brief_is_pending(issue, ev):
+    _seed_eligibility_clean(ev)
+    ev.write_json("01-eligible/issue_brief.json", {"status": "pending"})
+    r = eligibility(issue, ev)
+    assert r.verdict == "fail" and "no content" in r.reason
+
+
+def test_eligibility_fails_when_brief_has_no_issue(issue, ev):
+    _seed_eligibility_clean(ev)
+    ev.write_json("01-eligible/issue_brief.json", {"something": "else"})
+    r = eligibility(issue, ev)
+    assert r.verdict == "fail" and "no content" in r.reason
+
+
 # ── input_context_clean ───────────────────────────────────────────────────
+
+
+def test_input_context_clean_fails_when_brief_empty(issue, ev):
+    ev.write_text("02-forked/scrubbed_brief.md", "")
+    r = input_context_clean(issue, ev)
+    assert r.verdict == "fail" and "empty" in r.reason
+
+
+def test_input_context_clean_fails_when_brief_whitespace(issue, ev):
+    ev.write_text("02-forked/scrubbed_brief.md", "   \n  \n  ")
+    r = input_context_clean(issue, ev)
+    assert r.verdict == "fail" and "empty" in r.reason
 
 
 def test_input_context_clean_pass(issue, ev):
@@ -125,11 +151,13 @@ def test_input_context_clean_missing_file(issue, ev):
 
 def test_environment_works_pass(issue, ev):
     ev.write_json("03-environment/health.json", {"installable": True, "runnable": True})
+    ev.write_text("03-environment/install_log.txt", "returncode=0\nsuccess=True\n--- stdout ---\nInstalled 42 packages\n--- stderr ---\n")
     assert environment_works(issue, ev).verdict == "pass"
 
 
 def test_environment_works_pass_when_runnable_omitted(issue, ev):
     ev.write_json("03-environment/health.json", {"installable": True})
+    ev.write_text("03-environment/install_log.txt", "returncode=0\nsuccess=True\n--- stdout ---\npip install complete\n--- stderr ---\n")
     assert environment_works(issue, ev).verdict == "pass"
 
 
@@ -141,6 +169,13 @@ def test_environment_works_fails_on_install(issue, ev):
 def test_environment_works_fails_on_dev_server(issue, ev):
     ev.write_json("03-environment/health.json", {"installable": True, "runnable": False})
     assert environment_works(issue, ev).verdict == "fail"
+
+
+def test_environment_works_fails_on_noop_install(issue, ev):
+    ev.write_json("03-environment/health.json", {"installable": True})
+    ev.write_text("03-environment/install_log.txt", "returncode=0\nsuccess=True\n--- stdout ---\n\n--- stderr ---\n")
+    r = environment_works(issue, ev)
+    assert r.verdict == "fail" and "no output" in r.reason
 
 
 # ── repro_evidence_present ────────────────────────────────────────────────
