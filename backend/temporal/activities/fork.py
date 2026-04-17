@@ -45,6 +45,17 @@ def fork_and_scrub_brief(
     if run_gh is None:
         run_gh = _default_run_gh
 
+    # If no raw brief was provided in the dispatch payload, fall back to
+    # the brief that the eligibility activity already fetched from the
+    # aggregator. This is the normal path — the dispatch route rarely has
+    # the brief text at dispatch time.
+    if not raw_brief_text.strip() and evidence.exists("01-eligible/issue_brief.json"):
+        brief_data = evidence.read_json("01-eligible/issue_brief.json")
+        raw_brief_text = brief_data.get("brief", "")
+        if not raw_brief_text and isinstance(brief_data.get("issue"), dict):
+            issue = brief_data["issue"]
+            raw_brief_text = f"## {issue.get('title', '')}\n\n{issue.get('body', '')}"
+
     _, repo = upstream_slug.split("/", 1)
     fork_slug = f"{fork_owner}/{repo}"
 
