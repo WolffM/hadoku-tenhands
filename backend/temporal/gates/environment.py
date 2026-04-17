@@ -26,6 +26,21 @@ def environment_works(issue: IssueRef, evidence) -> GateResult:
             evidence_data={"install_log": "03-environment/install_log.txt"},
         )
 
+    # Check that the install actually did something — a no-op install
+    # (empty stdout + stderr) means the environment wasn't really set up.
+    if evidence.exists("03-environment/install_log.txt"):
+        log = evidence.read_text("03-environment/install_log.txt")
+        # Strip the header lines the activity always writes
+        lines = [
+            l for l in log.splitlines()
+            if l.strip() and not l.startswith(("returncode=", "success=", "--- "))
+        ]
+        if not lines:
+            return Fail(
+                "install produced no output - environment not actually set up",
+                evidence_data={"install_log_lines": 0},
+            )
+
     # runnable is optional — many libraries don't have a dev server
     if "runnable" in health and health.get("runnable") is False:
         return Fail(
