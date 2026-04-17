@@ -53,7 +53,8 @@ def check_eligibility(
     health = _unwrap(health_envelope, "health")
     evidence.write_json("01-eligible/health.json", health)
 
-    brief_envelope = aggregator_get(f"/recon/{slug_h}/issue-brief/{issue_number}")
+    issue_id = f"github-{slug_h}-{issue_number}"
+    brief_envelope = aggregator_get(f"/recon/{slug_h}/issue-brief/{issue_id}")
     brief = _unwrap(brief_envelope, "issue_brief")
     evidence.write_json("01-eligible/issue_brief.json", brief)
 
