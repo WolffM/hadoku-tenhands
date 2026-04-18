@@ -192,11 +192,12 @@ def test_setup_environment_with_dev_server(ev, tmp_path):
 # ── agent-driven activities ───────────────────────────────────────────────
 
 
-def test_request_fix_writes_diff_and_commits(ev, issue):
+@pytest.mark.asyncio
+async def test_request_fix_writes_diff_and_commits(ev, issue):
     from temporal.activities.agent import request_fix
 
     agent = NoopAgent()
-    request_fix(agent, issue, scrubbed_brief="fix it", evidence=ev)
+    await request_fix(agent, issue, scrubbed_brief="fix it", evidence=ev)
 
     assert ev.exists("05-fixed/diff.patch")
     assert ev.exists("05-fixed/commit_shas.txt")
@@ -208,32 +209,36 @@ def test_request_fix_writes_diff_and_commits(ev, issue):
     assert "diff --git" in diff
 
 
-def test_request_fix_propagates_failure(ev, issue):
+@pytest.mark.asyncio
+async def test_request_fix_propagates_failure(ev, issue):
     from temporal.activities.agent import request_fix
 
     agent = NoopAgent(diff_text="", commit_shas=[], exit_reason="error")
-    result = request_fix(agent, issue, "x", ev)
+    result = await request_fix(agent, issue, "x", ev)
     assert result["ok"] is False
     assert result["exit_reason"] == "error"
 
 
-def test_request_repro_writes_agent_result(ev, issue):
+@pytest.mark.asyncio
+async def test_request_repro_writes_agent_result(ev, issue):
     from temporal.activities.agent import request_repro
 
     agent = NoopAgent()
-    request_repro(agent, issue, "reproduce it", ev)
+    await request_repro(agent, issue, "reproduce it", ev)
     assert ev.exists("04-reproduced/agent_result.json")
 
 
-def test_request_verify_writes_agent_result(ev, issue):
+@pytest.mark.asyncio
+async def test_request_verify_writes_agent_result(ev, issue):
     from temporal.activities.agent import request_verify
 
     agent = NoopAgent()
-    request_verify(agent, issue, "verify it", ev)
+    await request_verify(agent, issue, "verify it", ev)
     assert ev.exists("06-verified/agent_result.json")
 
 
-def test_request_remediation_appends_review_comments_to_brief(ev, issue):
+@pytest.mark.asyncio
+async def test_request_remediation_appends_review_comments_to_brief(ev, issue):
     from temporal.activities.agent import request_remediation
 
     ev.write_json("07-reviewed/comments.json", [
@@ -247,7 +252,7 @@ def test_request_remediation_appends_review_comments_to_brief(ev, issue):
             captured_briefs.append(brief)
             return super().assign(issue, brief=brief, instruction=instruction)
 
-    request_remediation(
+    await request_remediation(
         CapturingAgent(),
         issue,
         scrubbed_brief="base brief",

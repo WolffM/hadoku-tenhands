@@ -271,10 +271,14 @@ class IssueWorkflow:
     ) -> None:
         """Run one transition: activity → record_transition → run_gates."""
         timeout = _LONG_ACTIVITY_TIMEOUT if long else _SHORT_ACTIVITY_TIMEOUT
+        # Long activities (agent polling) heartbeat every ~20s. Require one
+        # every 2 minutes or Temporal treats the activity as dead and retries.
+        heartbeat_timeout = timedelta(minutes=2) if long else None
         await workflow.execute_activity(
             activity_name,
             arg,
             start_to_close_timeout=timeout,
+            heartbeat_timeout=heartbeat_timeout,
             retry_policy=RetryPolicy(maximum_attempts=1 if long else 3),
         )
 

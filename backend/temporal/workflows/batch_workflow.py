@@ -9,6 +9,7 @@ Phase 1D.2.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -51,8 +52,6 @@ class BatchWorkflow:
 
         # Gather in parallel. Failed children surface as exceptions, which
         # we catch so one bad issue doesn't blow up the whole batch.
-        import asyncio
-
         raw = await asyncio.gather(*coros, return_exceptions=True)
         results: list[IssueResult] = []
         for r in raw:
