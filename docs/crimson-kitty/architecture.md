@@ -222,3 +222,51 @@ Activities are the thin layer where we wrap existing vibedispatch utilities.
 They give us reuse without paying the cost of refactoring the utilities
 themselves. `services/oss_firewall.py` becomes a one-line import inside an
 activity.
+
+### Long-activity poll pattern
+
+The agent-driven activities (`request_repro`, `request_fix`, `request_verify`,
+`request_remediation`) wait on Copilot to produce a PR, which can take
+30+ minutes. They share one structure:
+
+```
+async def request_<phase>(agent, issue, brief, evidence, *, heartbeat):
+    job = await asyncio.to_thread(agent.assign, issue, brief=brief, ...)
+    result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
+    # write evidence files + download files Copilot touched
+    return {"ok": ..., "exit_reason": result.exit_reason}
+
+
+async def _wait_and_harvest(agent, job, max_polls=90, poll_interval_s=20, *, heartbeat):
+    for i in range(max_polls):
+        heartbeat(f"poll {i + 1}/{max_polls}")
+        status = await asyncio.to_thread(agent.poll, job)
+        if status.state == "done": return await asyncio.to_thread(agent.harvest, job)
+        if status.state == "failed": return <error result>
+        await asyncio.sleep(poll_interval_s)
+    return <timeout result>
+```
+
+Three non-obvious requirements this pattern satisfies:
+
+1. **Don't starve the event loop.** `agent.poll()` and `agent.harvest()`
+   call `gh` subprocesses that block. Wrapping them in `asyncio.to_thread`
+   keeps the worker's asyncio loop free to serve workflow tasks for
+   peer child workflows. Without this the worker deadlocks whenever any
+   activity runs long: workflow tasks back up behind the blocked activity,
+   hit the 10 s sticky-task timeout, and the workflow replay itself fails
+   in a 10 s loop forever.
+2. **Heartbeat every iteration.** The workflow sets
+   `heartbeat_timeout=timedelta(minutes=2)` on these activities. Without
+   a regular heartbeat Temporal treats the activity as dead and fires a
+   `Heartbeat` timeout. 20 s polls + one heartbeat each keeps us well
+   inside the window.
+3. **Bounded wall clock.** `max_polls=90 × 20 s = 30 min` per phase. This
+   caps the total history size for a single issue and prevents the old
+   `max_polls=1000` runaway that produced ~2.7 hr activities.
+
+The retry policy on long activities is `RetryPolicy(MaximumAttempts=1)`.
+A worker restart mid-poll is deliberately a terminal workflow failure,
+not a retry — Copilot has already been assigned the fork issue and
+restarting the activity would create a second assignment + duplicate PR.
+Operators accept that a worker restart costs in-flight work.

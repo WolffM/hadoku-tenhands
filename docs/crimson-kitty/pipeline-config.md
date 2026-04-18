@@ -69,6 +69,9 @@ called "temporal" internally.
 | `/dispatch/api/temporal/issue/:slug/:number/signal` | `routes/temporal_routes.py` | POST a Temporal signal: approve/abort/retry |
 | `/dispatch/api/temporal/dispatch` | `routes/temporal_routes.py` | Start a new batch |
 | `/dispatch/api/temporal/health` | `routes/temporal_routes.py` | Temporal cluster + worker health |
+| `/dispatch/api/temporal/evidence/:batch_id/:issue_id` | `routes/temporal_routes.py` | List evidence stages and files for an issue |
+| `/dispatch/api/temporal/evidence/:batch_id/:issue_id/:filepath` | `routes/temporal_routes.py` | Raw file content from the evidence store |
+| `/dispatch/api/temporal/judge/canary` | `routes/temporal_routes.py` | POST — invoke the judge canary and return `{reachable, claude_bin, oauth_token_set}`. Diagnostic for verifying the claude CLI is wired up without running a full workflow |
 
 The existing `/dispatch/api/oss/*` routes stay untouched.
 
@@ -127,6 +130,19 @@ The inbox is the load-bearing feature for the operator. It needs to make
 
 Decisions made in the inbox send Temporal signals to the workflows,
 unblocking them. The workflow continues from where it paused.
+
+## Evidence file browser
+
+Each issue card on the retro view exposes a stage-by-stage file tree
+sourced from the evidence store. The UI calls
+`GET /api/temporal/evidence/:batch_id/:issue_id` to list stages + file
+names, and `GET /api/temporal/evidence/:batch_id/:issue_id/:filepath`
+to fetch raw file content (diffs, JSON, markdown, images). Rendered
+inline via the existing `components/temporal/EvidencePreview.tsx`.
+
+This is the operator's primary tool for auditing why a gate passed or
+failed — the full evidence trail is browsable without shelling into the
+host.
 
 ## Discord notifications wired through Temporal
 

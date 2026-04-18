@@ -55,12 +55,8 @@ New modules introduced by crimson-kitty.
 | `temporal/activities/eligibility.py` | `check_eligibility`, `fetch_dossier`, `fetch_issue_brief`, `scan_contributing_md` |
 | `temporal/activities/fork.py` | `ensure_fork`, `create_branch`, `scrub_brief` (writes `02-forked/scrubbed_brief.md` + `scrub_report.json`) |
 | `temporal/activities/environment.py` | `setup_environment`, `start_dev_server`, `health_check` |
-| `temporal/activities/agent.py` | `assign_copilot`, `poll_copilot`, `harvest_copilot_result` (uses Agent adapter) |
-| `temporal/activities/repro.py` | `request_repro`, `validate_repro_artifacts` |
-| `temporal/activities/fix.py` | `request_fix`, `validate_diff`, `compute_relevance` |
-| `temporal/activities/verify.py` | `request_verify`, `compare_screenshots`, `run_verification_test` |
+| `temporal/activities/agent.py` | `request_repro`, `request_fix`, `request_verify`, `request_remediation` — each a thin `async` wrapper that calls the Agent adapter's assign → poll → harvest via `asyncio.to_thread` so blocking `gh` subprocess calls don't starve the worker event loop. Poll loop is bounded at `max_polls=90` with `asyncio.sleep(20)` + `activity.heartbeat()` each iteration (30-min wall-clock ceiling per phase). The workflow passes `heartbeat_timeout=timedelta(minutes=2)` + `RetryPolicy(MaximumAttempts=1)` on these long activities — a worker restart mid-poll is a terminal workflow failure, not a retry. |
 | `temporal/activities/review.py` | `run_code_review`, `classify_review_severity` |
-| `temporal/activities/remediation.py` | `request_remediation`, `validate_resolved_comments` |
 | `temporal/activities/submission.py` | `materialize_to_public_fork`, `render_pr_body`, `submit_upstream_pr` |
 | `temporal/activities/watchers.py` | `notify_human_comments_for_issue`, `watch_upstream_pr_state` |
 | `temporal/activities/inbox.py` | `enqueue_for_human_review`, `await_human_decision` |
@@ -68,7 +64,7 @@ New modules introduced by crimson-kitty.
 | `temporal/gates/eligibility.py` | `eligibility` gate |
 | `temporal/gates/input_context_clean.py` | `input_context_clean` gate — scans the scrubbed brief for any surviving real upstream ref |
 | `temporal/gates/environment.py` | `environment_works` gate |
-| `temporal/gates/repro.py` | `repro_evidence_present` gate (mechanical only — judge-based `repro_quality` was dropped per F1 in favor of stronger structural checks) |
+| `temporal/gates/repro.py` | `repro_evidence_present` gate (mechanical only — judge-based `repro_quality` was dropped in favor of stronger structural checks) |
 | `temporal/gates/fix.py` | `diff_non_empty`, `relevance` gates |
 | `temporal/gates/verify.py` | `verified_evidence_present` gate |
 | `temporal/gates/remediation.py` | `remediation_complete` gate |
@@ -81,7 +77,7 @@ New modules introduced by crimson-kitty.
 | `temporal/agents/copilot.py` | `CopilotAgent` implementation |
 | `temporal/agents/noop.py` | `NoopAgent` for tests |
 | `temporal/pr_body_builder.py` | Renders structured PR body from evidence into upstream's PR template |
-| `temporal/judge.py` | Judge wrapper. **Spawns local `claude` CLI subprocess** (no Anthropic API). Uses Claude Max subscription via `claude -p <prompt>` headless mode. Output parsed as JSON. See [open-questions.md F1](open-questions.md#f1-claude-cli-in-production) for production deployment. |
+| `temporal/judge.py` | Judge wrapper. **Spawns local `claude` CLI subprocess** (no Anthropic API). Uses Claude Max subscription via `claude -p <prompt>` headless mode. Output parsed as JSON. The binary path is read from `CRIMSON_CLAUDE_BIN` (default `"claude"`); on Windows `subprocess.run` can't resolve bare `.cmd` files from `PATH`, so ecosystem.config.cjs pins the full path to `C:\Users\Hadoku\AppData\Roaming\npm\claude.cmd`. `CLAUDE_CODE_OAUTH_TOKEN` is loaded from `hadoku_site/.env` and inherited by the subprocess for auth. A canary call (`claude -p "respond with exactly: OK" --model haiku`) runs before every real judge invocation to fail fast on quota/auth/binary-missing. `POST /api/temporal/judge/canary` exposes the canary for on-demand diagnostics. |
 | `routes/temporal_routes.py` | New Flask blueprint: list workflows, get workflow detail, signal a workflow (operator inbox actions) |
 
 ### Frontend — keep as-is (patterns)

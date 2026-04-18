@@ -43,17 +43,16 @@ callouts, 49% never reached upstream).
 | [cross-ref-isolation.md](cross-ref-isolation.md) | Input-context scrubbing model, output sanitizer, leak vector mapping |
 | [components.md](components.md) | Reuse map across vibedispatch, hadoku-aggregator, hadoku-scrape, hadoku-site |
 | [pipeline-config.md](pipeline-config.md) | How crimson-kitty plugs into the existing pipeline-select UI |
-| [phase-1-plan.md](phase-1-plan.md) | Ordered build plan with exit criteria per phase |
-| [open-questions.md](open-questions.md) | All 10 original questions resolved; 5 follow-ups (F1-F5) outstanding |
 
-## Status
+## Status (2026-04-18)
 
-**Phase 0 — Design (complete) → prerequisites (in progress)**
-- ✓ Design docs written
-- ✓ Backend `temporal/` directory scaffolded
-- ✓ Frontend `temporal/` components scaffolded
-- ✓ All 10 original open questions resolved
-- ⏳ 5 follow-up questions outstanding (F1-F5 in [open-questions.md](open-questions.md))
-- ⏳ Phase 0 prereqs (legacy fork cleanup, aggregator endpoint deploy, claude CLI on prod) — see [phase-1-plan.md](phase-1-plan.md#phase-0--prerequisites)
+Pipeline is running end-to-end on real targets.
+- ✓ Backend `temporal/` scaffolding + workflows + activities + gates
+- ✓ Frontend retro view with evidence file browser
+- ✓ Cross-ref isolation validated — 0 leaks across all smoke runs
+- ✓ Workflow-task replay deadlock fixed (see [architecture.md](architecture.md) → Long-activity poll pattern)
+- ✓ Judge reachable on production Windows host via `CRIMSON_CLAUDE_BIN`
 
-Next: answer F1-F4, then begin Phase 1.
+**Next: first real external-upstream batch.** Target selection should
+filter out static-analysis-generated findings (no runtime repro → gates
+correctly reject them); that's aggregator-side scoring work.
