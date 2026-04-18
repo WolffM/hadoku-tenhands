@@ -314,3 +314,42 @@ async def _send_signal(workflow_id: str, decision: str) -> None:
     client = await Client.connect(cfg.host, namespace=cfg.namespace)
     handle = client.get_workflow_handle(workflow_id)
     await handle.signal("submit_human_decision", decision)
+
+
+@bp.route("/api/temporal/judge/canary", methods=["POST"])
+def temporal_judge_canary():
+    """Diagnostic: invoke the judge's canary and report reachability.
+
+    Answers 'is the claude CLI wired up correctly on this host?' without
+    requiring a full workflow run. Returns success=true with reachable=true
+    when the canary succeeds, or success=true with reachable=false + the
+    exception class + message when it doesn't.
+    """
+    from temporal import judge as J
+
+    claude_bin = os.environ.get("CRIMSON_CLAUDE_BIN", "claude")
+    token_set = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+
+    try:
+        J._canary_or_raise()
+        return _envelope({
+            "reachable": True,
+            "claude_bin": claude_bin,
+            "oauth_token_set": token_set,
+        })
+    except J.JudgeError as e:
+        return _envelope({
+            "reachable": False,
+            "claude_bin": claude_bin,
+            "oauth_token_set": token_set,
+            "error_class": type(e).__name__,
+            "error_message": str(e)[:500],
+        })
+    except Exception as e:
+        return _envelope({
+            "reachable": False,
+            "claude_bin": claude_bin,
+            "oauth_token_set": token_set,
+            "error_class": type(e).__name__,
+            "error_message": str(e)[:500],
+        })
