@@ -16,40 +16,47 @@ phase-appropriate evidence files.
 
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import Any
+from typing import Any, Callable, Optional
 
 from ..agents import Agent, AgentJob, AgentResult, IssueRef
 
 
-def request_repro(
+async def request_repro(
     agent: Agent,
     issue: IssueRef,
     scrubbed_brief: str,
     evidence,
     *,
     instruction: str = "",
+    heartbeat: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Tell the agent to reproduce the bug. Polls until done, writes evidence."""
-    job = agent.assign(issue, brief=scrubbed_brief, instruction=instruction or _REPRO_INSTRUCTION)
-    result = _wait_and_harvest(agent, job)
+    job = await asyncio.to_thread(
+        agent.assign, issue, brief=scrubbed_brief, instruction=instruction or _REPRO_INSTRUCTION,
+    )
+    result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 
     evidence.write_json("04-reproduced/agent_result.json", _result_to_dict(result))
-    _download_agent_files(agent, issue, result, "04-reproduced", evidence)
+    await asyncio.to_thread(_download_agent_files, agent, issue, result, "04-reproduced", evidence)
     return {"ok": result.exit_reason == "success", "exit_reason": result.exit_reason}
 
 
-def request_fix(
+async def request_fix(
     agent: Agent,
     issue: IssueRef,
     scrubbed_brief: str,
     evidence,
     *,
     instruction: str = "",
+    heartbeat: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Tell the agent to produce a fix. Writes diff + commits + files into evidence."""
-    job = agent.assign(issue, brief=scrubbed_brief, instruction=instruction or _FIX_INSTRUCTION)
-    result = _wait_and_harvest(agent, job)
+    job = await asyncio.to_thread(
+        agent.assign, issue, brief=scrubbed_brief, instruction=instruction or _FIX_INSTRUCTION,
+    )
+    result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 
     evidence.write_text("05-fixed/diff.patch", result.diff_text)
     evidence.write_text(
@@ -61,33 +68,35 @@ def request_fix(
         "\n".join(result.files_touched) + ("\n" if result.files_touched else ""),
     )
     evidence.write_json("05-fixed/agent_result.json", _result_to_dict(result))
-    # commits.json: structured form for the no_upstream_refs scanner
     evidence.write_json(
         "05-fixed/commits.json",
         [{"sha": sha, "message": ""} for sha in result.commit_shas],
     )
-    _download_agent_files(agent, issue, result, "05-fixed", evidence)
+    await asyncio.to_thread(_download_agent_files, agent, issue, result, "05-fixed", evidence)
     return {"ok": result.exit_reason == "success", "exit_reason": result.exit_reason}
 
 
-def request_verify(
+async def request_verify(
     agent: Agent,
     issue: IssueRef,
     scrubbed_brief: str,
     evidence,
     *,
     instruction: str = "",
+    heartbeat: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Tell the agent to verify the fix. Writes test_output.txt or after.png."""
-    job = agent.assign(issue, brief=scrubbed_brief, instruction=instruction or _VERIFY_INSTRUCTION)
-    result = _wait_and_harvest(agent, job)
+    job = await asyncio.to_thread(
+        agent.assign, issue, brief=scrubbed_brief, instruction=instruction or _VERIFY_INSTRUCTION,
+    )
+    result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 
     evidence.write_json("06-verified/agent_result.json", _result_to_dict(result))
-    _download_agent_files(agent, issue, result, "06-verified", evidence)
+    await asyncio.to_thread(_download_agent_files, agent, issue, result, "06-verified", evidence)
     return {"ok": result.exit_reason == "success", "exit_reason": result.exit_reason}
 
 
-def request_remediation(
+async def request_remediation(
     agent: Agent,
     issue: IssueRef,
     scrubbed_brief: str,
@@ -95,10 +104,9 @@ def request_remediation(
     evidence,
     *,
     instruction: str = "",
+    heartbeat: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Tell the agent to remediate review comments."""
-    # The brief gets the review comments appended so the agent has
-    # context. The base brief is still scrubbed.
     comments_text = ""
     if evidence.exists(review_comments_path):
         comments = evidence.read_json(review_comments_path)
@@ -109,8 +117,10 @@ def request_remediation(
 
     augmented = f"{scrubbed_brief}\n\n## Review comments to address\n\n{comments_text}"
 
-    job = agent.assign(issue, brief=augmented, instruction=instruction or _REMEDIATION_INSTRUCTION)
-    result = _wait_and_harvest(agent, job)
+    job = await asyncio.to_thread(
+        agent.assign, issue, brief=augmented, instruction=instruction or _REMEDIATION_INSTRUCTION,
+    )
+    result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 
     evidence.write_text("08-remediated/diff.patch", result.diff_text)
     evidence.write_json("08-remediated/agent_result.json", _result_to_dict(result))
@@ -170,17 +180,33 @@ def _download_agent_files(
             continue  # best-effort
 
 
-def _wait_and_harvest(agent: Agent, job: AgentJob, max_polls: int = 1000) -> AgentResult:
+async def _wait_and_harvest(
+    agent: Agent,
+    job: AgentJob,
+    max_polls: int = 90,
+    poll_interval_s: float = 20.0,
+    *,
+    heartbeat: Optional[Callable[[str], None]] = None,
+) -> AgentResult:
     """Poll the agent until done (or fail), then harvest.
 
-    The orchestrator wraps each call in a Temporal activity with its own
-    long timeout, so this loop is bounded by `max_polls` as a safety net
-    against a misbehaving agent that never reports done.
+    The blocking gh subprocess calls run in a thread via asyncio.to_thread
+    so they don't starve the worker event loop while other activities run.
+    `heartbeat` is called each iteration so Temporal knows the activity is
+    still alive even during long waits.
+
+    Default bound: 90 polls × 20s = 30 min wall clock per phase.
     """
-    for _ in range(max_polls):
-        status = agent.poll(job)
+    for i in range(max_polls):
+        if heartbeat is not None:
+            try:
+                heartbeat(f"poll {i + 1}/{max_polls}")
+            except Exception:
+                pass  # heartbeat failure must never break the loop
+
+        status = await asyncio.to_thread(agent.poll, job)
         if status.state == "done":
-            return agent.harvest(job)
+            return await asyncio.to_thread(agent.harvest, job)
         if status.state == "failed":
             return AgentResult(
                 commit_shas=[],
@@ -189,6 +215,8 @@ def _wait_and_harvest(agent: Agent, job: AgentJob, max_polls: int = 1000) -> Age
                 agent_log=f"agent reported failed: {status.last_event}",
                 exit_reason="error",
             )
+        await asyncio.sleep(poll_interval_s)
+
     return AgentResult(
         commit_shas=[],
         diff_text="",

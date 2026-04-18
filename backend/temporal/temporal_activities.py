@@ -146,13 +146,23 @@ def _load_scrubbed_brief(ev: EvidenceStore) -> str:
     return ev.read_text("02-forked/scrubbed_brief.md", default="")
 
 
+def _hb(detail: str) -> None:
+    try:
+        activity.heartbeat(detail)
+    except Exception:
+        pass
+
+
 @activity.defn(name="request_repro")
 async def act_request_repro(inp: AgentPhaseInput) -> dict:
     from .activities.agent import request_repro
 
     ev = _evidence_for(inp.state_root)
     issue = _issue_ref(inp.upstream_slug, inp.fork_slug, inp.issue_number)
-    return request_repro(_agent(), issue, _load_scrubbed_brief(ev), ev, instruction=inp.instruction)
+    return await request_repro(
+        _agent(), issue, _load_scrubbed_brief(ev), ev,
+        instruction=inp.instruction, heartbeat=_hb,
+    )
 
 
 @activity.defn(name="request_fix")
@@ -161,7 +171,10 @@ async def act_request_fix(inp: AgentPhaseInput) -> dict:
 
     ev = _evidence_for(inp.state_root)
     issue = _issue_ref(inp.upstream_slug, inp.fork_slug, inp.issue_number)
-    return request_fix(_agent(), issue, _load_scrubbed_brief(ev), ev, instruction=inp.instruction)
+    return await request_fix(
+        _agent(), issue, _load_scrubbed_brief(ev), ev,
+        instruction=inp.instruction, heartbeat=_hb,
+    )
 
 
 @activity.defn(name="request_verify")
@@ -170,7 +183,10 @@ async def act_request_verify(inp: AgentPhaseInput) -> dict:
 
     ev = _evidence_for(inp.state_root)
     issue = _issue_ref(inp.upstream_slug, inp.fork_slug, inp.issue_number)
-    return request_verify(_agent(), issue, _load_scrubbed_brief(ev), ev, instruction=inp.instruction)
+    return await request_verify(
+        _agent(), issue, _load_scrubbed_brief(ev), ev,
+        instruction=inp.instruction, heartbeat=_hb,
+    )
 
 
 @dataclass
@@ -187,10 +203,11 @@ async def act_request_remediation(inp: RemediationInput) -> dict:
 
     ev = _evidence_for(inp.state_root)
     issue = _issue_ref(inp.upstream_slug, inp.fork_slug, inp.issue_number)
-    return request_remediation(
+    return await request_remediation(
         _agent(), issue, _load_scrubbed_brief(ev),
         review_comments_path="07-reviewed/comments.json",
         evidence=ev,
+        heartbeat=_hb,
     )
 
 

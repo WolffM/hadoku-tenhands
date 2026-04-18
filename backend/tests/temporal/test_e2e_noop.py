@@ -157,7 +157,7 @@ async def real_environment(inp: EnvironmentInput) -> dict:
 async def real_repro(inp: AgentPhaseInput) -> dict:
     from temporal.activities.agent import request_repro
     ev = _ev(inp.state_root)
-    result = request_repro(
+    result = await request_repro(
         NoopAgent(),
         IssueRef(fork_slug=inp.fork_slug, number=inp.issue_number, upstream_slug=inp.upstream_slug),
         ev.read_text("02-forked/scrubbed_brief.md", default=""),
@@ -174,7 +174,7 @@ async def real_repro(inp: AgentPhaseInput) -> dict:
 async def real_fix(inp: AgentPhaseInput) -> dict:
     from temporal.activities.agent import request_fix
     ev = _ev(inp.state_root)
-    return request_fix(
+    return await request_fix(
         NoopAgent(),
         IssueRef(fork_slug=inp.fork_slug, number=inp.issue_number, upstream_slug=inp.upstream_slug),
         ev.read_text("02-forked/scrubbed_brief.md", default=""),
@@ -186,7 +186,7 @@ async def real_fix(inp: AgentPhaseInput) -> dict:
 async def real_verify(inp: AgentPhaseInput) -> dict:
     from temporal.activities.agent import request_verify
     ev = _ev(inp.state_root)
-    result = request_verify(
+    result = await request_verify(
         NoopAgent(),
         IssueRef(fork_slug=inp.fork_slug, number=inp.issue_number, upstream_slug=inp.upstream_slug),
         ev.read_text("02-forked/scrubbed_brief.md", default=""),

@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -276,6 +277,7 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
         BatchInput(batch_id=batch_id, issues=issues),
         id=f"batch-{batch_id}",
         task_queue=cfg.task_queue,
+        task_timeout=timedelta(seconds=60),
     )
     return {"batch_id": batch_id, "workflow_id": handle.id, "issue_count": len(issues)}
 
