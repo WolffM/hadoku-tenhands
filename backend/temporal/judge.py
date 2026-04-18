@@ -23,10 +23,8 @@ class. The two specific failures the gates need to distinguish:
     JSON in the expected envelope. Gate maps this to `defer` with reason
     `system:judge_parse_error`.
 
-See open-questions.md F1 for the full design rationale and
-docs/crimson-kitty/phase-1-plan.md step 1A.7 for the test plan.
-
-Phase 1A.7.
+See docs/crimson-kitty/components.md for deployment details
+(CRIMSON_CLAUDE_BIN, canary semantics).
 """
 
 from __future__ import annotations

@@ -6,10 +6,9 @@ transition. They are pure functions over the evidence store.
 
 ## Design constraint: judge does minimal work
 
-Per F1: **the judge runs at most twice per issue, total**. The pipeline is
-NOT a sequence of LLM-scored checkpoints. It's a sequence of mechanical
-gates with a few semantic gates surgically placed where mechanics can't
-reach.
+**The judge runs at most twice per issue, total.** The pipeline is NOT a
+sequence of LLM-scored checkpoints. It's a sequence of mechanical gates
+with a few semantic gates surgically placed where mechanics can't reach.
 
 Concretely:
 
@@ -424,10 +423,11 @@ paragraph of reasoning:
 After every state transition, the orchestrator runs:
 1. All `mechanical` gates registered for the new state, in declaration order.
    Any failure aborts immediately. **Mechanical gates run on every issue.**
-2. All `judge` gates registered for the new state, sequentially (per the
-   F1 semaphore). Defers go to the operator inbox. **Judge gates run at
-   most twice per issue total: once after `fixed` (relevance) and once
-   after `submittable` (submission_judge).**
+2. All `judge` gates registered for the new state, sequentially (behind a
+   concurrency semaphore in `judge.py`, default cap=3). Defers go to the
+   operator inbox. **Judge gates run at most twice per issue total:
+   once after `fixed` (relevance) and once after `submittable`
+   (submission_judge).**
 3. All `human` gates registered for the new state. Always defer. (None
    currently registered — reserved for future high-stakes manual gates.)
 
@@ -435,8 +435,6 @@ A gate result is recorded to `gates.jsonl` regardless of outcome (pass /
 fail / defer), so we can compute gate-level statistics in retro.
 
 ## Final gate count by kind
-
-After the F1 rebalance:
 
 | Kind | Count | Gates |
 |---|---|---|
