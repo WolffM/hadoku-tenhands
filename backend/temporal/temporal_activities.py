@@ -16,6 +16,7 @@ This is the seam test workflows use to stay hermetic.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -79,7 +80,12 @@ async def act_fork_and_scrub_brief(inp: ForkInput) -> dict:
     from .activities.fork import fork_and_scrub_brief
 
     ev = _evidence_for(inp.state_root)
-    return fork_and_scrub_brief(
+    # fork_and_scrub_brief does sync gh subprocess calls and a
+    # bounded retry loop with time.sleep — run it on a thread so we
+    # don't block other concurrent activities sharing this worker's
+    # event loop.
+    return await asyncio.to_thread(
+        fork_and_scrub_brief,
         upstream_slug=inp.upstream_slug,
         issue_number=inp.issue_number,
         raw_brief_text=inp.raw_brief_text,
