@@ -89,16 +89,38 @@ def test_eligibility_activity_uses_hyphenated_slug(ev):
 # ── fork + scrub activity ─────────────────────────────────────────────────
 
 
-def test_fork_and_scrub_brief_writes_evidence_when_fork_exists(ev):
-    from temporal.activities.fork import fork_and_scrub_brief
-
+def _fake_gh_fork(include_upstream_workflows=True):
+    """Build a fake gh runner that handles fork existence + safety-config calls."""
     calls = []
 
     def fake_gh(args, stdin_data=None):
         calls.append(args)
+        # Fork existence check
         if args[:3] == ["api", "repos/WolffM/markitdown", "--silent"]:
             return {"success": True, "output": ""}
+        # Fork creation
+        if args[:2] == ["repo", "fork"]:
+            return {"success": True, "output": ""}
+        # Actions policy PUT
+        if len(args) >= 4 and args[1].endswith("/actions/permissions") and args[2] == "-X" and args[3] == "PUT":
+            return {"success": True, "output": ""}
+        # Workflow list
+        if len(args) >= 2 and args[1].endswith("/actions/workflows"):
+            if include_upstream_workflows:
+                return {"success": True, "output": "1\ttest-matrix.yml\tactive\n2\tci.yml\tactive\n3\trelease.yml\tactive"}
+            return {"success": True, "output": ""}
+        # Workflow disable
+        if len(args) >= 2 and "/disable" in args[1]:
+            return {"success": True, "output": ""}
         raise AssertionError(f"unexpected gh call: {args}")
+
+    return fake_gh, calls
+
+
+def test_fork_and_scrub_brief_writes_evidence_when_fork_exists(ev):
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    fake_gh, _calls = _fake_gh_fork()
 
     raw_brief = "fix microsoft/markitdown#183 — see https://github.com/microsoft/markitdown/issues/183"
     result = fork_and_scrub_brief(
@@ -129,6 +151,13 @@ def test_fork_and_scrub_brief_creates_fork_when_missing(ev):
             return {"success": False, "error": "404"}
         if args[:2] == ["repo", "fork"]:
             return {"success": True, "output": ""}
+        # Safety config calls — accept and no-op
+        if len(args) >= 2 and (
+            args[1].endswith("/actions/permissions")
+            or args[1].endswith("/actions/workflows")
+            or "/disable" in args[1]
+        ):
+            return {"success": True, "output": ""}
         raise AssertionError(f"unexpected gh call: {args}")
 
     fork_and_scrub_brief(
@@ -137,6 +166,23 @@ def test_fork_and_scrub_brief_creates_fork_when_missing(ev):
     )
     fork_calls = [c for c in calls if c[:2] == ["repo", "fork"]]
     assert len(fork_calls) == 1
+
+
+def test_fork_disables_inherited_workflows(ev):
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    fake_gh, calls = _fake_gh_fork(include_upstream_workflows=True)
+    result = fork_and_scrub_brief(
+        "microsoft/markitdown", 183, "brief", "b", ev, run_gh=fake_gh,
+    )
+
+    disables = [c for c in calls if len(c) >= 2 and "/disable" in c[1]]
+    # test-matrix.yml and release.yml should be disabled; ci.yml is kept.
+    assert len(disables) == 2
+    summary = ev.read_json("02-forked/fork_safety.json")
+    assert summary["disabled_workflows"] == 2
+    assert summary["actions_policy_set"] is True
+    assert result["workflows_disabled"] == 2
 
 
 # ── environment activity ──────────────────────────────────────────────────
