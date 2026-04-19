@@ -3,3 +3,4 @@ flask-limiter==3.8.0
 python-dotenv==1.2.2
 types-flask==1.1.6
 temporalio>=1.5.0
+requests>=2.31.0
