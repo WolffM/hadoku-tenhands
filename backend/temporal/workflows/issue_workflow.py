@@ -256,6 +256,19 @@ class IssueWorkflow:
                 deferred_at=oa.state,
                 deferred_gate=oa.gate_name,
             )
+        except Exception as e:
+            # Any uncaught exception from an activity (aggregator errors, gh
+            # API failures, timeouts, etc.) gets turned into a clean abort
+            # rather than a WorkflowExecutionFailed. Operator can see the
+            # reason via the existing retro view / inbox surfaces instead
+            # of having to dig through Temporal event history.
+            crashed_at = self.state
+            self.state = "aborted"
+            reason = f"{type(e).__name__}: {str(e)[:400]}"
+            return IssueResult(
+                final_state="aborted",
+                abort_reason=f"activity crashed at state={crashed_at}: {reason}",
+            )
 
     # ── helpers ───────────────────────────────────────────────────────────
 
