@@ -22,13 +22,17 @@ from ..sanitizer import scrub_brief
 
 logger = logging.getLogger(__name__)
 
-# Only these workflows stay enabled on the fork. Everything inherited
-# from upstream gets disabled. Keep this list tight — adding a pattern
-# here means paying for every Copilot push to every fork forever.
-_KEEP_WORKFLOWS = {
-    "ci.yml",                    # our CI
-    "static-analysis.yml",       # our Stage 4b
-    "copilot-setup-steps.yml",   # Copilot agent environment setup
+# Only this workflow stays enabled on the fork. Everything else —
+# inherited from upstream or auto-provisioned by GitHub (Dependabot,
+# CodeQL, Copilot PR reviewer, etc.) — gets disabled. The single kept
+# entry is the Copilot coding agent itself, which is how Copilot
+# actually produces PRs (its runtime is billed as Copilot premium
+# requests, not Actions minutes, so it doesn't eat the Actions budget).
+#
+# Adding a pattern here means paying for every Copilot push to every
+# fork forever, so keep it tight.
+_KEEP_WORKFLOW_PATHS = {
+    "dynamic/copilot-swe-agent/copilot",
 }
 
 
@@ -78,9 +82,8 @@ def _configure_fork_safety(fork_slug: str, run_gh) -> dict:
         if len(parts) < 3:
             continue
         wf_id, wf_path, wf_state = parts[0], parts[1], parts[2]
-        filename = wf_path.rsplit("/", 1)[-1] if "/" in wf_path else wf_path
 
-        if filename in _KEEP_WORKFLOWS or wf_path.startswith("dynamic/"):
+        if wf_path in _KEEP_WORKFLOW_PATHS:
             summary["kept_workflows"].append(wf_path)
             continue
 
