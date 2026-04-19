@@ -322,6 +322,73 @@ def test_fork_and_scrub_brief_creates_fork_when_missing(ev):
     assert len(fork_calls) == 1
 
 
+def test_fork_retries_actions_policy_on_race(ev, monkeypatch):
+    """Right after `gh repo fork`, /actions/permissions 404s for a few
+    seconds. Verify the retry loop eventually succeeds and doesn't raise."""
+    from temporal.activities import fork as fork_mod
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    # Zero out sleep so the test doesn't actually wait seconds
+    monkeypatch.setattr(fork_mod, "_FORK_RETRY_DELAYS", (0, 0, 0, 0, 0))
+
+    policy_call_count = [0]
+
+    def fake_gh(args, stdin_data=None):
+        if args[:3] == ["api", "repos/WolffM/markitdown", "--silent"]:
+            return {"success": True, "output": ""}
+        if args[:2] == ["repo", "fork"]:
+            return {"success": True, "output": ""}
+        if len(args) >= 4 and args[1] == "repos/WolffM/markitdown" and "PATCH" in args:
+            return {"success": True, "output": ""}
+        if len(args) >= 4 and args[1].endswith("/actions/permissions"):
+            policy_call_count[0] += 1
+            # Fail first 2 attempts, succeed on 3rd — simulating GitHub
+            # provisioning delay
+            if policy_call_count[0] < 3:
+                return {"success": False, "error": "Not Found"}
+            return {"success": True, "output": ""}
+        if len(args) >= 2 and args[1].endswith("/actions/workflows"):
+            return {"success": True, "output": ""}
+        if "/disable" in (args[1] if len(args) >= 2 else ""):
+            return {"success": True, "output": ""}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    result = fork_and_scrub_brief(
+        "microsoft/markitdown", 183, "brief", "b", ev, run_gh=fake_gh,
+    )
+    assert result["ok"] is True
+    # Retry loop should have recovered
+    assert policy_call_count[0] == 3
+    summary = ev.read_json("02-forked/fork_safety.json")
+    assert summary["actions_policy_set"] is True
+
+
+def test_fork_raises_when_actions_policy_retries_exhausted(ev, monkeypatch):
+    """If /actions/permissions keeps failing past all retries, we raise
+    rather than proceed with an unlocked fork."""
+    from temporal.activities import fork as fork_mod
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    monkeypatch.setattr(fork_mod, "_FORK_RETRY_DELAYS", (0, 0, 0, 0, 0))
+    monkeypatch.setattr(fork_mod, "_FORK_RETRIES", 3)
+
+    def fake_gh(args, stdin_data=None):
+        if args[:3] == ["api", "repos/WolffM/markitdown", "--silent"]:
+            return {"success": True, "output": ""}
+        if args[:2] == ["repo", "fork"]:
+            return {"success": True, "output": ""}
+        if len(args) >= 4 and args[1] == "repos/WolffM/markitdown" and "PATCH" in args:
+            return {"success": True, "output": ""}
+        if len(args) >= 4 and args[1].endswith("/actions/permissions"):
+            return {"success": False, "error": "Not Found (persistently)"}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    with pytest.raises(RuntimeError, match="failed to set Actions policy"):
+        fork_and_scrub_brief(
+            "microsoft/markitdown", 183, "brief", "b", ev, run_gh=fake_gh,
+        )
+
+
 def test_fork_disables_inherited_workflows(ev):
     from temporal.activities.fork import fork_and_scrub_brief
 
