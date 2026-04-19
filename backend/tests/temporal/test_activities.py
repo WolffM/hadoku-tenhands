@@ -90,7 +90,12 @@ def test_eligibility_activity_uses_hyphenated_slug(ev):
 
 
 def _fake_gh_fork(include_upstream_workflows=True):
-    """Build a fake gh runner that handles fork existence + safety-config calls."""
+    """Build a fake gh runner that handles fork existence + safety-config calls.
+
+    Simulated workflow listing includes three inherited (`.github/workflows/*.yml`),
+    three auto-provisioned dynamic/* (codeql, dependabot, copilot-reviewer), and
+    the copilot-swe-agent — the single workflow we keep.
+    """
     calls = []
 
     def fake_gh(args, stdin_data=None):
@@ -107,7 +112,16 @@ def _fake_gh_fork(include_upstream_workflows=True):
         # Workflow list
         if len(args) >= 2 and args[1].endswith("/actions/workflows"):
             if include_upstream_workflows:
-                return {"success": True, "output": "1\ttest-matrix.yml\tactive\n2\tci.yml\tactive\n3\trelease.yml\tactive"}
+                rows = [
+                    "1\t.github/workflows/test-matrix.yml\tactive",
+                    "2\t.github/workflows/ci.yml\tactive",
+                    "3\t.github/workflows/release.yml\tactive",
+                    "4\tdynamic/github-code-scanning/codeql\tactive",
+                    "5\tdynamic/dependabot/dependabot-updates\tactive",
+                    "6\tdynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer\tactive",
+                    "7\tdynamic/copilot-swe-agent/copilot\tactive",
+                ]
+                return {"success": True, "output": "\n".join(rows)}
             return {"success": True, "output": ""}
         # Workflow disable
         if len(args) >= 2 and "/disable" in args[1]:
@@ -177,12 +191,15 @@ def test_fork_disables_inherited_workflows(ev):
     )
 
     disables = [c for c in calls if len(c) >= 2 and "/disable" in c[1]]
-    # test-matrix.yml and release.yml should be disabled; ci.yml is kept.
-    assert len(disables) == 2
+    # Whitelist is {dynamic/copilot-swe-agent/copilot}. All 6 other
+    # workflows (3 inherited .yml + codeql + dependabot + copilot-reviewer)
+    # should be disabled.
+    assert len(disables) == 6
     summary = ev.read_json("02-forked/fork_safety.json")
-    assert summary["disabled_workflows"] == 2
+    assert summary["disabled_workflows"] == 6
     assert summary["actions_policy_set"] is True
-    assert result["workflows_disabled"] == 2
+    assert summary["kept_workflows"] == ["dynamic/copilot-swe-agent/copilot"]
+    assert result["workflows_disabled"] == 6
 
 
 # ── environment activity ──────────────────────────────────────────────────
