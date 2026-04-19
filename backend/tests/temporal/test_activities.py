@@ -106,6 +106,16 @@ def _fake_gh_fork(include_upstream_workflows=True):
         # Fork creation
         if args[:2] == ["repo", "fork"]:
             return {"success": True, "output": ""}
+        # Enable issues (PATCH /repos/{slug} with has_issues=true)
+        if (
+            len(args) >= 6
+            and args[0] == "api"
+            and args[1] == "repos/WolffM/markitdown"
+            and args[2] == "-X"
+            and args[3] == "PATCH"
+            and "has_issues=true" in args
+        ):
+            return {"success": True, "output": ""}
         # Actions policy PUT
         if len(args) >= 4 and args[1].endswith("/actions/permissions") and args[2] == "-X" and args[3] == "PUT":
             return {"success": True, "output": ""}
@@ -167,7 +177,8 @@ def test_fork_and_scrub_brief_creates_fork_when_missing(ev):
             return {"success": True, "output": ""}
         # Safety config calls — accept and no-op
         if len(args) >= 2 and (
-            args[1].endswith("/actions/permissions")
+            args[1] == "repos/WolffM/markitdown"  # has_issues PATCH
+            or args[1].endswith("/actions/permissions")
             or args[1].endswith("/actions/workflows")
             or "/disable" in args[1]
         ):
@@ -190,6 +201,12 @@ def test_fork_disables_inherited_workflows(ev):
         "microsoft/markitdown", 183, "brief", "b", ev, run_gh=fake_gh,
     )
 
+    # Enable-issues PATCH must fire on the fork root.
+    issues_patch = [c for c in calls
+                    if len(c) >= 4 and c[0] == "api" and c[1] == "repos/WolffM/markitdown"
+                    and c[2] == "-X" and c[3] == "PATCH" and "has_issues=true" in c]
+    assert len(issues_patch) == 1
+
     disables = [c for c in calls if len(c) >= 2 and "/disable" in c[1]]
     # Whitelist is {dynamic/copilot-swe-agent/copilot}. All 6 other
     # workflows (3 inherited .yml + codeql + dependabot + copilot-reviewer)
@@ -197,6 +214,7 @@ def test_fork_disables_inherited_workflows(ev):
     assert len(disables) == 6
     summary = ev.read_json("02-forked/fork_safety.json")
     assert summary["disabled_workflows"] == 6
+    assert summary["issues_enabled"] is True
     assert summary["actions_policy_set"] is True
     assert summary["kept_workflows"] == ["dynamic/copilot-swe-agent/copilot"]
     assert result["workflows_disabled"] == 6

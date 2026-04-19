@@ -50,10 +50,29 @@ def _configure_fork_safety(fork_slug: str, run_gh) -> dict:
     Returns a summary dict the caller can include in evidence.
     """
     owner, repo = fork_slug.split("/", 1)
-    summary = {"actions_policy_set": False, "disabled_workflows": 0, "kept_workflows": []}
+    summary = {
+        "issues_enabled": False,
+        "actions_policy_set": False,
+        "disabled_workflows": 0,
+        "kept_workflows": [],
+    }
 
-    # 1. Enable Actions with a permissive policy. We need OUR workflows
-    #    to run; disabling at the repo level would block those too.
+    # 1. Enable Issues. Forks inherit has_issues=false from GitHub by
+    #    default, which blocks CopilotAgent.assign() from creating the
+    #    context issue it needs to hand off to Copilot.
+    issues = run_gh([
+        "api", f"repos/{fork_slug}",
+        "-X", "PATCH",
+        "-f", "has_issues=true",
+    ])
+    summary["issues_enabled"] = bool(issues.get("success"))
+    if not issues.get("success"):
+        logger.warning("failed to enable issues on %s: %s", fork_slug,
+                       issues.get("error") or issues.get("output", "")[:200])
+
+    # 2. Enable Actions with a permissive policy. We need the Copilot
+    #    coding agent workflow to run; disabling at the repo level would
+    #    block that too.
     policy = run_gh([
         "api", f"repos/{fork_slug}/actions/permissions",
         "-X", "PUT",
