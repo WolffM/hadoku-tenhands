@@ -105,9 +105,13 @@ def _configure_fork_safety(fork_slug: str, run_gh) -> dict:
     # 1. Enable Issues. Forks inherit has_issues=false from GitHub by
     #    default, which blocks CopilotAgent.assign() from creating the
     #    context issue it needs to hand off to Copilot.
+    #
+    #    Use `-F` (typed) not `-f` (string) so `true` serializes as a JSON
+    #    boolean. GitHub validates strictly — sending "true" as a string
+    #    fails with "true is not a boolean" (HTTP 422).
     issues = _gh_with_retry(
         run_gh,
-        ["api", f"repos/{fork_slug}", "-X", "PATCH", "-f", "has_issues=true"],
+        ["api", f"repos/{fork_slug}", "-X", "PATCH", "-F", "has_issues=true"],
         label=f"enable has_issues on {fork_slug}",
     )
     summary["issues_enabled"] = bool(issues.get("success"))
@@ -124,7 +128,7 @@ def _configure_fork_safety(fork_slug: str, run_gh) -> dict:
     policy = _gh_with_retry(
         run_gh,
         ["api", f"repos/{fork_slug}/actions/permissions",
-         "-X", "PUT", "-f", "enabled=true", "-f", "allowed_actions=all"],
+         "-X", "PUT", "-F", "enabled=true", "-f", "allowed_actions=all"],
         label=f"set Actions policy on {fork_slug}",
     )
     summary["actions_policy_set"] = bool(policy.get("success"))
