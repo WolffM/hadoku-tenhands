@@ -322,3 +322,72 @@ async def test_batch_workflow_fans_out_to_children(tmp_path):
     assert result.total == 3
     assert result.submitted == 3
     assert result.aborted == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_workflow_respects_max_concurrency(tmp_path):
+    """Copilot has a per-user concurrent-session cap. The batch honors it.
+
+    Fires 5 children with max_concurrency=2 and asserts that the peak
+    in-flight count — tracked by fake activities that increment on the
+    first activity (eligibility) and decrement on the last (record
+    transition to submitted) — never exceeded 2.
+    """
+    _set_all_gates_pass()
+
+    in_flight = {"n": 0, "peak": 0}
+
+    @activity.defn(name="check_eligibility")
+    async def fake_eligibility_tracked(inp: EligibilityInput) -> dict:
+        Path(inp.state_root).mkdir(parents=True, exist_ok=True)
+        in_flight["n"] += 1
+        in_flight["peak"] = max(in_flight["peak"], in_flight["n"])
+        await asyncio.sleep(0.05)  # give other children a chance to queue
+        return {"ok": True}
+
+    @activity.defn(name="submit_upstream_pr")
+    async def fake_submit_tracked(inp: SubmitInput) -> dict:
+        in_flight["n"] -= 1
+        return {
+            "ok": True,
+            "pr_url": f"https://github.com/{inp.upstream_slug}/pull/9999",
+            "pr_number": 9999,
+        }
+
+    tracked = [
+        fake_eligibility_tracked, fake_fork, fake_environment,
+        fake_repro, fake_fix, fake_verify, fake_remediation,
+        fake_review, fake_render, fake_submit_tracked,
+        fake_run_gates, fake_enqueue, fake_transition,
+    ]
+
+    issues = [
+        IssueInput(
+            upstream_slug="microsoft/markitdown",
+            fork_slug="WolffM/markitdown",
+            issue_number=n,
+            state_root=str(tmp_path / f"issue-{n}"),
+            raw_brief_text=f"fix bug {n}",
+            branch_name=f"fix-{n}",
+        )
+        for n in (201, 202, 203, 204, 205)
+    ]
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-tq",
+            workflows=[IssueWorkflow, BatchWorkflow],
+            activities=tracked,
+        ):
+            result = await env.client.execute_workflow(
+                BatchWorkflow.run,
+                BatchInput(batch_id="cap-batch", issues=issues, max_concurrency=2),
+                id="batch-cap",
+                task_queue="test-tq",
+            )
+
+    assert result.total == 5
+    assert result.submitted == 5
+    assert in_flight["peak"] <= 2, f"peak in-flight was {in_flight['peak']}, expected ≤2"
+    assert in_flight["n"] == 0, "counter should be balanced at end"
