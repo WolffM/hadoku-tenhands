@@ -10,8 +10,15 @@ Env vars:
                                (default: localhost:7233)
     TEMPORAL_NAMESPACE         Temporal namespace
                                (default: crimson-kitty)
-    TEMPORAL_TASK_QUEUE        task queue name for the worker
+    TEMPORAL_TASK_QUEUE        task queue name for the main worker
                                (default: crimson-kitty-tq)
+    TEMPORAL_COPILOT_QUEUE     task queue for Copilot-bound activities
+                               (default: crimson-kitty-copilot-tq) —
+                               capped at 2 concurrent activities so the
+                               Copilot coding-agent per-user session
+                               limit doesn't silently starve assignments
+    TEMPORAL_COPILOT_CONCURRENCY  max concurrent activities on the
+                               copilot queue (default: 2)
 
 Auth: the pipeline reuses the existing `gh` user token plus `MSFT_SSO`
 routing in `services/github_api.py` for GitHub side. The judge (`judge.py`)
@@ -41,18 +48,25 @@ class TemporalConfig:
     host: str
     namespace: str
     task_queue: str
+    copilot_task_queue: str
+    copilot_concurrency: int
 
 
 def load_config() -> TemporalConfig:
     """Load TemporalConfig from environment variables.
 
     All fields have safe defaults for the same-host docker compose deployment.
-    Override via TEMPORAL_HOST / TEMPORAL_NAMESPACE / TEMPORAL_TASK_QUEUE.
     """
     return TemporalConfig(
         host=os.environ.get("TEMPORAL_HOST", "localhost:7233"),
         namespace=os.environ.get("TEMPORAL_NAMESPACE", "crimson-kitty"),
         task_queue=os.environ.get("TEMPORAL_TASK_QUEUE", "crimson-kitty-tq"),
+        copilot_task_queue=os.environ.get(
+            "TEMPORAL_COPILOT_QUEUE", "crimson-kitty-copilot-tq"
+        ),
+        copilot_concurrency=int(
+            os.environ.get("TEMPORAL_COPILOT_CONCURRENCY", "2")
+        ),
     )
 
 

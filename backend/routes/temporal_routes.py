@@ -236,19 +236,18 @@ def temporal_dispatch():
     body = request.get_json(silent=True) or {}
     batch_id = body.get("batch_id")
     issues_raw = body.get("issues")
-    max_concurrency = body.get("max_concurrency", 2)
     if not batch_id or not isinstance(issues_raw, list) or not issues_raw:
         return _error("batch_id and non-empty issues[] required", status=400)
 
     try:
-        result = asyncio.run(_dispatch_batch(batch_id, issues_raw, int(max_concurrency)))
+        result = asyncio.run(_dispatch_batch(batch_id, issues_raw))
     except Exception as e:
         return _error(f"dispatch failed: {e}", status=502)
 
     return _envelope(result, status=202)
 
 
-async def _dispatch_batch(batch_id: str, issues_raw: list[dict], max_concurrency: int = 2) -> dict:
+async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
     """Connect to Temporal and start the BatchWorkflow."""
     from temporalio.client import Client
 
@@ -270,12 +269,13 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict], max_concurrency
             raw_brief_text=i.get("raw_brief", ""),
             branch_name=i.get("branch_name") or f"crimson-kitty-{i['issue_number']}",
             base_branch=i.get("base_branch", "main"),
+            copilot_task_queue=cfg.copilot_task_queue,
         )
         for i in issues_raw
     ]
     handle = await client.start_workflow(
         BatchWorkflow.run,
-        BatchInput(batch_id=batch_id, issues=issues, max_concurrency=max_concurrency),
+        BatchInput(batch_id=batch_id, issues=issues),
         id=f"batch-{batch_id}",
         task_queue=cfg.task_queue,
         task_timeout=timedelta(seconds=60),
@@ -284,7 +284,7 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict], max_concurrency
         "batch_id": batch_id,
         "workflow_id": handle.id,
         "issue_count": len(issues),
-        "max_concurrency": max_concurrency,
+        "copilot_task_queue": cfg.copilot_task_queue,
     }
 
 

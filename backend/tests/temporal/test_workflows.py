@@ -325,41 +325,18 @@ async def test_batch_workflow_fans_out_to_children(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_batch_workflow_respects_max_concurrency(tmp_path):
-    """Copilot has a per-user concurrent-session cap. The batch honors it.
+async def test_copilot_activities_route_to_configured_queue(tmp_path):
+    """When `copilot_task_queue` is set on the input, the Copilot-bound
+    activities (request_repro/fix/verify/remediation) schedule on THAT
+    queue, while everything else stays on the workflow's own queue.
 
-    Fires 5 children with max_concurrency=2 and asserts that the peak
-    in-flight count — tracked by fake activities that increment on the
-    first activity (eligibility) and decrement on the last (record
-    transition to submitted) — never exceeded 2.
+    Verified end-to-end: the test runs two Workers — one for the main
+    task queue (workflow + non-Copilot activities) and one for a
+    separate copilot queue (only Copilot activities). If the routing
+    works, the workflow completes to submitted. If it's wrong, it
+    hangs because the wrong queue is missing the activity.
     """
     _set_all_gates_pass()
-
-    in_flight = {"n": 0, "peak": 0}
-
-    @activity.defn(name="check_eligibility")
-    async def fake_eligibility_tracked(inp: EligibilityInput) -> dict:
-        Path(inp.state_root).mkdir(parents=True, exist_ok=True)
-        in_flight["n"] += 1
-        in_flight["peak"] = max(in_flight["peak"], in_flight["n"])
-        await asyncio.sleep(0.05)  # give other children a chance to queue
-        return {"ok": True}
-
-    @activity.defn(name="submit_upstream_pr")
-    async def fake_submit_tracked(inp: SubmitInput) -> dict:
-        in_flight["n"] -= 1
-        return {
-            "ok": True,
-            "pr_url": f"https://github.com/{inp.upstream_slug}/pull/9999",
-            "pr_number": 9999,
-        }
-
-    tracked = [
-        fake_eligibility_tracked, fake_fork, fake_environment,
-        fake_repro, fake_fix, fake_verify, fake_remediation,
-        fake_review, fake_render, fake_submit_tracked,
-        fake_run_gates, fake_enqueue, fake_transition,
-    ]
 
     issues = [
         IssueInput(
@@ -369,25 +346,36 @@ async def test_batch_workflow_respects_max_concurrency(tmp_path):
             state_root=str(tmp_path / f"issue-{n}"),
             raw_brief_text=f"fix bug {n}",
             branch_name=f"fix-{n}",
+            copilot_task_queue="test-copilot-tq",
         )
-        for n in (201, 202, 203, 204, 205)
+        for n in (301, 302)
     ]
+
+    main_activities = [
+        fake_eligibility, fake_fork, fake_environment,
+        fake_review, fake_render, fake_submit,
+        fake_run_gates, fake_enqueue, fake_transition,
+    ]
+    copilot_activities = [fake_repro, fake_fix, fake_verify, fake_remediation]
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="test-tq",
             workflows=[IssueWorkflow, BatchWorkflow],
-            activities=tracked,
+            activities=main_activities,
+        ), Worker(
+            env.client,
+            task_queue="test-copilot-tq",
+            activities=copilot_activities,
+            max_concurrent_activities=2,
         ):
             result = await env.client.execute_workflow(
                 BatchWorkflow.run,
-                BatchInput(batch_id="cap-batch", issues=issues, max_concurrency=2),
-                id="batch-cap",
+                BatchInput(batch_id="routed-batch", issues=issues),
+                id="batch-routed",
                 task_queue="test-tq",
             )
 
-    assert result.total == 5
-    assert result.submitted == 5
-    assert in_flight["peak"] <= 2, f"peak in-flight was {in_flight['peak']}, expected ≤2"
-    assert in_flight["n"] == 0, "counter should be balanced at end"
+    assert result.total == 2
+    assert result.submitted == 2

@@ -397,14 +397,23 @@ async def act_record_transition(inp: TransitionInput) -> dict:
     return {"ok": True}
 
 
-ALL_ACTIVITIES = [
-    act_check_eligibility,
-    act_fork_and_scrub_brief,
-    act_setup_environment,
+# The Copilot-bound activities (request_repro/fix/verify/remediation) run
+# on a separate worker that caps `max_concurrent_activities` at 2 — the
+# Copilot coding-agent per-user session ceiling. Putting them on a
+# different task queue means a child workflow in human-review wait is
+# NOT holding a slot (no activity running → no quota consumed), so the
+# queued batch can drain without needing the operator to decide first.
+COPILOT_ACTIVITIES = [
     act_request_repro,
     act_request_fix,
     act_request_verify,
     act_request_remediation,
+]
+
+MAIN_ACTIVITIES = [
+    act_check_eligibility,
+    act_fork_and_scrub_brief,
+    act_setup_environment,
     act_run_review,
     act_render_pr_body,
     act_submit_upstream_pr,
@@ -412,3 +421,5 @@ ALL_ACTIVITIES = [
     act_enqueue_for_human_review,
     act_record_transition,
 ]
+
+ALL_ACTIVITIES = MAIN_ACTIVITIES + COPILOT_ACTIVITIES
