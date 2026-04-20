@@ -89,3 +89,5 @@ state/crimson-kitty-*
 # Temporary
 .tmp/
 .cache/
+# Evidence dirs from Temporal pipeline runs
+state/phase4-external-v*/

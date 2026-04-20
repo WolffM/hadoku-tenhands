@@ -235,15 +235,13 @@ def test_dispatch_calls_temporal_client(client, monkeypatch):
     """Mock the asyncio dispatch helper to capture inputs without a cluster."""
     captured = {}
 
-    async def fake_dispatch(batch_id, issues_raw, max_concurrency=2):
+    async def fake_dispatch(batch_id, issues_raw):
         captured["batch_id"] = batch_id
         captured["issues_raw"] = issues_raw
-        captured["max_concurrency"] = max_concurrency
         return {
             "batch_id": batch_id,
             "workflow_id": f"batch-{batch_id}",
             "issue_count": len(issues_raw),
-            "max_concurrency": max_concurrency,
         }
 
     import routes.temporal_routes as tr
@@ -256,7 +254,6 @@ def test_dispatch_calls_temporal_client(client, monkeypatch):
             "issues": [
                 {"upstream_slug": "microsoft/markitdown", "issue_number": 183, "raw_brief": "fix it"},
             ],
-            "max_concurrency": 3,
         }),
         content_type="application/json",
     )
@@ -264,32 +261,8 @@ def test_dispatch_calls_temporal_client(client, monkeypatch):
     body = resp.get_json()
     assert body["success"] is True
     assert body["data"]["workflow_id"] == "batch-test-batch"
-    assert body["data"]["max_concurrency"] == 3
     assert captured["batch_id"] == "test-batch"
     assert len(captured["issues_raw"]) == 1
-    assert captured["max_concurrency"] == 3
-
-
-def test_dispatch_defaults_max_concurrency_to_2(client, monkeypatch):
-    """Omitting max_concurrency defaults to 2 — the Copilot coding-agent cap."""
-    captured = {}
-
-    async def fake_dispatch(batch_id, issues_raw, max_concurrency=2):
-        captured["max_concurrency"] = max_concurrency
-        return {"batch_id": batch_id, "workflow_id": "x", "issue_count": 1, "max_concurrency": max_concurrency}
-
-    import routes.temporal_routes as tr
-    monkeypatch.setattr(tr, "_dispatch_batch", fake_dispatch)
-
-    client.post(
-        "/dispatch/api/temporal/dispatch",
-        data=json.dumps({
-            "batch_id": "b",
-            "issues": [{"upstream_slug": "a/b", "issue_number": 1}],
-        }),
-        content_type="application/json",
-    )
-    assert captured["max_concurrency"] == 2
 
 
 # ── 7. /api/temporal/issue/<workflow_id>/signal (POST) ────────────────────

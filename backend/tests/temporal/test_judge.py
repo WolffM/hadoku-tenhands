@@ -28,14 +28,14 @@ from temporal.config import MissingConfigError
 
 def test_canary_raises_unreachable_on_nonzero_exit(monkeypatch):
     fake = MagicMock(returncode=1, stdout="", stderr="auth failed")
-    monkeypatch.setattr(J, "_run_claude", lambda args, timeout: fake)
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
 
     with pytest.raises(J.JudgeUnreachable, match="canary exit 1"):
         J._canary_or_raise()
 
 
 def test_canary_raises_unreachable_on_timeout(monkeypatch):
-    def boom(args, timeout):
+    def boom(args, timeout, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["claude"], timeout=timeout)
 
     monkeypatch.setattr(J, "_run_claude", boom)
@@ -44,7 +44,7 @@ def test_canary_raises_unreachable_on_timeout(monkeypatch):
 
 
 def test_canary_raises_unreachable_when_binary_missing(monkeypatch):
-    def boom(args, timeout):
+    def boom(args, timeout, **kwargs):
         raise FileNotFoundError("claude")
 
     monkeypatch.setattr(J, "_run_claude", boom)
@@ -54,7 +54,7 @@ def test_canary_raises_unreachable_when_binary_missing(monkeypatch):
 
 def test_canary_raises_unreachable_on_unexpected_output(monkeypatch):
     fake = MagicMock(returncode=0, stdout="something else", stderr="")
-    monkeypatch.setattr(J, "_run_claude", lambda args, timeout: fake)
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
 
     with pytest.raises(J.JudgeUnreachable, match="unexpected output"):
         J._canary_or_raise()
@@ -62,7 +62,7 @@ def test_canary_raises_unreachable_on_unexpected_output(monkeypatch):
 
 def test_canary_passes_on_ok(monkeypatch):
     fake = MagicMock(returncode=0, stdout="OK\n", stderr="")
-    monkeypatch.setattr(J, "_run_claude", lambda args, timeout: fake)
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
     J._canary_or_raise()  # no raise
 
 
@@ -160,7 +160,7 @@ def test_score_full_path_with_mocked_subprocess(monkeypatch):
 
     call_log = []
 
-    def fake_run(args, timeout):
+    def fake_run(args, timeout, **kwargs):
         call_log.append(list(args))
         if "respond with exactly: OK" in args:
             return MagicMock(returncode=0, stdout="OK\n", stderr="")
@@ -179,10 +179,45 @@ def test_score_full_path_with_mocked_subprocess(monkeypatch):
     assert "--output-format" in call_log[1]
 
 
+def test_score_sends_prompt_via_stdin_not_argv(monkeypatch):
+    """Windows CreateProcess rejects command lines > ~32KB. Large fix
+    diffs blow that ceiling when passed as `-p <prompt>`. The score()
+    path must send the prompt via stdin so the argv stays small.
+
+    Regression for B14 (2026-04-20 phase-4 v5 retro).
+    """
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
+
+    huge_payload = "x" * 40_000  # beyond the Windows argv ceiling
+    stdin_captured = {}
+
+    def fake_run(args, timeout, *, stdin_text=None):
+        if stdin_text is None:  # canary call
+            return MagicMock(returncode=0, stdout="OK\n", stderr="")
+        stdin_captured["argv"] = list(args)
+        stdin_captured["stdin_text"] = stdin_text
+        rubric_json = '{"verdict":"pass","score":0.5,"reasoning":"ok"}'
+        return MagicMock(
+            returncode=0,
+            stdout=json.dumps({"result": f"```json\n{rubric_json}\n```"}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(J, "_run_claude", fake_run)
+    J.score("rubric", huge_payload)
+
+    # Prompt went via stdin, NOT argv
+    assert huge_payload in stdin_captured["stdin_text"]
+    argv_joined = " ".join(stdin_captured["argv"])
+    assert huge_payload not in argv_joined
+    # Argv stays small regardless of payload size
+    assert len(argv_joined) < 200
+
+
 def test_score_unreachable_when_judge_subprocess_times_out(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
 
-    def fake_run(args, timeout):
+    def fake_run(args, timeout, **kwargs):
         if "respond with exactly: OK" in args:
             return MagicMock(returncode=0, stdout="OK", stderr="")
         raise subprocess.TimeoutExpired(cmd=["claude"], timeout=timeout)
@@ -195,7 +230,7 @@ def test_score_unreachable_when_judge_subprocess_times_out(monkeypatch):
 def test_score_parse_error_when_judge_returns_garbage(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
 
-    def fake_run(args, timeout):
+    def fake_run(args, timeout, **kwargs):
         if "respond with exactly: OK" in args:
             return MagicMock(returncode=0, stdout="OK", stderr="")
         return MagicMock(returncode=0, stdout="just prose, no fenced block", stderr="")

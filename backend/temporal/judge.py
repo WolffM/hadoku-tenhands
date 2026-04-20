@@ -82,14 +82,26 @@ class JudgeResult:
 # ── Subprocess seam (monkeypatched in tests) ──────────────────────────────
 
 
-def _run_claude(args: list[str], timeout: int) -> subprocess.CompletedProcess:
+def _run_claude(
+    args: list[str],
+    timeout: int,
+    *,
+    stdin_text: str | None = None,
+) -> subprocess.CompletedProcess:
     """Run the `claude` CLI. Isolated so tests can monkeypatch it.
 
     The OAuth token is inherited from the parent process env (`.env`-loaded
     via dotenv before the worker starts).
+
+    Pass large prompts via `stdin_text` rather than `-p <prompt>` — on
+    Windows, CreateProcess rejects command lines over ~32KB with "The
+    command line is too long," which corrupts any score() call whose
+    rubric + payload happens to exceed that ceiling (typical for real
+    fix diffs).
     """
     return subprocess.run(
         [CLAUDE_BIN, *args],
+        input=stdin_text,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -230,13 +242,16 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
         _canary_or_raise()
 
         try:
+            # Pass prompt via stdin — real fix diffs blow the ~32KB
+            # Windows CreateProcess argv ceiling when sent as `-p <prompt>`.
             result = _run_claude(
                 [
-                    "-p", prompt,
+                    "-p",
                     "--model", JUDGE_MODEL,
                     "--output-format", "json",
                 ],
                 timeout=JUDGE_TIMEOUT_S,
+                stdin_text=prompt,
             )
         except subprocess.TimeoutExpired as e:
             raise JudgeUnreachable(f"judge call timed out after {JUDGE_TIMEOUT_S}s") from e

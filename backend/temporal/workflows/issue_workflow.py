@@ -55,6 +55,12 @@ class IssueInput:
     install_cmd: list[str] = field(default_factory=lambda: ["python", "-c", "0"])
     workdir: str = "."
     pr_number_for_review: int | None = None  # set after fix/agent PR is identified
+    # Routes the Copilot-bound activities (request_repro/fix/verify/
+    # remediation) to a separate, capped task queue so those slots are
+    # NOT held while the workflow sits in human-review wait. Empty
+    # string means "schedule on the workflow's own task queue" — tests
+    # rely on that default so they don't need a second worker.
+    copilot_task_queue: str = ""
 
 
 @dataclass
@@ -287,12 +293,21 @@ class IssueWorkflow:
         # Long activities (agent polling) heartbeat every ~20s. Require one
         # every 2 minutes or Temporal treats the activity as dead and retries.
         heartbeat_timeout = timedelta(minutes=2) if long else None
+        # Copilot-bound activities (`long=True`) run on a dedicated,
+        # concurrency-capped task queue when one is configured — this
+        # is how the 2-session Copilot ceiling is honored without
+        # blocking the batch while another issue sits in human review.
+        activity_kwargs = {
+            "start_to_close_timeout": timeout,
+            "heartbeat_timeout": heartbeat_timeout,
+            "retry_policy": RetryPolicy(maximum_attempts=1 if long else 3),
+        }
+        if long and inp.copilot_task_queue:
+            activity_kwargs["task_queue"] = inp.copilot_task_queue
         await workflow.execute_activity(
             activity_name,
             arg,
-            start_to_close_timeout=timeout,
-            heartbeat_timeout=heartbeat_timeout,
-            retry_policy=RetryPolicy(maximum_attempts=1 if long else 3),
+            **activity_kwargs,
         )
 
         await workflow.execute_activity(
