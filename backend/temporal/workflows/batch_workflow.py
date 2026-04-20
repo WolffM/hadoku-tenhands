@@ -1,8 +1,14 @@
 """BatchWorkflow — fans out to many IssueWorkflows.
 
 The operator dispatches a batch of N issues; the BatchWorkflow spawns one
-child IssueWorkflow per issue and collects the results. Children run in
-parallel up to the worker's task queue concurrency limit.
+child IssueWorkflow per issue and collects the results.
+
+Concurrency is capped by `max_concurrency` (default 2) to stay under the
+Copilot coding-agent per-user concurrent-session limit — firing 8 at once
+resulted in all 8 accepting the PR stub but only the first 2-3 actually
+getting a coding-VM slot; the rest timed out with no work done. A
+semaphore held across the child's full lifecycle (repro → fix → verify)
+means each slot is released only when its issue completes or aborts.
 
 Phase 1D.2.
 """
@@ -23,6 +29,7 @@ with workflow.unsafe.imports_passed_through():
 class BatchInput:
     batch_id: str                 # e.g. "crimson-kitty-2026-04-14"
     issues: list[IssueInput]
+    max_concurrency: int = 2
 
 
 @dataclass
@@ -38,35 +45,23 @@ class BatchResult:
 class BatchWorkflow:
     @workflow.run
     async def run(self, inp: BatchInput) -> BatchResult:
-        # Spawn child workflows in parallel via execute_child_workflow.
-        # Each child has its own state_root so they don't fight.
-        coros = [
-            workflow.execute_child_workflow(
-                IssueWorkflow.run,
-                issue,
-                id=f"{inp.batch_id}-{issue.upstream_slug.replace('/', '__')}-{issue.issue_number}",
-                # Children inherit the parent's task queue by default.
-            )
-            for issue in inp.issues
-        ]
+        sem = asyncio.Semaphore(max(1, inp.max_concurrency))
 
-        # Gather in parallel. Failed children surface as exceptions, which
-        # we catch so one bad issue doesn't blow up the whole batch.
-        raw = await asyncio.gather(*coros, return_exceptions=True)
-        results: list[IssueResult] = []
-        for r in raw:
-            if isinstance(r, IssueResult):
-                results.append(r)
-            elif isinstance(r, Exception):
-                results.append(IssueResult(
-                    final_state="aborted",
-                    abort_reason=f"child workflow crashed: {type(r).__name__}: {r}",
-                ))
-            else:
-                results.append(IssueResult(
-                    final_state="aborted",
-                    abort_reason=f"unexpected child result: {type(r).__name__}",
-                ))
+        async def _run_one(issue: IssueInput) -> IssueResult:
+            async with sem:
+                try:
+                    return await workflow.execute_child_workflow(
+                        IssueWorkflow.run,
+                        issue,
+                        id=f"{inp.batch_id}-{issue.upstream_slug.replace('/', '__')}-{issue.issue_number}",
+                    )
+                except Exception as e:
+                    return IssueResult(
+                        final_state="aborted",
+                        abort_reason=f"child workflow crashed: {type(e).__name__}: {e}",
+                    )
+
+        results = await asyncio.gather(*[_run_one(i) for i in inp.issues])
 
         submitted = sum(1 for r in results if r.final_state == "submitted")
         aborted = sum(1 for r in results if r.final_state == "aborted")

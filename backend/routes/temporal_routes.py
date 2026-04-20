@@ -236,18 +236,19 @@ def temporal_dispatch():
     body = request.get_json(silent=True) or {}
     batch_id = body.get("batch_id")
     issues_raw = body.get("issues")
+    max_concurrency = body.get("max_concurrency", 2)
     if not batch_id or not isinstance(issues_raw, list) or not issues_raw:
         return _error("batch_id and non-empty issues[] required", status=400)
 
     try:
-        result = asyncio.run(_dispatch_batch(batch_id, issues_raw))
+        result = asyncio.run(_dispatch_batch(batch_id, issues_raw, int(max_concurrency)))
     except Exception as e:
         return _error(f"dispatch failed: {e}", status=502)
 
     return _envelope(result, status=202)
 
 
-async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
+async def _dispatch_batch(batch_id: str, issues_raw: list[dict], max_concurrency: int = 2) -> dict:
     """Connect to Temporal and start the BatchWorkflow."""
     from temporalio.client import Client
 
@@ -274,12 +275,17 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
     ]
     handle = await client.start_workflow(
         BatchWorkflow.run,
-        BatchInput(batch_id=batch_id, issues=issues),
+        BatchInput(batch_id=batch_id, issues=issues, max_concurrency=max_concurrency),
         id=f"batch-{batch_id}",
         task_queue=cfg.task_queue,
         task_timeout=timedelta(seconds=60),
     )
-    return {"batch_id": batch_id, "workflow_id": handle.id, "issue_count": len(issues)}
+    return {
+        "batch_id": batch_id,
+        "workflow_id": handle.id,
+        "issue_count": len(issues),
+        "max_concurrency": max_concurrency,
+    }
 
 
 def _derive_fork(upstream_slug: str, owner: str = "WolffM") -> str:
