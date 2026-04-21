@@ -401,6 +401,41 @@ def test_verified_fails_dir_missing(issue, ev):
     assert r.verdict == "fail"
 
 
+def test_verified_pass_with_verify_notes_md(issue, ev):
+    """B20: adopted Copilot PRs bundle tests into fix commits and rarely
+    produce a standalone test_output.txt or after.png. The gate now
+    accepts verify_notes.md (auto-synthesized by request_verify) as a
+    lightweight fallback."""
+    ev.write_text(
+        "06-verified/verify_notes.md",
+        "## Verification basis\n\n"
+        "The agent committed tests alongside the fix. The exit_reason "
+        "was success and the PR includes test files exercising the new "
+        "behavior directly in the diff.",
+    )
+    r = verified_evidence_present(issue, ev)
+    assert r.verdict == "pass"
+    assert r.evidence_data["verification_kind"] == "synthesized_notes"
+
+
+def test_verified_fails_on_short_verify_notes(issue, ev):
+    """Even with the lenient fallback, nonsense-short notes must fail."""
+    ev.write_text("06-verified/verify_notes.md", "too short")
+    r = verified_evidence_present(issue, ev)
+    assert r.verdict == "fail"
+
+
+def test_verified_prefers_test_output_over_verify_notes(issue, ev):
+    """If the agent wrote a real test_output.txt AND there's a notes
+    fallback, the real artifact wins — we want the strongest evidence
+    to be what the gate reports."""
+    ev.write_text("06-verified/test_output.txt", "5 passed in 2.1s")
+    ev.write_text("06-verified/verify_notes.md", "lots of words " * 10)
+    r = verified_evidence_present(issue, ev)
+    assert r.verdict == "pass"
+    assert r.evidence_data["verification_kind"] == "test"
+
+
 # ── remediation_complete ──────────────────────────────────────────────────
 
 

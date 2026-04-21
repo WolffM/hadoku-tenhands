@@ -645,6 +645,44 @@ async def test_request_verify_writes_agent_result(ev, issue):
 
 
 @pytest.mark.asyncio
+async def test_request_verify_synthesizes_verify_notes_when_missing(ev, issue):
+    """B20: when the agent's harvest doesn't commit a standalone
+    test_output.txt or after.png (common for adopted Copilot PRs where
+    tests live in the fix diff), the orchestrator writes a
+    verify_notes.md summary so the gate's fallback path has something
+    to accept."""
+    from temporal.activities.agent import request_verify
+
+    await request_verify(NoopAgent(), issue, "verify", ev)
+
+    assert ev.exists("06-verified/verify_notes.md")
+    notes = ev.read_text("06-verified/verify_notes.md")
+    assert "Auto-synthesized" in notes
+    assert "Verification basis" in notes
+    # Must have enough words for the gate's 20-word minimum
+    assert len(notes.split()) >= 20
+
+
+@pytest.mark.asyncio
+async def test_request_verify_keeps_existing_verify_notes(ev, issue):
+    """If the agent (or a prior run) already wrote verify_notes.md,
+    don't stomp it — the agent's content is richer than the synth."""
+    from temporal.activities.agent import request_verify
+
+    ev.write_text(
+        "06-verified/verify_notes.md",
+        "## Verified by running pytest\n\nAll 14 tests pass including "
+        "the 3 new regression tests for the null-pointer path.",
+    )
+
+    await request_verify(NoopAgent(), issue, "verify", ev)
+
+    notes = ev.read_text("06-verified/verify_notes.md")
+    assert "Auto-synthesized" not in notes
+    assert "Verified by running pytest" in notes
+
+
+@pytest.mark.asyncio
 async def test_request_remediation_appends_review_comments_to_brief(ev, issue):
     from temporal.activities.agent import request_remediation
 
