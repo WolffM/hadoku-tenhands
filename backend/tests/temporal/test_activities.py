@@ -578,9 +578,9 @@ async def test_request_repro_synthesizes_notes_md_when_agent_skipped_it(ev, issu
 
 @pytest.mark.asyncio
 async def test_request_repro_keeps_agent_notes_md_if_present(ev, issue, tmp_path, monkeypatch):
-    """If the agent DID commit notes.md, the synthesis fallback must
-    NOT overwrite it — the agent's prose is always richer than the
-    boilerplate we'd generate."""
+    """If the agent DID commit notes.md AND it passes validation, the
+    synthesis fallback must not touch it — the agent's prose is always
+    richer than the boilerplate."""
     from temporal.activities.agent import request_repro
 
     # Simulate a harvested agent result whose download step wrote notes.md
@@ -601,6 +601,38 @@ async def test_request_repro_keeps_agent_notes_md_if_present(ev, issue, tmp_path
     notes = ev.read_text("04-reproduced/notes.md")
     assert "Auto-synthesized" not in notes  # synthesis did NOT run
     assert "Run x." in notes  # agent's content preserved
+
+
+@pytest.mark.asyncio
+async def test_request_repro_repairs_invalid_agent_notes_md(ev, issue):
+    """B16 part 2: if the agent wrote notes.md but it misses a required
+    label or is too short, prepend a canonical header that satisfies the
+    gate while preserving the agent's original content in an appendix.
+    Regression for v7 airflow: rich prose with plain (non-H2) labels."""
+    from temporal.activities.agent import request_repro
+
+    class BadFormatAgent(NoopAgent):
+        def harvest(self, job):
+            result = super().harvest(job)
+            # Copilot's actual airflow v7 output — no ## prefixes
+            ev.write_text(
+                "04-reproduced/notes.md",
+                "Steps to Reproduce\nRun a deferrable operator.\n\n"
+                "observed\non_kill is not called.\n\n"
+                "expected\nshould call on_kill",
+            )
+            return result
+
+    await request_repro(BadFormatAgent(), issue, "airflow brief", ev)
+
+    notes = ev.read_text("04-reproduced/notes.md")
+    # Our canonical header must be present at the top
+    assert "## Steps to reproduce" in notes
+    assert "## Observed" in notes
+    assert "## Expected" in notes
+    # Agent's original content preserved below
+    assert "Run a deferrable operator" in notes
+    assert "Agent notes (original)" in notes
 
 
 @pytest.mark.asyncio

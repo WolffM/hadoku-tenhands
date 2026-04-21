@@ -236,6 +236,34 @@ def test_repro_evidence_present_fails_dir_missing(issue, ev):
     assert r.verdict == "fail"
 
 
+def test_repro_evidence_present_passes_with_plain_labels(issue, ev):
+    """Copilot often writes section labels WITHOUT the `##` prefix.
+    Regression for B16 (v7 airflow aborted on this): the gate must
+    accept plain labels as headings."""
+    ev.write_text("04-reproduced/test.py", "x")
+    ev.write_text(
+        "04-reproduced/notes.md",
+        "Steps to Reproduce\n1. Run the thing.\n2. It crashes.\n\n"
+        "Observed\nStack trace shows " + ("boom " * 30) + "\n\n"
+        "Expected\nNo crash, clean shutdown instead.\n",
+    )
+    r = repro_evidence_present(issue, ev)
+    assert r.verdict == "pass", r.reason
+
+
+def test_repro_evidence_present_passes_with_bold_labels(issue, ev):
+    """Markdown bold (`**Observed**`) is another common style."""
+    ev.write_text("04-reproduced/test.py", "x")
+    ev.write_text(
+        "04-reproduced/notes.md",
+        "**Steps to reproduce**\n1. Run the reproduction script.\n\n"
+        "**Observed**\n" + ("It broke with an error message. " * 10) + "\n\n"
+        "**Expected**\nShould not break under these conditions.\n",
+    )
+    r = repro_evidence_present(issue, ev)
+    assert r.verdict == "pass", r.reason
+
+
 # ── diff_non_empty (with jade-hare-style empty-PR fixtures) ───────────────
 
 
