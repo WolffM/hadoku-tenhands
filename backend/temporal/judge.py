@@ -104,6 +104,8 @@ def _run_claude(
         input=stdin_text,
         capture_output=True,
         text=True,
+        encoding="utf-8",  # B18: Windows defaults to cp1252 which chokes on `≥` etc
+        errors="replace",
         timeout=timeout,
         check=False,
     )
