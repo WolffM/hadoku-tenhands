@@ -42,6 +42,9 @@ class FakeGh:
         self.issue_title = "fix the merged-cell xlsx bug"
         self.assignee_present_after = 1  # how many assignee verifies before Copilot appears
         self._assignee_attempts = 0
+        # Existing open fork issues assigned to Copilot — used by the
+        # idempotent-assign lookup. Tests set this to exercise resume.
+        self.existing_fork_issues: list[dict] = []
         self.copilot_pr = {
             "number": 9,
             "title": "Fix merged cell handling",
@@ -58,6 +61,13 @@ class FakeGh:
     def __call__(self, args, stdin_data=None):
         self.calls.append((list(args), stdin_data))
         joined = " ".join(args)
+
+        # List existing open fork issues assigned to Copilot (idempotent-assign lookup)
+        if args[0] == "api" and args[1].startswith("repos/") and "/issues?state=open" in args[1]:
+            return {
+                "success": True,
+                "output": json.dumps(self.existing_fork_issues),
+            }
 
         # Create issue (POST repos/.../issues)
         if args[0] == "api" and args[1].endswith("/issues") and "POST" in args:
@@ -165,8 +175,51 @@ def test_assign_raises_when_assignee_never_sticks(agent, fake_gh, issue):
         agent.assign(issue, brief="fix something")
 
 
+def test_assign_adopts_existing_tagged_fork_issue(agent, fake_gh, issue):
+    """When a prior assign() already created a fork issue for this title
+    (e.g. a heartbeat-timeout abort left it dangling), re-calling assign()
+    must return a job pointing at THAT issue rather than creating a
+    duplicate. Otherwise every re-dispatch burns another Copilot premium
+    request and spawns a duplicate PR."""
+    brief = "fix the merged-cell xlsx bug\n\nDetails here."
+    # Pre-seed an existing assignment with the same <issue_title> tag
+    fake_gh.existing_fork_issues = [
+        {
+            "number": 17,
+            "body": "<issue_title>fix the merged-cell xlsx bug</issue_title>\n\n## Context\n...",
+        },
+    ]
+
+    job = agent.assign(issue, brief=brief)
+
+    assert job.job_id == "17"
+    assert job.metadata.get("adopted") is True
+    # No POST to /issues — we reused the existing one
+    posts = [c for c, _ in fake_gh.calls if c[0] == "api" and c[1].endswith("/issues") and "POST" in c]
+    assert posts == []
+
+
+def test_assign_creates_fresh_when_existing_issue_tag_does_not_match(agent, fake_gh, issue):
+    """An open fork issue for a DIFFERENT title must not be adopted —
+    each dispatch needs its own correlation tag."""
+    fake_gh.existing_fork_issues = [
+        {"number": 17, "body": "<issue_title>an unrelated task</issue_title>\n\n..."},
+    ]
+    fake_gh.assignee_present_after = 1
+
+    job = agent.assign(issue, brief="fix the merged-cell xlsx bug")
+
+    assert job.job_id == "42"  # fresh issue created, not 17
+    assert job.metadata.get("adopted") is not True
+    posts = [c for c, _ in fake_gh.calls if c[0] == "api" and c[1].endswith("/issues") and "POST" in c]
+    assert len(posts) == 1
+
+
 def test_assign_raises_when_create_issue_fails(fake_gh, issue):
     def failing_gh(args, stdin_data=None):
+        # Idempotent-assign lookup — return no existing issues
+        if args[0] == "api" and args[1].startswith("repos/") and "/issues?state=open" in args[1]:
+            return {"success": True, "output": "[]"}
         if args[0] == "api" and args[1].endswith("/issues") and "POST" in args:
             return {"success": False, "error": "rate limited"}
         raise AssertionError("should have failed before this")

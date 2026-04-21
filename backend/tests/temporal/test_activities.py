@@ -506,6 +506,104 @@ async def test_request_repro_writes_agent_result(ev, issue):
 
 
 @pytest.mark.asyncio
+async def test_wait_and_harvest_heartbeats_during_slow_poll(ev, issue):
+    """B17: the Temporal heartbeat must keep firing even when a single
+    `agent.poll()` call stalls longer than the heartbeat timeout. A
+    background ticker inside `_wait_and_harvest` fires every 30s
+    independent of the poll loop; we prove it here by using a poll
+    that blocks in the thread pool while we assert the heartbeat
+    keeps ticking."""
+    import asyncio as _asyncio
+    from temporal.activities.agent import _wait_and_harvest
+
+    heartbeats: list[str] = []
+
+    def hb(detail: str) -> None:
+        heartbeats.append(detail)
+
+    class SlowAgent(NoopAgent):
+        def poll(self, job):
+            import time as _time
+            _time.sleep(0.3)  # sync stall — simulates hung gh call
+            return super().poll(job)
+
+    # Shorten the ticker interval so the test doesn't take 30s.
+    import temporal.activities.agent as agent_mod
+    original_interval = agent_mod._HEARTBEAT_INTERVAL_S
+    agent_mod._HEARTBEAT_INTERVAL_S = 0.05
+    try:
+        slow = SlowAgent(polls_until_done=1)
+        job = slow.assign(issue, brief="x")
+        result = await _wait_and_harvest(
+            slow, job, max_polls=2, poll_interval_s=0.05, heartbeat=hb,
+        )
+    finally:
+        agent_mod._HEARTBEAT_INTERVAL_S = original_interval
+
+    assert result.exit_reason == "success"
+    # Several ticker-driven heartbeats should have fired during the stall
+    assert len(heartbeats) >= 3, f"only got {len(heartbeats)} heartbeats during stall"
+
+
+@pytest.mark.asyncio
+async def test_request_repro_synthesizes_notes_md_when_agent_skipped_it(ev, issue):
+    """B16: if the agent didn't write notes.md, the orchestrator must
+    generate a valid one so the `repro_evidence_present` gate still
+    passes. Otherwise a fully-complete Copilot session gets rejected
+    for a documentation miss."""
+    from temporal.activities.agent import request_repro
+
+    # NoopAgent doesn't produce notes.md and touches no files, so this
+    # should fall through to the synthesis fallback.
+    agent = NoopAgent()
+    brief = (
+        "## Repro steps\n"
+        "1. Run the thing.\n"
+        "2. Observe the crash.\n\n"
+        "Expected: no crash.\n"
+    )
+    await request_repro(agent, issue, brief, ev)
+
+    assert ev.exists("04-reproduced/notes.md")
+    notes = ev.read_text("04-reproduced/notes.md")
+    # All three required headings must be present (gate invariant).
+    assert "## Steps to reproduce" in notes
+    assert "## Observed" in notes
+    assert "## Expected" in notes
+    # 50-word minimum for the gate
+    assert len(notes.split()) >= 50
+    # Clearly attributed as auto-synthesized
+    assert "Auto-synthesized" in notes
+
+
+@pytest.mark.asyncio
+async def test_request_repro_keeps_agent_notes_md_if_present(ev, issue, tmp_path, monkeypatch):
+    """If the agent DID commit notes.md, the synthesis fallback must
+    NOT overwrite it — the agent's prose is always richer than the
+    boilerplate we'd generate."""
+    from temporal.activities.agent import request_repro
+
+    # Simulate a harvested agent result whose download step wrote notes.md
+    class NotesWritingAgent(NoopAgent):
+        def harvest(self, job):
+            result = super().harvest(job)
+            # Pretend the download step already wrote a rich notes.md
+            ev.write_text(
+                "04-reproduced/notes.md",
+                "## Steps to reproduce\nRun x.\n\n"
+                "## Observed\nIt crashed with " + ("blah " * 50) + "\n\n"
+                "## Expected\nNo crash.\n",
+            )
+            return result
+
+    await request_repro(NotesWritingAgent(), issue, "the brief", ev)
+
+    notes = ev.read_text("04-reproduced/notes.md")
+    assert "Auto-synthesized" not in notes  # synthesis did NOT run
+    assert "Run x." in notes  # agent's content preserved
+
+
+@pytest.mark.asyncio
 async def test_request_verify_writes_agent_result(ev, issue):
     from temporal.activities.agent import request_verify
 
