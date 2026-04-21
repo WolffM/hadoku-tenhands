@@ -21,6 +21,13 @@ pnpm run format
 
 echo "✅ Linting and formatting complete!"
 
+# TS gate — prevents commits that break tsc (resilience plan track 1)
+echo "🔎 Running typecheck..."
+if ! pnpm run typecheck; then
+  echo "❌ TypeScript errors — fix before committing (or `--no-verify` to bypass)."
+  exit 1
+fi
+
 # Bump version on every commit to ensure unique versions for publishing
 echo "📦 Bumping version..."
 

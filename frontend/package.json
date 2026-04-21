@@ -1,6 +1,6 @@
 {
   "name": "@wolffm/vibedispatch",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "VibeDispatch UI - Task dispatch and management interface",
   "type": "module",
   "repository": {
@@ -24,6 +24,7 @@
     "predev": "node scripts/kill-port.cjs 5184",
     "dev": "vite",
     "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
