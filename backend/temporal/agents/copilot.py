@@ -83,6 +83,13 @@ class CopilotAgent:
         failures. Soft failures (Copilot not available, GitHub silently
         dropped the assignee) raise too — the orchestrator activity will
         translate the exception into a workflow gate failure.
+
+        Idempotent: if there's already an open fork issue with our
+        `<issue_title>{title}</issue_title>` tag in its body, adopt
+        that assignment instead of creating a duplicate. This lets a
+        re-dispatch after an infrastructure-caused abort reuse the
+        Copilot work already in flight on the fork rather than burning
+        another premium request for a duplicate PR.
         """
         owner, repo = issue.fork_slug.split("/", 1)
 
@@ -91,6 +98,21 @@ class CopilotAgent:
         #    so we just inject it verbatim with the correlation tag.
         body = self._build_issue_body(issue, brief, instruction)
         title = self._derive_title(brief)
+
+        existing = self._find_existing_assignment(owner, repo, title)
+        if existing is not None:
+            return AgentJob(
+                job_id=str(existing),
+                agent_kind="copilot",
+                fork_slug=issue.fork_slug,
+                branch_name="",
+                metadata={
+                    "issue_title": title,
+                    "upstream_slug": issue.upstream_slug,
+                    "upstream_number": issue.number,
+                    "adopted": True,
+                },
+            )
 
         # 2. Create the context issue.
         create_payload = json.dumps({
@@ -303,6 +325,36 @@ class CopilotAgent:
             if line:
                 return line[:80]
         return "Crimson-kitty: scrubbed task"
+
+    def _find_existing_assignment(
+        self, owner: str, repo: str, title: str,
+    ) -> int | None:
+        """Return the fork issue number of a prior assignment for this title,
+        or None if none exists.
+
+        Matches on the `<issue_title>{title}</issue_title>` marker we embed
+        in every context issue body. Only adopts OPEN issues with Copilot
+        still in the assignees list — closed or unassigned fork issues mean
+        the prior session was either completed (submit stage) or manually
+        cleared, and we should start fresh.
+        """
+        tag = f"<issue_title>{title}</issue_title>"
+        listing = self.run_gh([
+            "api",
+            f"repos/{owner}/{repo}/issues?state=open&assignee={COPILOT_ASSIGNEE}&per_page=30",
+            "--jq",
+            "[.[] | select(.pull_request == null) | {number, body}]",
+        ])
+        if not listing.get("success"):
+            return None
+        try:
+            items = json.loads(listing.get("output") or "[]")
+        except json.JSONDecodeError:
+            return None
+        for item in items:
+            if tag in (item.get("body") or ""):
+                return int(item["number"])
+        return None
 
     def _list_open_prs(self, owner: str, repo: str) -> list[dict]:
         result = self.run_gh([
