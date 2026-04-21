@@ -179,6 +179,25 @@ def test_score_full_path_with_mocked_subprocess(monkeypatch):
     assert "--output-format" in call_log[1]
 
 
+def test_run_claude_uses_utf8_encoding_on_subprocess(monkeypatch):
+    """B18: Windows Python defaults subprocess.run text mode to cp1252,
+    which crashes on unicode chars like `≥` that Copilot freely uses
+    in diffs. The wrapper must pin encoding="utf-8"."""
+    captured: dict = {}
+
+    def fake_subprocess_run(args, **kwargs):
+        captured.update(kwargs)
+        return MagicMock(returncode=0, stdout="OK\n", stderr="")
+
+    monkeypatch.setattr(J.subprocess, "run", fake_subprocess_run)
+    J._run_claude(["-p", "hi"], timeout=5)
+
+    assert captured.get("encoding") == "utf-8"
+    # `errors=replace` means unicode chars in child stdout never crash
+    # the parent — we'd rather lose a char than lose the whole judge call.
+    assert captured.get("errors") == "replace"
+
+
 def test_score_sends_prompt_via_stdin_not_argv(monkeypatch):
     """Windows CreateProcess rejects command lines > ~32KB. Large fix
     diffs blow that ceiling when passed as `-p <prompt>`. The score()

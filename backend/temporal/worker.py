@@ -68,7 +68,29 @@ async def run_worker() -> None:
         cfg.task_queue, len(MAIN_ACTIVITIES),
         cfg.copilot_task_queue, len(COPILOT_ACTIVITIES), cfg.copilot_concurrency,
     )
-    await asyncio.gather(main_worker.run(), copilot_worker.run())
+
+    # B19: if EITHER worker exits (Worker.run() can return silently on
+    # transient network issues), crash the whole process so pm2 restarts
+    # us. Previously `asyncio.gather` would happily wait forever for
+    # the surviving worker while activities piled up with no poller on
+    # the other queue. Using FIRST_COMPLETED + raising surfaces the
+    # issue fast.
+    main_task = asyncio.create_task(main_worker.run(), name="main_worker")
+    copilot_task = asyncio.create_task(copilot_worker.run(), name="copilot_worker")
+    done, pending = await asyncio.wait(
+        [main_task, copilot_task], return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+    for task in done:
+        exc = task.exception()
+        logger.error(
+            "worker %s exited (exception=%s); triggering process restart",
+            task.get_name(), type(exc).__name__ if exc else "None",
+        )
+        if exc is not None:
+            raise exc
+    raise RuntimeError("a worker exited without raising — pm2 restart needed")
 
 
 def main() -> int:
