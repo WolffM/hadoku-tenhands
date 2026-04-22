@@ -764,6 +764,64 @@ def test_render_pr_body_without_template(ev):
     assert "Fixes #" not in body
 
 
+def test_render_pr_body_pulls_rich_content_from_evidence(ev):
+    """B21: the default render must produce a reviewable PR body with
+    real problem/fix/verify content, not a skeletal checklist. v9
+    submission_judge scored an empty-template body at 0.25 and aborted."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {
+            "title": "Crashes when loading .xlsx with merged cells",
+            "body": (
+                "When opening a spreadsheet with merged cells in the header "
+                "row, the parser crashes with a NullPointerException. This "
+                "reproduces consistently on v1.2.3 and later."
+            ),
+        },
+    })
+    ev.write_text(
+        "04-reproduced/notes.md",
+        "## Steps to reproduce\n"
+        "1. Create an xlsx with merged cells in row 1.\n"
+        "2. Call parse_xlsx() on it.\n\n"
+        "## Observed\n"
+        "NullPointerException at XlsxParser.java:142 during cell coalescing "
+        "because the merged-cell resolver returns null when row 0 has span > 1.\n\n"
+        "## Expected\n"
+        "Merged header cells should resolve to their anchor cell's value.\n",
+    )
+    ev.write_text("05-fixed/files_touched.txt", "src/XlsxParser.java\ntests/XlsxParserTest.java\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\ndef5678\n")
+    ev.write_text("05-fixed/diff.patch", "diff --git a/x b/x\n")
+    ev.write_text(
+        "06-verified/test_output.txt",
+        "12 tests passed including merged_header_regression",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("microsoft/markitdown", 183, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    # All four main sections present with real content
+    assert "## Summary" in body
+    assert "NullPointerException" in body  # from the brief
+    assert "## Root cause" in body
+    assert "cell coalescing" in body  # from the repro notes' Observed section
+    assert "## Steps to reproduce" in body
+    assert "## Fix" in body
+    assert "abc1234" in body  # commit SHA
+    assert "src/XlsxParser.java" in body
+    assert "## Verification" in body
+    assert "12 tests passed" in body
+
+    # Body must have substance — enough words for a human reviewer to
+    # evaluate. v9 argo-cd aborted with the earlier skeletal body at 0.25.
+    assert len(body.split()) >= 60
+
+
 def test_render_pr_body_with_template(ev):
     from temporal.activities.submission import render_pr_body
 

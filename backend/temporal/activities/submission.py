@@ -139,47 +139,150 @@ def _build_title(issue_title: str) -> str:
 
 
 def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
-    """Render a generic 4-section body when upstream has no template.
+    """Render a rich 4-section body when upstream has no template.
+
+    Pulls real content from the evidence store (issue brief, repro notes,
+    commit SHAs, verify notes) so the submission_judge sees a reviewable
+    PR, not a template checklist. B21 fix.
 
     Does NOT include a `Fixes #N` close keyword — that's added at
     submit_upstream_pr time, AFTER the no_upstream_refs gate runs. The
     body the gate sees must be free of any real upstream ref.
     """
-    diff_bytes = 0
     files_touched: list[str] = []
-    commit_count = 0
-    if evidence.exists("05-fixed/diff.patch"):
-        diff_bytes = len(evidence.read_text("05-fixed/diff.patch"))
+    commit_shas: list[str] = []
     if evidence.exists("05-fixed/files_touched.txt"):
         files_touched = [
             l.strip() for l in evidence.read_text("05-fixed/files_touched.txt").splitlines() if l.strip()
         ]
     if evidence.exists("05-fixed/commit_shas.txt"):
-        commit_count = len([
-            l for l in evidence.read_text("05-fixed/commit_shas.txt").splitlines() if l.strip()
-        ])
+        commit_shas = [
+            l.strip() for l in evidence.read_text("05-fixed/commit_shas.txt").splitlines() if l.strip()
+        ]
+
+    summary = _extract_summary(evidence, issue_title)
+    root_cause = _extract_section(evidence, "04-reproduced/notes.md", ("Observed",)) \
+        or "See the commits on this PR for the root-cause analysis."
+    repro_steps = _extract_section(evidence, "04-reproduced/notes.md", ("Steps to reproduce",))
+    verification = _extract_verification(evidence)
 
     parts = [
         "## Summary",
         "",
-        "Fixes the issue described in the upstream tracker.",
+        summary,
         "",
         "## Root cause",
         "",
-        "(See diff for details — root cause documented in commit messages.)",
+        root_cause.strip(),
+    ]
+    if repro_steps:
+        parts.extend([
+            "",
+            "## Steps to reproduce",
+            "",
+            repro_steps.strip(),
+        ])
+    parts.extend([
         "",
         "## Fix",
         "",
-        f"- Files touched ({len(files_touched)}):",
-    ]
-    parts.extend(f"  - `{f}`" for f in files_touched[:20])
+        f"The change spans {len(commit_shas)} commit(s) touching {len(files_touched)} file(s):",
+        "",
+    ])
+    parts.extend(f"- `{f}`" for f in files_touched[:20])
+    if len(files_touched) > 20:
+        parts.append(f"- …and {len(files_touched) - 20} more")
+    if commit_shas:
+        parts.extend(["", "Commits:"])
+        parts.extend(f"- `{sha[:8]}`" for sha in commit_shas[:10])
     parts.extend([
         "",
         "## Verification",
         "",
-        "Verification artifacts attached to the linked issue's evidence directory.",
+        verification,
     ])
     return "\n".join(parts)
+
+
+def _extract_summary(evidence, issue_title: str) -> str:
+    """Lead paragraph for the PR.
+
+    Prefer the first paragraph of the issue body (scrubbed). Fall back to
+    the issue title expanded into a simple sentence if the body is
+    missing or degenerate.
+    """
+    if evidence.exists("01-eligible/issue_brief.json"):
+        brief = evidence.read_json("01-eligible/issue_brief.json")
+        issue_obj = brief.get("issue") if isinstance(brief, dict) else None
+        if isinstance(issue_obj, dict):
+            body = (issue_obj.get("body") or "").strip()
+            if body:
+                # First non-empty paragraph, capped, with markdown preserved.
+                first = body.split("\n\n", 1)[0].strip()
+                if len(first) > 600:
+                    first = first[:600].rsplit(" ", 1)[0] + "…"
+                return first
+    return f"Addresses the upstream issue: {issue_title}".strip()
+
+
+def _extract_section(evidence, path: str, labels: tuple[str, ...]) -> str:
+    """Pull a single section's prose out of a notes.md-style file.
+
+    Matches headings loosely (optional `##` prefix, optional `**…**`
+    bolding, case-insensitive) so we can reuse whatever the agent wrote.
+    Returns the prose between the matched heading and the next heading,
+    or empty string if not found.
+    """
+    if not evidence.exists(path):
+        return ""
+    text = evidence.read_text(path)
+    lines = text.splitlines()
+
+    def _normalize(raw: str) -> str:
+        cleaned = raw.strip()
+        if cleaned.startswith("#"):
+            cleaned = cleaned.lstrip("#").strip()
+        cleaned = cleaned.strip("* _").strip()
+        return cleaned.lower()
+
+    targets = {l.lower() for l in labels}
+    collected: list[str] = []
+    in_section = False
+    for raw_line in lines:
+        norm = _normalize(raw_line)
+        is_heading = bool(raw_line.strip()) and (
+            raw_line.strip().startswith("#")
+            or (raw_line.strip().startswith("**") and raw_line.strip().endswith("**"))
+            or norm in targets
+            or any(norm == other.lower() for other in ("steps to reproduce", "observed", "expected"))
+        )
+        if is_heading:
+            if in_section:
+                break  # next heading ends our section
+            if norm in targets:
+                in_section = True
+                continue
+            continue
+        if in_section:
+            collected.append(raw_line)
+    return "\n".join(collected).strip()
+
+
+def _extract_verification(evidence) -> str:
+    """Synthesize the Verification section from whatever evidence exists."""
+    if evidence.exists("06-verified/test_output.txt"):
+        text = evidence.read_text("06-verified/test_output.txt").strip()
+        excerpt = text[:400]
+        return f"Test output:\n\n```\n{excerpt}\n```"
+    if evidence.exists("06-verified/verify_notes.md"):
+        notes = evidence.read_text("06-verified/verify_notes.md").strip()
+        # Drop any leading auto-synthesized attribution blockquote lines
+        body_lines = [l for l in notes.splitlines() if not l.lstrip().startswith(">")]
+        body = "\n".join(body_lines).strip() or notes
+        if len(body) > 600:
+            body = body[:600].rsplit(" ", 1)[0] + "…"
+        return body
+    return "Verification artifacts are attached to the linked issue's evidence directory."
 
 
 def _render_against_template(template, evidence, upstream_slug, issue_number, issue_title) -> str:
