@@ -222,6 +222,22 @@ def test_inbox_skips_resolved_entries(client, state_root):
 # ── 6. /api/temporal/dispatch (POST) ──────────────────────────────────────
 
 
+def test_derive_fork_includes_upstream_owner_to_avoid_collisions():
+    """B23: `vuejs/core` and `home-assistant/core` must produce distinct
+    fork slugs. v10 home-assistant aborted because both collapsed to
+    `WolffM/core` and Copilot tried to fix a Python miele bug on the
+    Vue.js codebase."""
+    from routes.temporal_routes import _derive_fork
+
+    vue = _derive_fork("vuejs/core")
+    ha = _derive_fork("home-assistant/core")
+    assert vue != ha
+    assert vue == "WolffM/vuejs-core"
+    assert ha == "WolffM/home-assistant-core"
+    # Backwards-sanity: hyphenated owners roundtrip correctly
+    assert _derive_fork("mermaid-js/mermaid") == "WolffM/mermaid-js-mermaid"
+
+
 def test_dispatch_validates_input(client):
     resp = client.post(
         "/dispatch/api/temporal/dispatch",

@@ -289,7 +289,21 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
 
 
 def _derive_fork(upstream_slug: str, owner: str = "WolffM") -> str:
-    return f"{owner}/{upstream_slug.split('/', 1)[1]}"
+    """Build a collision-free fork repo name.
+
+    B23: using only the upstream repo-name portion (e.g. `core`) collides
+    across owners (`vuejs/core` and `home-assistant/core` would both map
+    to `WolffM/core`). Prefix with the owner so the mapping is total:
+    `vuejs/core` → `WolffM/vuejs-core`, `home-assistant/core` →
+    `WolffM/home-assistant-core`.
+
+    GitHub repo names allow letters, digits, `.`, `_`, `-` — owners and
+    repo names already conform, so joining with `-` is safe. Slashes get
+    replaced to keep it a valid repo name.
+    """
+    up_owner, up_repo = upstream_slug.split("/", 1)
+    combined = f"{up_owner}-{up_repo}".replace("/", "-")
+    return f"{owner}/{combined}"
 
 
 @bp.route("/api/temporal/issue/<workflow_id>/signal", methods=["POST"])
