@@ -91,7 +91,7 @@ async def act_fork_and_scrub_brief(inp: ForkInput) -> dict:
         raw_brief_text=inp.raw_brief_text,
         branch_name=inp.branch_name,
         evidence=ev,
-        fork_owner=inp.fork_slug.split("/", 1)[0],
+        fork_slug=inp.fork_slug,
     )
 
 
