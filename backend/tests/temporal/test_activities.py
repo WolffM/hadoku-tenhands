@@ -849,6 +849,74 @@ def test_render_pr_body_with_template(ev):
     assert ev.exists("09-submittable/template.json")
 
 
+def test_render_pr_body_template_path_uses_rich_default_content(ev):
+    """B24: when upstream has a PR template, the rendered body must
+    still carry the rich narrative from `_render_default` (real issue
+    prose, repro steps, commit SHAs) — not the old skeletal "paste
+    fix_summary under every heading" output. Regression for v10
+    prettier/mermaid aborts at submission_judge 0.27–0.34 with
+    "unfilled template placeholders" feedback.
+
+    Also verifies the template's required headings are still present
+    so `pr_template_compliance` passes.
+    """
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {
+            "title": "Angular: add support for comment blocks in elements",
+            "body": "Prettier doesn't currently preserve HTML comment "
+                    "blocks inside Angular template elements. This "
+                    "breaks comment-based developer notes that ship "
+                    "in component templates.",
+        },
+    })
+    ev.write_text(
+        "04-reproduced/notes.md",
+        "## Steps to reproduce\n1. Format an Angular component with inline comments.\n\n"
+        "## Observed\nComments are stripped from the element scope.\n\n"
+        "## Expected\nComments preserved verbatim.\n",
+    )
+    ev.write_text("05-fixed/files_touched.txt", "src/angular/parser.js\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abcdef12\n")
+    ev.write_text("05-fixed/diff.patch", "diff --git x y")
+    ev.write_text("06-verified/test_output.txt", "42 tests passed")
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {
+            "path": ".github/PULL_REQUEST_TEMPLATE.md",
+            "raw_text": "## Description\n\n<!-- please describe -->\n\n## Checklist\n- [ ] tests\n",
+            "sections": [
+                {"heading": "## Description", "required": True},
+                {"heading": "## Checklist", "required": True},
+            ],
+        }}
+
+    render_pr_body("prettier/prettier", 18974, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    # Rich content from _render_default is the PRIMARY body
+    assert "## Summary" in body
+    assert "Prettier doesn't currently preserve" in body  # issue prose
+    assert "## Root cause" in body
+    assert "Comments are stripped from the element scope" in body  # repro observed
+    assert "abcdef12" in body  # commit SHA
+    assert "src/angular/parser.js" in body
+    assert "42 tests passed" in body
+
+    # Template required headings present so pr_template_compliance passes
+    assert "## Description" in body
+    assert "## Checklist" in body
+
+    # No stale raw template noise — the old code would've left "<!-- please describe -->"
+    # and duplicated "Files touched" under every heading
+    assert body.count("## Description") == 1
+    assert body.count("## Checklist") == 1
+
+    # Body must be substantive (previous template-path output scored 0.25-0.34)
+    assert len(body.split()) >= 60
+
+
 def test_submit_upstream_pr_writes_evidence_on_success(ev):
     from temporal.activities.submission import submit_upstream_pr
 
