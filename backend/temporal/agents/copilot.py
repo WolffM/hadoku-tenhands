@@ -397,25 +397,88 @@ class CopilotAgent:
     ) -> dict | None:
         """Find the Copilot PR that corresponds to this fork issue.
 
-        Strategy: match by the `<issue_title>` tag we injected into the
-        issue body. Copilot copies the body verbatim into the PR.
-        Falls back to "single available PR" if there's only one and the
-        tag match fails.
+        Correlation strategy (B22 fix — ordered from strongest to weakest):
+
+        1. **Cross-reference from the fork issue's timeline.** GitHub
+           links Copilot's PR back to the issue it was created for via
+           a `cross-referenced` event. This is the ground truth when
+           available.
+
+        2. **`<issue_title>` tag match.** We inject the tag into the
+           fork issue body Copilot reads. Copilot sometimes echoes it
+           into the PR body — when it does, this is a strong signal.
+           In practice this fires rarely; kept because it's free.
+
+        3. **Single-PR fallback.** Exactly one Copilot PR on the fork
+           → it's ours. Safe because each fork only works one upstream
+           issue at a time.
+
+        4. **Most-commits wins across all Copilot PRs.** Last resort
+           when a fork has multiple historical Copilot PRs (resumes,
+           retries) and none of the stronger signals apply. Risks
+           picking a historical PR over the current one, but for our
+           single-issue-per-fork workflow the most-advanced PR is
+           reliably the one we want adopted.
         """
         if not candidate_prs:
             return None
 
+        # 1. Cross-reference from the fork issue timeline.
+        linked = self._find_linked_pr_via_timeline(owner, repo, fork_issue_number)
+        if linked is not None:
+            for pr in candidate_prs:
+                if pr.get("number") == linked:
+                    return pr
+
+        # 2. Tag-based match (kept as opportunistic signal).
         if issue_title:
             tag = f"<issue_title>{issue_title}</issue_title>"
             tagged = [p for p in candidate_prs if tag in (p.get("body") or "")]
             if tagged:
-                # Most commits wins (in case of duplicates from retries)
                 return max(tagged, key=lambda p: len(p.get("commits", [])))
 
+        # 3. Single-PR fallback.
         if len(candidate_prs) == 1:
             return candidate_prs[0]
 
-        return None
+        # 4. Most-commits wins.
+        return max(candidate_prs, key=lambda p: len(p.get("commits", [])))
+
+    def _find_linked_pr_via_timeline(
+        self, owner: str, repo: str, fork_issue_number: str,
+    ) -> int | None:
+        """Walk the fork issue's timeline for a cross-reference from Copilot.
+
+        GitHub emits a `cross-referenced` event when a PR mentions the
+        issue. For Copilot-created PRs, Copilot references the fork
+        issue in its PR body, so GH auto-records the link. Returns the
+        PR number, or None if no linked PR is found.
+        """
+        try:
+            fork_issue_int = int(fork_issue_number)
+        except (TypeError, ValueError):
+            return None
+
+        result = self.run_gh([
+            "api",
+            f"repos/{owner}/{repo}/issues/{fork_issue_int}/timeline"
+            "?per_page=100",
+            "-H", "Accept: application/vnd.github+json",
+            "--jq",
+            '[.[] | select(.event == "cross-referenced") '
+            '| .source.issue | select(.pull_request != null) | .number]',
+        ])
+        if not result.get("success"):
+            return None
+        try:
+            numbers = json.loads(result.get("output") or "[]")
+        except json.JSONDecodeError:
+            return None
+        if not numbers:
+            return None
+        # If multiple cross-refs (rare), the most recent one is what
+        # matters — Copilot's latest assignment wins.
+        return int(numbers[-1])
 
     def _fetch_check_status(self, owner: str, repo: str, pr_number: int) -> str | None:
         head_call = self.run_gh([

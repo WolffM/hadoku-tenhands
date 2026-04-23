@@ -45,6 +45,10 @@ class FakeGh:
         # Existing open fork issues assigned to Copilot — used by the
         # idempotent-assign lookup. Tests set this to exercise resume.
         self.existing_fork_issues: list[dict] = []
+        # Cross-reference events on fork issue timelines — tests set to
+        # exercise B22 timeline-linked correlation. Keyed by fork issue
+        # number, value is a list of PR numbers (newest last).
+        self.timeline_linked_prs: dict[int, list[int]] = {}
         self.copilot_pr = {
             "number": 9,
             "title": "Fix merged cell handling",
@@ -89,6 +93,15 @@ class FakeGh:
                     "output": json.dumps([COPILOT_ASSIGNEE]),
                 }
             return {"success": True, "output": "[]"}
+
+        # Fork issue timeline — for B22 timeline-based correlation
+        if args[0] == "api" and "/timeline" in args[1]:
+            # Extract issue number from the URL pattern .../issues/N/timeline
+            import re
+            m = re.search(r"/issues/(\d+)/timeline", args[1])
+            issue_n = int(m.group(1)) if m else 0
+            pr_numbers = self.timeline_linked_prs.get(issue_n, [])
+            return {"success": True, "output": json.dumps(pr_numbers)}
 
         # List open PRs
         if args[0] == "api" and "/pulls?state=open" in args[1]:
@@ -288,6 +301,66 @@ def test_poll_returns_queued_when_no_copilot_pr(agent, fake_gh, issue):
     }
     status = agent.poll(job)
     assert status.state == "queued"
+
+
+def test_correlate_picks_timeline_linked_pr_over_other_candidates(agent, fake_gh, issue):
+    """B22 primary path: GitHub's cross-reference timeline links the
+    fork issue to the PR Copilot created for it. That's the strongest
+    signal — use it even when multiple Copilot PRs exist."""
+    from temporal.agents.copilot import COPILOT_ASSIGNEE
+
+    candidates = [
+        {"number": 5, "body": "stale PR from an earlier run",
+         "author": {"login": COPILOT_ASSIGNEE}, "commits": [{"sha": "a"}, {"sha": "b"}, {"sha": "c"}]},
+        {"number": 9, "body": "current run PR with no tag",
+         "author": {"login": COPILOT_ASSIGNEE}, "commits": [{"sha": "x"}]},
+    ]
+    # Timeline on fork issue #42 points at PR #9 — the current-run PR
+    fake_gh.timeline_linked_prs = {42: [9]}
+
+    picked = agent._correlate_pr("WolffM", "markitdown", "42", "some title", candidates)
+    assert picked["number"] == 9
+
+
+def test_correlate_falls_back_to_most_commits_when_no_tag_no_timeline(agent, fake_gh, issue):
+    """B22 final fallback: when neither the timeline link nor a tag
+    match is available AND there are multiple Copilot PRs (resumes
+    accumulating on the fork), pick the one with the most commits.
+
+    Regression for v9 core/pnpm: 3 historical Copilot PRs, none carried
+    the <issue_title> tag, previous code returned None and the activity
+    timed out after 30 min waiting. Now we pick the most-advanced PR."""
+    from temporal.agents.copilot import COPILOT_ASSIGNEE
+
+    candidates = [
+        {"number": 4, "body": "no tag here",
+         "author": {"login": COPILOT_ASSIGNEE}, "commits": [{"sha": "a"}]},
+        {"number": 6, "body": "also no tag",
+         "author": {"login": COPILOT_ASSIGNEE},
+         "commits": [{"sha": "a"}, {"sha": "b"}, {"sha": "c"}, {"sha": "d"}]},
+        {"number": 8, "body": "still no tag",
+         "author": {"login": COPILOT_ASSIGNEE}, "commits": [{"sha": "a"}, {"sha": "b"}]},
+    ]
+
+    picked = agent._correlate_pr("WolffM", "core", "42", "some title", candidates)
+    assert picked["number"] == 6  # 4 commits — the most
+
+
+def test_correlate_still_picks_tag_match_when_available(agent, fake_gh, issue):
+    """The tag-based match remains — if Copilot DID echo the tag,
+    prefer the tagged PR over others even if they have more commits."""
+    from temporal.agents.copilot import COPILOT_ASSIGNEE
+
+    candidates = [
+        {"number": 4, "body": "no tag",
+         "author": {"login": COPILOT_ASSIGNEE},
+         "commits": [{"sha": "a"}, {"sha": "b"}, {"sha": "c"}]},
+        {"number": 7, "body": "<issue_title>the correct title</issue_title>\nbody",
+         "author": {"login": COPILOT_ASSIGNEE}, "commits": [{"sha": "x"}]},
+    ]
+
+    picked = agent._correlate_pr("WolffM", "x", "42", "the correct title", candidates)
+    assert picked["number"] == 7  # tag wins over raw commit count
 
 
 def test_poll_rejects_foreign_job(agent):
