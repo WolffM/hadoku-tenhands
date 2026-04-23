@@ -181,14 +181,21 @@ def fork_and_scrub_brief(
     branch_name: str,
     evidence,
     *,
+    fork_slug: str | None = None,
     fork_owner: str = "WolffM",
     run_gh=None,
 ) -> dict:
     """Ensure fork exists + create branch + scrub brief into evidence.
 
-    Idempotent on the fork side: if `{fork_owner}/{repo}` already exists,
-    we skip the fork call. Branch creation is best-effort — if it already
-    exists we just push to it.
+    `fork_slug` is the full desired `owner/repo` of the fork — the
+    dispatch route computes it via `_derive_fork` (B23: upstream-owner
+    prefixed to avoid name collisions). When omitted we fall back to
+    the legacy `{fork_owner}/{upstream_repo}` shape; new code paths
+    always pass fork_slug so fork.py and the rest of the pipeline agree
+    on the repo name.
+
+    Idempotent on the fork side: if `fork_slug` already exists, we skip
+    the fork call. Branch creation is best-effort.
 
     Writes:
       - 02-forked/fork_url
@@ -210,17 +217,32 @@ def fork_and_scrub_brief(
             issue = brief_data["issue"]
             raw_brief_text = f"## {issue.get('title', '')}\n\n{issue.get('body', '')}"
 
-    _, repo = upstream_slug.split("/", 1)
-    fork_slug = f"{fork_owner}/{repo}"
+    # B23/B25: the fork name is prefixed with upstream owner to prevent
+    # collisions (vuejs/core vs home-assistant/core). The dispatch route
+    # derives it in `_derive_fork`; we use the caller-supplied fork_slug
+    # verbatim rather than recomputing it here, so the two sides stay
+    # in lockstep. `gh repo fork --fork-name` lets us override GitHub's
+    # default repo-name fork convention.
+    if not fork_slug:
+        # Legacy fallback — only used by tests that pre-date B25.
+        _, repo = upstream_slug.split("/", 1)
+        fork_slug = f"{fork_owner}/{repo}"
+    _, fork_repo = fork_slug.split("/", 1)
 
     # 1. Ensure fork exists
     fork_check = run_gh(["api", f"repos/{fork_slug}", "--silent", "-i"])
     if not fork_check.get("success"):
-        # Doesn't exist — create it
-        create = run_gh(["repo", "fork", upstream_slug, "--clone=false", "--default-branch-only"])
+        # Doesn't exist — create it with the caller's desired name
+        create = run_gh([
+            "repo", "fork", upstream_slug,
+            "--clone=false",
+            "--default-branch-only",
+            "--fork-name", fork_repo,
+        ])
         if not create.get("success"):
             raise RuntimeError(
-                f"failed to fork {upstream_slug}: {create.get('error') or create.get('output', '')[:200]}"
+                f"failed to fork {upstream_slug} as {fork_slug}: "
+                f"{create.get('error') or create.get('output', '')[:200]}"
             )
 
     # 2. Lock down the fork — disables inherited CI so Copilot pushes

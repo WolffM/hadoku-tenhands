@@ -322,6 +322,48 @@ def test_fork_and_scrub_brief_creates_fork_when_missing(ev):
     assert len(fork_calls) == 1
 
 
+def test_fork_creates_with_explicit_fork_name_when_slug_supplied(ev):
+    """B25: when the dispatch route supplies a collision-free fork_slug
+    (e.g. WolffM/home-assistant-core), fork.py MUST create the fork
+    with that exact repo name using `gh repo fork --fork-name`. The
+    prior code ignored the supplied name and let gh default to just the
+    upstream repo name — so the rest of the pipeline looked for the
+    fork at the right path but GitHub had it at a different one."""
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    calls = []
+
+    def fake_gh(args, stdin_data=None):
+        calls.append(list(args))
+        if "repos/WolffM/home-assistant-core" in args and "--silent" in args:
+            return {"success": False, "error": "404"}  # not yet forked
+        if args[:2] == ["repo", "fork"]:
+            return {"success": True, "output": ""}
+        if len(args) >= 2 and (
+            args[1] == "repos/WolffM/home-assistant-core"
+            or args[1].endswith("/actions/permissions")
+            or args[1].endswith("/actions/workflows")
+            or "/disable" in args[1]
+        ):
+            return {"success": True, "output": ""}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    fork_and_scrub_brief(
+        "home-assistant/core", 167957, "brief", "fix-branch", ev,
+        fork_slug="WolffM/home-assistant-core",
+        run_gh=fake_gh,
+    )
+
+    fork_calls = [c for c in calls if c[:2] == ["repo", "fork"]]
+    assert len(fork_calls) == 1
+    fork_cmd = fork_calls[0]
+    assert "--fork-name" in fork_cmd
+    idx = fork_cmd.index("--fork-name")
+    assert fork_cmd[idx + 1] == "home-assistant-core"
+    # The source repo is still the upstream — we're not renaming upstream
+    assert "home-assistant/core" in fork_cmd
+
+
 def test_fork_retries_actions_policy_on_race(ev, monkeypatch):
     """Right after `gh repo fork`, /actions/permissions 404s for a few
     seconds. Verify the retry loop eventually succeeds and doesn't raise."""
