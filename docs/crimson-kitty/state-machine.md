@@ -22,6 +22,9 @@ candidate ──► eligible ──► forked ──► environment_ready ──
                                                          remediated
                                                               │
                                                               ▼
+                                                         replicated
+                                                              │
+                                                              ▼
                                                          submittable
                                                               │
                                                               ▼
@@ -136,7 +139,38 @@ both documented in [gates.md](gates.md).
 **Evidence required**:
 - `remediated/diff.patch` — the additional commits
 - `remediated/resolved_comments.json` — mapping of comment → resolution
+**Next**: `replicated` | `aborted`
+
+### `replicated`
+**Entry**: Agent's fix has been re-authored under the operator's git
+identity — a single squashed commit whose tree matches the agent's
+final branch, whose parent is the fork's default-branch HEAD, and
+whose author is the operator (not the agent bot). A fork-internal
+operator PR is opened pointing at this new branch.
+
+The agent's original draft PR and branch are closed / deleted as
+part of this step since the fix has been fully replicated.
+
+This state was added to sever the agent-attribution lineage before
+the pipeline considers submitting anywhere real. Commits on the
+submission-bound branch must have no `Co-authored-by: copilot-swe-agent`
+or references to agent-created commits.
+
+**Evidence required**:
+- `submittable/operator_pr_url` — the fork-internal preview PR
+- `submittable/operator_pr_number`
+- `submittable/squashed_commit_sha` — the new single commit
+- `05-fixed/commits.json` — now updated to contain ONLY the new commit
+  so downstream gates scan the real submission-bound history
+- `05-fixed/agent_original_commits.json` — preserves the agent's commit
+  list for audit
+
 **Next**: `submittable` | `aborted`
+
+**Notes**: The squash commit message follows the upstream repo's
+convention bundle (when the aggregator exposes one — see TODO in
+[components.md](components.md)). Until that signal is available the
+message is derived from the rendered PR title + Summary paragraph.
 
 ### `submittable`
 **Entry**: Pre-submission gates all pass. PR body is rendered.
@@ -146,10 +180,17 @@ both documented in [gates.md](gates.md).
 - `submittable/sanitizer_scan.json` — confirmed no upstream refs
 - `submittable/template_compliance.json` — confirmed template fields filled
 **Next**: `submitted` | `aborted`
-**Notes**: The fork branch already lives at `WolffM/{repo}` from the
-`forked` state — submission opens the upstream PR pointing at it. The
+**Notes**: The fork's `crimson-kitty-{N}` branch now carries a single
+operator-authored squashed commit (produced in `replicated`). The
 `no_upstream_refs` gate runs the output sanitizer on title, body, and
-commit messages here; any real upstream ref blocks the submission.
+the squashed commit message here; any real upstream ref blocks the
+submission.
+
+Submission is gated behind `IssueInput.submit_to_upstream` (bool,
+default `false` during the phase-4 bring-up). When the flag is false
+the workflow terminates cleanly at `submittable` and the operator
+reviews the fork-internal preview PR from `replicated`. When the flag
+is true, `submit_upstream_pr` runs and opens the real upstream PR.
 
 ### `submitted`
 **Entry**: Upstream PR opened.
@@ -210,9 +251,10 @@ to the next state (or aborts).
 | `fixed` | `verified` | activity: `agent_verify` | `verified_evidence_present` |
 | `verified` | `reviewed` | activity: `run_review` | — |
 | `reviewed` | `remediated` | activity: `agent_remediate` (if blockers) | `remediation_complete` |
-| `reviewed` | `submittable` | (no blockers) | — |
-| `remediated` | `submittable` | direct | — |
-| `submittable` | `submitted` | activity: `submit_upstream_pr` | `no_upstream_refs` + `pr_template_compliance` |
+| `reviewed` | `replicated` | activity: `replicate_fix_as_operator` (no blockers) | — |
+| `remediated` | `replicated` | activity: `replicate_fix_as_operator` | — |
+| `replicated` | `submittable` | direct (evidence written, gates run next) | — |
+| `submittable` | `submitted` | activity: `submit_upstream_pr` | `no_upstream_refs` + `pr_template_compliance` + `submission_judge` |
 | `submitted` | `merged` | watcher: upstream PR merged | — |
 | `submitted` | `closed_by_upstream` | watcher: upstream PR closed | — |
 | `fixed` or `submittable` | `awaiting_human_review` | judge gate Defer (only the 2 judge-state transitions) | — |

@@ -44,15 +44,69 @@ callouts, 49% never reached upstream).
 | [components.md](components.md) | Reuse map across vibedispatch, hadoku-aggregator, hadoku-scrape, hadoku-site |
 | [pipeline-config.md](pipeline-config.md) | How crimson-kitty plugs into the existing pipeline-select UI |
 
-## Status (2026-04-18)
+## Status (2026-04-24)
 
-Pipeline is running end-to-end on real targets.
-- ✓ Backend `temporal/` scaffolding + workflows + activities + gates
-- ✓ Frontend retro view with evidence file browser
-- ✓ Cross-ref isolation validated — 0 leaks across all smoke runs
-- ✓ Workflow-task replay deadlock fixed (see [architecture.md](architecture.md) → Long-activity poll pattern)
-- ✓ Judge reachable on production Windows host via `CRIMSON_CLAUDE_BIN`
+Pipeline reaches `submittable` and submission_judge consistently on
+fresh batches. Phase-4 bring-up is 25 bug fixes deep (see
+[state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md)).
+Bodies pulled from evidence now pass the `no_upstream_refs` and
+`pr_template_compliance` gates; submission_judge scores trend
+0.58–0.74 on the latest batch (v12).
 
-**Next: first real external-upstream batch.** Target selection should
-filter out static-analysis-generated findings (no runtime repro → gates
-correctly reject them); that's aggregator-side scoring work.
+Zero upstream PRs have shipped — intentionally held until the
+authorship-replication step (below) is in place.
+
+## In-flight work — operator-authored submission (phase 4.5)
+
+**Problem:** the pipeline harvests a fix from Copilot's draft PR on the
+fork, but the commits on that branch are authored by
+`copilot-swe-agent[bot]` and the branch itself is `copilot/<slug>`.
+`submit_upstream_pr` is wired to push `WolffM:crimson-kitty-{N}` →
+upstream, but nothing ever puts the fix onto that branch under the
+operator's git identity. Result: no upstream submission could succeed
+even after all gates pass, and any submission that did would carry
+bot-attribution commits — not something we can defend upstream.
+
+**Fix:** a new activity `replicate_fix_as_operator` runs between the
+existing `render_pr_body` step and the submittable gates. It:
+
+1. Reads the agent's final tree SHA from the Copilot PR's head commit.
+2. Writes a NEW single commit whose parent is the fork's default-branch
+   HEAD (no lineage to agent commits), whose tree matches the agent's
+   final state, and whose author is the operator's gh token identity.
+3. Creates the `crimson-kitty-{N}` ref pointing at that commit.
+4. Opens a fork-internal PR from `crimson-kitty-{N}` → fork default
+   (the operator-authored preview).
+5. Closes the Copilot draft PR with a short "superseded by #<N>" note.
+6. Rewrites `05-fixed/commits.json` to contain only the new commit so
+   `no_upstream_refs` scans the real submission-bound history (agent's
+   original commit list is preserved at `05-fixed/agent_original_commits.json`).
+
+The existing `submit_upstream_pr` is gated behind a new
+`IssueInput.submit_to_upstream` flag (default `false`). While the flag
+is false the pipeline stops at the fork-internal preview PR; operators
+review, then flip the flag when ready to actually ship to real upstream.
+
+### Open follow-up: per-repo PR conventions
+
+The squash commit message currently comes from the rendered PR title +
+first paragraph of the body. This is a placeholder. Upstream
+conventions (Conventional Commits prefix, Signed-off-by/DCO
+requirement, repo-specific title rules, issue-link syntax) should come
+from the aggregator — it already scrapes CONTRIBUTING.md, PR templates,
+and merged-commit history. We need a new aggregator endpoint along the
+lines of `/recon/{slug}/contribution-conventions` returning a bundle:
+
+```json
+{
+  "commit_style": "conventional" | "freeform" | "prefix-required",
+  "title_prefix_pattern": "^(fix|feat|docs|chore)\\(.+\\): .+$",
+  "signoff_required": true,
+  "body_structure": ["Summary", "Why", "Test plan"],
+  "references": { "close_keyword": "Closes", "syntax": "Closes #N" }
+}
+```
+
+`replicate_fix_as_operator` and `render_pr_body` both consume this
+bundle. Tracked as a concrete aggregator ask — file once the local
+MVP is in place.
