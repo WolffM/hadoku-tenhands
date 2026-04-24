@@ -96,7 +96,7 @@ cp ../.env.example ../.env   # configure environment variables
 cd .. && python3 -m backend.app
 ```
 
-The API server starts on `http://localhost:5000` by default.
+The API server starts on `http://localhost:5024` by default.
 
 ### Frontend
 
@@ -169,11 +169,11 @@ Copy `.env.example` to `.env` and configure:
 |---|---|---|
 | `AGGREGATOR_API_URL` | Base URL for the aggregator scoring API. Leave empty for offline/fallback mode. | (none) |
 | `FLASK_ENV` | Set to `development` for debug mode and extended cache TTL. | `production` |
-| `PORT` | Port the Flask backend listens on. | `5000` |
+| `PORT` | Port the Flask backend listens on. | `5024` |
 | `URL_PREFIX` | URL prefix for all API routes. Set to `""` for local dev without prefix. | `/dispatch` |
 | `ADMIN_KEY` | When set, all debug endpoints require this key via `X-Admin-Key` header. Leave unset for local dev. | (none) |
 | `DISCORD_WEBHOOK_URL` | Webhook URL for pipeline event notifications. Leave empty to disable. | (none) |
-| `BACKEND_PORT` | Backend port for Vite dev proxy. Must match `PORT`. | `5000` |
+| `BACKEND_PORT` | Backend port for Vite dev proxy. Must match `PORT`. | `5024` |
 
 ## Testing
 

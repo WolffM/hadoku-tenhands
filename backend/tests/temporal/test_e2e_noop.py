@@ -41,6 +41,7 @@ from temporal.temporal_activities import (
     InboxInput,
     RemediationInput,
     RenderInput,
+    ReplicateInput,
     ReviewInput,
     SubmitInput,
     TransitionInput,
@@ -230,6 +231,34 @@ async def real_submit(inp: SubmitInput) -> dict:
     )
 
 
+@activity.defn(name="replicate_fix_as_operator")
+async def real_replicate(inp: ReplicateInput) -> dict:
+    """E2E stub: pretend the squash + fork-preview-PR + draft close all
+    succeeded. Rewrites 05-fixed/commits.json to the new single commit
+    so downstream no_upstream_refs gate scans the right thing. A full
+    real test of `replicate_fix_as_operator` lives in test_activities.py
+    with a fully-scripted fake_gh."""
+    ev = _ev(inp.state_root)
+    if ev.exists("05-fixed/commits.json"):
+        ev.write_json("05-fixed/agent_original_commits.json", ev.read_json("05-fixed/commits.json"))
+    ev.write_json(
+        "05-fixed/commits.json",
+        [{"sha": "operator1234", "message": "fake squashed operator commit"}],
+    )
+    ev.write_json(
+        "09-submittable/squashed_commit.json",
+        {"sha": "operator1234", "message": "fake", "tree": "tree123", "parent": "base123"},
+    )
+    ev.write_text("09-submittable/operator_pr_url", f"https://github.com/{inp.fork_slug}/pull/42")
+    ev.write_text("09-submittable/operator_pr_number", "42")
+    return {
+        "ok": True,
+        "operator_pr_number": 42,
+        "operator_pr_url": f"https://github.com/{inp.fork_slug}/pull/42",
+        "squashed_commit_sha": "operator1234",
+    }
+
+
 @activity.defn(name="run_gates")
 async def real_run_gates(inp: GateInput) -> list[dict]:
     """Run the real gate registry with judge calls patched out."""
@@ -299,6 +328,7 @@ _REAL_ACTIVITIES = [
     real_remediation,
     real_review,
     real_render,
+    real_replicate,
     real_submit,
     real_run_gates,
     real_enqueue,
@@ -323,6 +353,8 @@ async def test_e2e_noop_agent_full_pipeline(tmp_path):
         install_cmd=["true"],
         workdir=str(tmp_path),
         pr_number_for_review=999,
+        # e2e covers the full happy path to upstream submission
+        submit_to_upstream=True,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as env:

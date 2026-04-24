@@ -254,6 +254,28 @@ async def act_render_pr_body(inp: RenderInput) -> dict:
 
 
 @dataclass
+class ReplicateInput:
+    upstream_slug: str
+    fork_slug: str
+    branch_name: str
+    state_root: str
+
+
+@activity.defn(name="replicate_fix_as_operator")
+async def act_replicate_fix_as_operator(inp: ReplicateInput) -> dict:
+    from .activities.submission import replicate_fix_as_operator
+
+    ev = _evidence_for(inp.state_root)
+    return await asyncio.to_thread(
+        replicate_fix_as_operator,
+        upstream_slug=inp.upstream_slug,
+        fork_slug=inp.fork_slug,
+        branch_name=inp.branch_name,
+        evidence=ev,
+    )
+
+
+@dataclass
 class SubmitInput:
     upstream_slug: str
     fork_slug: str
@@ -416,6 +438,7 @@ MAIN_ACTIVITIES = [
     act_setup_environment,
     act_run_review,
     act_render_pr_body,
+    act_replicate_fix_as_operator,
     act_submit_upstream_pr,
     act_run_gates,
     act_enqueue_for_human_review,
