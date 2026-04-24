@@ -57,7 +57,7 @@ New modules introduced by crimson-kitty.
 | `temporal/activities/environment.py` | `setup_environment`, `start_dev_server`, `health_check` |
 | `temporal/activities/agent.py` | `request_repro`, `request_fix`, `request_verify`, `request_remediation` — each a thin `async` wrapper that calls the Agent adapter's assign → poll → harvest via `asyncio.to_thread` so blocking `gh` subprocess calls don't starve the worker event loop. Poll loop is bounded at `max_polls=90` with `asyncio.sleep(20)` + `activity.heartbeat()` each iteration (30-min wall-clock ceiling per phase). The workflow passes `heartbeat_timeout=timedelta(minutes=2)` + `RetryPolicy(MaximumAttempts=1)` on these long activities — a worker restart mid-poll is a terminal workflow failure, not a retry. |
 | `temporal/activities/review.py` | `run_code_review`, `classify_review_severity` |
-| `temporal/activities/submission.py` | `materialize_to_public_fork`, `render_pr_body`, `submit_upstream_pr` |
+| `temporal/activities/submission.py` | `render_pr_body`, `replicate_fix_as_operator`, `submit_upstream_pr`. `replicate_fix_as_operator` squashes the agent's final tree into a single operator-authored commit on a fresh branch, opens a fork-internal preview PR, and closes the agent's draft PR. The commit has no parent lineage back to agent commits. See [state-machine.md#replicated](state-machine.md) and the "Aggregator convention signal" TODO below. |
 | `temporal/activities/watchers.py` | `notify_human_comments_for_issue`, `watch_upstream_pr_state` |
 | `temporal/activities/inbox.py` | `enqueue_for_human_review`, `await_human_decision` |
 | `temporal/gates/__init__.py` | Gate registry decorator and runner |
