@@ -251,9 +251,10 @@ def test_dispatch_calls_temporal_client(client, monkeypatch):
     """Mock the asyncio dispatch helper to capture inputs without a cluster."""
     captured = {}
 
-    async def fake_dispatch(batch_id, issues_raw):
+    async def fake_dispatch(batch_id, issues_raw, submit_to_upstream=False):
         captured["batch_id"] = batch_id
         captured["issues_raw"] = issues_raw
+        captured["submit_to_upstream"] = submit_to_upstream
         return {
             "batch_id": batch_id,
             "workflow_id": f"batch-{batch_id}",

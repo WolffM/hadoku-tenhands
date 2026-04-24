@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         InboxInput,
         RemediationInput,
         RenderInput,
+        ReplicateInput,
         ReviewInput,
         SubmitInput,
         TransitionInput,
@@ -61,6 +62,13 @@ class IssueInput:
     # string means "schedule on the workflow's own task queue" — tests
     # rely on that default so they don't need a second worker.
     copilot_task_queue: str = ""
+    # Phase-4.5 flag: when false, the workflow stops at the fork-internal
+    # operator preview PR produced by `replicate_fix_as_operator` — a
+    # human reviews it before the real upstream submission. When true,
+    # `submit_upstream_pr` runs next and opens a PR on the actual
+    # upstream repo. Default false during the bring-up; flip after the
+    # operator PR has been validated.
+    submit_to_upstream: bool = False
 
 
 @dataclass
@@ -196,8 +204,8 @@ class IssueWorkflow:
                 run_gates_after=False,  # no gates after reviewed in the registry
             )
 
-            # Render the PR body before the submission gates run — those
-            # gates read pr_title.txt / pr_body.md
+            # Render the PR body before the replicate/gate steps — those
+            # read pr_title.txt / pr_body.md.
             await workflow.execute_activity(
                 "render_pr_body",
                 RenderInput(
@@ -209,12 +217,53 @@ class IssueWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            # Sever the agent-attribution lineage: squash the agent's fix
+            # into a single operator-authored commit on branch_name, open a
+            # fork-internal preview PR, and close the agent's draft. After
+            # this step, 05-fixed/commits.json reflects the new single
+            # commit so downstream gates scan the real submission-bound
+            # history.
+            await workflow.execute_activity(
+                "replicate_fix_as_operator",
+                ReplicateInput(
+                    upstream_slug=inp.upstream_slug,
+                    fork_slug=inp.fork_slug,
+                    branch_name=inp.branch_name,
+                    state_root=inp.state_root,
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            await workflow.execute_activity(
+                "record_transition",
+                TransitionInput(
+                    state_root=inp.state_root,
+                    from_state=self.state,
+                    to_state="replicated",
+                    reason="fix re-authored under operator identity; preview PR opened on fork",
+                    decided_by="system:workflow",
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+            )
+            self.state = "replicated"
+
             # The submittable state has 3 gates (no_upstream_refs,
             # pr_template_compliance, submission_judge). Run them by
             # calling run_gates with state="submittable".
             await self._run_state_gates_or_defer("submittable", inp)
 
-            # Open the upstream PR
+            # Phase-4.5: hold real-upstream submission behind the
+            # operator flag. When false, stop at the fork-internal
+            # preview PR — the operator reviews, flips the flag for the
+            # next dispatch when satisfied.
+            if not inp.submit_to_upstream:
+                return IssueResult(
+                    final_state="replicated",
+                    upstream_pr_url="",
+                    upstream_pr_number=None,
+                )
+
             submit_result = await workflow.execute_activity(
                 "submit_upstream_pr",
                 SubmitInput(

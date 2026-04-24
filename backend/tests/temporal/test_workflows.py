@@ -30,6 +30,7 @@ from temporal.temporal_activities import (
     InboxInput,
     RemediationInput,
     RenderInput,
+    ReplicateInput,
     ReviewInput,
     SubmitInput,
     TransitionInput,
@@ -102,6 +103,16 @@ async def fake_submit(inp: SubmitInput) -> dict:
     }
 
 
+@activity.defn(name="replicate_fix_as_operator")
+async def fake_replicate(inp: ReplicateInput) -> dict:
+    return {
+        "ok": True,
+        "operator_pr_number": 123,
+        "operator_pr_url": f"https://github.com/{inp.fork_slug}/pull/123",
+        "squashed_commit_sha": "abc1234deadbeef",
+    }
+
+
 # Module-level switch for run_gates so each test can dictate the verdicts.
 # Stored as dicts because that's how the real activity returns them.
 _FAKE_GATE_RESULTS: dict[str, list[dict]] = {}
@@ -132,6 +143,7 @@ _FAKE_ACTIVITIES = [
     fake_remediation,
     fake_review,
     fake_render,
+    fake_replicate,
     fake_submit,
     fake_run_gates,
     fake_enqueue,
@@ -203,14 +215,34 @@ async def _run_workflow(issue_input: IssueInput) -> IssueResult:
 
 @pytest.mark.asyncio
 async def test_issue_workflow_happy_path(issue_input):
-    """Every gate passes → workflow reaches `submitted`."""
+    """Every gate passes → workflow reaches `submitted` when
+    `submit_to_upstream=True`.
+    """
     _set_all_gates_pass()
+    # Phase 4.5: opt in to real upstream submission for the happy-path
+    # test. Default (False) stops at `replicated` — covered by its own test.
+    from dataclasses import replace
+    issue_input = replace(issue_input, submit_to_upstream=True)
 
     result = await _run_workflow(issue_input)
 
     assert result.final_state == "submitted"
     assert result.upstream_pr_number == 9999
     assert "9999" in result.upstream_pr_url
+
+
+@pytest.mark.asyncio
+async def test_issue_workflow_stops_at_replicated_by_default(issue_input):
+    """Default: `submit_to_upstream=False` → workflow terminates cleanly
+    after `replicate_fix_as_operator`, leaving the fork-internal preview
+    PR for the operator to review before real-upstream shipping."""
+    _set_all_gates_pass()
+
+    result = await _run_workflow(issue_input)
+
+    assert result.final_state == "replicated"
+    assert result.upstream_pr_url == ""
+    assert result.upstream_pr_number is None
 
 
 @pytest.mark.asyncio
@@ -231,6 +263,8 @@ async def test_issue_workflow_defer_then_operator_approve_continues(issue_input)
     """A judge defer pauses the workflow; an `approve` signal resumes it."""
     _set_all_gates_pass()
     _FAKE_GATE_RESULTS["fixed"] = [_gate_defer("relevance", "borderline")]
+    from dataclasses import replace
+    issue_input = replace(issue_input, submit_to_upstream=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -300,6 +334,7 @@ async def test_batch_workflow_fans_out_to_children(tmp_path):
             state_root=str(tmp_path / f"issue-{n}"),
             raw_brief_text=f"fix bug {n}",
             branch_name=f"fix-{n}",
+            submit_to_upstream=True,
         )
         for n in (101, 102, 103)
     ]
@@ -347,13 +382,14 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
             raw_brief_text=f"fix bug {n}",
             branch_name=f"fix-{n}",
             copilot_task_queue="test-copilot-tq",
+            submit_to_upstream=True,
         )
         for n in (301, 302)
     ]
 
     main_activities = [
         fake_eligibility, fake_fork, fake_environment,
-        fake_review, fake_render, fake_submit,
+        fake_review, fake_render, fake_replicate, fake_submit,
         fake_run_gates, fake_enqueue, fake_transition,
     ]
     copilot_activities = [fake_repro, fake_fix, fake_verify, fake_remediation]

@@ -959,6 +959,112 @@ def test_render_pr_body_template_path_uses_rich_default_content(ev):
     assert len(body.split()) >= 60
 
 
+def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
+    """Phase 4.5: the core re-authoring step. Agent's fix is harvested
+    as a single operator-authored commit on branch_name with no lineage
+    to the agent's commits, a fork-internal preview PR is opened, and
+    the agent's draft is closed."""
+    from temporal.activities.submission import replicate_fix_as_operator
+
+    # Seed evidence the way the upstream activities would write it
+    ev.write_json("05-fixed/agent_result.json", {
+        "pr_url": "https://github.com/WolffM/demo/pull/7",
+        "commit_shas": ["botA", "botB"],
+        "files_touched": ["src/x.py"],
+        "diff_bytes": 100,
+        "exit_reason": "success",
+    })
+    ev.write_json("05-fixed/commits.json", [
+        {"sha": "botA", "message": "Initial plan"},
+        {"sha": "botB", "message": "Fix it"},
+    ])
+    ev.write_text("09-submittable/pr_title.txt", "Fix the merged-cell bug")
+    ev.write_text(
+        "09-submittable/pr_body.md",
+        "## Summary\n\nThe converter drops merged-cell anchors.\n\n"
+        "## Root cause\n\nThe parser skips merged ranges.\n",
+    )
+
+    calls: list[tuple[list, str | None]] = []
+
+    def fake_gh(args, stdin_data=None):
+        calls.append((list(args), stdin_data))
+
+        # GET pulls/7 detail
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/7"] and "--jq" in args:
+            return {"success": True, "output": '{"head_ref":"copilot/x","head_sha":"BOT_HEAD_SHA","base_ref":"main"}'}
+        # GET commit tree sha
+        if "git/commits/BOT_HEAD_SHA" in args[1] if len(args) > 1 else False:
+            return {"success": True, "output": "BOT_TREE_SHA\n"}
+        # GET base ref sha
+        if args[1] == "repos/WolffM/demo/git/refs/heads/main" and "--jq" in args:
+            return {"success": True, "output": "BASE_HEAD_SHA\n"}
+        # POST git/commits — return the new squashed commit
+        if args[1] == "repos/WolffM/demo/git/commits" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"sha":"NEW_SQUASH_SHA"}'}
+        # Ref existence check — simulate branch doesn't exist yet
+        if args[1] == "repos/WolffM/demo/git/refs/heads/crimson-kitty-183" and "--silent" in args:
+            return {"success": False, "error": "404"}
+        # POST git/refs — create branch ref
+        if args[1] == "repos/WolffM/demo/git/refs" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"ref":"refs/heads/crimson-kitty-183"}'}
+        # POST pulls — open operator PR
+        if args[1] == "repos/WolffM/demo/pulls" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"number":42,"html_url":"https://github.com/WolffM/demo/pull/42"}'}
+        # PATCH pulls/7 — close agent draft
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/7"] and "-X" in args and "PATCH" in args:
+            return {"success": True, "output": "{}"}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    result = replicate_fix_as_operator(
+        upstream_slug="upstream/demo",
+        fork_slug="WolffM/demo",
+        branch_name="crimson-kitty-183",
+        evidence=ev,
+        run_gh=fake_gh,
+    )
+
+    # Returned metadata
+    assert result["ok"] is True
+    assert result["operator_pr_number"] == 42
+    assert result["operator_pr_url"] == "https://github.com/WolffM/demo/pull/42"
+    assert result["squashed_commit_sha"] == "NEW_SQUASH_SHA"
+    assert result["agent_pr_closed"] == 7
+
+    # The new commit's parent is the fork default HEAD, tree matches the
+    # agent's final tree, and the agent's commit SHAs are NOT in the parents
+    create_commit_calls = [
+        (a, s) for a, s in calls
+        if len(a) > 1 and a[1] == "repos/WolffM/demo/git/commits" and "POST" in a
+    ]
+    assert len(create_commit_calls) == 1
+    import json as _json
+    commit_payload = _json.loads(create_commit_calls[0][1])
+    assert commit_payload["tree"] == "BOT_TREE_SHA"
+    assert commit_payload["parents"] == ["BASE_HEAD_SHA"]
+    assert "BOT_HEAD_SHA" not in commit_payload["parents"]  # lineage severed
+    assert "Fix the merged-cell bug" in commit_payload["message"]
+
+    # Evidence: commits.json now has only the new squashed commit, and
+    # the agent's original commits are archived for audit.
+    new_commits = ev.read_json("05-fixed/commits.json")
+    assert new_commits == [{"sha": "NEW_SQUASH_SHA", "message": commit_payload["message"]}]
+    agent_archive = ev.read_json("05-fixed/agent_original_commits.json")
+    assert {c["sha"] for c in agent_archive} == {"botA", "botB"}
+
+    # Operator PR URL + number persisted
+    assert ev.read_text("09-submittable/operator_pr_url") == "https://github.com/WolffM/demo/pull/42"
+    assert ev.read_text("09-submittable/operator_pr_number").strip() == "42"
+
+    # The agent's draft was closed (PATCH state:closed)
+    close_calls = [
+        (a, s) for a, s in calls
+        if a[:2] == ["api", "repos/WolffM/demo/pulls/7"] and "PATCH" in a
+    ]
+    assert len(close_calls) == 1
+    assert _json.loads(close_calls[0][1])["state"] == "closed"
+
+
 def test_submit_upstream_pr_writes_evidence_on_success(ev):
     from temporal.activities.submission import submit_upstream_pr
 
