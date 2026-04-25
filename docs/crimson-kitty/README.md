@@ -44,68 +44,69 @@ callouts, 49% never reached upstream).
 | [components.md](components.md) | Reuse map across vibedispatch, hadoku-aggregator, hadoku-scrape, hadoku-site |
 | [pipeline-config.md](pipeline-config.md) | How crimson-kitty plugs into the existing pipeline-select UI |
 
-## Status (2026-04-24)
+## Status (2026-04-25)
 
-Pipeline reaches `submittable` and submission_judge consistently on
-fresh batches. Phase-4 bring-up is 25 bug fixes deep (see
-[state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md)).
-Bodies pulled from evidence now pass the `no_upstream_refs` and
-`pr_template_compliance` gates; submission_judge scores trend
-0.58–0.74 on the latest batch (v12).
+Pipeline reaches `awaiting_signoff` end-to-end on fresh batches.
+Phase-4 bring-up is 25+ bug fixes deep (see
+[state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md))
+plus the operator-authorship + signoff redesign described below.
+Operator-authored preview PRs render with rich content, no agent
+vocabulary, and a clean single squashed commit per submission.
 
-Zero upstream PRs have shipped — intentionally held until the
-authorship-replication step (below) is in place.
+Zero upstream PRs have shipped, by design — every upstream
+submission now requires an explicit operator `approve` signal at
+`awaiting_signoff`.
 
-## In-flight work — operator-authored submission (phase 4.5)
+## Phase 4.5 — operator-authored submission with signoff gate
 
-**Problem:** the pipeline harvests a fix from Copilot's draft PR on the
-fork, but the commits on that branch are authored by
-`copilot-swe-agent[bot]` and the branch itself is `copilot/<slug>`.
-`submit_upstream_pr` is wired to push `WolffM:crimson-kitty-{N}` →
-upstream, but nothing ever puts the fix onto that branch under the
-operator's git identity. Result: no upstream submission could succeed
-even after all gates pass, and any submission that did would carry
-bot-attribution commits — not something we can defend upstream.
+The phase fixes two related gaps:
 
-**Fix:** a new activity `replicate_fix_as_operator` runs between the
-existing `render_pr_body` step and the submittable gates. It:
+### 1. Authorship lineage (`replicate_fix_as_operator`)
+
+The pipeline harvests a fix from Copilot's draft PR on the fork, but
+those commits are authored by `copilot-swe-agent[bot]` on a
+`copilot/<slug>` branch — not something we can defensibly ship to
+upstream maintainers. The `replicate_fix_as_operator` activity runs
+between `render_pr_body` and the submittable gates and:
 
 1. Reads the agent's final tree SHA from the Copilot PR's head commit.
-2. Writes a NEW single commit whose parent is the fork's default-branch
-   HEAD (no lineage to agent commits), whose tree matches the agent's
-   final state, and whose author is the operator's gh token identity.
+2. POSTs a NEW single commit whose parent is the fork's default-branch
+   HEAD (no lineage to any agent commit), whose tree matches the
+   agent's final state, and whose author is the operator's gh token
+   identity.
 3. Creates the `crimson-kitty-{N}` ref pointing at that commit.
 4. Opens a fork-internal PR from `crimson-kitty-{N}` → fork default
-   (the operator-authored preview).
-5. Closes the Copilot draft PR with a short "superseded by #<N>" note.
-6. Rewrites `05-fixed/commits.json` to contain only the new commit so
-   `no_upstream_refs` scans the real submission-bound history (agent's
-   original commit list is preserved at `05-fixed/agent_original_commits.json`).
+   branch — the operator-authored preview.
+5. Closes the agent's draft PR.
+6. Rewrites `05-fixed/commits.json` and `commit_shas.txt` to contain
+   only the new commit (originals archived to
+   `agent_original_commits.json` / `agent_original_commit_shas.txt`)
+   so downstream gates and the re-rendered body scan the real
+   submission-bound history.
 
-The existing `submit_upstream_pr` is gated behind a new
-`IssueInput.submit_to_upstream` flag (default `false`). While the flag
-is false the pipeline stops at the fork-internal preview PR; operators
-review, then flip the flag when ready to actually ship to real upstream.
+### 2. Signoff gate (`awaiting_signoff`)
 
-### Operator signoff + manual edits to the preview PR
+`submit_upstream_pr` no longer fires automatically. After the
+submittable gates pass, the workflow transitions to `awaiting_signoff`
+and waits on the `submit_human_decision` signal — the fork preview PR
+is the operator's editing surface (add screenshots, expand prose, fix
+the repro narrative on GitHub directly). On `approve`, the activity
+fetches the LIVE preview-PR title + body via `gh api`, re-runs the
+output sanitizer on that content, then opens the upstream PR. On
+`abort`, the workflow terminates without shipping.
 
-When `submit_to_upstream=true`, the workflow does NOT submit upstream
-immediately. After the submittable gates pass, it transitions to a
-new `awaiting_signoff` state and waits on `submit_human_decision`. The
-fork preview PR is the operator's editing surface: they may edit the
-body directly on GitHub (add screenshots that the pipeline couldn't
-capture, expand prose, tighten the repro narrative) before approving.
+`IssueInput.submit_to_upstream` controls whether the signoff prompt
+appears. `false` (default): workflow stops at `replicated`, no inbox
+entry, no upstream PR ever. `true`: pause at `awaiting_signoff` for
+operator go/no-go.
 
-On `approve`, `submit_upstream_pr` re-fetches the fork PR's CURRENT
-title + body via `gh api repos/{fork}/pulls/{op_pr_num}` and uses
-that as the upstream PR content — NOT the rendered evidence files.
-Whatever the operator left in the preview PR is what ships. The
-output sanitizer re-runs on the live content because human edits are
-the only path that can introduce upstream refs after the
-`no_upstream_refs` gate has already passed.
-
-On `abort`, the workflow terminates as `aborted` with
-`deferred_at=signoff` recorded.
+The two judge-defer gates (`relevance` after `fixed`,
+`submission_judge` after `submittable`) and the new `operator_signoff`
+all use the same `submit_human_decision` Temporal signal. The inbox
+distinguishes them by `gate_name`. See
+[state-machine.md](state-machine.md) for the full transition table
+and [pipeline-config.md](pipeline-config.md) for the inbox UX
+distinction between defer and signoff cards.
 
 ### Open follow-up: per-repo PR conventions
 

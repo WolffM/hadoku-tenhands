@@ -66,7 +66,7 @@ called "temporal" internally.
 | `/dispatch/api/temporal/batch/:id` | `routes/temporal_routes.py` | Batch detail |
 | `/dispatch/api/temporal/inbox` | `routes/temporal_routes.py` | Operator inbox: issues awaiting human gates |
 | `/dispatch/api/temporal/issue/:slug/:number` | `routes/temporal_routes.py` | Issue detail with timeline + evidence |
-| `/dispatch/api/temporal/issue/:slug/:number/signal` | `routes/temporal_routes.py` | POST a Temporal signal: approve/abort/retry |
+| `/dispatch/api/temporal/issue/:slug/:number/signal` | `routes/temporal_routes.py` | POST a Temporal signal: approve/abort/retry. Drives both judge-defer recovery and the `awaiting_signoff` operator-go/no-go (see [state-machine.md#awaiting_signoff](state-machine.md)). |
 | `/dispatch/api/temporal/dispatch` | `routes/temporal_routes.py` | Start a new batch |
 | `/dispatch/api/temporal/health` | `routes/temporal_routes.py` | Temporal cluster + worker health |
 | `/dispatch/api/temporal/evidence/:batch_id/:issue_id` | `routes/temporal_routes.py` | List evidence stages and files for an issue |
@@ -130,6 +130,26 @@ The inbox is the load-bearing feature for the operator. It needs to make
 
 Decisions made in the inbox send Temporal signals to the workflows,
 unblocking them. The workflow continues from where it paused.
+
+The inbox surfaces two distinct entry kinds via the same UI:
+
+- **Judge defer** (gate name = `relevance` or `submission_judge`,
+  score populated). The operator is reviewing borderline machine
+  output and casting the deciding vote.
+- **Operator signoff** (gate name = `operator_signoff`, score=null).
+  Submittable gates have all passed; the fork preview PR is ready
+  for the operator's last look. Approve = pipeline reads the LIVE
+  fork PR title + body and opens the upstream PR with whatever the
+  operator left there (including any manual edits the operator
+  made on GitHub — screenshots, expanded prose, repro fixes).
+  Abort = workflow terminates without shipping.
+
+Both use the same `submit_human_decision` Temporal signal, so the
+existing UI buttons are reused. The card distinguishes the two via
+the `gate_name`. The operator-signoff card should link out to the
+fork preview PR URL prominently — that's the editing surface, not
+the evidence file browser. Evidence files stay available for audit
+but aren't where edits land.
 
 ## Evidence file browser
 
