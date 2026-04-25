@@ -87,6 +87,17 @@ def _fake_gh(args, stdin_data=None):
     """Pretend the fork already exists; pretend gh pr create succeeds."""
     if args[:2] == ["pr", "create"]:
         return {"success": True, "output": "https://github.com/microsoft/markitdown/pull/8888\n"}
+    # submit_upstream_pr reads the fork preview PR's live title+body
+    # via `gh api repos/{fork}/pulls/{N}`. Return a clean stub so the
+    # post-signoff sanitizer + gh pr create both succeed.
+    if (
+        len(args) > 1 and args[0] == "api"
+        and "/pulls/" in args[1] and "--jq" in args
+    ):
+        return {
+            "success": True,
+            "output": '{"title":"Fix the merged-cell bug","body":"## Summary\\n\\nClean operator-edited body.\\n"}',
+        }
     return {"success": True, "output": "{}"}
 
 
@@ -364,12 +375,19 @@ async def test_e2e_noop_agent_full_pipeline(tmp_path):
             workflows=[IssueWorkflow],
             activities=_REAL_ACTIVITIES,
         ):
-            result: IssueResult = await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 IssueWorkflow.run,
                 issue_input,
                 id="e2e-issue-183",
                 task_queue="e2e-tq",
             )
+            # Phase 4.5: workflow pauses at awaiting_signoff because
+            # submit_to_upstream=True. Sign off so the upstream
+            # submission step runs.
+            import asyncio as _asyncio
+            await _asyncio.sleep(0.2)
+            await handle.signal("submit_human_decision", "approve")
+            result: IssueResult = await handle.result()
 
     # Workflow completed successfully — print the gate trail on failure
     if result.final_state != "submitted":

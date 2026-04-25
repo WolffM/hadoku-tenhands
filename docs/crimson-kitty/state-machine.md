@@ -28,6 +28,9 @@ candidate ──► eligible ──► forked ──► environment_ready ──
                                                          submittable
                                                               │
                                                               ▼
+                                                       awaiting_signoff
+                                                              │
+                                                              ▼
                                                          submitted ──► merged
                                                                    ─► closed_by_upstream
 
@@ -179,18 +182,45 @@ message is derived from the rendered PR title + Summary paragraph.
 - `submittable/pr_body.md` — rendered against upstream's PULL_REQUEST_TEMPLATE
 - `submittable/sanitizer_scan.json` — confirmed no upstream refs
 - `submittable/template_compliance.json` — confirmed template fields filled
-**Next**: `submitted` | `aborted`
-**Notes**: The fork's `crimson-kitty-{N}` branch now carries a single
+**Next**: `awaiting_signoff` | `aborted`
+**Notes**: The fork's `crimson-kitty-{N}` branch carries a single
 operator-authored squashed commit (produced in `replicated`). The
 `no_upstream_refs` gate runs the output sanitizer on title, body, and
 the squashed commit message here; any real upstream ref blocks the
 submission.
 
-Submission is gated behind `IssueInput.submit_to_upstream` (bool,
-default `false` during the phase-4 bring-up). When the flag is false
-the workflow terminates cleanly at `submittable` and the operator
-reviews the fork-internal preview PR from `replicated`. When the flag
-is true, `submit_upstream_pr` runs and opens the real upstream PR.
+When `IssueInput.submit_to_upstream` is `false` (default during the
+phase-4 bring-up), the workflow terminates at `submittable` and the
+operator reviews the fork-internal preview PR. When `true`, the
+workflow advances to `awaiting_signoff` for an explicit operator
+go/no-go on actually opening the upstream PR.
+
+### `awaiting_signoff`
+**Entry**: Submittable gates passed AND `submit_to_upstream=true`. The
+fork-internal preview PR is the operator's editing surface — they may
+edit the PR body directly on GitHub (add screenshots, expand prose,
+tighten the repro, fix anything the renderer got wrong). The pipeline
+stays paused on `workflow.wait_condition` for the
+`submit_human_decision` signal.
+
+The inbox entry that lands when entering this state names the gate
+`operator_signoff` so the UI distinguishes it from earlier
+judge-defer entries.
+
+**Evidence required**: same as `submittable`. The `awaiting_signoff/`
+directory is empty by design — the live source of truth is the PR on
+the fork, not a snapshot in evidence.
+
+**Next**: `submitted` (operator signal=`approve`) | `aborted`
+(signal=`abort`).
+
+**Notes**: When `approve` arrives, `submit_upstream_pr` re-fetches the
+fork preview PR's CURRENT title and body (whatever the operator left)
+and re-runs the output sanitizer on that live content before opening
+the upstream PR. This is the only place a human-edited string lands
+in upstream-visible text, so the re-scan is non-negotiable: an
+operator who pasted an upstream URL into the body must not break the
+isolation invariant.
 
 ### `submitted`
 **Entry**: Upstream PR opened.
@@ -254,7 +284,9 @@ to the next state (or aborts).
 | `reviewed` | `replicated` | activity: `replicate_fix_as_operator` (no blockers) | — |
 | `remediated` | `replicated` | activity: `replicate_fix_as_operator` | — |
 | `replicated` | `submittable` | direct (evidence written, gates run next) | — |
-| `submittable` | `submitted` | activity: `submit_upstream_pr` | `no_upstream_refs` + `pr_template_compliance` + `submission_judge` |
+| `submittable` | `awaiting_signoff` | submittable gates pass AND `submit_to_upstream=true` | `no_upstream_refs` + `pr_template_compliance` + `submission_judge` |
+| `awaiting_signoff` | `submitted` | signal: `submit_human_decision=approve` → activity: `submit_upstream_pr` (live fork-PR content + sanitizer re-scan) | — |
+| `awaiting_signoff` | `aborted` | signal: `submit_human_decision=abort` | — |
 | `submitted` | `merged` | watcher: upstream PR merged | — |
 | `submitted` | `closed_by_upstream` | watcher: upstream PR closed | — |
 | `fixed` or `submittable` | `awaiting_human_review` | judge gate Defer (only the 2 judge-state transitions) | — |

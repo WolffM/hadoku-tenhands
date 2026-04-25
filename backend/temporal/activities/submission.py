@@ -283,28 +283,101 @@ def submit_upstream_pr(
 ) -> dict:
     """Open the upstream PR via gh pr create.
 
-    Pre-conditions checked by the gate layer (run before this activity):
-      - no_upstream_refs: title/body/commits clean
-      - pr_template_compliance: required sections present
+    Reads the LIVE title and body from the fork-internal preview PR
+    (created by `replicate_fix_as_operator`) — not the snapshot in
+    `09-submittable/pr_*.md`. The operator may have edited the
+    preview between submittable gates passing and signaling
+    `approve`, and we want their edits to flow upward.
 
-    The intentional `Fixes #<issue_number>` close keyword is appended to
-    the body HERE — after the sanitizer gate has run and verified the
-    rest of the body is leak-free. Reading `issue_number` from
-    evidence/issue_brief.json if not passed explicitly.
+    Re-runs the output sanitizer on the live content. Human edits are
+    the only path that can introduce upstream refs AFTER the
+    `no_upstream_refs` gate already passed; the re-scan is the
+    isolation invariant's last line of defense.
+
+    The intentional `Fixes #<issue_number>` close keyword is appended
+    to the live body HERE — after the sanitizer re-scan has cleared
+    the rest of it.
 
     Returns the upstream PR URL + number on success.
     """
     if run_gh is None:
         run_gh = _default_run_gh
 
-    title = evidence.read_text("09-submittable/pr_title.txt").strip()
-    body = evidence.read_text("09-submittable/pr_body.md")
-
     if issue_number is None and evidence.exists("01-eligible/issue_brief.json"):
         brief = evidence.read_json("01-eligible/issue_brief.json")
         if isinstance(brief, dict):
             issue_obj = brief.get("issue") or {}
             issue_number = issue_obj.get("number")
+
+    # Read the operator-edited fork preview PR. If for some reason the
+    # preview wasn't recorded (legacy state), fall back to the rendered
+    # evidence files.
+    op_pr_number = None
+    if evidence.exists("09-submittable/operator_pr_number"):
+        try:
+            op_pr_number = int(evidence.read_text("09-submittable/operator_pr_number").strip())
+        except ValueError:
+            op_pr_number = None
+
+    if op_pr_number is not None:
+        live = run_gh([
+            "api", f"repos/{fork_slug}/pulls/{op_pr_number}",
+            "--jq", "{title: .title, body: .body}",
+        ])
+        if not live.get("success"):
+            raise RuntimeError(
+                f"failed to read live preview PR #{op_pr_number} on {fork_slug}: "
+                f"{live.get('error') or live.get('output', '')[:200]}"
+            )
+        try:
+            live_data = json.loads(live["output"])
+        except (ValueError, TypeError) as e:
+            raise RuntimeError(f"preview PR detail not JSON: {e}") from e
+        title = (live_data.get("title") or "").strip()
+        body = live_data.get("body") or ""
+    else:
+        # Legacy / test fallback
+        title = evidence.read_text("09-submittable/pr_title.txt").strip()
+        body = evidence.read_text("09-submittable/pr_body.md")
+
+    # Re-scan the live content. The operator may have pasted an
+    # upstream URL by accident while editing.
+    try:
+        from ..sanitizer import scan_outputs, SanitizerError
+    except Exception:
+        scan_outputs = None
+        SanitizerError = Exception
+
+    if scan_outputs is not None:
+        commits: list[dict] = []
+        if evidence.exists("05-fixed/commits.json"):
+            c = evidence.read_json("05-fixed/commits.json")
+            if isinstance(c, list):
+                commits = [x for x in c if isinstance(x, dict)]
+        try:
+            scan_outputs(
+                pr_title=title,
+                pr_body=body,
+                commit_messages=commits,
+                upstream_slug=upstream_slug,
+                issue_number=issue_number,
+            )
+        except SanitizerError as e:
+            evidence.write_json(
+                "09-submittable/post_signoff_sanitizer_scan.json",
+                {
+                    "leak_count": len(e.leaks),
+                    "leaks": [
+                        {"kind": l.kind, "matched": l.matched, "source": l.source}
+                        for l in e.leaks[:20]
+                    ],
+                },
+            )
+            raise RuntimeError(
+                f"operator-edited preview contains {len(e.leaks)} upstream "
+                f"ref(s); refusing to submit. Edit the preview PR to remove "
+                f"and signal approve again."
+            ) from e
 
     if issue_number:
         body = body.rstrip() + f"\n\nFixes #{issue_number}\n"
