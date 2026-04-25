@@ -141,6 +141,34 @@ class IssueWorkflow:
         self.human_decision = decision
 ```
 
+There are two distinct uses of the `submit_human_decision` signal in the
+state machine. Both use the same mechanism but model different operator
+intents:
+
+1. **Judge defer** — A judge gate (relevance after `fixed`,
+   submission_judge after `submittable`) returns verdict=`defer` because
+   it can't make a confident pass/fail call. The operator sees the
+   judge's reasoning + score and decides. This is recovery from
+   borderline machine output.
+
+2. **Operator signoff** — Submittable gates have all passed, the
+   replicate step has produced an operator-authored preview PR on the
+   fork. The pipeline pauses at `awaiting_signoff` for a human
+   go/no-go on actually opening the upstream PR. This is the
+   intentional final-review gate — there's no judge defer here, the
+   operator is just exercising final say-so.
+
+The signoff use case has one extra invariant: when the operator
+signals `approve`, `submit_upstream_pr` does NOT use the snapshot
+in `09-submittable/pr_body.md`. It re-fetches the fork preview PR's
+LIVE title and body via `gh api` (the operator may have edited
+freely on GitHub between submittable and signoff — added screenshots,
+expanded prose) and re-runs the output sanitizer on that live
+content before opening upstream. Operator edits flow upstream
+verbatim; an operator who pasted an upstream URL while editing
+still trips the sanitizer and the workflow goes to `aborted`
+without shipping.
+
 Three lines of code for the inbox model. No polling, no DB scanning, no
 "awaiting_review" flag table.
 
