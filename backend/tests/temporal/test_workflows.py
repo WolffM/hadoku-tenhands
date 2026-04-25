@@ -215,16 +215,31 @@ async def _run_workflow(issue_input: IssueInput) -> IssueResult:
 
 @pytest.mark.asyncio
 async def test_issue_workflow_happy_path(issue_input):
-    """Every gate passes → workflow reaches `submitted` when
-    `submit_to_upstream=True`.
+    """Every gate passes + operator signs off → workflow reaches `submitted`.
+    With submit_to_upstream=True the workflow pauses at awaiting_signoff;
+    the test sends the `approve` signal to unblock submission.
     """
     _set_all_gates_pass()
-    # Phase 4.5: opt in to real upstream submission for the happy-path
-    # test. Default (False) stops at `replicated` — covered by its own test.
     from dataclasses import replace
     issue_input = replace(issue_input, submit_to_upstream=True)
 
-    result = await _run_workflow(issue_input)
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-tq",
+            workflows=[IssueWorkflow, BatchWorkflow],
+            activities=_FAKE_ACTIVITIES,
+        ):
+            handle = await env.client.start_workflow(
+                IssueWorkflow.run,
+                issue_input,
+                id=f"issue-{issue_input.issue_number}-happy",
+                task_queue="test-tq",
+            )
+            # Give the workflow time to reach the awaiting_signoff wait
+            await asyncio.sleep(0.1)
+            await handle.signal("submit_human_decision", "approve")
+            result = await handle.result()
 
     assert result.final_state == "submitted"
     assert result.upstream_pr_number == 9999
@@ -260,11 +275,15 @@ async def test_issue_workflow_aborts_on_gate_failure(issue_input):
 
 @pytest.mark.asyncio
 async def test_issue_workflow_defer_then_operator_approve_continues(issue_input):
-    """A judge defer pauses the workflow; an `approve` signal resumes it."""
+    """A judge defer pauses the workflow; an `approve` signal resumes it.
+
+    Uses submit_to_upstream=False so the workflow terminates at
+    `replicated` without a second signal-wait — keeps this test focused
+    on the defer-resume path. The two-wait happy path is covered by
+    test_issue_workflow_happy_path.
+    """
     _set_all_gates_pass()
     _FAKE_GATE_RESULTS["fixed"] = [_gate_defer("relevance", "borderline")]
-    from dataclasses import replace
-    issue_input = replace(issue_input, submit_to_upstream=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -281,13 +300,11 @@ async def test_issue_workflow_defer_then_operator_approve_continues(issue_input)
             )
             # Give the workflow a moment to reach the wait_condition
             await asyncio.sleep(0.1)
-            # Now flip the gate so that on the next gate run after approval
-            # the workflow can proceed (relevance pass).
             _FAKE_GATE_RESULTS["fixed"] = [_gate_pass("relevance")]
             await handle.signal("submit_human_decision", "approve")
             result = await handle.result()
 
-    assert result.final_state == "submitted"
+    assert result.final_state == "replicated"
 
 
 @pytest.mark.asyncio
@@ -326,6 +343,10 @@ async def test_issue_workflow_defer_then_operator_abort_aborts(issue_input):
 async def test_batch_workflow_fans_out_to_children(tmp_path):
     _set_all_gates_pass()
 
+    # submit_to_upstream omitted (default False) so each child terminates
+    # at `replicated` without waiting for an operator-signoff signal —
+    # this test is about fan-out shape, not the upstream-submission
+    # subset of the state machine.
     issues = [
         IssueInput(
             upstream_slug="microsoft/markitdown",
@@ -334,7 +355,6 @@ async def test_batch_workflow_fans_out_to_children(tmp_path):
             state_root=str(tmp_path / f"issue-{n}"),
             raw_brief_text=f"fix bug {n}",
             branch_name=f"fix-{n}",
-            submit_to_upstream=True,
         )
         for n in (101, 102, 103)
     ]
@@ -355,8 +375,10 @@ async def test_batch_workflow_fans_out_to_children(tmp_path):
 
     assert result.batch_id == "test-batch"
     assert result.total == 3
-    assert result.submitted == 3
     assert result.aborted == 0
+    # All 3 reach `replicated` — fan-out worked end to end without
+    # any child crashing or being silently dropped.
+    assert all(r.final_state == "replicated" for r in result.results)
 
 
 @pytest.mark.asyncio
@@ -368,7 +390,7 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
     Verified end-to-end: the test runs two Workers — one for the main
     task queue (workflow + non-Copilot activities) and one for a
     separate copilot queue (only Copilot activities). If the routing
-    works, the workflow completes to submitted. If it's wrong, it
+    works, the workflow completes to replicated. If it's wrong, it
     hangs because the wrong queue is missing the activity.
     """
     _set_all_gates_pass()
@@ -382,7 +404,8 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
             raw_brief_text=f"fix bug {n}",
             branch_name=f"fix-{n}",
             copilot_task_queue="test-copilot-tq",
-            submit_to_upstream=True,
+            # Default submit_to_upstream=False — terminate at replicated
+            # without an operator-signoff signal pause
         )
         for n in (301, 302)
     ]
@@ -414,4 +437,5 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
             )
 
     assert result.total == 2
-    assert result.submitted == 2
+    assert result.aborted == 0
+    assert all(r.final_state == "replicated" for r in result.results)

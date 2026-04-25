@@ -264,6 +264,50 @@ class IssueWorkflow:
                     upstream_pr_number=None,
                 )
 
+            # Operator signoff gate. Submittable gates have passed,
+            # the preview PR is on the fork. Pause here so the operator
+            # can edit the preview PR (add screenshots, expand prose)
+            # before the upstream submission. submit_upstream_pr will
+            # read the LIVE preview content on resume.
+            await workflow.execute_activity(
+                "enqueue_for_human_review",
+                InboxInput(
+                    state="awaiting_signoff",
+                    gate_name="operator_signoff",
+                    reason="preview PR ready on fork; edit if needed, then approve to ship upstream",
+                    score=None,
+                    upstream_slug=inp.upstream_slug,
+                    issue_number=inp.issue_number,
+                    state_root=inp.state_root,
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+            )
+            await workflow.execute_activity(
+                "record_transition",
+                TransitionInput(
+                    state_root=inp.state_root,
+                    from_state=self.state,
+                    to_state="awaiting_signoff",
+                    reason="awaiting operator signoff on preview PR",
+                    decided_by="system:workflow",
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+            )
+            self.state = "awaiting_signoff"
+            await workflow.wait_condition(
+                lambda: self.human_decision is not None,
+                timeout=timedelta(days=14),
+            )
+            decision = self.human_decision
+            self.human_decision = None
+            if decision == "abort":
+                raise _OperatorAborted(
+                    state="awaiting_signoff",
+                    gate_name="operator_signoff",
+                    reason="operator declined upstream submission",
+                )
+            # approve / retry both fall through to submit
+
             submit_result = await workflow.execute_activity(
                 "submit_upstream_pr",
                 SubmitInput(

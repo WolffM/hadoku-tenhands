@@ -87,6 +87,26 @@ The existing `submit_upstream_pr` is gated behind a new
 is false the pipeline stops at the fork-internal preview PR; operators
 review, then flip the flag when ready to actually ship to real upstream.
 
+### Operator signoff + manual edits to the preview PR
+
+When `submit_to_upstream=true`, the workflow does NOT submit upstream
+immediately. After the submittable gates pass, it transitions to a
+new `awaiting_signoff` state and waits on `submit_human_decision`. The
+fork preview PR is the operator's editing surface: they may edit the
+body directly on GitHub (add screenshots that the pipeline couldn't
+capture, expand prose, tighten the repro narrative) before approving.
+
+On `approve`, `submit_upstream_pr` re-fetches the fork PR's CURRENT
+title + body via `gh api repos/{fork}/pulls/{op_pr_num}` and uses
+that as the upstream PR content — NOT the rendered evidence files.
+Whatever the operator left in the preview PR is what ships. The
+output sanitizer re-runs on the live content because human edits are
+the only path that can introduce upstream refs after the
+`no_upstream_refs` gate has already passed.
+
+On `abort`, the workflow terminates as `aborted` with
+`deferred_at=signoff` recorded.
+
 ### Open follow-up: per-repo PR conventions
 
 The squash commit message currently comes from the rendered PR title +

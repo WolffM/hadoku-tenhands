@@ -1227,6 +1227,103 @@ def test_submit_upstream_pr_writes_evidence_on_success(ev):
     assert "Fixes #183" not in ev.read_text("09-submittable/pr_body.md")
 
 
+def test_submit_upstream_pr_reads_live_fork_preview_when_present(ev):
+    """Phase 4.5 — when `09-submittable/operator_pr_number` is recorded
+    (the operator-signoff flow), submit_upstream_pr fetches the LIVE
+    title and body from the fork preview PR via gh api. The operator
+    may have edited the preview between submittable gates passing and
+    signaling approve; their edits MUST flow upstream verbatim."""
+    from temporal.activities.submission import submit_upstream_pr
+
+    # Stale evidence — the operator edited the live PR after this was written
+    ev.write_text("09-submittable/pr_title.txt", "Stale title from before edits")
+    ev.write_text("09-submittable/pr_body.md", "Stale rendered body.")
+    # The replicate step records the fork preview PR number
+    ev.write_text("09-submittable/operator_pr_number", "42")
+
+    captured_create = []
+    edited_title = "Operator's edited title — much better"
+    edited_body = (
+        "## Summary\n\nThe operator added a screenshot and tightened the\n"
+        "repro narrative here. This is the source of truth for upstream.\n"
+    )
+
+    def fake_gh(args, stdin_data=None):
+        # Live preview PR fetch
+        if (
+            len(args) > 1 and args[0] == "api"
+            and "/pulls/42" in args[1] and "--jq" in args
+        ):
+            return {
+                "success": True,
+                "output": json.dumps({"title": edited_title, "body": edited_body}),
+            }
+        if args[:2] == ["pr", "create"]:
+            captured_create.append(list(args))
+            return {"success": True, "output": "https://github.com/u/r/pull/77\n"}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    result = submit_upstream_pr(
+        "u/r", "WolffM/r", "branch", "main", ev,
+        issue_number=99,
+        run_gh=fake_gh,
+    )
+    assert result["pr_number"] == 77
+
+    # The upstream PR was created with the LIVE title + body, not the
+    # stale evidence-file content
+    assert len(captured_create) == 1
+    create_args = captured_create[0]
+    title_idx = create_args.index("--title")
+    body_idx = create_args.index("--body")
+    assert create_args[title_idx + 1] == edited_title
+    submitted_body = create_args[body_idx + 1]
+    assert "operator added a screenshot" in submitted_body
+    # Stale content must NOT appear
+    assert "Stale title from before edits" not in submitted_body
+    assert "Stale rendered body." not in submitted_body
+    # Close keyword still appended at submit time
+    assert "Fixes #99" in submitted_body
+
+
+def test_submit_upstream_pr_blocks_when_operator_edit_introduces_upstream_ref(ev):
+    """Defense in depth: an operator who pastes an upstream URL into the
+    fork preview PR's body must NOT bypass the no_upstream_refs gate
+    just because that gate already ran before signoff. submit_upstream_pr
+    re-scans the live content right before opening the upstream PR."""
+    from temporal.activities.submission import submit_upstream_pr
+
+    ev.write_text("09-submittable/pr_title.txt", "Fix x")
+    ev.write_text("09-submittable/pr_body.md", "x")
+    ev.write_text("09-submittable/operator_pr_number", "42")
+    ev.write_json("01-eligible/issue_brief.json", {"issue": {"number": 100, "title": "Fix"}})
+
+    leaky_body = (
+        "## Summary\n\nOperator added context: see "
+        "https://github.com/upstream/repo/issues/100 — same as that issue.\n"
+    )
+
+    def fake_gh(args, stdin_data=None):
+        if (
+            len(args) > 1 and args[0] == "api"
+            and "/pulls/42" in args[1] and "--jq" in args
+        ):
+            return {
+                "success": True,
+                "output": json.dumps({"title": "Fix x", "body": leaky_body}),
+            }
+        if args[:2] == ["pr", "create"]:
+            raise AssertionError("gh pr create must NOT run when sanitizer trips")
+        return {"success": True, "output": "{}"}
+
+    with pytest.raises(RuntimeError, match="upstream ref"):
+        submit_upstream_pr(
+            "upstream/repo", "WolffM/repo", "branch", "main", ev,
+            issue_number=100,
+            run_gh=fake_gh,
+        )
+
+
 def test_submit_upstream_pr_raises_on_failure(ev):
     from temporal.activities.submission import submit_upstream_pr
 
