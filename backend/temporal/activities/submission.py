@@ -74,6 +74,7 @@ def replicate_fix_as_operator(
     evidence,
     *,
     run_gh=None,
+    aggregator_get=None,
 ) -> dict:
     """Re-author the agent's fix under the operator's git identity.
 
@@ -196,13 +197,44 @@ def replicate_fix_as_operator(
         if not created.get("success"):
             raise RuntimeError(f"failed to create ref {branch_name}: {created.get('error') or created.get('output', '')[:200]}")
 
-    # 6. Open the fork-internal preview PR (operator-authored).
-    pr_body_with_metadata = body  # No `Fixes #N` here — this PR targets
-    # the fork, not upstream. The close keyword is appended only when
-    # `submit_upstream_pr` opens the real upstream PR.
+    # 6. Rewrite the fix-evidence files to reflect ONLY the new squashed
+    #    commit. render_pr_body reads commit_shas.txt for its Fix
+    #    section; if we leave the agent SHAs there, the operator PR
+    #    body still lists agent commits — exactly the leak we're trying
+    #    to close. Archive the agent's originals first.
+    if evidence.exists("05-fixed/commits.json"):
+        old_commits_json = evidence.read_json("05-fixed/commits.json")
+        evidence.write_json("05-fixed/agent_original_commits.json", old_commits_json)
+    if evidence.exists("05-fixed/commit_shas.txt"):
+        old_shas = evidence.read_text("05-fixed/commit_shas.txt")
+        evidence.write_text("05-fixed/agent_original_commit_shas.txt", old_shas)
+    evidence.write_json(
+        "05-fixed/commits.json",
+        [{"sha": new_sha, "message": commit_message}],
+    )
+    evidence.write_text("05-fixed/commit_shas.txt", new_sha + "\n")
+    evidence.write_json(
+        "09-submittable/squashed_commit.json",
+        {"sha": new_sha, "message": commit_message, "tree": tree_sha, "parent": base_sha},
+    )
+
+    # 7. Re-render the body so the Fix section reflects the new single
+    #    operator-authored commit instead of the stale agent SHAs from
+    #    the pre-replicate render. submit_upstream_pr and the operator
+    #    PR both want the post-replicate body.
+    render_pr_body(
+        upstream_slug, _read_issue_number(evidence), evidence,
+        aggregator_get=aggregator_get,
+    )
+    body_for_pr = evidence.read_text("09-submittable/pr_body.md")
+
+    # 8. Open the fork-internal preview PR (operator-authored).
+    #    No `Fixes #N` here — this PR targets the fork, not upstream.
+    #    The close keyword is appended only when `submit_upstream_pr`
+    #    opens the real upstream PR.
     op_pr_payload = json.dumps({
         "title": title,
-        "body": pr_body_with_metadata,
+        "body": body_for_pr,
         "head": branch_name,
         "base": default_branch,
     })
@@ -219,25 +251,13 @@ def replicate_fix_as_operator(
     operator_pr_number = op_pr_data.get("number")
     operator_pr_url = op_pr_data.get("html_url") or ""
 
-    # 7. Close the agent's draft — fix is fully replicated under operator identity.
+    # 9. Close the agent's draft — fix is fully replicated under operator identity.
     close_payload = json.dumps({"state": "closed"})
     run_gh([
         "api", f"repos/{fork_slug}/pulls/{agent_pr_number}",
         "-X", "PATCH", "--input", "-",
     ], stdin_data=close_payload)  # best-effort; don't raise if the close fails
 
-    # 8. Update evidence so downstream gates scan the new commit only.
-    if evidence.exists("05-fixed/commits.json"):
-        old_commits = evidence.read_json("05-fixed/commits.json")
-        evidence.write_json("05-fixed/agent_original_commits.json", old_commits)
-    evidence.write_json(
-        "05-fixed/commits.json",
-        [{"sha": new_sha, "message": commit_message}],
-    )
-    evidence.write_json(
-        "09-submittable/squashed_commit.json",
-        {"sha": new_sha, "message": commit_message, "tree": tree_sha, "parent": base_sha},
-    )
     evidence.write_text("09-submittable/operator_pr_url", operator_pr_url)
     if operator_pr_number is not None:
         evidence.write_text("09-submittable/operator_pr_number", str(operator_pr_number))
@@ -322,6 +342,18 @@ def _build_title(issue_title: str) -> str:
     return cleaned[:80] or "Crimson-kitty fix"
 
 
+def _read_issue_number(evidence) -> int:
+    """Best-effort extraction of the upstream issue number from evidence."""
+    if evidence.exists("01-eligible/issue_brief.json"):
+        brief = evidence.read_json("01-eligible/issue_brief.json")
+        if isinstance(brief, dict):
+            issue = brief.get("issue") or {}
+            n = issue.get("number")
+            if isinstance(n, int):
+                return n
+    return 0
+
+
 def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
     """Render a rich 4-section body when upstream has no template.
 
@@ -345,9 +377,12 @@ def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
         ]
 
     summary = _extract_summary(evidence, issue_title)
-    root_cause = _extract_section(evidence, "04-reproduced/notes.md", ("Observed",)) \
-        or "See the commits on this PR for the root-cause analysis."
-    repro_steps = _extract_section(evidence, "04-reproduced/notes.md", ("Steps to reproduce",))
+    root_cause = _scrub_internal_language(
+        _extract_section(evidence, "04-reproduced/notes.md", ("Observed",))
+    ).strip() or "See the commits on this PR for the root-cause analysis."
+    repro_steps = _scrub_internal_language(
+        _extract_section(evidence, "04-reproduced/notes.md", ("Steps to reproduce",))
+    ).strip()
     verification = _extract_verification(evidence)
 
     parts = [
@@ -452,21 +487,77 @@ def _extract_section(evidence, path: str, labels: tuple[str, ...]) -> str:
     return "\n".join(collected).strip()
 
 
+_INTERNAL_LANGUAGE_LINES = (
+    # Defense in depth — if anything sneaks an internal pipeline term
+    # into a notes file, drop the offending line before it lands in an
+    # upstream-visible PR body. Matched case-insensitively as substrings.
+    "agent",
+    "exit_reason",
+    "auto-synthesized",
+    "orchestrator",
+    "harvest",
+    "copilot",
+    "scrubbed",
+)
+
+
+def _scrub_internal_language(text: str) -> str:
+    """Drop lines containing internal pipeline vocabulary.
+
+    The verify and PR-body content can mention things like "agent",
+    "harvest", "exit_reason" if a notes file was authored before the
+    internal-language scrubber was strict. We strip those lines
+    defensively so the upstream PR never references our orchestration
+    machinery — the reviewer should see only repo-relevant prose.
+    """
+    needles = tuple(s.lower() for s in _INTERNAL_LANGUAGE_LINES)
+    return "\n".join(
+        line for line in text.splitlines()
+        if not any(n in line.lower() for n in needles)
+    )
+
+
 def _extract_verification(evidence) -> str:
-    """Synthesize the Verification section from whatever evidence exists."""
+    """Build the Verification section content for the upstream PR body.
+
+    Order of preference:
+      1. Real test output (06-verified/test_output.txt) — strongest evidence.
+      2. Visual diff result (06-verified/diff_from_repro.json with after.png).
+      3. Synthesized verify_notes.md (orchestrator fallback when the
+         agent didn't commit a standalone test artifact).
+
+    Whatever we return goes verbatim into the upstream PR. Any line
+    that mentions internal pipeline language ("agent", "harvest",
+    "exit_reason", "orchestrator", "auto-synthesized", "copilot") is
+    stripped before return.
+    """
     if evidence.exists("06-verified/test_output.txt"):
         text = evidence.read_text("06-verified/test_output.txt").strip()
         excerpt = text[:400]
         return f"Test output:\n\n```\n{excerpt}\n```"
+
     if evidence.exists("06-verified/verify_notes.md"):
         notes = evidence.read_text("06-verified/verify_notes.md").strip()
-        # Drop any leading auto-synthesized attribution blockquote lines
-        body_lines = [l for l in notes.splitlines() if not l.lstrip().startswith(">")]
-        body = "\n".join(body_lines).strip() or notes
-        if len(body) > 600:
-            body = body[:600].rsplit(" ", 1)[0] + "…"
-        return body
-    return "Verification artifacts are attached to the linked issue's evidence directory."
+        cleaned = _scrub_internal_language(notes).strip()
+        # Trim leading orphan headings + collapse blank lines
+        if cleaned.startswith("##"):
+            # If the first heading became orphaned by line removal, drop
+            # consecutive blank lines that follow it
+            cleaned = "\n".join(
+                line for i, line in enumerate(cleaned.splitlines())
+                if not (line.strip() == "" and i > 0)
+            ) if "\n\n\n" in cleaned else cleaned
+        if cleaned:
+            if len(cleaned) > 700:
+                cleaned = cleaned[:700].rsplit(" ", 1)[0] + "…"
+            return cleaned
+
+    return (
+        "Reviewers should run the project's test suite to confirm the "
+        "regression described above is no longer reproducible. If a "
+        "specific regression-test convention is expected for this fix, "
+        "please flag it in review."
+    )
 
 
 def _render_against_template(template, evidence, upstream_slug, issue_number, issue_title) -> str:
