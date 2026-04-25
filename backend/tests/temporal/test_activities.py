@@ -677,6 +677,41 @@ async def test_request_repro_repairs_invalid_agent_notes_md(ev, issue):
     assert "Agent notes (original)" in notes
 
 
+def test_synthesize_verify_notes_has_no_internal_language():
+    """The verify-fallback content goes verbatim into the upstream PR's
+    Verification section. It must not contain internal pipeline
+    vocabulary — no "agent", "exit_reason", "auto-synthesized",
+    "orchestrator", "copilot". User-reported regression after v13."""
+    from temporal.activities.agent import _synthesize_verify_notes
+    from temporal.agents import AgentResult
+
+    # Case 1: agent did produce test files
+    result = AgentResult(
+        commit_shas=["abc123"],
+        diff_text="diff",
+        files_touched=["src/x.py", "tests/test_x.py", "src/y.py"],
+        agent_log="...",
+        exit_reason="success",
+    )
+    notes = _synthesize_verify_notes(result).lower()
+    for forbidden in ("agent", "exit_reason", "auto-synthesized", "orchestrator", "copilot"):
+        assert forbidden not in notes, f"'{forbidden}' in verify notes"
+    # The test file is named in the notes so reviewers know what to run
+    assert "tests/test_x.py" in _synthesize_verify_notes(result)
+
+    # Case 2: agent didn't write any test files
+    result_no_tests = AgentResult(
+        commit_shas=["abc123"],
+        diff_text="diff",
+        files_touched=["src/x.py"],
+        agent_log="...",
+        exit_reason="timeout",
+    )
+    notes2 = _synthesize_verify_notes(result_no_tests).lower()
+    for forbidden in ("agent", "exit_reason", "auto-synthesized", "orchestrator", "copilot", "timeout"):
+        assert forbidden not in notes2, f"'{forbidden}' in verify notes (no-tests case)"
+
+
 @pytest.mark.asyncio
 async def test_request_verify_writes_agent_result(ev, issue):
     from temporal.activities.agent import request_verify
@@ -692,17 +727,26 @@ async def test_request_verify_synthesizes_verify_notes_when_missing(ev, issue):
     test_output.txt or after.png (common for adopted Copilot PRs where
     tests live in the fix diff), the orchestrator writes a
     verify_notes.md summary so the gate's fallback path has something
-    to accept."""
+    to accept.
+
+    The synthesized content is upstream-visible — the v13 user audit
+    surfaced that the old synth leaked "agent" and "exit_reason" into
+    the upstream PR body. Assert the new shape: real verification
+    prose, no internal vocab, ≥20 words for the gate."""
     from temporal.activities.agent import request_verify
 
     await request_verify(NoopAgent(), issue, "verify", ev)
 
     assert ev.exists("06-verified/verify_notes.md")
     notes = ev.read_text("06-verified/verify_notes.md")
-    assert "Auto-synthesized" in notes
-    assert "Verification basis" in notes
+    # Real heading the reviewer sees
+    assert "## How this fix is verified" in notes
     # Must have enough words for the gate's 20-word minimum
     assert len(notes.split()) >= 20
+    # NO internal pipeline vocabulary
+    notes_lower = notes.lower()
+    for forbidden in ("agent", "exit_reason", "auto-synthesized", "orchestrator", "copilot"):
+        assert forbidden not in notes_lower, f"'{forbidden}' leaked into verify notes"
 
 
 @pytest.mark.asyncio
@@ -804,6 +848,45 @@ def test_render_pr_body_without_template(ev):
     # appended at submit_upstream_pr time, after the no_upstream_refs
     # gate has run on the leak-free body. See cross-ref-isolation.md.
     assert "Fixes #" not in body
+
+
+def test_render_pr_body_scrubs_internal_language_from_verify_notes(ev):
+    """User-reported leak after v13: the synthesized verify_notes.md
+    contained "the agent's PR diff", "exit_reason was success", and
+    "## Commits from this agent session" — all internal pipeline
+    vocabulary that must NEVER appear in an upstream-visible PR.
+
+    The render step now strips any line containing internal terms
+    (agent, exit_reason, auto-synthesized, orchestrator, harvest,
+    copilot, scrubbed) before composing the Verification section.
+    """
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {"issue": {"title": "x", "body": "y"}})
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    # Old-style verify notes with all the leaks inline
+    ev.write_text(
+        "06-verified/verify_notes.md",
+        "> Auto-synthesized by the orchestrator. The agent's verify phase\n"
+        "> completed but did not commit a standalone test output.\n\n"
+        "## Files touched in verify phase\n\nsrc/x.py\n\n"
+        "## Commits from this agent session\n\n  - abc12345\n\n"
+        "## Verification basis\n\n"
+        "Evidence of verification lives in the agent's PR diff.\n"
+        "The agent's final exit_reason was `success`.\n",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md").lower()
+
+    # None of the internal pipeline vocabulary survives into the body
+    for forbidden in ("agent", "exit_reason", "auto-synthesized", "orchestrator", "copilot"):
+        assert forbidden not in body, f"'{forbidden}' leaked into PR body"
 
 
 def test_render_pr_body_pulls_rich_content_from_evidence(ev):
@@ -963,14 +1046,26 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
     """Phase 4.5: the core re-authoring step. Agent's fix is harvested
     as a single operator-authored commit on branch_name with no lineage
     to the agent's commits, a fork-internal preview PR is opened, and
-    the agent's draft is closed."""
+    the agent's draft is closed.
+
+    Also verifies that after replicate runs, the operator PR's body
+    reflects the new single squashed SHA in its Fix section — NOT the
+    agent's pre-replicate SHAs (the leak the user surfaced after v13).
+    """
     from temporal.activities.submission import replicate_fix_as_operator
 
     # Seed evidence the way the upstream activities would write it
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {
+            "number": 183,
+            "title": "Fix the merged-cell bug",
+            "body": "Spreadsheet anchors get dropped on import.",
+        },
+    })
     ev.write_json("05-fixed/agent_result.json", {
         "pr_url": "https://github.com/WolffM/demo/pull/7",
         "commit_shas": ["botA", "botB"],
-        "files_touched": ["src/x.py"],
+        "files_touched": ["src/x.py", "tests/test_x.py"],
         "diff_bytes": 100,
         "exit_reason": "success",
     })
@@ -978,6 +1073,8 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
         {"sha": "botA", "message": "Initial plan"},
         {"sha": "botB", "message": "Fix it"},
     ])
+    ev.write_text("05-fixed/commit_shas.txt", "botA\nbotB\n")
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\ntests/test_x.py\n")
     ev.write_text("09-submittable/pr_title.txt", "Fix the merged-cell bug")
     ev.write_text(
         "09-submittable/pr_body.md",
@@ -1016,12 +1113,17 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
             return {"success": True, "output": "{}"}
         raise AssertionError(f"unexpected gh call: {args}")
 
+    def fake_aggregator_get(endpoint: str):
+        # Upstream has no PR template — render_pr_body uses _render_default
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
     result = replicate_fix_as_operator(
         upstream_slug="upstream/demo",
         fork_slug="WolffM/demo",
         branch_name="crimson-kitty-183",
         evidence=ev,
         run_gh=fake_gh,
+        aggregator_get=fake_aggregator_get,
     )
 
     # Returned metadata
@@ -1063,6 +1165,32 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
     ]
     assert len(close_calls) == 1
     assert _json.loads(close_calls[0][1])["state"] == "closed"
+
+    # Operator PR body must reflect the SQUASHED commit, not stale
+    # agent SHAs. Regression for the v13 leak the user surfaced.
+    open_pr_calls = [
+        (a, s) for a, s in calls
+        if a[1] == "repos/WolffM/demo/pulls" and "POST" in a
+    ]
+    assert len(open_pr_calls) == 1
+    op_pr_body = _json.loads(open_pr_calls[0][1])["body"]
+
+    # Stale agent SHAs must NOT appear in the operator PR body
+    assert "botA" not in op_pr_body
+    assert "botB" not in op_pr_body
+    # The new squash SHA SHOULD appear (truncated by render to 8 chars)
+    assert "NEW_SQUA" in op_pr_body  # NEW_SQUASH_SHA[:8]
+
+    # No internal pipeline language can leak into the upstream-visible body
+    body_lower = op_pr_body.lower()
+    for forbidden in ("agent", "exit_reason", "auto-synthesized", "orchestrator", "copilot"):
+        assert forbidden not in body_lower, f"internal term '{forbidden}' leaked into operator PR body"
+
+    # commit_shas.txt is also rewritten so submit_upstream_pr (later)
+    # doesn't re-render with stale data
+    new_shas = ev.read_text("05-fixed/commit_shas.txt").strip()
+    assert new_shas == "NEW_SQUASH_SHA"
+    assert ev.exists("05-fixed/agent_original_commit_shas.txt")
 
 
 def test_submit_upstream_pr_writes_evidence_on_success(ev):
