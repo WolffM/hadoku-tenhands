@@ -614,8 +614,16 @@ async def test_request_repro_synthesizes_notes_md_when_agent_skipped_it(ev, issu
     assert "## Expected" in notes
     # 50-word minimum for the gate
     assert len(notes.split()) >= 50
-    # Clearly attributed as auto-synthesized
-    assert "Auto-synthesized" in notes
+    # B26: must NOT include commit SHAs in the synthesized text.
+    # Reviewers want repro instructions, not pre-squash implementation
+    # history. Bare hex SHAs that survive into the rendered body
+    # become stale references the moment replicate_fix_as_operator
+    # squashes the agent commits away.
+    assert "Commit SHAs" not in notes
+    # No internal vocab leaks (B16/B20 lessons).
+    notes_lower = notes.lower()
+    for forbidden in ("agent", "auto-synthesized", "orchestrator", "exit_reason", "copilot"):
+        assert forbidden not in notes_lower, f"'{forbidden}' leaked into synthesized repro notes"
 
 
 @pytest.mark.asyncio
@@ -887,6 +895,55 @@ def test_render_pr_body_scrubs_internal_language_from_verify_notes(ev):
     # None of the internal pipeline vocabulary survives into the body
     for forbidden in ("agent", "exit_reason", "auto-synthesized", "orchestrator", "copilot"):
         assert forbidden not in body, f"'{forbidden}' leaked into PR body"
+
+
+def test_render_pr_body_strips_stale_commit_shas_from_repro_section(ev):
+    """B26: legacy `_synthesize_repro_notes` runs embedded
+    `Commit SHAs:\\n  - abc1234` blocks in the Steps to reproduce
+    section. After `replicate_fix_as_operator` squashes, those SHAs
+    are stale — they reference commits that no longer exist on the
+    submission branch. User flagged this on v15 svelte/cli where the
+    body listed `eab5c43` and `f862221`.
+
+    The render-side scrubber strips both the `Commit SHAs:` heading
+    and the bullet lines that look like bare hex SHAs. Reviewers
+    don't need pre-squash commit history in Steps to reproduce."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"title": "Some bug", "body": "There's a bug here."},
+    })
+    ev.write_text("05-fixed/files_touched.txt", "src/foo.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "newsquash\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text(
+        "04-reproduced/notes.md",
+        "## Steps to reproduce\n\n"
+        "1. Run the failing test.\n"
+        "2. Observe the crash.\n"
+        "Commit SHAs:\n"
+        "  - eab5c43\n"
+        "  - f862221\n\n"
+        "## Observed\n\n"
+        "It crashes loudly with " + ("noise " * 30) + "\n\n"
+        "## Expected\n\n"
+        "No crash.\n",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    # Stale SHAs gone
+    assert "eab5c43" not in body
+    assert "f862221" not in body
+    assert "Commit SHAs:" not in body
+
+    # Real Steps-to-reproduce content survives
+    assert "Run the failing test" in body
+    assert "Observe the crash" in body
 
 
 def test_render_pr_body_pulls_rich_content_from_evidence(ev):
