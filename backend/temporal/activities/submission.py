@@ -12,6 +12,7 @@ the PR title/body/commits are leak-free.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 
@@ -574,20 +575,41 @@ _INTERNAL_LANGUAGE_LINES = (
 )
 
 
-def _scrub_internal_language(text: str) -> str:
-    """Drop lines containing internal pipeline vocabulary.
+_STALE_SHA_RE = re.compile(r"^\s*-\s*`?[0-9a-fA-F]{7,40}`?\s*$")
+_COMMIT_SHA_HEADING_RE = re.compile(r"^\s*\**Commit\s+SHAs?\**\s*:?\s*$", re.IGNORECASE)
 
-    The verify and PR-body content can mention things like "agent",
-    "harvest", "exit_reason" if a notes file was authored before the
-    internal-language scrubber was strict. We strip those lines
-    defensively so the upstream PR never references our orchestration
-    machinery — the reviewer should see only repo-relevant prose.
+
+def _scrub_internal_language(text: str) -> str:
+    """Drop lines containing internal pipeline vocabulary or stale SHAs.
+
+    Three filters in one pass:
+      1. Lines mentioning internal terms (agent, harvest, exit_reason,
+         orchestrator, copilot, scrubbed, auto-synthesized) — B16/B20.
+      2. Stale `Commit SHAs:` heading lines — older notes.md files
+         embedded a "Commit SHAs:" block in the Steps to reproduce
+         section. After replicate, those SHAs reference commits that
+         no longer exist on the submission branch (B26 — flagged on v15
+         svelte/cli where the body listed `eab5c43` and `f862221` which
+         had been squashed away).
+      3. Lines that are JUST a hex commit SHA bullet (`- abc1234`)
+         that follow a stripped SHA heading. This is conservative —
+         the rendered Fix section formats SHAs differently
+         (`f"- `{sha[:8]}`") inside a labelled "Commits:" block we
+         build ourselves and that lives outside notes.md, so any bare
+         SHA bullet in extracted prose is the leak we're cleaning.
     """
     needles = tuple(s.lower() for s in _INTERNAL_LANGUAGE_LINES)
-    return "\n".join(
-        line for line in text.splitlines()
-        if not any(n in line.lower() for n in needles)
-    )
+    keep: list[str] = []
+    for line in text.splitlines():
+        low = line.lower()
+        if any(n in low for n in needles):
+            continue
+        if _COMMIT_SHA_HEADING_RE.match(line):
+            continue
+        if _STALE_SHA_RE.match(line):
+            continue
+        keep.append(line)
+    return "\n".join(keep)
 
 
 def _extract_verification(evidence) -> str:

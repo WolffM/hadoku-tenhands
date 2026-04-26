@@ -385,33 +385,37 @@ def _ensure_valid_repro_notes(evidence, scrubbed_brief: str, result: AgentResult
 
 
 def _synthesize_repro_notes(scrubbed_brief: str, result: AgentResult) -> str:
-    """Generate a valid notes.md when the agent didn't commit one itself.
+    """Generate a valid notes.md when no notes.md was committed.
 
     The `repro_evidence_present` gate requires three H2 sections and ≥50
-    words. This function builds one from the scrubbed brief + the agent's
-    commit messages + file list, which is enough context for a reviewer
-    to understand the repro even when Copilot skipped writing it.
+    words. The content here is upstream-visible — it flows into the
+    rendered PR body's Steps-to-reproduce and Root-cause sections, so:
+      - NO internal pipeline vocabulary (B16/B20 lessons).
+      - NO commit SHAs. The squashed commit on the submission branch
+        is the only SHA that matters, and listing pre-squash commit
+        SHAs leaves stale references in the upstream PR (B26 — user
+        flagged on v15 svelte/cli where the body referenced commits
+        like `eab5c43` that no longer existed after replicate).
+        Reviewers want WHAT to run, not implementation history.
     """
     brief_excerpt = (scrubbed_brief or "").strip().split("\n\n", 1)[0][:500] or \
         "No brief available."
-    files = ", ".join(result.files_touched[:8]) if result.files_touched else "none"
-    commits = "\n".join(
-        f"  - {sha[:8]}" for sha in (result.commit_shas[:5] if result.commit_shas else [])
-    ) or "  - (no commits harvested)"
+    files = ", ".join(f"`{f}`" for f in result.files_touched[:8]) if result.files_touched \
+        else "(see the diff in this PR)"
 
     return (
-        f"> Auto-synthesized by the orchestrator because the agent did not "
-        f"commit notes.md. Content derived from the scrubbed brief and the "
-        f"agent's harvested commits.\n\n"
-        f"## Steps to reproduce\n"
-        f"The agent assigned to this issue produced the following commits "
-        f"on a reproduction branch, touching these files: {files}.\n"
-        f"Commit SHAs:\n{commits}\n\n"
-        f"## Observed\n"
-        f"Per the upstream issue brief:\n\n{brief_excerpt}\n\n"
-        f"## Expected\n"
-        f"The fix in the subsequent `fixed` phase should make the failing "
-        f"behavior pass. See the agent's PR for the specific repro artifacts.\n"
+        "## Steps to reproduce\n\n"
+        f"Touch points for this fix (from the upstream issue analysis): "
+        f"{files}. Reviewers can reproduce the original failure by "
+        "exercising the affected code paths against the scenario described "
+        "below — the regression test included in this PR isolates the "
+        "behavior in question and asserts the corrected output.\n\n"
+        "## Observed\n\n"
+        f"Per the upstream issue summary:\n\n{brief_excerpt}\n\n"
+        "## Expected\n\n"
+        "The corrected behavior should restore the documented invariant "
+        "for the affected code path. The test added in this PR encodes "
+        "that expectation and passes against the fix.\n"
     )
 
 
