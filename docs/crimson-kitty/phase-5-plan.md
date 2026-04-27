@@ -180,6 +180,13 @@ auto-reject and that conventional-commit-style projects close as
 "please follow our conventions." This is the "doesn't get
 auto-rejected" gate.
 
+**Cross-repo dependency:** the contract for the new aggregator
+endpoint (P5-1) is filed at
+[hadoku-aggregator/docs/VIBEDISPATCH-PHASE5-ASKS.md](https://github.com/WolffM/hadoku-aggregator/blob/main/docs/VIBEDISPATCH-PHASE5-ASKS.md).
+Phase 5.3 can ship local consumption first using the documented
+default fallback; we light up real-data behavior when the endpoint
+goes live.
+
 **Aggregator ask — new endpoint:**
 
 ```
