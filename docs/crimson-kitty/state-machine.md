@@ -32,7 +32,16 @@ candidate ──► eligible ──► forked ──► environment_ready ──
                                                               │
                                                               ▼
                                                          submitted ──► merged
-                                                                   ─► closed_by_upstream
+                                                              ▲     ─► closed_by_upstream
+                                                              │     ─► remediating_upstream
+                                                              │             │
+                                                              │             ▼
+                                                              │       submittable_v2
+                                                              │             │
+                                                              │             ▼
+                                                              │       awaiting_signoff (re-entry)
+                                                              │             │
+                                                              └─────────────┘
 
        (any state)  ──► aborted   (with reason)
        (any state)  ──► awaiting_human_review  ──► (resumes after operator decision)
@@ -227,23 +236,62 @@ isolation invariant.
 **Evidence required**:
 - `submitted/upstream_pr_url`
 - `submitted/upstream_pr_number`
-**Next**: `merged` | `closed_by_upstream`
-**Notes**: The workflow continues to run, watching for upstream events:
-review comments, merge, close. `notify_human_comments` fires Discord
-alerts from this state as a side effect — it does NOT change the
-workflow state. The workflow stays in `submitted` until upstream merges
-or closes.
+**Next**: `merged` | `closed_by_upstream` | `remediating_upstream`
+**Notes**: The workflow continues to run, watching for upstream events
+via the Phase 5.1 post-submission poll loop:
+
+- `watch_upstream_pr_state` polls every 30 minutes (5 minutes for the
+  hour after a new comment/review arrives). Drives `merged`,
+  `closed_by_upstream`, and `remediating_upstream` transitions.
+- `notify_human_comments_for_issue` fires Discord alerts on each new
+  human comment as a side effect — does NOT change workflow state.
+
+If no upstream activity occurs for 30 days, the watcher transitions to
+`closed_by_upstream` with `reason="stale"` so workflows don't run
+forever. Transient poll failures (network blip, gh rate limit) just
+cause the loop to retry on the next tick — they don't abort the
+workflow.
+
+### `remediating_upstream`
+**Entry**: A new blocking review (`CHANGES_REQUESTED` from a non-bot
+user) was detected by `watch_upstream_pr_state` while in `submitted`.
+**Evidence required**: `events.jsonl` carries the triggering
+`blocking_review` record (review id, user, body excerpt). The
+remediation produces `08-remediated/diff.patch` and
+`08-remediated/agent_result.json` as before.
+**Next**: `submittable_v2` | `aborted`
+**Notes**: `request_remediation` fires (routed to `copilot-tq`); the
+agent reads the new comments and pushes more commits. Capped at
+`MAX_REMEDIATION_CYCLES=3` per workflow lifetime so an adversarial
+reviewer can't keep us in the loop forever.
+
+### `submittable_v2`
+**Entry**: Remediation cycle completed; `replicate_fix_as_operator` ran
+in update mode (force-pushed `branch_name`, PATCHed the existing
+operator preview PR's title/body) and the submittable gates re-ran on
+the refreshed content.
+**Evidence required**: same as `submittable` (`09-submittable/*.md`,
+`sanitizer_scan.json`, `template_compliance.json`) — the existing files
+get overwritten with the post-remediation rendering.
+**Next**: `awaiting_signoff` (re-entry) | `aborted`
+**Notes**: Distinct state name so the transitions log captures the
+remediation cycle in `from→to` history. The workflow then re-uses the
+existing `awaiting_signoff` state for the operator's go/no-go on the
+remediated content.
 
 ### `merged` (terminal, success)
 **Entry**: Upstream PR merged.
 **Evidence required**: `merged/merge_sha`, `merged/merged_at`.
 
 ### `closed_by_upstream` (terminal, failure)
-**Entry**: Upstream PR closed without merge.
-**Evidence required**: `closed/closed_at`, `closed/closer`,
-`closed/last_comment.json`.
-**Notes**: We capture the closing comment so the retro tool can categorize
-why we lost.
+**Entry**: Upstream PR closed without merge OR the workflow gave up
+after 30 days of no upstream activity (`reason="stale"`).
+**Evidence required**: `11-closed_by_upstream/closed_at`,
+`11-closed_by_upstream/close_info.json` (includes `closer`,
+`upstream_slug`, `pr_number`).
+**Notes**: We capture the closer's login so the retro tool can categorize
+why we lost. The stale path doesn't have a closer (no human action) —
+the transition's `reason` field carries `stale: 30d no upstream activity`.
 
 ### `aborted` (terminal, intentional)
 **Entry**: Operator or gate decided the issue is not viable.
@@ -288,7 +336,11 @@ to the next state (or aborts).
 | `awaiting_signoff` | `submitted` | signal: `submit_human_decision=approve` → activity: `submit_upstream_pr` (live fork-PR content + sanitizer re-scan) | — |
 | `awaiting_signoff` | `aborted` | signal: `submit_human_decision=abort` | — |
 | `submitted` | `merged` | watcher: upstream PR merged | — |
-| `submitted` | `closed_by_upstream` | watcher: upstream PR closed | — |
+| `submitted` | `closed_by_upstream` | watcher: upstream PR closed (or 30d stale) | — |
+| `submitted` | `remediating_upstream` | watcher: new blocking review | — |
+| `remediating_upstream` | `submittable_v2` | activity: `request_remediation` + `replicate_fix_as_operator` (update mode) | — |
+| `submittable_v2` | `awaiting_signoff` | submittable gates re-pass | `no_upstream_refs` + `pr_template_compliance` + `submission_judge` |
+| `awaiting_signoff` | `submitted` | signal: `submit_human_decision=approve` → activity: `submit_upstream_pr` (update existing upstream PR via `gh pr edit`) | — |
 | `fixed` or `submittable` | `awaiting_human_review` | judge gate Defer (only the 2 judge-state transitions) | — |
 | any | `aborted` | gate fail OR operator decision | — |
 
@@ -340,11 +392,13 @@ state/
         upstream_pr_number
       11-merged/             OR    11-closed_by_upstream/    OR    11-aborted/
         merge_sha                  closed_at                       reason.md
-        merged_at                  closer                          aborted_at
-                                   last_comment.json               aborted_by
+        merged_at                  close_info.json                 aborted_at
+        merge_info.json            (closer, upstream_slug, pr_n)   aborted_by
       gates.jsonl              # full gate audit trail (append-only)
       transitions.jsonl        # full state transition log (append-only)
-      events.jsonl             # external events (PR comments, reviews) — feeds notify_human_comments
+      events.jsonl             # external events (comments, blocking reviews,
+                               # upstream_merged, upstream_closed_unmerged,
+                               # upstream_pr_updated) — feeds notify + retro
 ```
 
 The directory layout doubles as the on-disk schema. The retro tool reads

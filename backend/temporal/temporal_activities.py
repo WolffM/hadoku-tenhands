@@ -419,6 +419,54 @@ async def act_record_transition(inp: TransitionInput) -> dict:
     return {"ok": True}
 
 
+# ── Watchers (Phase 5.1) ──────────────────────────────────────────────────
+
+
+@dataclass
+class WatchPRInput:
+    upstream_slug: str
+    pr_number: int
+    state_root: str
+    seen_review_ids: list[int]
+
+
+@activity.defn(name="watch_upstream_pr_state")
+async def act_watch_upstream_pr_state(inp: WatchPRInput) -> dict:
+    from .activities.watchers import watch_upstream_pr_state
+
+    ev = _evidence_for(inp.state_root)
+    return await asyncio.to_thread(
+        watch_upstream_pr_state,
+        upstream_slug=inp.upstream_slug,
+        pr_number=inp.pr_number,
+        seen_review_ids=inp.seen_review_ids,
+        evidence=ev,
+        heartbeat=_hb,
+    )
+
+
+@dataclass
+class NotifyHumanCommentsInput:
+    upstream_slug: str
+    pr_number: int
+    state_root: str
+    seen_comment_ids: list[int]
+
+
+@activity.defn(name="notify_human_comments_for_issue")
+async def act_notify_human_comments_for_issue(inp: NotifyHumanCommentsInput) -> dict:
+    from .activities.watchers import notify_human_comments_for_issue
+
+    ev = _evidence_for(inp.state_root)
+    return await asyncio.to_thread(
+        notify_human_comments_for_issue,
+        upstream_slug=inp.upstream_slug,
+        pr_number=inp.pr_number,
+        seen_comment_ids=set(inp.seen_comment_ids or []),
+        evidence=ev,
+    )
+
+
 # The Copilot-bound activities (request_repro/fix/verify/remediation) run
 # on a separate worker that caps `max_concurrent_activities` at 2 — the
 # Copilot coding-agent per-user session ceiling. Putting them on a
@@ -443,6 +491,8 @@ MAIN_ACTIVITIES = [
     act_run_gates,
     act_enqueue_for_human_review,
     act_record_transition,
+    act_watch_upstream_pr_state,
+    act_notify_human_comments_for_issue,
 ]
 
 ALL_ACTIVITIES = MAIN_ACTIVITIES + COPILOT_ACTIVITIES
