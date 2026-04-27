@@ -104,9 +104,15 @@ def replicate_fix_as_operator(
     owner, _ = fork_slug.split("/", 1)
 
     # 1. Pull the agent's PR + branch out of evidence written by request_fix.
-    agent_result = evidence.read_json("05-fixed/agent_result.json")
+    #    On a Phase 5.1 remediation cycle, request_remediation has written
+    #    08-remediated/agent_result.json with a fresh agent PR — prefer it
+    #    so we squash from the post-remediation tree, not the original fix.
+    if evidence.exists("08-remediated/agent_result.json"):
+        agent_result = evidence.read_json("08-remediated/agent_result.json")
+    else:
+        agent_result = evidence.read_json("05-fixed/agent_result.json")
     if not isinstance(agent_result, dict):
-        raise RuntimeError("05-fixed/agent_result.json missing — agent fix must run before replicate")
+        raise RuntimeError("agent_result.json missing — agent fix must run before replicate")
     pr_url = agent_result.get("pr_url") or ""
     agent_pr_number = _extract_pr_number(pr_url)
     if not agent_pr_number:
@@ -229,28 +235,56 @@ def replicate_fix_as_operator(
     )
     body_for_pr = evidence.read_text("09-submittable/pr_body.md")
 
-    # 8. Open the fork-internal preview PR (operator-authored).
+    # 8. Open the fork-internal preview PR (operator-authored), OR — on a
+    #    Phase 5.1 remediation cycle — update the existing preview PR's
+    #    title/body so the operator sees the post-remediation rendering.
     #    No `Fixes #N` here — this PR targets the fork, not upstream.
     #    The close keyword is appended only when `submit_upstream_pr`
     #    opens the real upstream PR.
-    op_pr_payload = json.dumps({
-        "title": title,
-        "body": body_for_pr,
-        "head": branch_name,
-        "base": default_branch,
-    })
-    op_pr = run_gh([
-        "api", f"repos/{fork_slug}/pulls",
-        "-X", "POST", "--input", "-",
-    ], stdin_data=op_pr_payload)
-    if not op_pr.get("success"):
-        raise RuntimeError(f"failed to open operator PR on {fork_slug}: {op_pr.get('error') or op_pr.get('output', '')[:200]}")
-    try:
-        op_pr_data = json.loads(op_pr["output"])
-    except (ValueError, TypeError) as e:
-        raise RuntimeError(f"operator PR response not JSON: {e}") from e
-    operator_pr_number = op_pr_data.get("number")
-    operator_pr_url = op_pr_data.get("html_url") or ""
+    existing_op_pr_number: int | None = None
+    if evidence.exists("09-submittable/operator_pr_number"):
+        try:
+            existing_op_pr_number = int(
+                evidence.read_text("09-submittable/operator_pr_number").strip()
+            )
+        except ValueError:
+            existing_op_pr_number = None
+
+    if existing_op_pr_number is not None:
+        update_payload = json.dumps({"title": title, "body": body_for_pr})
+        upd = run_gh([
+            "api", f"repos/{fork_slug}/pulls/{existing_op_pr_number}",
+            "-X", "PATCH", "--input", "-",
+        ], stdin_data=update_payload)
+        if not upd.get("success"):
+            raise RuntimeError(
+                f"failed to update existing operator PR #{existing_op_pr_number} on "
+                f"{fork_slug}: {upd.get('error') or upd.get('output', '')[:200]}"
+            )
+        operator_pr_number = existing_op_pr_number
+        operator_pr_url = (
+            evidence.read_text("09-submittable/operator_pr_url", default="").strip()
+            or f"https://github.com/{fork_slug}/pull/{existing_op_pr_number}"
+        )
+    else:
+        op_pr_payload = json.dumps({
+            "title": title,
+            "body": body_for_pr,
+            "head": branch_name,
+            "base": default_branch,
+        })
+        op_pr = run_gh([
+            "api", f"repos/{fork_slug}/pulls",
+            "-X", "POST", "--input", "-",
+        ], stdin_data=op_pr_payload)
+        if not op_pr.get("success"):
+            raise RuntimeError(f"failed to open operator PR on {fork_slug}: {op_pr.get('error') or op_pr.get('output', '')[:200]}")
+        try:
+            op_pr_data = json.loads(op_pr["output"])
+        except (ValueError, TypeError) as e:
+            raise RuntimeError(f"operator PR response not JSON: {e}") from e
+        operator_pr_number = op_pr_data.get("number")
+        operator_pr_url = op_pr_data.get("html_url") or ""
 
     # 9. Close the agent's draft — fix is fully replicated under operator identity.
     close_payload = json.dumps({"state": "closed"})
@@ -382,6 +416,48 @@ def submit_upstream_pr(
 
     if issue_number:
         body = body.rstrip() + f"\n\nFixes #{issue_number}\n"
+
+    # Phase 5.1 re-submission: if `10-submitted/upstream_pr_number` is
+    # already recorded, this is a remediation cycle (the original upstream
+    # PR exists; the fork branch was force-pushed by replicate_fix_as_operator
+    # so the diff auto-updates). We don't open a new PR — we update the
+    # existing one's title/body via `gh pr edit` so operator edits flow
+    # through.
+    existing_upstream_pr_number: int | None = None
+    if evidence.exists("10-submitted/upstream_pr_number"):
+        try:
+            existing_upstream_pr_number = int(
+                evidence.read_text("10-submitted/upstream_pr_number").strip()
+            )
+        except ValueError:
+            existing_upstream_pr_number = None
+
+    if existing_upstream_pr_number is not None:
+        edit = run_gh([
+            "pr", "edit", str(existing_upstream_pr_number),
+            "--repo", upstream_slug,
+            "--title", title,
+            "--body", body,
+        ])
+        if not edit.get("success"):
+            raise RuntimeError(
+                f"gh pr edit failed: {edit.get('error') or edit.get('output', '')[:300]}"
+            )
+        pr_url = (
+            evidence.read_text("10-submitted/upstream_pr_url", default="").strip()
+            or f"https://github.com/{upstream_slug}/pull/{existing_upstream_pr_number}"
+        )
+        evidence.append_jsonl("events.jsonl", {
+            "event": "upstream_pr_updated",
+            "upstream_slug": upstream_slug,
+            "pr_number": existing_upstream_pr_number,
+        })
+        return {
+            "ok": True,
+            "pr_url": pr_url,
+            "pr_number": existing_upstream_pr_number,
+            "updated": True,
+        }
 
     head = f"{fork_slug.split('/')[0]}:{branch_name}"
     create = run_gh([

@@ -39,12 +39,14 @@ from temporal.temporal_activities import (
     ForkInput,
     GateInput,
     InboxInput,
+    NotifyHumanCommentsInput,
     RemediationInput,
     RenderInput,
     ReplicateInput,
     ReviewInput,
     SubmitInput,
     TransitionInput,
+    WatchPRInput,
 )
 from temporal.workflows import IssueInput, IssueResult, IssueWorkflow
 
@@ -329,6 +331,39 @@ async def real_transition(inp: TransitionInput) -> dict:
     return {"ok": True}
 
 
+@activity.defn(name="watch_upstream_pr_state")
+async def real_watch_upstream_pr_state(inp: WatchPRInput) -> dict:
+    """E2E: pretend the upstream PR merged on the first poll so the
+    Phase 5.1 post-submission loop exits cleanly without hitting
+    networked gh calls."""
+    ev = _ev(inp.state_root)
+    ev.write_json("11-merged/merge_info.json", {
+        "merge_sha": "e2e_merge_sha", "merged_at": "2026-04-26T12:00:00Z",
+        "merged_by": "e2e_maintainer", "upstream_slug": inp.upstream_slug,
+        "pr_number": inp.pr_number,
+    })
+    ev.write_text("11-merged/merge_sha", "e2e_merge_sha")
+    return {
+        "ok": True,
+        "state": "closed", "merged": True,
+        "merged_at": "2026-04-26T12:00:00Z",
+        "merge_sha": "e2e_merge_sha",
+        "closed_at": None, "closer": None,
+        "closed_unmerged": False,
+        "new_blocking_review": False,
+        "new_blocking_review_id": None,
+        "new_blocking_review_user": None,
+        "new_blocking_review_body": None,
+        "all_seen_review_ids": list(inp.seen_review_ids or []),
+        "error": None,
+    }
+
+
+@activity.defn(name="notify_human_comments_for_issue")
+async def real_notify_human_comments(inp: NotifyHumanCommentsInput) -> dict:
+    return {"ok": True, "new_count": 0, "seen_ids": list(inp.seen_comment_ids or [])}
+
+
 _REAL_ACTIVITIES = [
     real_eligibility,
     real_fork,
@@ -344,6 +379,8 @@ _REAL_ACTIVITIES = [
     real_run_gates,
     real_enqueue,
     real_transition,
+    real_watch_upstream_pr_state,
+    real_notify_human_comments,
 ]
 
 
@@ -389,8 +426,10 @@ async def test_e2e_noop_agent_full_pipeline(tmp_path):
             await handle.signal("submit_human_decision", "approve")
             result: IssueResult = await handle.result()
 
-    # Workflow completed successfully — print the gate trail on failure
-    if result.final_state != "submitted":
+    # Workflow completed successfully — print the gate trail on failure.
+    # Phase 5.1: the post-submission loop polls the watcher, sees an
+    # immediate merged result, and ends in `merged` (not `submitted`).
+    if result.final_state != "merged":
         ev_diag = EvidenceStore(state_root)
         gates_log = ev_diag.read_jsonl("gates.jsonl")
         transitions_log = ev_diag.read_jsonl("transitions.jsonl")
