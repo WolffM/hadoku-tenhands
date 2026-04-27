@@ -35,99 +35,41 @@ callouts, 49% never reached upstream).
 
 ## Document map
 
+### Spec docs (how the system works today)
+
 | Doc | Purpose |
 |---|---|
-| [architecture.md](architecture.md) | Five principles, Temporal rationale, system diagram |
+| [architecture.md](architecture.md) | Five principles, Temporal rationale, system diagram, signal pattern |
 | [state-machine.md](state-machine.md) | Issue states, transitions, evidence requirements per state |
 | [gates.md](gates.md) | Gate registry; each jade-hare bug class mapped to its killing gate |
 | [cross-ref-isolation.md](cross-ref-isolation.md) | Input-context scrubbing model, output sanitizer, leak vector mapping |
 | [components.md](components.md) | Reuse map across vibedispatch, hadoku-aggregator, hadoku-scrape, hadoku-site |
 | [pipeline-config.md](pipeline-config.md) | How crimson-kitty plugs into the existing pipeline-select UI |
 
-## Status (2026-04-25)
+### Forward plan
 
-Pipeline reaches `awaiting_signoff` end-to-end on fresh batches.
-Phase-4 bring-up is 25+ bug fixes deep (see
-[state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md))
-plus the operator-authorship + signoff redesign described below.
-Operator-authored preview PRs render with rich content, no agent
-vocabulary, and a clean single squashed commit per submission.
+| Doc | Purpose |
+|---|---|
+| [phase-5-plan.md](phase-5-plan.md) | What's left between today and "ready to actually ship upstream PRs at batch scale" — five sub-phases ordered by blocking-ness |
 
-Zero upstream PRs have shipped, by design — every upstream
-submission now requires an explicit operator `approve` signal at
-`awaiting_signoff`.
+## Status (2026-04-26)
 
-## Phase 4.5 — operator-authored submission with signoff gate
+Phase 4 is complete. The pipeline reaches `awaiting_signoff` end-to-end
+on fresh batches with operator-authored preview PRs that have:
 
-The phase fixes two related gaps:
+- A single squashed commit, no agent lineage
+- Rich rendered body (issue prose, root cause, repro steps, fix file
+  list, verification) with zero internal-pipeline vocabulary
+- Output sanitizer + post-signoff re-scan as the cross-ref invariant
+- Live operator-edited content flows upstream verbatim on signoff
 
-### 1. Authorship lineage (`replicate_fix_as_operator`)
+Zero upstream PRs have shipped, by design. We held the trigger because
+five gaps in the original plan are still open — they're sequenced in
+[phase-5-plan.md](phase-5-plan.md). Until **Phase 5.1
+(post-submission lifecycle)** is built, an upstream submission would
+go out and the pipeline would stop watching it — no reaction to
+maintainer review comments, no remediation loop. That's not a
+shippable shape.
 
-The pipeline harvests a fix from Copilot's draft PR on the fork, but
-those commits are authored by `copilot-swe-agent[bot]` on a
-`copilot/<slug>` branch — not something we can defensibly ship to
-upstream maintainers. The `replicate_fix_as_operator` activity runs
-between `render_pr_body` and the submittable gates and:
-
-1. Reads the agent's final tree SHA from the Copilot PR's head commit.
-2. POSTs a NEW single commit whose parent is the fork's default-branch
-   HEAD (no lineage to any agent commit), whose tree matches the
-   agent's final state, and whose author is the operator's gh token
-   identity.
-3. Creates the `crimson-kitty-{N}` ref pointing at that commit.
-4. Opens a fork-internal PR from `crimson-kitty-{N}` → fork default
-   branch — the operator-authored preview.
-5. Closes the agent's draft PR.
-6. Rewrites `05-fixed/commits.json` and `commit_shas.txt` to contain
-   only the new commit (originals archived to
-   `agent_original_commits.json` / `agent_original_commit_shas.txt`)
-   so downstream gates and the re-rendered body scan the real
-   submission-bound history.
-
-### 2. Signoff gate (`awaiting_signoff`)
-
-`submit_upstream_pr` no longer fires automatically. After the
-submittable gates pass, the workflow transitions to `awaiting_signoff`
-and waits on the `submit_human_decision` signal — the fork preview PR
-is the operator's editing surface (add screenshots, expand prose, fix
-the repro narrative on GitHub directly). On `approve`, the activity
-fetches the LIVE preview-PR title + body via `gh api`, re-runs the
-output sanitizer on that content, then opens the upstream PR. On
-`abort`, the workflow terminates without shipping.
-
-`IssueInput.submit_to_upstream` controls whether the signoff prompt
-appears. `false` (default): workflow stops at `replicated`, no inbox
-entry, no upstream PR ever. `true`: pause at `awaiting_signoff` for
-operator go/no-go.
-
-The two judge-defer gates (`relevance` after `fixed`,
-`submission_judge` after `submittable`) and the new `operator_signoff`
-all use the same `submit_human_decision` Temporal signal. The inbox
-distinguishes them by `gate_name`. See
-[state-machine.md](state-machine.md) for the full transition table
-and [pipeline-config.md](pipeline-config.md) for the inbox UX
-distinction between defer and signoff cards.
-
-### Open follow-up: per-repo PR conventions
-
-The squash commit message currently comes from the rendered PR title +
-first paragraph of the body. This is a placeholder. Upstream
-conventions (Conventional Commits prefix, Signed-off-by/DCO
-requirement, repo-specific title rules, issue-link syntax) should come
-from the aggregator — it already scrapes CONTRIBUTING.md, PR templates,
-and merged-commit history. We need a new aggregator endpoint along the
-lines of `/recon/{slug}/contribution-conventions` returning a bundle:
-
-```json
-{
-  "commit_style": "conventional" | "freeform" | "prefix-required",
-  "title_prefix_pattern": "^(fix|feat|docs|chore)\\(.+\\): .+$",
-  "signoff_required": true,
-  "body_structure": ["Summary", "Why", "Test plan"],
-  "references": { "close_keyword": "Closes", "syntax": "Closes #N" }
-}
-```
-
-`replicate_fix_as_operator` and `render_pr_body` both consume this
-bundle. Tracked as a concrete aggregator ask — file once the local
-MVP is in place.
+Phase 4 retrospective: B1–B26 documented in
+[state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md).
