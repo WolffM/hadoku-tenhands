@@ -1,0 +1,7 @@
+{
+  "rubric": "submission_v1",
+  "operator_verdict": "defer",
+  "operator_score": 0.66,
+  "notes": "Has problem/fix/tests but each is one terse sentence. No AI tells, file list matches, but the verification section is too thin to convince a maintainer the fix works. narrative ~0.65, repro-fix linkage ~0.55. Operator should look — could pass after editing.",
+  "input": "## PR title\n\n`Resolve merged cell handling in XLSX reader`\n\n## PR body\n\n```markdown\n## Problem\n\nXLSX files with merged ranges were returning empty values for non-anchor\ncells.\n\n## Fix\n\nUpdated the cell reader to resolve merged anchors before returning values.\n\n## Tests\n\nA new test case verifies the behavior.\n```\n\n## Fix summary\n\n- Files touched: src/converters/xlsx_converter.py, tests/test_xlsx_converter.py\n- Diff: 18 lines, 1 commit\n\n## Issue summary\n\nXLSX reader returns empty cells when the cell is part of a merged range.\n\n## Repro evidence\n\nFailing test attached.\n\n## Verification evidence\n\nSame test passes after fix.\n"
+}
