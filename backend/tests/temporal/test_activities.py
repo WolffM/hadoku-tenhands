@@ -577,7 +577,11 @@ async def test_wait_and_harvest_heartbeats_during_slow_poll(ev, issue):
         slow = SlowAgent(polls_until_done=1)
         job = slow.assign(issue, brief="x")
         result = await _wait_and_harvest(
-            slow, job, max_polls=2, poll_interval_s=0.05, heartbeat=hb,
+            slow, job,
+            poll_interval_s=0.05,
+            no_progress_timeout_s=10.0,
+            hard_ceiling_s=10.0,
+            heartbeat=hb,
         )
     finally:
         agent_mod._HEARTBEAT_INTERVAL_S = original_interval
@@ -585,6 +589,82 @@ async def test_wait_and_harvest_heartbeats_during_slow_poll(ev, issue):
     assert result.exit_reason == "success"
     # Several ticker-driven heartbeats should have fired during the stall
     assert len(heartbeats) >= 3, f"only got {len(heartbeats)} heartbeats during stall"
+
+
+@pytest.mark.asyncio
+async def test_wait_and_harvest_times_out_when_progress_stalls(ev, issue):
+    """The no-progress timeout should fire when the agent keeps polling
+    `running` with the SAME snapshot for longer than
+    `no_progress_timeout_s`. This is the pnpm class of failure: Copilot
+    is wedged but heartbeats fine; the activity should bail rather than
+    burn the hard ceiling."""
+    from temporal.activities.agent import _wait_and_harvest
+    from temporal.agents import AgentStatus
+    from temporal.agents.noop import NoopAgent
+
+    class StuckAgent(NoopAgent):
+        # Always returns the same `running` snapshot — never makes progress.
+        def poll(self, job):
+            return AgentStatus(
+                state="running", progress=0.25, last_event="stuck",
+            )
+
+    stuck = StuckAgent()
+    job = stuck.assign(issue, brief="x")
+    result = await _wait_and_harvest(
+        stuck, job,
+        poll_interval_s=0.01,
+        no_progress_timeout_s=0.1,   # 100 ms — fires after a few polls
+        hard_ceiling_s=10.0,
+    )
+
+    assert result.exit_reason == "timeout"
+    assert "no agent progress" in result.agent_log
+    assert "stuck" in result.agent_log
+
+
+@pytest.mark.asyncio
+async def test_wait_and_harvest_succeeds_on_slow_but_progressing_agent(ev, issue):
+    """The pnpm-style scenario in reverse: an agent that takes many polls
+    to finish but advances `progress` / `last_event` on each one should
+    NOT time out. This is the regression guard against the old fixed
+    `max_polls=90` cap that gave up on slow monorepos."""
+    from temporal.activities.agent import _wait_and_harvest
+    from temporal.agents import AgentStatus
+    from temporal.agents.noop import NoopAgent
+
+    class SlowProgressingAgent(NoopAgent):
+        def __init__(self):
+            super().__init__()
+            self._n = 0
+
+        # Fresh snapshot on every poll until `done` — staleness should
+        # never accumulate.
+        def poll(self, job):
+            self._n += 1
+            if self._n >= 50:
+                return AgentStatus(
+                    state="done", progress=1.0, last_event="finished",
+                )
+            return AgentStatus(
+                state="running",
+                progress=min(0.99, self._n / 50.0),
+                last_event=f"commit {self._n}",
+            )
+
+    slow = SlowProgressingAgent()
+    job = slow.assign(issue, brief="x")
+    result = await _wait_and_harvest(
+        slow, job,
+        poll_interval_s=0.0,
+        # Tight no-progress window: 50 ms. Each poll resets staleness.
+        no_progress_timeout_s=0.05,
+        hard_ceiling_s=10.0,
+    )
+
+    assert result.exit_reason == "success"
+    # NoopAgent.harvest returns its canned diff
+    assert result.diff_text != ""
 
 
 @pytest.mark.asyncio
