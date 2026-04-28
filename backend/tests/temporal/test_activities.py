@@ -1282,6 +1282,238 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
     assert ev.exists("05-fixed/agent_original_commit_shas.txt")
 
 
+# ── Phase 5.3 — per-repo contribution conventions ────────────────────────
+
+
+def _conventions_envelope(**overrides) -> dict:
+    """Build a {success, data} envelope shaped like the aggregator's
+    /recon/{slug}/contribution-conventions response."""
+    refs_override = overrides.pop("references", None) or {}
+    base = {
+        "commit_style": "freeform",
+        "title_prefix_pattern": None,
+        "signoff_required": False,
+        "body_structure": [],
+        "references": {
+            "close_keyword": "Fixes",
+            "syntax": "Fixes #N",
+            "in_body": True,
+            **refs_override,
+        },
+        "evidence": {"source": "default", "raw_excerpt": None},
+    }
+    base.update(overrides)
+    return {"success": True, "data": base}
+
+
+def test_render_pr_body_prepends_conventional_prefix(ev):
+    """Phase 5.3 acceptance: a conventional-commits repo gets `fix:`
+    prepended to the PR title."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"title": "Crashes when loading merged xlsx", "body": "x"},
+    })
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+
+    def fake_get(endpoint: str):
+        if "contribution-conventions" in endpoint:
+            return _conventions_envelope(commit_style="conventional")
+        if "pr-template" in endpoint:
+            return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    render_pr_body("microsoft/terminal", 1, ev, aggregator_get=fake_get)
+    title = ev.read_text("09-submittable/pr_title.txt")
+    assert title.startswith("fix: "), title
+    # Conventions persisted to evidence
+    assert ev.exists("09-submittable/contribution_conventions.json")
+    cached = ev.read_json("09-submittable/contribution_conventions.json")
+    assert cached["commit_style"] == "conventional"
+
+
+def test_render_pr_body_skips_prefix_when_already_present(ev):
+    """Idempotent: if the issue title already has a conventional prefix,
+    don't double-prefix it."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"title": "feat: add new flag", "body": "x"},
+    })
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+
+    def fake_get(endpoint: str):
+        if "contribution-conventions" in endpoint:
+            return _conventions_envelope(commit_style="conventional")
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    title = ev.read_text("09-submittable/pr_title.txt")
+    assert title.startswith("feat: "), title
+    assert not title.startswith("fix: feat:")
+
+
+def test_replicate_appends_signoff_when_dco_required(ev):
+    """Phase 5.3 acceptance: a DCO-required upstream → squash commit
+    carries `Signed-off-by: <name> <email>`."""
+    from temporal.activities.submission import replicate_fix_as_operator
+
+    # Pre-seed conventions with DCO required so the activity reads from
+    # cache rather than calling the aggregator
+    ev.write_json("09-submittable/contribution_conventions.json",
+                  _conventions_envelope(signoff_required=True)["data"])
+    # Issue brief for the internal render_pr_body call
+    ev.write_json("01-eligible/issue_brief.json",
+                  {"issue": {"number": 1, "title": "Fix the bug", "body": "x"}})
+    # Standard agent-result + render scaffolding
+    ev.write_json("05-fixed/agent_result.json", {
+        "pr_url": "https://github.com/WolffM/demo/pull/7",
+        "commit_shas": ["botA"], "files_touched": ["src/x.py"],
+        "diff_bytes": 100, "exit_reason": "success",
+    })
+    ev.write_json("05-fixed/commits.json", [{"sha": "botA", "message": "Initial"}])
+    ev.write_text("05-fixed/commit_shas.txt", "botA\n")
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("09-submittable/pr_title.txt", "Fix the bug")
+    ev.write_text("09-submittable/pr_body.md", "## Summary\n\nFixes the bug.\n")
+
+    captured: list[tuple[list, str | None]] = []
+
+    def fake_gh(args, stdin_data=None):
+        captured.append((list(args), stdin_data))
+        if args[:2] == ["api", "user"] and "--jq" in args:
+            return {"success": True, "output": json.dumps({
+                "name": "Test Operator", "login": "testop", "email": "test@example.com",
+            })}
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/7"] and "--jq" in args:
+            return {"success": True, "output": '{"head_ref":"x","head_sha":"BOT_HEAD","base_ref":"main"}'}
+        if "git/commits/BOT_HEAD" in (args[1] if len(args) > 1 else ""):
+            return {"success": True, "output": "BOT_TREE\n"}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/main":
+            return {"success": True, "output": "BASE_SHA\n"}
+        if args[1] == "repos/WolffM/demo/git/commits" and "POST" in args:
+            return {"success": True, "output": '{"sha":"NEW_SHA"}'}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/operator-branch" and "--silent" in args:
+            return {"success": False, "error": "404"}
+        if args[1] == "repos/WolffM/demo/git/refs" and "POST" in args:
+            return {"success": True, "output": '{"ref":"refs/heads/operator-branch"}'}
+        if args[1] == "repos/WolffM/demo/pulls" and "POST" in args:
+            return {"success": True, "output": '{"number":42,"html_url":"https://github.com/WolffM/demo/pull/42"}'}
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/7"] and "PATCH" in args:
+            return {"success": True, "output": "{}"}
+        return {"success": True, "output": "{}"}
+
+    def fake_aggregator(endpoint: str):
+        # render_pr_body still calls pr-template
+        if "pr-template" in endpoint:
+            return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+        if "contribution-conventions" in endpoint:
+            return _conventions_envelope(signoff_required=True)
+        return {"success": True, "data": {}}
+
+    replicate_fix_as_operator(
+        upstream_slug="upstream/demo", fork_slug="WolffM/demo",
+        branch_name="operator-branch", evidence=ev,
+        run_gh=fake_gh, aggregator_get=fake_aggregator,
+    )
+
+    create_commit = [
+        (a, s) for a, s in captured
+        if len(a) > 1 and a[1] == "repos/WolffM/demo/git/commits" and "POST" in a
+    ]
+    assert len(create_commit) == 1
+    payload = json.loads(create_commit[0][1])
+    assert "Signed-off-by: Test Operator <test@example.com>" in payload["message"]
+
+
+def test_submit_upstream_pr_omits_close_keyword_when_in_body_false(ev):
+    """Phase 5.3 acceptance: a repo whose CONTRIBUTING.md says "do not
+    include Fixes in body" → submit_upstream_pr does NOT append the
+    close keyword to the body."""
+    from temporal.activities.submission import submit_upstream_pr
+
+    ev.write_text("09-submittable/pr_title.txt", "Fix the bug")
+    ev.write_text("09-submittable/pr_body.md", "## Summary\n\nFix.\n")
+    ev.write_json("09-submittable/contribution_conventions.json",
+                  _conventions_envelope(references={"in_body": False})["data"])
+
+    captured_body: list[str] = []
+
+    def fake_gh(args, stdin_data=None):
+        if args[:2] == ["pr", "create"]:
+            for i, a in enumerate(args):
+                if a == "--body":
+                    captured_body.append(args[i + 1])
+                    break
+            return {"success": True, "output": "https://github.com/u/r/pull/100\n"}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    submit_upstream_pr(
+        "u/r", "WolffM/r", "branch", "main", ev,
+        issue_number=42, run_gh=fake_gh,
+    )
+
+    assert len(captured_body) == 1
+    assert "Fixes #42" not in captured_body[0]
+    assert "Closes #42" not in captured_body[0]
+    assert "## Summary" in captured_body[0]
+
+
+def test_submit_upstream_pr_uses_custom_close_keyword(ev):
+    """A `Resolves #N`-style upstream → footer uses Resolves, not Fixes."""
+    from temporal.activities.submission import submit_upstream_pr
+
+    ev.write_text("09-submittable/pr_title.txt", "Fix the bug")
+    ev.write_text("09-submittable/pr_body.md", "## Summary\n\nFix.\n")
+    ev.write_json("09-submittable/contribution_conventions.json",
+                  _conventions_envelope(references={
+                      "close_keyword": "Resolves",
+                      "syntax": "Resolves #N",
+                      "in_body": True,
+                  })["data"])
+
+    captured_body: list[str] = []
+
+    def fake_gh(args, stdin_data=None):
+        if args[:2] == ["pr", "create"]:
+            for i, a in enumerate(args):
+                if a == "--body":
+                    captured_body.append(args[i + 1])
+                    break
+            return {"success": True, "output": "https://github.com/u/r/pull/100\n"}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    submit_upstream_pr(
+        "u/r", "WolffM/r", "branch", "main", ev,
+        issue_number=42, run_gh=fake_gh,
+    )
+
+    assert len(captured_body) == 1
+    assert "Resolves #42" in captured_body[0]
+    assert "Fixes #42" not in captured_body[0]
+
+
+def test_load_conventions_falls_back_to_defaults_on_aggregator_failure(ev):
+    """Defensive: aggregator outage / 5xx → activities use safe defaults
+    (freeform, Fixes #N, no signoff) rather than crashing the workflow."""
+    from temporal.activities.submission import _load_conventions
+
+    def failing_aggregator(endpoint: str):
+        return None  # simulating _call_aggregator's None-on-error contract
+
+    result = _load_conventions(ev, failing_aggregator, "any/repo")
+    assert result["commit_style"] == "freeform"
+    assert result["signoff_required"] is False
+    assert result["references"]["close_keyword"] == "Fixes"
+    assert result["references"]["in_body"] is True
+    # Persisted to evidence so subsequent activities see the same defaults
+    assert ev.exists("09-submittable/contribution_conventions.json")
+
+
 def test_submit_upstream_pr_writes_evidence_on_success(ev):
     from temporal.activities.submission import submit_upstream_pr
 

@@ -26,6 +26,66 @@ def _default_aggregator_get(endpoint: str):
     return _call_aggregator(endpoint)
 
 
+# Phase 5.3 — per-repo contribution conventions. The aggregator's
+# /recon/{slug}/contribution-conventions endpoint always returns 200
+# with safe defaults, but we still mirror those defaults locally so
+# offline tests + transient aggregator failures don't take the workflow
+# down.
+_DEFAULT_CONVENTIONS = {
+    "commit_style": "freeform",
+    "title_prefix_pattern": None,
+    "signoff_required": False,
+    "body_structure": [],
+    "references": {
+        "close_keyword": "Fixes",
+        "syntax": "Fixes #N",
+        "in_body": True,
+    },
+    "evidence": {"source": "default", "raw_excerpt": None},
+}
+
+
+def _normalize_conventions(data) -> dict:
+    """Merge a conventions response with the safe defaults so every
+    field is present. Tolerates missing keys + malformed types."""
+    if not isinstance(data, dict):
+        return {**_DEFAULT_CONVENTIONS, "references": dict(_DEFAULT_CONVENTIONS["references"])}
+    merged = {**_DEFAULT_CONVENTIONS, **{k: v for k, v in data.items() if k != "references"}}
+    refs_in = data.get("references") if isinstance(data.get("references"), dict) else {}
+    merged["references"] = {**_DEFAULT_CONVENTIONS["references"], **refs_in}
+    if not isinstance(merged.get("body_structure"), list):
+        merged["body_structure"] = []
+    return merged
+
+
+def _fetch_conventions(aggregator_get, upstream_slug: str) -> dict:
+    """Fetch the conventions bundle, falling back to defaults on any
+    failure path (network blip, malformed envelope, missing data)."""
+    slug_h = upstream_slug.replace("/", "-")
+    try:
+        env = aggregator_get(f"/recon/{slug_h}/contribution-conventions")
+    except Exception:
+        return _normalize_conventions(None)
+    if not isinstance(env, dict) or not env.get("success"):
+        return _normalize_conventions(None)
+    return _normalize_conventions(env.get("data"))
+
+
+def _load_conventions(evidence, aggregator_get, upstream_slug: str) -> dict:
+    """Read the conventions bundle that render_pr_body persisted to
+    evidence, or fetch + persist it on first access. Subsequent
+    activities (replicate_fix_as_operator, submit_upstream_pr) all
+    read through this helper so a single workflow uses a single
+    consistent bundle."""
+    if evidence.exists("09-submittable/contribution_conventions.json"):
+        cached = evidence.read_json("09-submittable/contribution_conventions.json")
+        if isinstance(cached, dict):
+            return _normalize_conventions(cached)
+    fresh = _fetch_conventions(aggregator_get, upstream_slug)
+    evidence.write_json("09-submittable/contribution_conventions.json", fresh)
+    return fresh
+
+
 def render_pr_body(
     upstream_slug: str,
     issue_number: int,
@@ -49,7 +109,11 @@ def render_pr_body(
     issue_obj = brief.get("issue", {}) if isinstance(brief, dict) else {}
     issue_title = issue_obj.get("title", "Crimson-kitty fix")
 
-    # 2. Render body using the template structure from the aggregator
+    # 2. Phase 5.3 — fetch + persist conventions before rendering so
+    # title prefix / body section ordering follow the upstream's rules.
+    conventions = _load_conventions(evidence, aggregator_get, upstream_slug)
+
+    # 3. Render body using the template structure from the aggregator
     slug_h = upstream_slug.replace("/", "-")
     template_envelope = aggregator_get(f"/recon/{slug_h}/pr-template")
     template = (template_envelope or {}).get("data") if isinstance(template_envelope, dict) else None
@@ -61,7 +125,9 @@ def render_pr_body(
     else:
         body = _render_default(evidence, upstream_slug, issue_number, issue_title)
 
-    title = _build_title(issue_title)
+    body = _reorder_body_sections(body, conventions.get("body_structure") or [])
+
+    title = _build_title(issue_title, conventions=conventions)
     evidence.write_text("09-submittable/pr_title.txt", title)
     evidence.write_text("09-submittable/pr_body.md", body)
 
@@ -154,14 +220,24 @@ def replicate_fix_as_operator(
     if not base_sha:
         raise RuntimeError(f"fork default branch {default_branch} has empty HEAD")
 
-    # 3. Build the squash commit message. MVP: rendered PR title as
-    #    subject, first paragraph of the body as the commit body. Real
-    #    per-repo conventions come later from the aggregator (see
-    #    docs/crimson-kitty/README.md → convention signal TODO).
+    # 3. Build the squash commit message. The PR title (already prefixed
+    #    by _build_title when conventions demand it) becomes the commit
+    #    subject; first paragraph of the body becomes the commit body.
+    #    Phase 5.3 — append `Signed-off-by: <operator> <email>` when the
+    #    upstream's CONTRIBUTING.md requires DCO.
+    if aggregator_get is None:
+        aggregator_get = _default_aggregator_get
+    conventions = _load_conventions(evidence, aggregator_get, upstream_slug)
+
     title = evidence.read_text("09-submittable/pr_title.txt").strip() or "Crimson-kitty fix"
     body = evidence.read_text("09-submittable/pr_body.md")
     first_para = body.split("\n\n", 1)[0].strip() if body else ""
     commit_message = title if not first_para else f"{title}\n\n{first_para}"
+
+    if conventions.get("signoff_required"):
+        signoff_line = _build_signoff_line(run_gh)
+        if signoff_line and signoff_line not in commit_message:
+            commit_message = f"{commit_message.rstrip()}\n\n{signoff_line}\n"
 
     # 4. Create the new commit. Author defaults to the gh token owner
     #    (operator) — no explicit author set so agent lineage is severed.
@@ -315,6 +391,7 @@ def submit_upstream_pr(
     *,
     issue_number: int | None = None,
     run_gh=None,
+    aggregator_get=None,
 ) -> dict:
     """Open the upstream PR via gh pr create.
 
@@ -414,8 +491,21 @@ def submit_upstream_pr(
                 f"and signal approve again."
             ) from e
 
+    # Phase 5.3 — close-keyword footer follows the upstream's
+    # convention bundle. references.in_body=false (some apache/*
+    # repos) means the keyword belongs in the commit message but not
+    # the PR body; we honor that by skipping the body append. The
+    # commit message already carries the title from replicate, so
+    # downstream linkage stays intact.
+    if aggregator_get is None:
+        aggregator_get = _default_aggregator_get
+    conventions = _load_conventions(evidence, aggregator_get, upstream_slug)
     if issue_number:
-        body = body.rstrip() + f"\n\nFixes #{issue_number}\n"
+        refs = conventions.get("references") or {}
+        if refs.get("in_body", True):
+            keyword = (refs.get("close_keyword") or "Fixes").strip()
+            syntax = (refs.get("syntax") or f"{keyword} #N").strip()
+            body = body.rstrip() + f"\n\n{_format_close_keyword(syntax, keyword, issue_number)}\n"
 
     # Phase 5.1 re-submission: if `10-submitted/upstream_pr_number` is
     # already recorded, this is a remediation cycle (the original upstream
@@ -486,10 +576,145 @@ def submit_upstream_pr(
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _build_title(issue_title: str) -> str:
-    """Strip leading hash markers and cap at 80 chars."""
+def _format_close_keyword(syntax: str, keyword: str, issue_number: int) -> str:
+    """Render the close-keyword line per the upstream's syntax sample.
+
+    The aggregator surfaces strings like `"Fixes #N"`, `"Closes #N"`,
+    or `"Resolves #N"`. Substitute the literal issue number for `N`,
+    keep the rest verbatim. Falls back to `"{keyword} #{N}"` if the
+    sample doesn't contain `N`.
+    """
+    if "N" in syntax:
+        return syntax.replace("N", str(issue_number))
+    return f"{keyword} #{issue_number}"
+
+
+def _build_signoff_line(run_gh) -> str:
+    """Resolve a `Signed-off-by: <name> <email>` line from the operator's
+    gh-authenticated identity. Returns "" if any lookup fails — the
+    caller skips the signoff append in that case rather than crashing,
+    and a missing DCO line trips upstream CI rather than this activity.
+
+    Phase 5.3 — used when conventions.signoff_required is true (DCO
+    repos like apache/*).
+    """
+    try:
+        result = run_gh([
+            "api", "user",
+            "--jq", '{name: (.name // .login // ""), login: .login, email: (.email // "")}',
+        ])
+    except Exception:
+        return ""
+    if not isinstance(result, dict) or not result.get("success"):
+        return ""
+    try:
+        data = json.loads(result.get("output", "") or "{}")
+    except (ValueError, TypeError):
+        return ""
+    name = (data.get("name") or "").strip()
+    login = (data.get("login") or "").strip()
+    email = (data.get("email") or "").strip()
+    if not email and login:
+        # Fall back to GitHub's noreply email — same shape git would use
+        # if user.email is unset and the user pushed via gh.
+        email = f"{login}@users.noreply.github.com"
+    display = name or login
+    if not display or not email:
+        return ""
+    return f"Signed-off-by: {display} <{email}>"
+
+
+def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
+    """Strip leading hash markers, optionally prepend a per-repo prefix
+    derived from `conventions`, and cap at 80 chars.
+
+    Phase 5.3:
+    - `commit_style="conventional"` → prepend `fix: ` (we don't have
+      enough signal to pick a more specific scope; `fix` is the safest
+      verb for a bug fix and the most common merge category).
+    - `commit_style="prefix-required"` with a JIRA-style
+      `title_prefix_pattern` → leave the title alone (we have no
+      project key to invent); operator must edit before signoff. The
+      submission_judge gate's PR-quality check will flag a missing
+      prefix on the live preview content.
+    - `commit_style="freeform"` (default) → no prefix.
+    """
     cleaned = (issue_title or "").strip().lstrip("#").strip()
-    return cleaned[:80] or "Crimson-kitty fix"
+    if not cleaned:
+        cleaned = "Crimson-kitty fix"
+
+    style = (conventions or {}).get("commit_style") if conventions else None
+    if style == "conventional" and not _has_conventional_prefix(cleaned):
+        cleaned = f"fix: {cleaned}"
+    return cleaned[:80]
+
+
+_CONVENTIONAL_PREFIX_RE = re.compile(
+    r"^(fix|feat|docs|chore|refactor|test|perf|build|ci|style|revert)(\([^)]+\))?!?:\s",
+    re.IGNORECASE,
+)
+
+
+def _has_conventional_prefix(title: str) -> bool:
+    return bool(_CONVENTIONAL_PREFIX_RE.match(title.strip()))
+
+
+def _reorder_body_sections(body: str, body_structure: list) -> str:
+    """If `body_structure` from the aggregator names a preferred section
+    order (e.g. ['Description', 'Test plan', 'Checklist']), reorder the
+    rendered body so those `## ` sections appear in the requested
+    order. Sections not named in body_structure stay in their original
+    relative order, appended after the named ones. No-op when
+    body_structure is empty.
+
+    Phase 5.3 — most upstreams don't override the order; this only
+    fires when `evidence.source` is `pr-template` and the template
+    surfaced explicit headings.
+    """
+    if not body_structure:
+        return body
+    headings = [h for h in body_structure if isinstance(h, str) and h.strip()]
+    if not headings:
+        return body
+
+    sections: list[tuple[str | None, str]] = []
+    current_heading: str | None = None
+    current_lines: list[str] = []
+    for line in body.splitlines(keepends=True):
+        if line.startswith("## "):
+            if current_lines or current_heading is not None:
+                sections.append((current_heading, "".join(current_lines)))
+            current_heading = line[3:].rstrip()
+            current_lines = [line]
+        else:
+            current_lines.append(line)
+    if current_lines or current_heading is not None:
+        sections.append((current_heading, "".join(current_lines)))
+
+    preamble = ""
+    if sections and sections[0][0] is None:
+        preamble = sections[0][1]
+        sections = sections[1:]
+
+    by_heading: dict[str, str] = {h: text for (h, text) in sections if h}
+
+    ordered: list[str] = []
+    used: set[str] = set()
+    for wanted in headings:
+        norm = wanted.lstrip("#").strip()
+        for h, text in sections:
+            if not h or h in used:
+                continue
+            if h.lower() == norm.lower():
+                ordered.append(text)
+                used.add(h)
+                break
+    for h, text in sections:
+        if h and h not in used:
+            ordered.append(text)
+            used.add(h)
+
+    return preamble + "".join(ordered)
 
 
 def _read_issue_number(evidence) -> int:
