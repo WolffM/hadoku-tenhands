@@ -68,16 +68,17 @@ surfaces them.
 | 5.2 — Local Copilot Review remediation branch | shipped (2026-04-27) |
 | 5.3 — Per-repo contribution conventions | shipped (2026-04-27) |
 | 5.4 — Operator inbox UI for signoff | shipped (2026-04-27) |
-| 5.5 — Judge calibration | not started |
+| 5.5 — Judge calibration | shipped (2026-04-27) |
 
-Zero upstream PRs have shipped at scale yet — but every blocking
-phase has now landed. `submit_to_upstream=true` is now safe to flip
-on a real batch: operators drive the signoff loop entirely from the
-inbox UI (no curl), the post-submission watcher reacts to maintainer
-review comments, per-repo contribution conventions are honored
-automatically, and the local Copilot Review remediation loop catches
-blockers before they reach upstream. 5.5 (judge threshold tuning) is
-data-quality polish, not a blocker.
+Phase 5 is complete. Zero upstream PRs have shipped at scale yet, but
+every phase has now landed: `submit_to_upstream=true` is safe to flip
+on a real batch. Operators drive signoff from the inbox UI (no curl),
+the post-submission watcher reacts to maintainer review comments,
+per-repo conventions are honored automatically, the local Copilot
+Review remediation loop catches blockers before upstream sees them,
+and the judge calibration harness ships with 20 hand-scored fixtures
+the operator can re-run after any rubric edit
+(`python -m temporal.calibration`).
 
 Phase 4 retrospective: B1–B26 documented in
 [state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md).

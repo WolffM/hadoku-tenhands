@@ -1,0 +1,7 @@
+{
+  "rubric": "relevance_v1",
+  "operator_verdict": "fail",
+  "operator_score": 0.15,
+  "notes": "Lockfile-only diff. The agent regenerated dependencies and called it done. The bug is about XLSX cell rendering — nothing in the lockfile addresses it. on-topic 0.0, focus 0.0, completeness 0.0.",
+  "input": "## Issue summary\n\nXLSX reader returns empty cells when the cell is part of a merged range. Steps: open `merged.xlsx`, expect cell A2 to contain 'Header', got empty string.\n\n## Files touched\n\n```\npnpm-lock.yaml\npackage.json\n```\n\n## Diff\n\n```diff\ndiff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@ -28,7 +28,7 @@\n     \"openpyxl-py\": \"^1.4.2\",\n-    \"xlsx-stream\": \"^0.5.0\",\n+    \"xlsx-stream\": \"^0.6.1\",\n     \"prettier\": \"^3.0.0\"\n   },\n\ndiff --git a/pnpm-lock.yaml b/pnpm-lock.yaml\n--- a/pnpm-lock.yaml\n+++ b/pnpm-lock.yaml\n@@ -1,4 +1,4 @@\n-lockfileVersion: '6.0'\n+lockfileVersion: '6.1'\n[diff truncated — 4500 lines of pnpm-lock.yaml metadata changes]\n```\n"
+}

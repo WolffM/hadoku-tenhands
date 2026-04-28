@@ -1,0 +1,7 @@
+{
+  "rubric": "submission_v1",
+  "operator_verdict": "pass",
+  "operator_score": 0.94,
+  "notes": "Textbook defensible PR body. Problem/cause/fix/verification all present, names the specific test, file list matches. No AI hallmarks.",
+  "input": "## PR title\n\n`Fix XLSX reader returning empty cells for merged-range headers`\n\n## PR body\n\n```markdown\n## Summary\n\nThe XLSX converter dropped header text from merged ranges. When the bug is\nreproduced via `tests/fixtures/merged.xlsx`, cell A2 returns an empty string\ninstead of `\"Header\"`.\n\n## Root cause\n\n`xlsx_converter.py:142` reads the cell value directly without resolving the\nmerged-range anchor. openpyxl returns `None` for non-anchor cells in a merge,\nand the existing code converted `None` → `\"\"`.\n\n## Fix\n\nResolve the merge anchor before reading. Added one helper\n`_merged_anchor_for(cell)` and one call site in `_read_cell`.\n\n## Verification\n\n`tests/test_xlsx_converter.py::test_merged_range_header_returns_anchor_value`\ncovers the case and passes after the fix; failed before. Diff: 18 lines\nadded, 2 removed, 1 commit.\n```\n\n## Fix summary\n\n- Files touched: src/converters/xlsx_converter.py, tests/test_xlsx_converter.py\n- Diff: 20 lines, 1 commit\n\n## Issue summary\n\nXLSX reader returns empty cells when the cell is part of a merged range.\n\n## Repro evidence\n\nFailing pytest at tests/test_xlsx_converter.py::test_merged_range_header_returns_anchor_value\n\n## Verification evidence\n\nSame test now passes after the fix.\n"
+}

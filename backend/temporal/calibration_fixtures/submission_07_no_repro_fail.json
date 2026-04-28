@@ -1,0 +1,7 @@
+{
+  "rubric": "submission_v1",
+  "operator_verdict": "fail",
+  "operator_score": 0.36,
+  "notes": "Plausible-looking body, no AI hallmarks, files match the diff. But there's no repro evidence at all — no failing test on main, no screenshot, nothing the maintainer can independently verify the bug existed. Fails repro-fix linkage axis hard. The maintainer has to take our word for it.",
+  "input": "## PR title\n\n`Resolve EXIF orientation when opening JPEGs`\n\n## PR body\n\n```markdown\n## Summary\n\nApply EXIF orientation transform when opening JPEG files in the image\nconverter so downstream consumers receive a correctly-rotated buffer.\n\n## Fix\n\nCall `PIL.ImageOps.exif_transpose` after `Image.open` in `ImageConverter._open`.\n\n## Notes\n\nThis is a small change and should not affect existing behavior for images\nwithout EXIF orientation tags.\n```\n\n## Fix summary\n\n- Files touched: src/converters/image_converter.py\n- Diff: 4 lines, 1 commit\n\n## Issue summary\n\nImage converter rotates EXIF-orientation-6 JPEGs incorrectly.\n\n## Repro evidence\n\nNot present in evidence — no failing test, no screenshot, no fixture.\n\n## Verification evidence\n\nNot present in evidence — no test added, no manual verification described.\n"
+}
