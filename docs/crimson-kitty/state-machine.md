@@ -147,11 +147,20 @@ both documented in [gates.md](gates.md).
 `aborted`
 
 ### `remediated`
-**Entry**: All blocking review comments addressed in subsequent commits.
+**Entry**: Phase 5.2 — `read_review_summary` reported `blocking > 0` and
+`request_remediation` was dispatched. The Copilot agent reads the
+review comments and pushes additional commits to the fork branch.
 **Evidence required**:
-- `remediated/diff.patch` — the additional commits
-- `remediated/resolved_comments.json` — mapping of comment → resolution
-**Next**: `replicated` | `aborted`
+- `08-remediated/diff.patch` — the additional commits
+- `08-remediated/agent_result.json` — the agent's harvest
+**Next**: `reviewed` (workflow re-runs `run_review` against the
+updated branch) | `aborted` (hit MAX_LOCAL_REMEDIATION_ITERATIONS=3)
+**Notes**: The legacy `remediation_complete` gate (which expected an
+explicit per-comment `resolved_comments.json` map) is intentionally
+skipped — Copilot doesn't produce per-comment annotations. The
+remediation loop's re-run of `run_review` is the actual
+blocker-resolution check: if the next severity_summary still has
+blockers we remediate again until the cap fires.
 
 ### `replicated`
 **Entry**: Agent's fix has been re-authored under the operator's git
@@ -328,9 +337,10 @@ to the next state (or aborts).
 | `reproduced` | `fixed` | activity: `agent_fix` | `diff_non_empty` + `relevance` |
 | `fixed` | `verified` | activity: `agent_verify` | `verified_evidence_present` |
 | `verified` | `reviewed` | activity: `run_review` | — |
-| `reviewed` | `remediated` | activity: `agent_remediate` (if blockers) | `remediation_complete` |
-| `reviewed` | `replicated` | activity: `replicate_fix_as_operator` (no blockers) | — |
-| `remediated` | `replicated` | activity: `replicate_fix_as_operator` | — |
+| `reviewed` | `remediated` | Phase 5.2: activity: `read_review_summary` finds blocking>0 → `request_remediation` (capped at MAX_LOCAL_REMEDIATION_ITERATIONS=3) | — (gate skipped; loop's re-run of `run_review` is the actual blocker check) |
+| `remediated` | `reviewed` | activity: `run_review` re-run on remediated branch | — |
+| `reviewed` | `replicated` | `read_review_summary` finds blocking=0 → fall through | — |
+| `reviewed` | `aborted` | hit MAX_LOCAL_REMEDIATION_ITERATIONS=3 with blockers persisting | `local_remediation_cap` (synthetic) |
 | `replicated` | `submittable` | direct (evidence written, gates run next) | — |
 | `submittable` | `awaiting_signoff` | submittable gates pass AND `submit_to_upstream=true` | `no_upstream_refs` + `pr_template_compliance` + `submission_judge` |
 | `awaiting_signoff` | `submitted` | signal: `submit_human_decision=approve` → activity: `submit_upstream_pr` (live fork-PR content + sanitizer re-scan) | — |

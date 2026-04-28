@@ -806,6 +806,38 @@ async def test_request_remediation_appends_review_comments_to_brief(ev, issue):
 # ── review activity ───────────────────────────────────────────────────────
 
 
+def test_read_review_summary_returns_zeros_when_missing(ev):
+    """No severity_summary file → safe defaults so the workflow's
+    branch decision treats it as 'no blockers' rather than aborting."""
+    from temporal.activities.review import read_review_summary
+
+    result = read_review_summary(ev)
+    assert result == {"blocking": 0, "suggested": 0, "nit": 0}
+
+
+def test_read_review_summary_passes_through_counts(ev):
+    """Real summary file → counts surface verbatim as ints."""
+    from temporal.activities.review import read_review_summary
+
+    ev.write_json("07-reviewed/severity_summary.json",
+                  {"blocking": 2, "suggested": 5, "nit": 1})
+    result = read_review_summary(ev)
+    assert result == {"blocking": 2, "suggested": 5, "nit": 1}
+
+
+def test_read_review_summary_coerces_non_int_values(ev):
+    """Defensive: malformed summary (e.g. missing keys, string counts)
+    falls back to zero rather than blowing up the workflow."""
+    from temporal.activities.review import read_review_summary
+
+    ev.write_json("07-reviewed/severity_summary.json",
+                  {"blocking": "3", "suggested": None})
+    result = read_review_summary(ev)
+    assert result["blocking"] == 3
+    assert result["suggested"] == 0
+    assert result["nit"] == 0
+
+
 def test_review_activity_normalizes_comments(ev):
     from temporal.activities.review import run_review
 

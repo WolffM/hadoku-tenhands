@@ -40,6 +40,7 @@ from temporal.temporal_activities import (
     GateInput,
     InboxInput,
     NotifyHumanCommentsInput,
+    ReadReviewSummaryInput,
     RemediationInput,
     RenderInput,
     ReplicateInput,
@@ -331,6 +332,12 @@ async def real_transition(inp: TransitionInput) -> dict:
     return {"ok": True}
 
 
+@activity.defn(name="read_review_summary")
+async def real_read_review_summary(inp: ReadReviewSummaryInput) -> dict:
+    from temporal.activities.review import read_review_summary
+    return read_review_summary(_ev(inp.state_root))
+
+
 @activity.defn(name="watch_upstream_pr_state")
 async def real_watch_upstream_pr_state(inp: WatchPRInput) -> dict:
     """E2E: pretend the upstream PR merged on the first poll so the
@@ -373,6 +380,7 @@ _REAL_ACTIVITIES = [
     real_verify,
     real_remediation,
     real_review,
+    real_read_review_summary,
     real_render,
     real_replicate,
     real_submit,

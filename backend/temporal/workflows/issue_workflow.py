@@ -36,6 +36,7 @@ with workflow.unsafe.imports_passed_through():
         GateOutcome,
         InboxInput,
         NotifyHumanCommentsInput,
+        ReadReviewSummaryInput,
         RemediationInput,
         RenderInput,
         ReplicateInput,
@@ -115,6 +116,12 @@ _POST_SUBMISSION_STALE_DAYS = 30
 # could keep us in the loop indefinitely; in practice operators should
 # step in well before this fires.
 _MAX_REMEDIATION_CYCLES = 3
+
+# Phase 5.2 — local Copilot Review remediation loop. After the workflow
+# runs the fork-internal code review, if blocking comments exist we
+# branch into request_remediation and re-run review. Capped at 3 to
+# prevent the agent from looping on its own bad output.
+_MAX_LOCAL_REMEDIATION_ITERATIONS = 3
 
 # How long the workflow waits at awaiting_signoff for the operator's
 # `submit_human_decision` signal before timing out. Module-level so
@@ -235,6 +242,86 @@ class IssueWorkflow:
                 inp=inp,
                 run_gates_after=False,  # no gates after reviewed in the registry
             )
+
+            # Phase 5.2: local Copilot Review remediation loop. If the
+            # review surfaced blocking comments, route the PR back through
+            # request_remediation and re-run review. Capped at
+            # _MAX_LOCAL_REMEDIATION_ITERATIONS so a stuck agent can't
+            # loop forever — abort with a clear reason on cap.
+            #
+            # Iteration count: up to N+1 read_review_summary calls
+            # (initial + after each of N remediations) and up to N
+            # remediations. If the post-remediation read on iteration N
+            # still shows blockers, abort.
+            for iteration in range(_MAX_LOCAL_REMEDIATION_ITERATIONS + 1):
+                summary = await workflow.execute_activity(
+                    "read_review_summary",
+                    ReadReviewSummaryInput(state_root=inp.state_root),
+                    start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+                blocking = int(summary.get("blocking", 0))
+                if blocking == 0:
+                    break
+                if iteration >= _MAX_LOCAL_REMEDIATION_ITERATIONS:
+                    raise _GateFailed(
+                        gate_name="local_remediation_cap",
+                        reason=(
+                            f"hit MAX_LOCAL_REMEDIATION_ITERATIONS="
+                            f"{_MAX_LOCAL_REMEDIATION_ITERATIONS} with "
+                            f"{blocking} blocking comment(s) still present"
+                        ),
+                    )
+
+                # Route to copilot-tq the same way request_fix etc. are
+                # routed. Skip gates after `remediated` — the registered
+                # `remediation_complete` gate expects an explicit
+                # per-comment resolution map that the Copilot agent
+                # doesn't produce; the loop's re-run of run_review is
+                # the actual blocker-resolution check.
+                remediation_kwargs = {
+                    "start_to_close_timeout": _LONG_ACTIVITY_TIMEOUT,
+                    "heartbeat_timeout": timedelta(minutes=2),
+                    "retry_policy": RetryPolicy(maximum_attempts=1),
+                }
+                if inp.copilot_task_queue:
+                    remediation_kwargs["task_queue"] = inp.copilot_task_queue
+                await workflow.execute_activity(
+                    "request_remediation",
+                    RemediationInput(
+                        upstream_slug=inp.upstream_slug,
+                        fork_slug=inp.fork_slug,
+                        issue_number=inp.issue_number,
+                        state_root=inp.state_root,
+                    ),
+                    **remediation_kwargs,
+                )
+                await workflow.execute_activity(
+                    "record_transition",
+                    TransitionInput(
+                        state_root=inp.state_root,
+                        from_state=self.state,
+                        to_state="remediated",
+                        reason=f"local remediation iteration {iteration + 1}: {blocking} blocking comment(s)",
+                        decided_by="system:workflow",
+                    ),
+                    start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                )
+                self.state = "remediated"
+
+                # Re-run review against the remediated branch. Skip gates
+                # again — `reviewed` has none registered.
+                await self._transition(
+                    target="reviewed",
+                    activity_name="run_review",
+                    arg=ReviewInput(
+                        fork_slug=inp.fork_slug,
+                        pr_number=inp.pr_number_for_review or 0,
+                        state_root=inp.state_root,
+                    ),
+                    inp=inp,
+                    run_gates_after=False,
+                )
 
             # Render the PR body before the replicate/gate steps — those
             # read pr_title.txt / pr_body.md.

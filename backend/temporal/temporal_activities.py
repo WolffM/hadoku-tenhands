@@ -235,6 +235,20 @@ async def act_run_review(inp: ReviewInput) -> dict:
     return run_review(inp.fork_slug, inp.pr_number, ev)
 
 
+@dataclass
+class ReadReviewSummaryInput:
+    state_root: str
+
+
+@activity.defn(name="read_review_summary")
+async def act_read_review_summary(inp: ReadReviewSummaryInput) -> dict:
+    """Read 07-reviewed/severity_summary.json and return {blocking, suggested, nit}."""
+    from .activities.review import read_review_summary
+
+    ev = _evidence_for(inp.state_root)
+    return read_review_summary(ev)
+
+
 # ── Submission ────────────────────────────────────────────────────────────
 
 
@@ -485,6 +499,7 @@ MAIN_ACTIVITIES = [
     act_fork_and_scrub_brief,
     act_setup_environment,
     act_run_review,
+    act_read_review_summary,
     act_render_pr_body,
     act_replicate_fix_as_operator,
     act_submit_upstream_pr,
