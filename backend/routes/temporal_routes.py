@@ -206,7 +206,15 @@ def temporal_evidence_list(batch_id: str, issue_id: str):
 
 @bp.route("/api/temporal/inbox", methods=["GET"])
 def temporal_inbox():
-    """List all currently-deferred issues across every batch."""
+    """List all currently-deferred issues across every batch.
+
+    Phase 5.4 — when gate=operator_signoff, attach `operator_pr_url`
+    and `pr_body_excerpt` (first 500 chars of the rendered body) so
+    the frontend signoff card can surface them inline. Other gate
+    types (judge defers like relevance / submission_judge) get the
+    bare inbox_entry.json fields unchanged so existing card UI keeps
+    rendering as before.
+    """
     items = []
     for b in _list_batches():
         bd = _batch_dir(b["batch_id"])
@@ -218,12 +226,38 @@ def temporal_inbox():
             if not inbox_file.exists() or resolved.exists():
                 continue
             entry = _read_json_safely(inbox_file)
-            if isinstance(entry, dict):
-                items.append({
-                    "batch_id": b["batch_id"],
-                    "issue_id": issue_dir.name,
-                    **entry,
-                })
+            if not isinstance(entry, dict):
+                continue
+            enriched = {
+                "batch_id": b["batch_id"],
+                "issue_id": issue_dir.name,
+                **entry,
+            }
+            if entry.get("gate") == "operator_signoff":
+                pr_url_file = issue_dir / "09-submittable" / "operator_pr_url"
+                if pr_url_file.exists():
+                    try:
+                        enriched["operator_pr_url"] = pr_url_file.read_text(
+                            encoding="utf-8"
+                        ).strip()
+                    except OSError:
+                        pass
+                body_file = issue_dir / "09-submittable" / "pr_body.md"
+                if body_file.exists():
+                    try:
+                        body = body_file.read_text(encoding="utf-8")
+                    except OSError:
+                        body = ""
+                    enriched["pr_body_excerpt"] = body[:500]
+                title_file = issue_dir / "09-submittable" / "pr_title.txt"
+                if title_file.exists():
+                    try:
+                        enriched["pr_title"] = title_file.read_text(
+                            encoding="utf-8"
+                        ).strip()
+                    except OSError:
+                        pass
+            items.append(enriched)
     return _envelope({"items": items, "count": len(items)})
 
 
