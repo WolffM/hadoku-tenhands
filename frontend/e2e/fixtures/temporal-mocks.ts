@@ -153,6 +153,19 @@ export const mockTemporalInboxItems = [
     gate: 'relevance',
     reason: 'unrelated imports detected',
     queued_at: '2026-04-14T10:15:00Z'
+  },
+  {
+    batch_id: 'crimson-kitty-signoff',
+    issue_id: 'microsoft__terminal-5301',
+    workflow_id: 'issue-crimson-kitty-signoff-microsoft__terminal-5301',
+    state: 'awaiting_signoff',
+    gate: 'operator_signoff',
+    reason: 'preview PR ready on fork; edit if needed, then approve to ship upstream',
+    queued_at: '2026-04-26T18:00:00Z',
+    operator_pr_url: 'https://github.com/WolffM/microsoft-terminal/pull/9',
+    pr_title: 'fix: Tab close button stops responding after switching profiles',
+    pr_body_excerpt:
+      '## Summary\n\nThe tab close button became unresponsive after switching profiles because the click handler was bound to the old profile context. This change rebinds it on profile change.\n\n## Root cause\n\nProfileSwitchEvent invalidated...'
   }
 ]
 

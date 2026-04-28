@@ -195,6 +195,80 @@
   cursor: not-allowed;
 }
 
+/* ── Phase 5.4: signoff card ───────────────────────────────────── */
+
+.temporal-inbox__row--signoff {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--color-primary);
+}
+
+.temporal-inbox__signoff-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.temporal-inbox__signoff-title {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.temporal-inbox__pr-title {
+  font-size: var(--hdk-text-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.temporal-inbox__preview-link {
+  align-self: flex-start;
+  text-decoration: none;
+  font-weight: var(--font-weight-semibold);
+  padding: 0.5rem 1rem;
+}
+
+.temporal-inbox__pr-body-excerpt {
+  margin: 0;
+  padding: 0.75rem;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius-sm);
+  font-family: monospace;
+  font-size: var(--hdk-text-xs);
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.temporal-inbox__signoff-note {
+  margin: 0;
+  font-size: var(--hdk-text-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.temporal-inbox__row--signoff .temporal-inbox__actions {
+  gap: 0.5rem;
+}
+
+.temporal-inbox__row--signoff .temporal-inbox__actions button {
+  padding: 0.5rem 1rem;
+  font-size: var(--hdk-text-sm);
+}
+
+.temporal-inbox__score {
+  color: var(--color-text-muted);
+  font-size: var(--hdk-text-xs);
+  font-family: monospace;
+}
+
 /* ── Issue detail ──────────────────────────────────────────────── */
 
 .temporal-issue-detail__header {

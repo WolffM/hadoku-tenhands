@@ -646,8 +646,15 @@ export interface TemporalInboxItem {
   state?: string
   gate?: string
   reason?: string
+  score?: number | null
   queued_at?: string
   workflow_id?: string
+  upstream_slug?: string
+  issue_number?: number
+  // Phase 5.4 enrichment — only populated when gate === 'operator_signoff'
+  operator_pr_url?: string
+  pr_title?: string
+  pr_body_excerpt?: string
   [key: string]: unknown
 }
 

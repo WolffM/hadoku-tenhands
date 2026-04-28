@@ -207,6 +207,71 @@ def test_inbox_lists_deferred_issues(client, state_root):
     assert data["items"][0]["score"] == 0.55
 
 
+def test_inbox_enriches_operator_signoff_with_preview_pr_and_body(client, state_root):
+    """Phase 5.4: when gate='operator_signoff', the inbox response
+    attaches the fork preview PR URL + body excerpt so the frontend
+    signoff card renders without a second round-trip."""
+    _seed_issue(
+        state_root, "batch-signoff", "issue-1",
+        inbox={
+            "state": "awaiting_signoff",
+            "gate": "operator_signoff",
+            "reason": "preview PR ready",
+            "queued_at": "t",
+            "upstream_slug": "microsoft/terminal",
+            "issue_number": 5301,
+        },
+    )
+    issue_dir = state_root / "batch-signoff" / "issue-1"
+    submittable = issue_dir / "09-submittable"
+    submittable.mkdir(parents=True, exist_ok=True)
+    (submittable / "operator_pr_url").write_text(
+        "https://github.com/WolffM/microsoft-terminal/pull/9"
+    )
+    (submittable / "pr_title.txt").write_text(
+        "fix: Tab close button stops responding after switching profiles"
+    )
+    body = "## Summary\n\n" + ("This is a fix narrative. " * 60)
+    (submittable / "pr_body.md").write_text(body)
+
+    resp = client.get("/dispatch/api/temporal/inbox")
+    items = resp.get_json()["data"]["items"]
+    signoff = [i for i in items if i["gate"] == "operator_signoff"]
+    assert len(signoff) == 1
+    entry = signoff[0]
+    assert entry["operator_pr_url"] == "https://github.com/WolffM/microsoft-terminal/pull/9"
+    assert "Tab close button" in entry["pr_title"]
+    assert entry["pr_body_excerpt"].startswith("## Summary")
+    assert len(entry["pr_body_excerpt"]) <= 500
+
+
+def test_inbox_does_not_enrich_judge_defer_entries(client, state_root):
+    """Judge-defer entries (relevance / submission_judge) should NOT
+    receive the signoff-only fields, even if 09-submittable/ exists on
+    disk for some other reason."""
+    _seed_issue(
+        state_root, "batch-judge", "issue-1",
+        inbox={
+            "state": "fixed",
+            "gate": "relevance",
+            "reason": "borderline 0.55",
+            "score": 0.55,
+            "queued_at": "t",
+        },
+    )
+    # Even though 09-submittable/operator_pr_url exists, gate != operator_signoff
+    submittable = state_root / "batch-judge" / "issue-1" / "09-submittable"
+    submittable.mkdir(parents=True, exist_ok=True)
+    (submittable / "operator_pr_url").write_text("https://github.com/x/y/pull/1")
+
+    resp = client.get("/dispatch/api/temporal/inbox")
+    items = resp.get_json()["data"]["items"]
+    assert len(items) == 1
+    assert items[0]["gate"] == "relevance"
+    assert "operator_pr_url" not in items[0]
+    assert "pr_body_excerpt" not in items[0]
+
+
 def test_inbox_skips_resolved_entries(client, state_root):
     _seed_issue(
         state_root, "batch-a", "issue-1",
