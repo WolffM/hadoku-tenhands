@@ -205,6 +205,20 @@ def _download_agent_files(
 
 _HEARTBEAT_INTERVAL_S = 30.0
 
+# Bail when `agent.poll()` returns the same (state, progress, last_event)
+# snapshot for this long — the agent is stuck. The CopilotAgent only
+# advances progress / last_event when commit_count changes, so this
+# effectively says "give up if no new commits in N seconds." Adapts to
+# repo size: as long as Copilot keeps pushing, we keep waiting.
+_NO_PROGRESS_TIMEOUT_S = 600.0  # 10 min
+
+# Absolute upper bound on a single phase, regardless of progress. Sanity
+# guard against pathological hangs where the agent keeps reporting fresh
+# `last_event` strings without ever finishing. Sits well under the
+# workflow's 4h `_LONG_ACTIVITY_TIMEOUT` so Temporal never kills the
+# activity before this returns a clean result.
+_HARD_CEILING_S = 7200.0  # 2h
+
 
 async def _heartbeat_ticker(
     heartbeat: Callable[[str], None],
@@ -228,22 +242,48 @@ async def _heartbeat_ticker(
 async def _wait_and_harvest(
     agent: Agent,
     job: AgentJob,
-    max_polls: int = 90,
-    poll_interval_s: float = 20.0,
     *,
+    poll_interval_s: float = 20.0,
+    no_progress_timeout_s: Optional[float] = None,
+    hard_ceiling_s: Optional[float] = None,
     heartbeat: Optional[Callable[[str], None]] = None,
 ) -> AgentResult:
     """Poll the agent until done (or fail), then harvest.
 
-    The blocking gh subprocess calls run in a thread via asyncio.to_thread
-    so they don't starve the worker event loop while other activities run.
-    A background ticker heartbeats every 30s independently of the poll —
-    so even if `agent.poll()` stalls beyond the Temporal heartbeat
-    timeout, the activity stays alive (B17 fix).
+    Two timeouts replace the old fixed-cycle cap:
 
-    Default bound: 90 polls × 20s = 30 min wall clock per phase.
+    - `no_progress_timeout_s` (default 10 min): if `agent.poll()` returns
+      the same `(state, progress, last_event)` snapshot for this long, the
+      agent is stuck — bail with `exit_reason="timeout"`.
+    - `hard_ceiling_s` (default 2 h): absolute upper bound regardless of
+      progress, sanity-only.
+
+    Why no fixed poll cap: a hard cap is wall-clock against an unknown
+    agent runtime. pnpm-sized monorepos legitimately need more than a
+    small repo; bumping the cap globally is whack-a-mole. The
+    `CopilotAgent` only advances `progress` / `last_event` when
+    `commit_count` changes, so this loop effectively says "keep waiting
+    while commits are still landing; bail if 10 min pass with no new
+    commit." Adaptive to repo size, fast on stuck runs.
+
+    The blocking gh subprocess calls run in a thread via asyncio.to_thread
+    so they don't starve the worker event loop while other activities
+    run. A background ticker heartbeats every 30 s independently of the
+    poll — so even if `agent.poll()` stalls beyond the Temporal heartbeat
+    timeout, the activity stays alive (B17 fix).
     """
-    hb_state: dict = {"detail": "poll 0/{}".format(max_polls)}
+    if no_progress_timeout_s is None:
+        no_progress_timeout_s = _NO_PROGRESS_TIMEOUT_S
+    if hard_ceiling_s is None:
+        hard_ceiling_s = _HARD_CEILING_S
+
+    loop = asyncio.get_event_loop()
+    start = loop.time()
+    last_change = start
+    last_snapshot: Optional[tuple] = None
+    polls = 0
+
+    hb_state: dict = {"detail": "poll 0"}
     ticker: Optional[asyncio.Task] = None
     if heartbeat is not None:
         ticker = asyncio.create_task(
@@ -251,8 +291,14 @@ async def _wait_and_harvest(
         )
 
     try:
-        for i in range(max_polls):
-            hb_state["detail"] = f"poll {i + 1}/{max_polls}"
+        while True:
+            polls += 1
+            now = loop.time()
+            elapsed = now - start
+            stale = now - last_change
+            hb_state["detail"] = (
+                f"poll {polls} elapsed={int(elapsed)}s stale={int(stale)}s"
+            )
 
             status = await asyncio.to_thread(agent.poll, job)
             if status.state == "done":
@@ -265,15 +311,41 @@ async def _wait_and_harvest(
                     agent_log=f"agent reported failed: {status.last_event}",
                     exit_reason="error",
                 )
-            await asyncio.sleep(poll_interval_s)
 
-        return AgentResult(
-            commit_shas=[],
-            diff_text="",
-            files_touched=[],
-            agent_log=f"polled {max_polls} times without done",
-            exit_reason="timeout",
-        )
+            now = loop.time()  # re-sample after the (potentially slow) poll
+            snapshot = (status.state, status.progress, status.last_event)
+            if snapshot != last_snapshot:
+                last_snapshot = snapshot
+                last_change = now
+            elif (now - last_change) >= no_progress_timeout_s:
+                last_event_excerpt = (status.last_event or "")[:100]
+                return AgentResult(
+                    commit_shas=[],
+                    diff_text="",
+                    files_touched=[],
+                    agent_log=(
+                        f"no agent progress for {int(no_progress_timeout_s)}s "
+                        f"after {polls} polls "
+                        f"(last: state={status.state} "
+                        f"progress={status.progress:.2f} "
+                        f"event={last_event_excerpt!r})"
+                    ),
+                    exit_reason="timeout",
+                )
+
+            if (now - start) >= hard_ceiling_s:
+                return AgentResult(
+                    commit_shas=[],
+                    diff_text="",
+                    files_touched=[],
+                    agent_log=(
+                        f"hard ceiling {int(hard_ceiling_s)}s reached "
+                        f"after {polls} polls"
+                    ),
+                    exit_reason="timeout",
+                )
+
+            await asyncio.sleep(poll_interval_s)
     finally:
         if ticker is not None:
             ticker.cancel()
