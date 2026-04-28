@@ -52,24 +52,29 @@ callouts, 49% never reached upstream).
 |---|---|
 | [phase-5-plan.md](phase-5-plan.md) | What's left between today and "ready to actually ship upstream PRs at batch scale" — five sub-phases ordered by blocking-ness |
 
-## Status (2026-04-26)
+## Status (2026-04-27)
 
-Phase 4 is complete. The pipeline reaches `awaiting_signoff` end-to-end
-on fresh batches with operator-authored preview PRs that have:
+Phases 4, 5.1, 5.2, and 5.3 are shipped. The pipeline can run end-to-end
+through upstream submission and continue watching the upstream PR until
+merge / close, with a remediation branch that responds to maintainer
+review comments. Per-repo conventions (DCO, conventional commits,
+custom close keywords) are honored automatically when the aggregator
+surfaces them.
 
-- A single squashed commit, no agent lineage
-- Rich rendered body (issue prose, root cause, repro steps, fix file
-  list, verification) with zero internal-pipeline vocabulary
-- Output sanitizer + post-signoff re-scan as the cross-ref invariant
-- Live operator-edited content flows upstream verbatim on signoff
+| Phase | Status |
+|---|---|
+| 4 — Operator-signoff loop with rich preview PR | shipped (2026-04-26) |
+| 5.1 — Post-submission lifecycle + remediation loop | shipped (2026-04-27) |
+| 5.2 — Local Copilot Review remediation branch | shipped (2026-04-27) |
+| 5.3 — Per-repo contribution conventions | shipped (2026-04-27) |
+| 5.4 — Operator inbox UI for signoff | not started |
+| 5.5 — Judge calibration | not started |
 
-Zero upstream PRs have shipped, by design. We held the trigger because
-five gaps in the original plan are still open — they're sequenced in
-[phase-5-plan.md](phase-5-plan.md). Until **Phase 5.1
-(post-submission lifecycle)** is built, an upstream submission would
-go out and the pipeline would stop watching it — no reaction to
-maintainer review comments, no remediation loop. That's not a
-shippable shape.
+Zero upstream PRs have shipped at scale yet — `submit_to_upstream`
+defaults to `false` until 5.4 lands and operators can drive the
+signoff loop without `curl`. The first real-world batch with the
+post-submission loop active will be the production exercise of 5.1's
+30-min watcher cadence + remediation cycle.
 
 Phase 4 retrospective: B1–B26 documented in
 [state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md).
