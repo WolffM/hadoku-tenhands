@@ -77,3 +77,25 @@ def run_review(
     evidence.write_json("07-reviewed/severity_summary.json", summary)
 
     return {"ok": True, "comment_count": len(normalized), "summary": summary}
+
+
+def read_review_summary(evidence) -> dict:
+    """Read the severity counts produced by the most recent run_review.
+
+    Phase 5.2 — the workflow uses this to decide whether to branch into
+    `request_remediation` (when blocking > 0) or fall through to
+    submission. Returns zeros if the file is missing rather than
+    raising; a missing summary is treated as "no blockers" so the
+    workflow doesn't abort just because run_review produced a
+    degenerate result.
+    """
+    if not evidence.exists("07-reviewed/severity_summary.json"):
+        return {"blocking": 0, "suggested": 0, "nit": 0}
+    summary = evidence.read_json("07-reviewed/severity_summary.json")
+    if not isinstance(summary, dict):
+        return {"blocking": 0, "suggested": 0, "nit": 0}
+    return {
+        "blocking": int(summary.get("blocking", 0) or 0),
+        "suggested": int(summary.get("suggested", 0) or 0),
+        "nit": int(summary.get("nit", 0) or 0),
+    }

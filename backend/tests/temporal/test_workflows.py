@@ -30,6 +30,7 @@ from temporal.temporal_activities import (
     GateOutcome,
     InboxInput,
     NotifyHumanCommentsInput,
+    ReadReviewSummaryInput,
     RemediationInput,
     RenderInput,
     ReplicateInput,
@@ -90,6 +91,18 @@ async def fake_remediation(inp: RemediationInput) -> dict:
 @activity.defn(name="run_review")
 async def fake_review(inp: ReviewInput) -> dict:
     return {"ok": True}
+
+
+# Phase 5.2: queue of review-summary results — each call pops the next.
+# Defaults to {blocking:0} so existing tests skip the remediation loop.
+_FAKE_REVIEW_SUMMARIES: list[dict] = []
+
+
+@activity.defn(name="read_review_summary")
+async def fake_read_review_summary(inp: ReadReviewSummaryInput) -> dict:
+    if _FAKE_REVIEW_SUMMARIES:
+        return _FAKE_REVIEW_SUMMARIES.pop(0)
+    return {"blocking": 0, "suggested": 0, "nit": 0}
 
 
 @activity.defn(name="render_pr_body")
@@ -201,6 +214,7 @@ _FAKE_ACTIVITIES = [
     fake_verify,
     fake_remediation,
     fake_review,
+    fake_read_review_summary,
     fake_render,
     fake_replicate,
     fake_submit,
@@ -252,11 +266,13 @@ def issue_input(tmp_path: Path) -> IssueInput:
 def _reset_gate_results():
     _FAKE_GATE_RESULTS.clear()
     _FAKE_WATCH_RESULTS.clear()
+    _FAKE_REVIEW_SUMMARIES.clear()
     global _FAKE_WATCH_DEFAULT
     _FAKE_WATCH_DEFAULT = {}
     yield
     _FAKE_GATE_RESULTS.clear()
     _FAKE_WATCH_RESULTS.clear()
+    _FAKE_REVIEW_SUMMARIES.clear()
     _FAKE_WATCH_DEFAULT = {}
 
 
@@ -483,8 +499,8 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
 
     main_activities = [
         fake_eligibility, fake_fork, fake_environment,
-        fake_review, fake_render, fake_replicate, fake_submit,
-        fake_run_gates, fake_enqueue, fake_transition,
+        fake_review, fake_read_review_summary, fake_render, fake_replicate,
+        fake_submit, fake_run_gates, fake_enqueue, fake_transition,
     ]
     copilot_activities = [fake_repro, fake_fix, fake_verify, fake_remediation]
 
@@ -750,3 +766,133 @@ async def test_post_submission_transient_poll_failure_is_recoverable(issue_input
     # The transient failures didn't abort the workflow — it merged
     # successfully on the fourth poll
     assert result.final_state == "merged"
+
+
+# ── Phase 5.2 — Local Copilot Review remediation branch ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_local_remediation_fires_when_review_finds_blockers(issue_input):
+    """Acceptance: Copilot Review flagging a blocking comment triggers
+    request_remediation. After remediation, the second review pass
+    finds zero blockers and the workflow advances to replicated."""
+    _set_all_gates_pass()
+
+    # First read_review_summary call → 2 blockers; second (post-remediation) → 0
+    _FAKE_REVIEW_SUMMARIES.extend([
+        {"blocking": 2, "suggested": 1, "nit": 0},
+        {"blocking": 0, "suggested": 1, "nit": 0},
+    ])
+
+    remediation_calls: list[RemediationInput] = []
+
+    @activity.defn(name="request_remediation")
+    async def tracking_remediation(inp: RemediationInput) -> dict:
+        remediation_calls.append(inp)
+        return {"ok": True}
+
+    activities = [a for a in _FAKE_ACTIVITIES if a.__name__ != "fake_remediation"]
+    activities.append(tracking_remediation)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-tq",
+            workflows=[IssueWorkflow, BatchWorkflow],
+            activities=activities,
+        ):
+            result = await env.client.execute_workflow(
+                IssueWorkflow.run,
+                issue_input,
+                id=f"issue-{issue_input.issue_number}-localremed",
+                task_queue="test-tq",
+            )
+
+    assert result.final_state == "replicated"
+    assert len(remediation_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_local_remediation_aborts_at_iteration_cap(issue_input):
+    """Acceptance: loop terminates after MAX_LOCAL_REMEDIATION_ITERATIONS=3
+    even if blockers persist. Workflow goes to aborted with a clear reason."""
+    _set_all_gates_pass()
+
+    # Always-blocking: every read_review_summary call returns blocking>0,
+    # forcing the loop to hit the cap. _FAKE_REVIEW_SUMMARIES is consumed
+    # in order; we provide enough entries to cover all 4 reads (initial +
+    # 3 post-remediation), each with blockers still present.
+    _FAKE_REVIEW_SUMMARIES.extend([
+        {"blocking": 3, "suggested": 0, "nit": 0},
+        {"blocking": 2, "suggested": 0, "nit": 0},
+        {"blocking": 2, "suggested": 0, "nit": 0},
+        {"blocking": 1, "suggested": 0, "nit": 0},
+    ])
+
+    remediation_calls: list[RemediationInput] = []
+
+    @activity.defn(name="request_remediation")
+    async def tracking_remediation(inp: RemediationInput) -> dict:
+        remediation_calls.append(inp)
+        return {"ok": True}
+
+    activities = [a for a in _FAKE_ACTIVITIES if a.__name__ != "fake_remediation"]
+    activities.append(tracking_remediation)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-tq",
+            workflows=[IssueWorkflow, BatchWorkflow],
+            activities=activities,
+        ):
+            result = await env.client.execute_workflow(
+                IssueWorkflow.run,
+                issue_input,
+                id=f"issue-{issue_input.issue_number}-localcap",
+                task_queue="test-tq",
+            )
+
+    assert result.final_state == "aborted"
+    assert "local_remediation_cap" in result.abort_reason
+    assert "MAX_LOCAL_REMEDIATION_ITERATIONS=3" in result.abort_reason
+    # Exactly 3 remediations fired before abort (the 4th read found
+    # blockers and aborted instead of triggering a 4th remediation)
+    assert len(remediation_calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_local_remediation_skipped_when_review_clean(issue_input):
+    """Smoke: clean initial review → no remediation fires → workflow
+    proceeds straight to replicated (existing happy path with
+    blocking=0 explicitly)."""
+    _set_all_gates_pass()
+
+    _FAKE_REVIEW_SUMMARIES.append({"blocking": 0, "suggested": 0, "nit": 0})
+
+    remediation_calls: list[RemediationInput] = []
+
+    @activity.defn(name="request_remediation")
+    async def tracking_remediation(inp: RemediationInput) -> dict:
+        remediation_calls.append(inp)
+        return {"ok": True}
+
+    activities = [a for a in _FAKE_ACTIVITIES if a.__name__ != "fake_remediation"]
+    activities.append(tracking_remediation)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-tq",
+            workflows=[IssueWorkflow, BatchWorkflow],
+            activities=activities,
+        ):
+            result = await env.client.execute_workflow(
+                IssueWorkflow.run,
+                issue_input,
+                id=f"issue-{issue_input.issue_number}-cleanreview",
+                task_queue="test-tq",
+            )
+
+    assert result.final_state == "replicated"
+    assert remediation_calls == []
