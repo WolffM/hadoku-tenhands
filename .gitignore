@@ -81,13 +81,22 @@ pipeline-report.html
 *.csv
 !docs/runbooks/*.csv
 
-# Temporal pipeline state (runtime evidence, survives deploys)
-state/smoke-*
-state/batch-*
-state/crimson-kitty-*
+# Temporal pipeline state (runtime evidence — must survive deploys).
+#
+# Why this pattern matters for deploy survival: hadoku_site's
+# deploy-executor runs `git stash --include-untracked` before pulling
+# main, and never pops the stash. UNTRACKED files get stashed away.
+# IGNORED files (matching these patterns) are skipped by stash and
+# survive on disk across deploys.
+#
+# 2026-04-28: an entire batch of phase5-prod-v* state was wiped during
+# a deploy because the prior pattern list (smoke-*, batch-*,
+# crimson-kitty-*, phase4-external-v*) was too narrow. Generalized to
+# `state/*/` so any future batch-naming convention is protected by
+# default. Files at the root of state/ remain visible unless explicitly
+# tracked; existing tracked files under any state subdir keep tracking.
+state/*/
 
 # Temporary
 .tmp/
 .cache/
-# Evidence dirs from Temporal pipeline runs
-state/phase4-external-v*/
