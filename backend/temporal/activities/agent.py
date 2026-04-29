@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any, Callable, Optional
 
 from ..agents import Agent, AgentJob, AgentResult, IssueRef
+
+logger = logging.getLogger(__name__)
 
 
 async def request_repro(
@@ -241,8 +244,8 @@ async def _heartbeat_ticker(
     while True:
         try:
             heartbeat(state.get("detail", "waiting"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("heartbeat ticker call failed: %s", e, exc_info=True)
         await asyncio.sleep(interval_s)
 
 
