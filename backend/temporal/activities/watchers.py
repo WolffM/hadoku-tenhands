@@ -21,7 +21,10 @@ IssueWorkflow.run after the workflow reaches `submitted`.
 from __future__ import annotations
 
 import json as _json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _default_run_gh(args: list[str], stdin_data: str | None = None) -> dict:
@@ -298,8 +301,12 @@ def watch_upstream_pr_state(
                 f"from {new_blocking['user']}: "
                 f"{(new_blocking['body'] or '')[:160]}"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "blocking-review notify failed for %s#%s: %s",
+                upstream_slug, pr_number, e,
+                exc_info=True,
+            )
 
     # ── Terminal evidence ───────────────────────────────────────────────
     if merged:

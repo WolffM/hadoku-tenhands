@@ -13,8 +13,11 @@ signal is part of the workflow itself, not this module.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _default_notify(message: str) -> None:
@@ -58,13 +61,20 @@ def enqueue_for_human_review(
     evidence.write_text("awaiting/queued_at", now)
     evidence.append_jsonl("events.jsonl", {"event": "inbox_enqueue", **entry})
 
-    # Best-effort Discord notification — never fail the workflow on this.
+    # Best-effort Discord notification — never fail the workflow on this,
+    # but DO log the failure. A silent pass here masked a missing
+    # `notify_inbox_queue` symbol for ~the entire Phase 5 lifetime
+    # (no Discord posts fired for any defer/signoff event).
     try:
         notify(
             f"[crimson-kitty] inbox: {upstream_slug}#{issue_number} deferred at "
             f"{state}/{gate_name} — {reason}"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "inbox notify failed for %s#%s at %s/%s: %s",
+            upstream_slug, issue_number, state, gate_name, e,
+            exc_info=True,
+        )
 
     return {"ok": True, "queued_at": now}
