@@ -11,6 +11,8 @@ from helpers.notifications import (
     notify_upstream_merged,
     notify_upstream_feedback,
     notify_upstream_closed,
+    notify_inbox_queue,
+    notify_human_comment,
     COLOR_SUCCESS,
     COLOR_INFO,
     COLOR_WARNING,
@@ -183,3 +185,85 @@ class TestNotifyUpstreamClosed:
         assert embed["color"] == COLOR_ERROR
         assert "Closed" in embed["title"]
         assert "microsoft/pyright" in embed["description"]
+
+
+class TestNotifyInboxQueue:
+    """Phase 5 — operator inbox notifications must distinguish judge defers
+    from operator_signoff entries so the operator can triage from Discord."""
+
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    @patch("helpers.notifications.requests.post")
+    def test_operator_signoff_uses_signoff_title(self, mock_post):
+        notify_inbox_queue(
+            "[crimson-kitty] inbox: strapi/strapi#26009 deferred at "
+            "awaiting_signoff/operator_signoff — preview PR ready on fork"
+        )
+        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
+        embed = payload["embeds"][0]
+        assert "Awaiting Signoff" in embed["title"]
+        assert embed["color"] == COLOR_INFO
+        assert "strapi/strapi#26009" in embed["description"]
+
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    @patch("helpers.notifications.requests.post")
+    def test_submission_judge_defer_uses_judge_title_and_warning_color(self, mock_post):
+        notify_inbox_queue(
+            "[crimson-kitty] inbox: prisma/prisma#29399 deferred at "
+            "submittable/submission_judge — borderline 0.62"
+        )
+        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
+        embed = payload["embeds"][0]
+        assert "Judge Defer" in embed["title"]
+        assert embed["color"] == COLOR_WARNING
+
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    @patch("helpers.notifications.requests.post")
+    def test_relevance_defer_uses_judge_title(self, mock_post):
+        notify_inbox_queue(
+            "[crimson-kitty] inbox: ollama/ollama#15669 deferred at "
+            "fixed/relevance — borderline 0.66"
+        )
+        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
+        embed = payload["embeds"][0]
+        assert "Judge Defer" in embed["title"]
+
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "")
+    @patch("helpers.notifications.requests.post")
+    def test_skips_when_webhook_url_empty(self, mock_post):
+        notify_inbox_queue("[crimson-kitty] inbox: x/y#1 deferred at z/operator_signoff — ok")
+        mock_post.assert_not_called()
+
+
+class TestNotifyHumanComment:
+    """Phase 5.1 — upstream human comments + blocking reviews route here.
+    Blocking reviews need visual urgency."""
+
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    @patch("helpers.notifications.requests.post")
+    def test_blocking_review_uses_warning_color(self, mock_post):
+        notify_human_comment(
+            "[crimson-kitty] BLOCKING review on prisma/prisma#28901 from "
+            "alice: please fix the schema migration"
+        )
+        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
+        embed = payload["embeds"][0]
+        assert "Blocking Review" in embed["title"]
+        assert embed["color"] == COLOR_WARNING
+
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    @patch("helpers.notifications.requests.post")
+    def test_regular_comment_uses_info_color(self, mock_post):
+        notify_human_comment(
+            "[crimson-kitty] new comment on prisma/prisma#28901 from "
+            "alice: thanks for the patch"
+        )
+        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
+        embed = payload["embeds"][0]
+        assert "New Comment" in embed["title"]
+        assert embed["color"] == COLOR_INFO
+
+    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "")
+    @patch("helpers.notifications.requests.post")
+    def test_skips_when_webhook_url_empty(self, mock_post):
+        notify_human_comment("[crimson-kitty] BLOCKING review on x/y#1 from a: hi")
+        mock_post.assert_not_called()
