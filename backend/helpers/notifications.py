@@ -169,3 +169,56 @@ def notify_upstream_closed(origin_slug, pr_url, title):
             _field("PR", pr_url),
         ],
     )
+
+
+# --- Phase 5: Inbox + watcher notifications ---
+
+def notify_inbox_queue(message):
+    """Notify when a workflow enqueues an entry to the operator inbox.
+
+    Fires for both judge defers (relevance, submission_judge) and for
+    operator_signoff entries (pipeline ready to ship upstream PR).
+    Distinguishes the two visually so the operator can triage from the
+    Discord channel — operator_signoff = "all gates passed, your call",
+    judge defer = "judge wasn't sure, please decide".
+
+    Caller passes a pre-formatted string from
+    `temporal/activities/inbox.py:enqueue_for_human_review`.
+    """
+    if "operator_signoff" in message:
+        title = "Inbox: Awaiting Signoff"
+        color = COLOR_INFO
+    elif "submission_judge" in message or "relevance" in message:
+        title = "Inbox: Judge Defer"
+        color = COLOR_WARNING
+    else:
+        title = "Inbox"
+        color = COLOR_INFO
+    send_discord_notification(
+        title=title,
+        description=message,
+        color=color,
+    )
+
+
+def notify_human_comment(message):
+    """Notify when a human comment or blocking review lands on an upstream PR.
+
+    Phase 5.1: called as a side effect of `notify_human_comments_for_issue`
+    (regular comments) and `watch_upstream_pr_state` (blocking reviews).
+    Caller pre-formats the message; this routes to Discord.
+
+    Distinguishes blocking reviews from comments — blocking reviews
+    require operator action (route to remediation), comments are FYI.
+    """
+    if "BLOCKING" in message:
+        title = "Upstream: Blocking Review"
+        color = COLOR_WARNING
+    else:
+        title = "Upstream: New Comment"
+        color = COLOR_INFO
+    send_discord_notification(
+        title=title,
+        description=message,
+        color=color,
+    )
