@@ -208,9 +208,16 @@ _HEARTBEAT_INTERVAL_S = 30.0
 # Bail when `agent.poll()` returns the same (state, progress, last_event)
 # snapshot for this long — the agent is stuck. The CopilotAgent only
 # advances progress / last_event when commit_count changes, so this
-# effectively says "give up if no new commits in N seconds." Adapts to
-# repo size: as long as Copilot keeps pushing, we keep waiting.
-_NO_PROGRESS_TIMEOUT_S = 600.0  # 10 min
+# effectively says "give up if no new commits in N seconds."
+#
+# Why 60 min and not 10: the Copilot agent's first commit is "Initial
+# plan" (created with the draft PR), and the second commit (the actual
+# fix) can land 20–60 min later depending on repo size. Observed in the
+# 2026-04-28 phase5-prod-v2 batch: biomejs/biome had a 21 min gap, and
+# the prior pnpm/pnpm run had a 50 min gap. A 10 min cap killed
+# legitimate work; 60 min covers observed slow cases while still
+# bailing on truly stuck agents (combined with the 2h hard ceiling).
+_NO_PROGRESS_TIMEOUT_S = 3600.0  # 60 min
 
 # Absolute upper bound on a single phase, regardless of progress. Sanity
 # guard against pathological hangs where the agent keeps reporting fresh
