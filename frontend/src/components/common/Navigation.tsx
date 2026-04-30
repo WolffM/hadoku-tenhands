@@ -1,62 +1,36 @@
 /**
  * Navigation Component
  *
- * Top navigation tabs for switching between views.
- * Shows Home + pipeline tabs when not on the select view, and global tabs (Review Queue, Health) always.
+ * Three always-visible top-level tabs: Home (pipeline picker), Retrospective,
+ * Health. Individual pipelines (Vibecheck, OSS Contrib, Crimson-Kitty) are
+ * NOT top-level tabs — pick one from Home, work inside it, click Home to
+ * switch. Cleanup 2026-04-30 collapsed 7 tabs into 3 by removing redundant
+ * pipeline-specific tabs and dropping the legacy Review Queue surface
+ * (its data is reachable via Vibecheck Stage 4).
  */
 
-import { usePipelineStore, selectReviewQueueCount, type ViewType } from '../../store'
+import { usePipelineStore, type ViewType } from '../../store'
+
+const TOP_TABS: { id: ViewType; label: string }[] = [
+  { id: 'select', label: 'Home' },
+  { id: 'retro', label: 'Retrospective' },
+  { id: 'health', label: 'Health' }
+]
 
 export function Navigation() {
   const activeView = usePipelineStore(state => state.activeView)
   const setActiveView = usePipelineStore(state => state.setActiveView)
-  const reviewCount = usePipelineStore(selectReviewQueueCount)
-
-  const showPipelineTabs = activeView !== 'select'
-
-  const globalTabs: { id: ViewType; label: string; badge?: number }[] = [
-    { id: 'review', label: 'Review Queue', badge: reviewCount },
-    { id: 'health', label: 'Health' }
-  ]
-
-  const pipelineTabs: { id: ViewType; label: string }[] = [
-    { id: 'list', label: 'Pipelines' },
-    { id: 'oss', label: 'OSS Contrib' },
-    { id: 'temporal', label: 'Crimson-Kitty' },
-    { id: 'retro', label: 'Retrospective' }
-  ]
 
   return (
     <nav className="navigation">
       <div className="nav-tabs">
-        {showPipelineTabs && (
-          <button
-            className="nav-tabs__tab nav-tabs__tab--home"
-            onClick={() => setActiveView('select')}
-          >
-            Home
-          </button>
-        )}
-        {showPipelineTabs &&
-          pipelineTabs.map(tab => (
-            <button
-              key={tab.id}
-              className={`nav-tabs__tab ${activeView === tab.id ? 'nav-tabs__tab--active' : ''}`}
-              onClick={() => setActiveView(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        {globalTabs.map(tab => (
+        {TOP_TABS.map(tab => (
           <button
             key={tab.id}
             className={`nav-tabs__tab ${activeView === tab.id ? 'nav-tabs__tab--active' : ''}`}
             onClick={() => setActiveView(tab.id)}
           >
             {tab.label}
-            {tab.badge !== undefined && tab.badge > 0 && (
-              <span className="nav-tabs__badge">{tab.badge}</span>
-            )}
           </button>
         ))}
       </div>

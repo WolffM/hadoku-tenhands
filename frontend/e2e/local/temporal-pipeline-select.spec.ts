@@ -37,11 +37,18 @@ test.describe('Temporal pipeline select', () => {
     await expect(page.getByTestId('temporal-inbox')).toBeVisible()
   })
 
-  test('Crimson-Kitty nav tab switches into the view', async ({ page }) => {
+  test('Home → Crimson-Kitty card switches into the view from another pipeline', async ({
+    page
+  }) => {
     await page.goto('/?key=test-key')
-    // enter any pipeline first to reveal pipeline tabs
+    // Enter Vibecheck first
     await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-    await page.getByRole('button', { name: /Crimson-Kitty/i }).click()
+    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
+
+    // Pipelines are no longer surfaced as top-level nav tabs — Home is the
+    // pipeline-switching surface. Click Home, then click the Crimson-Kitty card.
+    await page.getByRole('button', { name: /^Home$/i }).click()
+    await page.locator('.pipeline-select-card').filter({ hasText: 'Crimson-Kitty' }).click()
     await expect(page.getByTestId('temporal-pipeline-view')).toBeVisible()
   })
 })
