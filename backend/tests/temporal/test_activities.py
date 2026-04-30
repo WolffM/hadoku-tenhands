@@ -819,22 +819,34 @@ async def test_request_verify_synthesizes_verify_notes_when_missing(ev, issue):
 
     The synthesized content is upstream-visible — the v13 user audit
     surfaced that the old synth leaked "agent" and "exit_reason" into
-    the upstream PR body. Assert the new shape: real verification
-    prose, no internal vocab, ≥20 words for the gate."""
+    the upstream PR body. The 2026-04-30 cleanup also removed the
+    leading `## How this fix is verified` H2 (was producing duplicate
+    headers under the parent `## Verification`) and the third-person
+    "Reviewers can run..." reviewer-instruction prose. Assert the new
+    shape: concrete prose, no internal vocab, no leading H2, ≥20 words
+    for the gate."""
     from temporal.activities.agent import request_verify
 
     await request_verify(NoopAgent(), issue, "verify", ev)
 
     assert ev.exists("06-verified/verify_notes.md")
     notes = ev.read_text("06-verified/verify_notes.md")
-    # Real heading the reviewer sees
-    assert "## How this fix is verified" in notes
-    # Must have enough words for the gate's 20-word minimum
+    # No leading H2 — the parent `## Verification` heading is added
+    # downstream in _render_default, and a duplicate would scream "AI
+    # filler" to a reviewer.
+    assert not notes.lstrip().startswith("##")
+    # Must have enough words for the verify gate's 20-word minimum
     assert len(notes.split()) >= 20
     # NO internal pipeline vocabulary
     notes_lower = notes.lower()
     for forbidden in ("agent", "exit_reason", "auto-synthesized", "orchestrator", "copilot"):
         assert forbidden not in notes_lower, f"'{forbidden}' leaked into verify notes"
+    # NO third-person reviewer-instruction prose (the flag from 2026-04-30)
+    for forbidden_phrase in ("reviewers can run", "reviewers should run"):
+        assert forbidden_phrase not in notes_lower, (
+            f"'{forbidden_phrase}' leaked back into verify notes — "
+            "third-person reviewer-instruction prose was the smell we cleaned up"
+        )
 
 
 @pytest.mark.asyncio
@@ -1262,6 +1274,10 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
         # GET commit tree sha
         if "git/commits/BOT_HEAD_SHA" in args[1] if len(args) > 1 else False:
             return {"success": True, "output": "BOT_TREE_SHA\n"}
+        # GET tree root entries (notes.md strip pre-pass — 2026-04-30)
+        if args[1] == "repos/WolffM/demo/git/trees/BOT_TREE_SHA" and "--jq" in args:
+            # No notes.md in the tree — strip should be a no-op
+            return {"success": True, "output": '["src/x.py", "tests/test_x.py"]'}
         # GET base ref sha
         if args[1] == "repos/WolffM/demo/git/refs/heads/main" and "--jq" in args:
             return {"success": True, "output": "BASE_HEAD_SHA\n"}
@@ -1435,6 +1451,170 @@ def test_render_pr_body_skips_prefix_when_already_present(ev):
     title = ev.read_text("09-submittable/pr_title.txt")
     assert title.startswith("feat: "), title
     assert not title.startswith("fix: feat:")
+
+
+def test_replicate_strips_notes_md_from_squashed_tree(ev):
+    """2026-04-30: `notes.md` is a pipeline-internal scratch file the
+    agent commits at repo root for the `repro_evidence_present` gate.
+    It belongs in evidence (`04-reproduced/notes.md`), NOT in the
+    upstream-bound diff. `replicate_fix_as_operator` must build a
+    delta tree that strips `notes.md` from the agent's tree before
+    creating the operator commit, so the upstream maintainer never
+    sees the leak.
+
+    Surfaced after the strapi + gofiber operator preview PRs leaked
+    `notes.md` into their diffs.
+    """
+    from temporal.activities.submission import replicate_fix_as_operator
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"number": 5, "title": "Fix it", "body": "Bug."},
+    })
+    ev.write_json("05-fixed/agent_result.json", {
+        "pr_url": "https://github.com/WolffM/demo/pull/9",
+        "commit_shas": ["botA"],
+        "files_touched": ["src/x.py"],
+        "diff_bytes": 100,
+        "exit_reason": "success",
+    })
+    ev.write_json("05-fixed/commits.json", [{"sha": "botA", "message": "Fix"}])
+    ev.write_text("05-fixed/commit_shas.txt", "botA\n")
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("09-submittable/pr_title.txt", "Fix it")
+    ev.write_text("09-submittable/pr_body.md", "## Summary\n\nFix.\n")
+
+    captured: list[tuple[list, str | None]] = []
+
+    def fake_gh(args, stdin_data=None):
+        captured.append((list(args), stdin_data))
+
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/9"] and "--jq" in args:
+            return {"success": True, "output": '{"head_ref":"x","head_sha":"BOT_HEAD","base_ref":"main"}'}
+        if "git/commits/BOT_HEAD" in (args[1] if len(args) > 1 else ""):
+            return {"success": True, "output": "OLD_TREE\n"}
+        # Tree root listing INCLUDES notes.md → must be stripped
+        if args[1] == "repos/WolffM/demo/git/trees/OLD_TREE" and "--jq" in args:
+            return {"success": True, "output": '["src/x.py", "notes.md", "tests/test_x.py"]'}
+        # POST git/trees → return a NEW tree sha that the squash should use
+        if args[1] == "repos/WolffM/demo/git/trees" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"sha":"STRIPPED_TREE"}'}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/main" and "--jq" in args:
+            return {"success": True, "output": "BASE_SHA\n"}
+        if args[1] == "repos/WolffM/demo/git/commits" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"sha":"NEW_SHA"}'}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/op-branch" and "--silent" in args:
+            return {"success": False, "error": "404"}
+        if args[1] == "repos/WolffM/demo/git/refs" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"ref":"refs/heads/op-branch"}'}
+        if args[1] == "repos/WolffM/demo/pulls" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"number":42,"html_url":"https://github.com/WolffM/demo/pull/42"}'}
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/9"] and "PATCH" in args:
+            return {"success": True, "output": "{}"}
+        return {"success": True, "output": "{}"}
+
+    def fake_aggregator(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    replicate_fix_as_operator(
+        upstream_slug="upstream/demo", fork_slug="WolffM/demo",
+        branch_name="op-branch", evidence=ev,
+        run_gh=fake_gh, aggregator_get=fake_aggregator,
+    )
+
+    # Assert the strip POST happened with the right payload
+    strip_calls = [
+        (a, s) for a, s in captured
+        if len(a) > 1 and a[1] == "repos/WolffM/demo/git/trees" and "POST" in a
+    ]
+    assert len(strip_calls) == 1, "expected exactly one POST git/trees to strip notes.md"
+    strip_payload = json.loads(strip_calls[0][1])
+    assert strip_payload["base_tree"] == "OLD_TREE"
+    assert strip_payload["tree"] == [
+        {"path": "notes.md", "mode": "100644", "type": "blob", "sha": None}
+    ]
+
+    # Assert the squashed commit was built against the STRIPPED tree
+    create_commit = [
+        (a, s) for a, s in captured
+        if len(a) > 1 and a[1] == "repos/WolffM/demo/git/commits" and "POST" in a
+    ]
+    assert len(create_commit) == 1
+    commit_payload = json.loads(create_commit[0][1])
+    assert commit_payload["tree"] == "STRIPPED_TREE", (
+        "operator commit should reference the stripped tree, not the "
+        "agent's original tree containing notes.md"
+    )
+
+
+def test_replicate_no_strip_when_notes_md_absent(ev):
+    """If the agent didn't commit notes.md, no POST git/trees should
+    happen — we don't want a no-op API call on every replicate. The
+    squash commit just uses the original tree directly."""
+    from temporal.activities.submission import replicate_fix_as_operator
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"number": 5, "title": "Fix it", "body": "Bug."},
+    })
+    ev.write_json("05-fixed/agent_result.json", {
+        "pr_url": "https://github.com/WolffM/demo/pull/9",
+        "commit_shas": ["botA"], "files_touched": ["src/x.py"],
+        "diff_bytes": 100, "exit_reason": "success",
+    })
+    ev.write_json("05-fixed/commits.json", [{"sha": "botA", "message": "Fix"}])
+    ev.write_text("05-fixed/commit_shas.txt", "botA\n")
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("09-submittable/pr_title.txt", "Fix it")
+    ev.write_text("09-submittable/pr_body.md", "## Summary\n\nFix.\n")
+
+    captured: list[tuple[list, str | None]] = []
+
+    def fake_gh(args, stdin_data=None):
+        captured.append((list(args), stdin_data))
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/9"] and "--jq" in args:
+            return {"success": True, "output": '{"head_ref":"x","head_sha":"BOT_HEAD","base_ref":"main"}'}
+        if "git/commits/BOT_HEAD" in (args[1] if len(args) > 1 else ""):
+            return {"success": True, "output": "CLEAN_TREE\n"}
+        # No notes.md in this tree
+        if args[1] == "repos/WolffM/demo/git/trees/CLEAN_TREE" and "--jq" in args:
+            return {"success": True, "output": '["src/x.py", "tests/test_x.py"]'}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/main" and "--jq" in args:
+            return {"success": True, "output": "BASE_SHA\n"}
+        if args[1] == "repos/WolffM/demo/git/commits" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"sha":"NEW_SHA"}'}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/op-branch" and "--silent" in args:
+            return {"success": False, "error": "404"}
+        if args[1] == "repos/WolffM/demo/git/refs" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"ref":"refs/heads/op-branch"}'}
+        if args[1] == "repos/WolffM/demo/pulls" and "-X" in args and "POST" in args:
+            return {"success": True, "output": '{"number":42,"html_url":"https://github.com/WolffM/demo/pull/42"}'}
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/9"] and "PATCH" in args:
+            return {"success": True, "output": "{}"}
+        return {"success": True, "output": "{}"}
+
+    def fake_aggregator(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    replicate_fix_as_operator(
+        upstream_slug="upstream/demo", fork_slug="WolffM/demo",
+        branch_name="op-branch", evidence=ev,
+        run_gh=fake_gh, aggregator_get=fake_aggregator,
+    )
+
+    # No POST git/trees should happen
+    strip_calls = [
+        (a, s) for a, s in captured
+        if len(a) > 1 and a[1] == "repos/WolffM/demo/git/trees" and "POST" in a
+    ]
+    assert len(strip_calls) == 0, "no notes.md present → no strip POST should happen"
+
+    # Squashed commit uses the original tree
+    create_commit = [
+        (a, s) for a, s in captured
+        if len(a) > 1 and a[1] == "repos/WolffM/demo/git/commits" and "POST" in a
+    ]
+    assert len(create_commit) == 1
+    commit_payload = json.loads(create_commit[0][1])
+    assert commit_payload["tree"] == "CLEAN_TREE"
 
 
 def test_replicate_appends_signoff_when_dco_required(ev):

@@ -31,6 +31,19 @@ def _default_aggregator_get(endpoint: str):
 # with safe defaults, but we still mirror those defaults locally so
 # offline tests + transient aggregator failures don't take the workflow
 # down.
+# Pipeline-internal scratch files that must NEVER appear in the
+# upstream-bound diff. The agent commits `notes.md` at the repo root
+# during the repro phase (per `_REPRO_INSTRUCTION` in
+# temporal/activities/agent.py — the `repro_evidence_present` gate
+# requires it on disk). It's a coordination artifact for the pipeline,
+# not part of the fix; it belongs in evidence under `04-reproduced/`.
+# `replicate_fix_as_operator` strips this set from the squashed tree
+# before opening the operator preview PR (so notes.md never reaches
+# the upstream maintainer's diff). Surfaced 2026-04-30 after notes.md
+# leaked into the strapi + gofiber operator preview PRs.
+_TREE_STRIP_PATHS = frozenset({"notes.md"})
+
+
 _DEFAULT_CONVENTIONS = {
     "commit_style": "freeform",
     "title_prefix_pattern": None,
@@ -209,6 +222,52 @@ def replicate_fix_as_operator(
     tree_sha = (tree_call.get("output") or "").strip()
     if not tree_sha:
         raise RuntimeError(f"empty tree SHA on agent commit {agent_head_sha}")
+
+    # Strip pipeline-internal scratch files from the upstream-bound tree
+    # before squashing. The agent commits `notes.md` at the repo root as
+    # a coordination artifact (required by the repro_evidence_present
+    # gate per the agent's _REPRO_INSTRUCTION). It belongs in evidence
+    # under 04-reproduced/, NOT in the upstream diff. Surfaced
+    # 2026-04-30 after `notes.md` leaked into the strapi + gofiber
+    # operator preview PRs.
+    #
+    # Defensive: if anything fails (tree GET errors, file not present,
+    # POST trees returns non-OK), we fall back to the original tree_sha
+    # — the worst case is the existing leak persists, never a worse
+    # failure than today.
+    tree_root = run_gh([
+        "api", f"repos/{fork_slug}/git/trees/{tree_sha}",
+        "--jq", '[.tree[] | select(.type == "blob") | .path]',
+    ])
+    root_files: list[str] = []
+    if tree_root.get("success"):
+        try:
+            parsed = json.loads(tree_root.get("output") or "[]")
+            if isinstance(parsed, list):
+                root_files = [str(f) for f in parsed if isinstance(f, str)]
+        except (ValueError, TypeError):
+            root_files = []
+    to_strip = [f for f in root_files if f in _TREE_STRIP_PATHS]
+    if to_strip:
+        strip_payload = json.dumps({
+            "base_tree": tree_sha,
+            "tree": [
+                {"path": f, "mode": "100644", "type": "blob", "sha": None}
+                for f in to_strip
+            ],
+        })
+        new_tree = run_gh([
+            "api", f"repos/{fork_slug}/git/trees",
+            "-X", "POST", "--input", "-",
+        ], stdin_data=strip_payload)
+        if new_tree.get("success"):
+            try:
+                new_tree_data = json.loads(new_tree.get("output") or "{}")
+                stripped_sha = (new_tree_data.get("sha") or "").strip()
+                if stripped_sha:
+                    tree_sha = stripped_sha
+            except (ValueError, TypeError):
+                pass  # fall back to original tree_sha
 
     base_ref = run_gh([
         "api", f"repos/{fork_slug}/git/refs/heads/{default_branch}",
