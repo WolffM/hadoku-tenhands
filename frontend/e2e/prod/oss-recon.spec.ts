@@ -215,21 +215,23 @@ test.describe('Prod: OSS Navigation', () => {
     await expect(page.getByRole('button', { name: /^Home$/i })).toBeVisible()
   })
 
-  test('global nav tabs navigate to Review Queue and Health views', async ({ page }) => {
+  test('global nav tabs navigate to Health and back via Home', async ({ page }) => {
     await navigateToOSSTab(page, 'Pipeline Runs')
 
-    // Click Review Queue tab
-    await page.locator('.nav-tabs__tab').filter({ hasText: 'Review Queue' }).click()
-    // Should show the review queue view
-    await expect(page.locator('.review-queue-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
-
-    // Click Health tab
+    // Click Health top tab
     await page.locator('.nav-tabs__tab').filter({ hasText: 'Health' }).click()
-    // Should show the health view
     await expect(page.locator('.health-view')).toBeVisible({ timeout: LOAD_TIMEOUT })
 
-    // Navigate back to OSS Contrib
-    await page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' }).click()
+    // Pipelines are no longer top-level nav tabs (cleanup 2026-04-30) —
+    // return to OSS via Home → click the OSS card.
+    await page
+      .locator('.nav-tabs__tab')
+      .filter({ hasText: /^Home$/ })
+      .click()
+    await page
+      .locator('.pipeline-select-card')
+      .filter({ hasText: 'OSS Contribution Pipeline' })
+      .click()
     await expect(
       page.locator('.stage-tab__label').filter({ hasText: 'Pipeline Runs' })
     ).toBeVisible({

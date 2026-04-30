@@ -188,11 +188,6 @@
   background: none;
 }
 
-/* Home button style */
-.nav-tabs__tab--home {
-  font-weight: var(--font-weight-semibold);
-}
-
 /* ============ Repo Health Panel ============ */
 
 .repo-health-grid {
