@@ -4,3 +4,9 @@ python-dotenv==1.2.2
 types-flask==1.1.6
 temporalio>=1.5.0
 requests>=2.31.0
+# Terminal-screenshot rendering for the Verification stage. The
+# screenshot activity loads an HTML template, runs it through headless
+# Chromium, and writes a PNG embedded in the upstream PR body via
+# `_extract_verification`. Browser binary is installed via
+# `playwright install chromium` and cached under ~/.cache/ms-playwright/.
+playwright>=1.40,<2
