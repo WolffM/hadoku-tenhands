@@ -532,9 +532,21 @@ _FIX_INSTRUCTION = (
 )
 
 _VERIFY_INSTRUCTION = (
-    "Verify your fix works. Run the test you wrote in the repro phase and "
-    "confirm it now passes, OR produce an after.png that is visibly different "
-    "from before.png. Write the test output or screenshot to the working tree."
+    "Verify your fix works.\n\n"
+    "REQUIRED: run the test you wrote in the repro phase and capture the "
+    "FULL terminal output (stdout AND stderr) into a file at exactly this "
+    "path:\n\n"
+    "  06-verified/test_output.txt\n\n"
+    "Use whichever test runner the repo's CONTRIBUTING.md or README prescribes "
+    "(`go test ./...`, `pytest`, `cargo test`, `npm test`, etc.). Capture the "
+    "output verbatim — including PASS/FAIL lines, exit codes, timing — so a "
+    "downstream pipeline step can render it as a verification screenshot embedded "
+    "in the upstream PR body. ANSI color escape sequences are fine; do not strip "
+    "them. Plain `> test_output.txt 2>&1` shell redirection is the right shape.\n\n"
+    "If the project is UI-only with no test runner (very rare for active OSS "
+    "projects), produce an after.png screenshot that visibly differs from before.png "
+    "and commit it to 06-verified/after.png instead. But default to the test-output "
+    "path — it's the canonical evidence."
 )
 
 _REMEDIATION_INSTRUCTION = (
