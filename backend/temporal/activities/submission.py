@@ -975,37 +975,51 @@ def _scrub_internal_language(text: str) -> str:
 def _extract_verification(evidence) -> str:
     """Build the Verification section content for the upstream PR body.
 
-    Order of preference:
-      1. Real test output (06-verified/test_output.txt) — strongest evidence.
-      2. Visual diff result (06-verified/diff_from_repro.json with after.png).
-      3. Synthesized verify_notes.md (orchestrator fallback when the
-         agent didn't commit a standalone test artifact).
+    Order of preference (2026-04-30 redesign with terminal screenshot):
+      0. Inline screenshot (`06-verified/after_url.txt` — URL of a PNG
+         hosted as a fork release asset, written by the screenshot
+         activity). When present, embed `![Verification](url)` at the
+         top of the section as visual proof of the test run.
+      1. Synthesized verify_notes.md complement (file list + concrete
+         sentence about what the tests cover). Pairs well with the
+         screenshot — image shows the run, prose names the test files.
+         When image is present we SKIP the raw test-output code block
+         (it's redundant — the image is already that output rendered).
+      2. Real test output as a fenced code block (only when no image).
+      3. Final fallback when nothing else — terse, no "Reviewers can
+         run..." filler.
 
     Whatever we return goes verbatim into the upstream PR. Any line
     that mentions internal pipeline language ("agent", "harvest",
     "exit_reason", "orchestrator", "auto-synthesized", "copilot") is
     stripped before return.
     """
+    image_md = ""
+    if evidence.exists("06-verified/after_url.txt"):
+        url = evidence.read_text("06-verified/after_url.txt").strip()
+        if url:
+            image_md = f"![Verification]({url})\n\n"
+
+    # When the image is present, prefer verify_notes.md (file list +
+    # concrete prose) as the textual complement and skip the raw
+    # test_output.txt code block (which the image already renders).
+    if image_md and evidence.exists("06-verified/verify_notes.md"):
+        notes = _clean_verify_notes(evidence.read_text("06-verified/verify_notes.md"))
+        if notes:
+            return f"{image_md}{notes}"
+    if image_md:
+        return image_md.rstrip()
+
+    # No screenshot: fall through to the original text-only chain.
     if evidence.exists("06-verified/test_output.txt"):
         text = evidence.read_text("06-verified/test_output.txt").strip()
         excerpt = text[:400]
         return f"Test output:\n\n```\n{excerpt}\n```"
 
     if evidence.exists("06-verified/verify_notes.md"):
-        notes = evidence.read_text("06-verified/verify_notes.md").strip()
-        cleaned = _scrub_internal_language(notes).strip()
-        # Trim leading orphan headings + collapse blank lines
-        if cleaned.startswith("##"):
-            # If the first heading became orphaned by line removal, drop
-            # consecutive blank lines that follow it
-            cleaned = "\n".join(
-                line for i, line in enumerate(cleaned.splitlines())
-                if not (line.strip() == "" and i > 0)
-            ) if "\n\n\n" in cleaned else cleaned
-        if cleaned:
-            if len(cleaned) > 700:
-                cleaned = cleaned[:700].rsplit(" ", 1)[0] + "…"
-            return cleaned
+        notes = _clean_verify_notes(evidence.read_text("06-verified/verify_notes.md"))
+        if notes:
+            return notes
 
     return (
         "Reviewers should run the project's test suite to confirm the "
@@ -1013,6 +1027,27 @@ def _extract_verification(evidence) -> str:
         "specific regression-test convention is expected for this fix, "
         "please flag it in review."
     )
+
+
+def _clean_verify_notes(raw: str) -> str:
+    """Scrub internal vocab + collapse blank-line artifacts + trim
+    overlong notes. Shared between the text-only and image-embed
+    branches of `_extract_verification` so they produce identical
+    bodies modulo the image prefix."""
+    cleaned = _scrub_internal_language(raw.strip()).strip()
+    if cleaned.startswith("##"):
+        # If the first heading became orphaned by line removal, drop
+        # consecutive blank lines that follow it
+        if "\n\n\n" in cleaned:
+            cleaned = "\n".join(
+                line for i, line in enumerate(cleaned.splitlines())
+                if not (line.strip() == "" and i > 0)
+            )
+    if not cleaned:
+        return ""
+    if len(cleaned) > 700:
+        cleaned = cleaned[:700].rsplit(" ", 1)[0] + "…"
+    return cleaned
 
 
 def _render_against_template(template, evidence, upstream_slug, issue_number, issue_title) -> str:

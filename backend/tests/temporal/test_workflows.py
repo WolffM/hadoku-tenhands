@@ -34,6 +34,7 @@ from temporal.temporal_activities import (
     RemediationInput,
     RenderInput,
     ReplicateInput,
+    ScreenshotInput,
     ReviewInput,
     SubmitInput,
     TransitionInput,
@@ -108,6 +109,14 @@ async def fake_read_review_summary(inp: ReadReviewSummaryInput) -> dict:
 @activity.defn(name="render_pr_body")
 async def fake_render(inp: RenderInput) -> dict:
     return {"ok": True}
+
+
+@activity.defn(name="render_test_output_screenshot")
+async def fake_screenshot(inp: ScreenshotInput) -> dict:
+    """Stub: pretend the screenshot activity ran. Real implementation
+    launches chromium + uploads to fork release assets; the workflow
+    only cares that it returns a dict (and is non-fatal on failure)."""
+    return {"ok": True, "path": "06-verified/after.png", "url": None}
 
 
 @activity.defn(name="submit_upstream_pr")
@@ -215,6 +224,7 @@ _FAKE_ACTIVITIES = [
     fake_remediation,
     fake_review,
     fake_read_review_summary,
+    fake_screenshot,
     fake_render,
     fake_replicate,
     fake_submit,
@@ -499,7 +509,7 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
 
     main_activities = [
         fake_eligibility, fake_fork, fake_environment,
-        fake_review, fake_read_review_summary, fake_render, fake_replicate,
+        fake_review, fake_read_review_summary, fake_screenshot, fake_render, fake_replicate,
         fake_submit, fake_run_gates, fake_enqueue, fake_transition,
     ]
     copilot_activities = [fake_repro, fake_fix, fake_verify, fake_remediation]

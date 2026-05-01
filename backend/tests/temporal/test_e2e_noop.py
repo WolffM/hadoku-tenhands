@@ -232,6 +232,15 @@ async def real_render(inp: RenderInput) -> dict:
     )
 
 
+@activity.defn(name="render_test_output_screenshot")
+async def real_screenshot(inp) -> dict:
+    """E2E stub: skip the chromium dance. Real coverage lives in
+    test_screenshot.py; the e2e flow just needs the activity to
+    return a dict so the workflow proceeds. NoopAgent doesn't produce
+    test_output.txt anyway, so the real renderer would no-op too."""
+    return {"ok": False, "reason": "noop e2e — screenshot stub"}
+
+
 @activity.defn(name="submit_upstream_pr")
 async def real_submit(inp: SubmitInput) -> dict:
     return submit_upstream_pr(
@@ -381,6 +390,7 @@ _REAL_ACTIVITIES = [
     real_remediation,
     real_review,
     real_read_review_summary,
+    real_screenshot,
     real_render,
     real_replicate,
     real_submit,

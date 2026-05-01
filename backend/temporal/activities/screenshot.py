@@ -1,11 +1,22 @@
 """Test-output → terminal screenshot activity.
 
 When a fix's verification step produces structured test output
-(`06-verified/test_output.txt`), this activity renders that output as
-a terminal-styled PNG (`06-verified/after.png`). The render pipeline
-embeds the PNG inline in the upstream PR's Verification section, so
-the maintainer sees visual proof of the fix passing tests instead of
-a templated "Reviewers can run the test suite" prose paragraph.
+(`06-verified/test_output.txt`), this activity:
+
+  1. Renders that output as a terminal-styled PNG via headless
+     Chromium (written to `06-verified/after.png`).
+  2. Uploads the PNG as a release asset on the fork (under a stable
+     `crimson-kitty-assets` release tag — fork releases are invisible
+     to the upstream maintainer's PR review surface, so this hosts
+     the image without polluting the diff). URL written to
+     `06-verified/after_url.txt`.
+  3. Returns `{ok, path, url}`.
+
+The render pipeline (`_extract_verification` in `submission.py`)
+reads `after_url.txt` and embeds `![Verification](<url>)` at the top
+of the Verification section of the upstream PR body. The maintainer
+sees the image render inline; nothing about the asset hosting is in
+the file diff.
 
 Design (locked 2026-04-30):
 - Renderer: headless Chromium via `playwright`. Browser binary lives
@@ -19,6 +30,16 @@ Design (locked 2026-04-30):
 - Sizing: 1280×720 viewport. Tall outputs scroll inside the terminal
   body — we only screenshot the visible viewport so the resulting PNG
   doesn't grow unbounded with test count.
+- Upload: per-fork release `crimson-kitty-assets`, asset named
+  `issue-{N}-after.png`. `gh release upload --clobber` so re-renders
+  overwrite cleanly. `browser_download_url` from the asset metadata
+  is the public URL we embed.
+
+Why fork release assets instead of the user-content `/upload/policies/
+assets` endpoint: that endpoint is cookie-authenticated only — no
+token-authenticated equivalent exists. Release assets are the official
+stable token-friendly path for hosting binaries on github.com without
+committing them to a tracked branch (researched 2026-04-30).
 """
 
 from __future__ import annotations
@@ -31,6 +52,19 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# Stable release tag on each fork. `gh release upload` to this tag
+# adds/overwrites assets without involving any branch's tree.
+_ASSETS_RELEASE_TAG = "crimson-kitty-assets"
+_ASSETS_RELEASE_TITLE = "Crimson-kitty pipeline assets"
+_ASSETS_RELEASE_BODY = (
+    "Auto-managed release holding inline-embed assets (test-output "
+    "screenshots, etc.) for crimson-kitty pipeline runs on this fork. "
+    "Assets are referenced from operator preview PR + upstream PR "
+    "bodies via release-asset URLs. Not part of any source branch — "
+    "safe to ignore when reviewing fork code."
+)
 
 
 # ── ANSI escape stripping ─────────────────────────────────────────────────
@@ -195,27 +229,34 @@ async def _default_render_png(html: str) -> bytes:
 async def render_test_output_screenshot(
     evidence,
     *,
+    fork_slug: Optional[str] = None,
+    issue_number: Optional[int] = None,
     test_output: Optional[str] = None,
     command: Optional[str] = None,
     out_path: str = "06-verified/after.png",
     render_png: Optional[Callable[[str], "asyncio.Future[bytes]"]] = None,
+    upload_asset: Optional[Callable[..., dict]] = None,
 ) -> dict:
-    """Render `06-verified/test_output.txt` (or the explicit `test_output`
-    arg, for tests) into a terminal-styled PNG at `out_path`.
+    """Render `06-verified/test_output.txt` to a terminal PNG, then upload
+    it to the fork's `crimson-kitty-assets` release so a public URL is
+    available for embed in the PR body.
 
-    Returns:
-      `{"ok": True, "path": "<rel>", "bytes": <int>}` on success.
-      `{"ok": False, "reason": "<why>"}` if the input is missing or the
-      render itself fails. Failures are non-fatal — the workflow proceeds
-      with text-only verification via `_extract_verification`.
+    Two-stage failure semantics — render and upload fail independently:
+      - Render success + upload failure → `{ok: True, path, url: None,
+        upload_error: "..."}`. The PNG is in evidence; `_extract_verification`
+        falls back to text-only since there's no URL to embed.
+      - Render failure → `{ok: False, reason}`. Upload skipped.
 
-    Seam for tests: `render_png` is the callable that turns HTML into
-    PNG bytes. Default is the playwright/chromium implementation; tests
-    pass a stub that returns canned bytes so we can assert on the path
-    and HTML composition without needing a browser binary.
+    Seams for tests:
+      `render_png(html) -> bytes` — playwright/chromium by default.
+      `upload_asset(fork_slug, issue_number, png_bytes, asset_name) ->
+        {"ok": bool, "url": str|None, "reason": str|None}` —
+        gh-CLI-backed by default.
     """
     if render_png is None:
         render_png = _default_render_png
+    if upload_asset is None:
+        upload_asset = _default_upload_asset
 
     if test_output is None:
         if not evidence.exists("06-verified/test_output.txt"):
@@ -236,4 +277,124 @@ async def render_test_output_screenshot(
         return {"ok": False, "reason": "render produced empty bytes"}
 
     evidence.write_bytes(out_path, png)
-    return {"ok": True, "path": out_path, "bytes": len(png)}
+
+    # Upload to fork release assets so the PNG has a public URL the
+    # render pipeline can embed in the upstream PR body. Skip if the
+    # caller didn't supply fork_slug/issue_number (tests, dry runs).
+    url: Optional[str] = None
+    upload_error: Optional[str] = None
+    if fork_slug and issue_number is not None:
+        asset_name = f"issue-{issue_number}-after.png"
+        try:
+            up = upload_asset(fork_slug, int(issue_number), png, asset_name)
+        except Exception as e:
+            logger.warning("screenshot upload raised: %s", e, exc_info=True)
+            upload_error = f"{type(e).__name__}: {e}"
+        else:
+            if isinstance(up, dict) and up.get("ok") and up.get("url"):
+                url = up["url"]
+                evidence.write_text("06-verified/after_url.txt", url)
+            else:
+                reason = up.get("reason", "unknown") if isinstance(up, dict) else "non-dict response"
+                upload_error = f"upload failed: {reason}"
+                logger.warning("screenshot upload failed: %s", upload_error)
+
+    out: dict = {"ok": True, "path": out_path, "bytes": len(png), "url": url}
+    if upload_error:
+        out["upload_error"] = upload_error
+    return out
+
+
+# ── Release-asset upload helper ───────────────────────────────────────────
+
+
+def _default_upload_asset(
+    fork_slug: str,
+    issue_number: int,
+    png_bytes: bytes,
+    asset_name: str,
+) -> dict:
+    """Upload `png_bytes` as a release asset on `fork_slug` under the
+    `crimson-kitty-assets` release tag. Idempotent: creates the release
+    if it doesn't exist, overwrites existing assets with the same name.
+
+    Returns `{ok, url, reason?}`. URL is the asset's
+    `browser_download_url` (a `github.com/.../releases/download/...`
+    permalink that renders as an image inline when used in markdown
+    `![alt](url)`).
+
+    Implementation note: shells out to `gh` CLI rather than using our
+    generic `run_gh_command` wrapper because the upload endpoint lives
+    on `uploads.github.com` (different host from the regular API), and
+    `gh release upload` handles the host switch + content-type +
+    multipart encoding for us. Writing the PNG bytes to a temp file is
+    necessary because gh's release-upload subcommand wants a file path,
+    not stdin.
+    """
+    import subprocess
+    import tempfile
+
+    try:
+        from services.github_api import run_gh_command  # type: ignore
+    except ImportError:
+        return {"ok": False, "reason": "services.github_api not importable"}
+
+    # 1. Ensure the release exists (idempotent — silent if already there).
+    check = run_gh_command([
+        "api", f"repos/{fork_slug}/releases/tags/{_ASSETS_RELEASE_TAG}",
+        "--silent", "-i",
+    ])
+    if not check.get("success"):
+        # Create it. 404 is the expected miss; other failures are real
+        # errors we'll propagate via the create call's own success flag.
+        create = run_gh_command([
+            "release", "create", _ASSETS_RELEASE_TAG,
+            "--repo", fork_slug,
+            "--title", _ASSETS_RELEASE_TITLE,
+            "--notes", _ASSETS_RELEASE_BODY,
+        ])
+        if not create.get("success"):
+            err = (create.get("error") or create.get("output", ""))[:200]
+            # Race: another worker created it between our check and create.
+            # `gh release create` returns "already exists" — treat as ok.
+            if "already exists" not in err.lower():
+                return {"ok": False, "reason": f"create release failed: {err}"}
+
+    # 2. Upload the asset. `--clobber` overwrites if `asset_name` is
+    #    already present (rerenders for the same issue replace the old
+    #    PNG cleanly).
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp.write(png_bytes)
+        tmp.flush()
+        tmp_path = tmp.name
+
+    try:
+        upload = run_gh_command([
+            "release", "upload", _ASSETS_RELEASE_TAG,
+            f"{tmp_path}#{asset_name}",
+            "--repo", fork_slug,
+            "--clobber",
+        ])
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    if not upload.get("success"):
+        err = (upload.get("error") or upload.get("output", ""))[:200]
+        return {"ok": False, "reason": f"upload failed: {err}"}
+
+    # 3. Resolve the asset's `browser_download_url`. The upload command
+    #    doesn't return JSON metadata; query the release for it.
+    view = run_gh_command([
+        "api", f"repos/{fork_slug}/releases/tags/{_ASSETS_RELEASE_TAG}",
+        "--jq", f'.assets[] | select(.name == "{asset_name}") | .browser_download_url',
+    ])
+    if not view.get("success"):
+        return {"ok": False, "reason": "could not resolve asset url"}
+    url = (view.get("output") or "").strip()
+    if not url:
+        return {"ok": False, "reason": "asset url empty"}
+
+    return {"ok": True, "url": url}
