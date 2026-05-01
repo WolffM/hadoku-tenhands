@@ -1,0 +1,6 @@
+{
+  "//": "Maps env var name (left, what code reads) → vault key (right, what's stored). Loaded by ../hadoku_site/scripts/secrets/dev-vault.mjs. NO secrets in this file — only the mapping.",
+  "//operator-use": "These are for operator-side commands run from this repo (force-scrape, etc.), distinct from the production wrapper at hadoku_site/services/pm2/vibedispatch-wrapper.mjs which has its own VIBEDISPATCH_* mappings for the worker process.",
+  "HADOKU_SCRAPE_API_KEY": "AGGREGATOR_SCRAPER_API_KEY",
+  "VIBEDISPATCH_ADMIN_KEY": "VIBEDISPATCH_ADMIN_KEY"
+}
