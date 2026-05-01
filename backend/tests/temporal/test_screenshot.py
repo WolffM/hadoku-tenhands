@@ -38,6 +38,25 @@ def _stub_renderer(captured: list[str]):
     return _render
 
 
+def _stub_uploader(captured_uploads: list[dict], *, ok: bool = True, url: str = "https://github.com/WolffM/demo/releases/download/crimson-kitty-assets/issue-42-after.png", reason: str | None = None):
+    """Build an upload stub that captures its inputs and returns a
+    canned response. Useful for asserting on what gets uploaded
+    without making real GitHub API calls."""
+
+    def _upload(fork_slug: str, issue_number: int, png_bytes: bytes, asset_name: str) -> dict:
+        captured_uploads.append({
+            "fork_slug": fork_slug,
+            "issue_number": issue_number,
+            "png_bytes_len": len(png_bytes),
+            "asset_name": asset_name,
+        })
+        if ok:
+            return {"ok": True, "url": url}
+        return {"ok": False, "reason": reason or "stub failure"}
+
+    return _upload
+
+
 @pytest.mark.asyncio
 async def test_render_writes_png_when_test_output_present(ev):
     """Happy path: test_output.txt exists → activity composes HTML +
@@ -51,10 +70,14 @@ async def test_render_writes_png_when_test_output_present(ev):
     )
 
     captured: list[str] = []
+    uploads: list[dict] = []
     result = await render_test_output_screenshot(
         ev,
+        fork_slug="WolffM/demo",
+        issue_number=42,
         command="go test ./middleware/logger/...",
         render_png=_stub_renderer(captured),
+        upload_asset=_stub_uploader(uploads),
     )
 
     assert result["ok"] is True
@@ -231,6 +254,121 @@ async def test_render_handles_renderer_exception(ev):
     assert result["ok"] is False
     assert "chromium missing" in result["reason"]
     assert not ev.exists("06-verified/after.png")
+
+
+# ── Upload path tests ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_render_uploads_asset_and_writes_url_when_fork_slug_provided(ev):
+    """When fork_slug + issue_number are passed, the activity uploads
+    the PNG to the fork's release assets and writes the resulting
+    public URL to 06-verified/after_url.txt for the body renderer."""
+    from temporal.activities.screenshot import render_test_output_screenshot
+
+    ev.write_text("06-verified/test_output.txt", "PASS\nok 0.04s")
+
+    captured_renders: list[str] = []
+    captured_uploads: list[dict] = []
+    result = await render_test_output_screenshot(
+        ev,
+        fork_slug="WolffM/demo",
+        issue_number=42,
+        command="go test ./...",
+        render_png=_stub_renderer(captured_renders),
+        upload_asset=_stub_uploader(
+            captured_uploads,
+            url="https://github.com/WolffM/demo/releases/download/crimson-kitty-assets/issue-42-after.png",
+        ),
+    )
+
+    assert result["ok"] is True
+    assert result["url"] == (
+        "https://github.com/WolffM/demo/releases/download/"
+        "crimson-kitty-assets/issue-42-after.png"
+    )
+    # URL persists to evidence so _extract_verification can read it
+    assert ev.exists("06-verified/after_url.txt")
+    assert ev.read_text("06-verified/after_url.txt").strip() == result["url"]
+    # Upload received the right metadata
+    assert len(captured_uploads) == 1
+    upload = captured_uploads[0]
+    assert upload["fork_slug"] == "WolffM/demo"
+    assert upload["issue_number"] == 42
+    assert upload["asset_name"] == "issue-42-after.png"
+    assert upload["png_bytes_len"] > 0
+
+
+@pytest.mark.asyncio
+async def test_render_skips_upload_when_fork_slug_missing(ev):
+    """Without fork_slug+issue_number, no upload happens. The PNG
+    still lands in evidence; the workflow can use it locally for
+    inspection but no URL is embedded in the upstream PR body."""
+    from temporal.activities.screenshot import render_test_output_screenshot
+
+    ev.write_text("06-verified/test_output.txt", "PASS\nok")
+
+    captured_uploads: list[dict] = []
+    result = await render_test_output_screenshot(
+        ev,
+        render_png=_stub_renderer([]),
+        upload_asset=_stub_uploader(captured_uploads),
+    )
+
+    assert result["ok"] is True
+    assert result["url"] is None
+    assert not ev.exists("06-verified/after_url.txt")
+    assert len(captured_uploads) == 0
+
+
+@pytest.mark.asyncio
+async def test_render_treats_upload_failure_as_non_fatal(ev):
+    """Upload failure ≠ render failure. The PNG was produced; the
+    workflow can still ship the fix, just without the inline image
+    embed. result["ok"] stays True; url is None; upload_error
+    documents the failure for retro/debugging."""
+    from temporal.activities.screenshot import render_test_output_screenshot
+
+    ev.write_text("06-verified/test_output.txt", "PASS")
+
+    result = await render_test_output_screenshot(
+        ev,
+        fork_slug="WolffM/demo",
+        issue_number=42,
+        render_png=_stub_renderer([]),
+        upload_asset=_stub_uploader([], ok=False, reason="rate limited"),
+    )
+
+    assert result["ok"] is True
+    assert result["url"] is None
+    assert "rate limited" in result["upload_error"]
+    assert ev.exists("06-verified/after.png")
+    assert not ev.exists("06-verified/after_url.txt")
+
+
+@pytest.mark.asyncio
+async def test_render_treats_upload_exception_as_non_fatal(ev):
+    """Same shape as the failure-with-reason case, but for raised
+    exceptions (network errors, missing gh binary, etc.). Still
+    non-fatal."""
+    from temporal.activities.screenshot import render_test_output_screenshot
+
+    ev.write_text("06-verified/test_output.txt", "PASS")
+
+    def boom_uploader(fork_slug, issue_number, png_bytes, asset_name):
+        raise RuntimeError("no network")
+
+    result = await render_test_output_screenshot(
+        ev,
+        fork_slug="WolffM/demo",
+        issue_number=42,
+        render_png=_stub_renderer([]),
+        upload_asset=boom_uploader,
+    )
+
+    assert result["ok"] is True
+    assert result["url"] is None
+    assert "no network" in result["upload_error"]
 
 
 # ── End-to-end test with real chromium ────────────────────────────────────

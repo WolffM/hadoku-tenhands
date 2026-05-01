@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from temporalio import activity
 
@@ -268,6 +269,36 @@ async def act_render_pr_body(inp: RenderInput) -> dict:
 
 
 @dataclass
+class ScreenshotInput:
+    fork_slug: str
+    issue_number: int
+    state_root: str
+    command: Optional[str] = None  # test command for the title bar; optional
+
+
+@activity.defn(name="render_test_output_screenshot")
+async def act_render_test_output_screenshot(inp: ScreenshotInput) -> dict:
+    """Render `06-verified/test_output.txt` to a terminal-styled PNG,
+    upload to fork's `crimson-kitty-assets` release, persist URL to
+    `06-verified/after_url.txt` for the body renderer to embed.
+
+    Always returns a dict — failures are non-fatal so the workflow
+    keeps moving even when the screenshot can't be produced (no test
+    output, chromium missing, upload rate-limited, etc.). The Verification
+    section falls back to text-only via `_extract_verification`.
+    """
+    from .activities.screenshot import render_test_output_screenshot
+
+    ev = _evidence_for(inp.state_root)
+    return await render_test_output_screenshot(
+        ev,
+        fork_slug=inp.fork_slug,
+        issue_number=inp.issue_number,
+        command=inp.command,
+    )
+
+
+@dataclass
 class ReplicateInput:
     upstream_slug: str
     fork_slug: str
@@ -500,6 +531,7 @@ MAIN_ACTIVITIES = [
     act_setup_environment,
     act_run_review,
     act_read_review_summary,
+    act_render_test_output_screenshot,
     act_render_pr_body,
     act_replicate_fix_as_operator,
     act_submit_upstream_pr,

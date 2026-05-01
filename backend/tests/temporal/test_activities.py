@@ -1021,6 +1021,105 @@ def test_render_pr_body_scrubs_internal_language_from_verify_notes(ev):
         assert forbidden not in body, f"'{forbidden}' leaked into PR body"
 
 
+def test_render_pr_body_embeds_screenshot_when_after_url_present(ev):
+    """2026-04-30: when the screenshot activity uploaded a verification
+    PNG to the fork's release assets and persisted the URL to
+    06-verified/after_url.txt, the rendered Verification section must
+    embed `![Verification](url)` at the top — visual proof of the test
+    run replaces the third-person "Reviewers can run..." prose."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {"issue": {"title": "x", "body": "y"}})
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text(
+        "06-verified/after_url.txt",
+        "https://github.com/WolffM/demo/releases/download/crimson-kitty-assets/issue-1-after.png\n",
+    )
+    ev.write_text(
+        "06-verified/verify_notes.md",
+        "Adds tests covering the corrected behavior:\n\n"
+        "- `tests/test_x.py`\n\n"
+        "Each new test reproduces the original failure on the base "
+        "branch and asserts the corrected output in this PR.",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    # Image markdown landed at the top of the Verification section
+    assert (
+        "![Verification](https://github.com/WolffM/demo/releases/download/"
+        "crimson-kitty-assets/issue-1-after.png)" in body
+    )
+    # Verify-notes prose still appears underneath as the textual complement
+    assert "Adds tests covering the corrected behavior:" in body
+    assert "`tests/test_x.py`" in body
+
+
+def test_render_pr_body_skips_test_output_codeblock_when_screenshot_present(ev):
+    """When the screenshot is embedded, the raw test_output.txt code
+    block becomes redundant (the image IS that output rendered). The
+    image + verify_notes prose carry the section; we don't double up."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {"issue": {"title": "x", "body": "y"}})
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text(
+        "06-verified/after_url.txt",
+        "https://example.com/after.png\n",
+    )
+    ev.write_text(
+        "06-verified/test_output.txt",
+        "PASS: TestExample (0.01s)\nok      example.com/foo    0.034s\n",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    # Image embed is present
+    assert "![Verification](https://example.com/after.png)" in body
+    # Raw test-output code block is NOT (image already conveys it)
+    assert "Test output:\n\n```" not in body
+    assert "PASS: TestExample" not in body
+
+
+def test_render_pr_body_falls_back_to_text_when_no_screenshot(ev):
+    """No after_url.txt → existing text-only chain still works. Tests
+    the absence path so the screenshot feature stays opt-in cleanly."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {"issue": {"title": "x", "body": "y"}})
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text(
+        "06-verified/test_output.txt",
+        "PASS: TestExample (0.01s)\nok      example.com/foo    0.034s\n",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    # No image embed
+    assert "![Verification]" not in body
+    # Test output code block IS present (the fallback path)
+    assert "Test output:\n\n```" in body
+    assert "PASS: TestExample" in body
+
+
 def test_render_pr_body_strips_stale_commit_shas_from_repro_section(ev):
     """B26: legacy `_synthesize_repro_notes` runs embedded
     `Commit SHAs:\\n  - abc1234` blocks in the Steps to reproduce

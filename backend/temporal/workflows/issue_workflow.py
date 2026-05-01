@@ -39,6 +39,7 @@ with workflow.unsafe.imports_passed_through():
         ReadReviewSummaryInput,
         RemediationInput,
         RenderInput,
+        ScreenshotInput,
         ReplicateInput,
         ReviewInput,
         SubmitInput,
@@ -322,6 +323,25 @@ class IssueWorkflow:
                     inp=inp,
                     run_gates_after=False,
                 )
+
+            # Render a terminal-styled screenshot of the verification
+            # test output and upload it to the fork's release assets.
+            # The body renderer below reads the resulting URL from
+            # `06-verified/after_url.txt` and embeds it inline at the
+            # top of the Verification section. Non-fatal: if there's no
+            # test output to render, chromium isn't available, or the
+            # upload fails, the activity returns ok=False and the body
+            # falls back to text-only verification.
+            await workflow.execute_activity(
+                "render_test_output_screenshot",
+                ScreenshotInput(
+                    fork_slug=inp.fork_slug,
+                    issue_number=inp.issue_number,
+                    state_root=inp.state_root,
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
             # Render the PR body before the replicate/gate steps — those
             # read pr_title.txt / pr_body.md.
@@ -806,6 +826,19 @@ class IssueWorkflow:
         # existing operator preview PR and PATCHes its title/body instead
         # of opening a new one; the fork branch is force-updated so the
         # upstream PR's diff auto-refreshes via GitHub's branch tracking.
+        # Re-render the test-output screenshot too — the remediation may
+        # have updated the test output and we want the embedded image
+        # to reflect the latest run, not the pre-remediation one.
+        await workflow.execute_activity(
+            "render_test_output_screenshot",
+            ScreenshotInput(
+                fork_slug=inp.fork_slug,
+                issue_number=inp.issue_number,
+                state_root=inp.state_root,
+            ),
+            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
         await workflow.execute_activity(
             "render_pr_body",
             RenderInput(
