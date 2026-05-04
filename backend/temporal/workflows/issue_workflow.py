@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         RemediationInput,
         RenderInput,
         ScreenshotInput,
+        RunTestInput,
         ReplicateInput,
         ReviewInput,
         SubmitInput,
@@ -323,6 +324,26 @@ class IssueWorkflow:
                     inp=inp,
                     run_gates_after=False,
                 )
+
+            # Run the agent-supplied test command in the cktest sandbox
+            # runner and capture stdout+stderr to
+            # 06-verified/test_output.txt. Phase 5.6 split: Copilot
+            # commits 05-fixed/test_command.txt (one shell line); the
+            # pipeline runs it in a clean sandbox rather than asking
+            # Copilot to do shell ops. Non-fatal: if the agent didn't
+            # commit a command or the runner is unavailable, the
+            # screenshot stage downstream no-ops gracefully and
+            # verification falls back to text-only.
+            await workflow.execute_activity(
+                "run_test_command",
+                RunTestInput(
+                    fork_slug=inp.fork_slug,
+                    branch_name=inp.branch_name,
+                    state_root=inp.state_root,
+                ),
+                start_to_close_timeout=_LONG_ACTIVITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
 
             # Render a terminal-styled screenshot of the verification
             # test output and upload it to the fork's release assets.
@@ -826,9 +847,19 @@ class IssueWorkflow:
         # existing operator preview PR and PATCHes its title/body instead
         # of opening a new one; the fork branch is force-updated so the
         # upstream PR's diff auto-refreshes via GitHub's branch tracking.
-        # Re-render the test-output screenshot too — the remediation may
-        # have updated the test output and we want the embedded image
-        # to reflect the latest run, not the pre-remediation one.
+        # Re-run the test in the cktest sandbox to capture fresh output
+        # (remediation may have changed the fix, and the screenshot must
+        # reflect the latest run, not the pre-remediation one).
+        await workflow.execute_activity(
+            "run_test_command",
+            RunTestInput(
+                fork_slug=inp.fork_slug,
+                branch_name=inp.branch_name,
+                state_root=inp.state_root,
+            ),
+            start_to_close_timeout=_LONG_ACTIVITY_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
         await workflow.execute_activity(
             "render_test_output_screenshot",
             ScreenshotInput(

@@ -269,6 +269,30 @@ async def act_render_pr_body(inp: RenderInput) -> dict:
 
 
 @dataclass
+class RunTestInput:
+    fork_slug: str
+    branch_name: str
+    state_root: str
+
+
+@activity.defn(name="run_test_command")
+async def act_run_test_command(inp: RunTestInput) -> dict:
+    """Read 05-fixed/test_command.txt, dispatch to cktest sandbox runner,
+    persist stdout+stderr to 06-verified/test_output.txt for the
+    screenshot stage to render. Non-fatal: returns ok=False if the
+    runner is unavailable or the agent didn't commit a test_command."""
+    from .activities.test_runner import run_test_command
+
+    ev = _evidence_for(inp.state_root)
+    return await asyncio.to_thread(
+        run_test_command,
+        ev,
+        fork_slug=inp.fork_slug,
+        branch_name=inp.branch_name,
+    )
+
+
+@dataclass
 class ScreenshotInput:
     fork_slug: str
     issue_number: int
@@ -531,6 +555,7 @@ MAIN_ACTIVITIES = [
     act_setup_environment,
     act_run_review,
     act_read_review_summary,
+    act_run_test_command,
     act_render_test_output_screenshot,
     act_render_pr_body,
     act_replicate_fix_as_operator,

@@ -241,6 +241,15 @@ async def real_screenshot(inp) -> dict:
     return {"ok": False, "reason": "noop e2e — screenshot stub"}
 
 
+@activity.defn(name="run_test_command")
+async def real_run_test_command(inp) -> dict:
+    """E2E stub: skip the cktest sandbox dispatch. Real coverage lives
+    in test_test_runner.py; the e2e flow just needs the activity to
+    return a dict so the workflow proceeds. NoopAgent doesn't produce
+    a test_command.txt anyway."""
+    return {"ok": False, "reason": "noop e2e — test runner stub"}
+
+
 @activity.defn(name="submit_upstream_pr")
 async def real_submit(inp: SubmitInput) -> dict:
     return submit_upstream_pr(
@@ -390,6 +399,7 @@ _REAL_ACTIVITIES = [
     real_remediation,
     real_review,
     real_read_review_summary,
+    real_run_test_command,
     real_screenshot,
     real_render,
     real_replicate,

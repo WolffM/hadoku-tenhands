@@ -35,6 +35,7 @@ from temporal.temporal_activities import (
     RenderInput,
     ReplicateInput,
     ScreenshotInput,
+    RunTestInput,
     ReviewInput,
     SubmitInput,
     TransitionInput,
@@ -109,6 +110,14 @@ async def fake_read_review_summary(inp: ReadReviewSummaryInput) -> dict:
 @activity.defn(name="render_pr_body")
 async def fake_render(inp: RenderInput) -> dict:
     return {"ok": True}
+
+
+@activity.defn(name="run_test_command")
+async def fake_run_test_command(inp: RunTestInput) -> dict:
+    """Stub: pretend the cktest runner executed the test. Real
+    implementation POSTs to a sandbox service; the workflow only cares
+    that the activity returns a dict (and is non-fatal on failure)."""
+    return {"ok": False, "reason": "noop test runner stub"}
 
 
 @activity.defn(name="render_test_output_screenshot")
@@ -224,6 +233,7 @@ _FAKE_ACTIVITIES = [
     fake_remediation,
     fake_review,
     fake_read_review_summary,
+    fake_run_test_command,
     fake_screenshot,
     fake_render,
     fake_replicate,
@@ -509,7 +519,7 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
 
     main_activities = [
         fake_eligibility, fake_fork, fake_environment,
-        fake_review, fake_read_review_summary, fake_screenshot, fake_render, fake_replicate,
+        fake_review, fake_read_review_summary, fake_run_test_command, fake_screenshot, fake_render, fake_replicate,
         fake_submit, fake_run_gates, fake_enqueue, fake_transition,
     ]
     copilot_activities = [fake_repro, fake_fix, fake_verify, fake_remediation]
