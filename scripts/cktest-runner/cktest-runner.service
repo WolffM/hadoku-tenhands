@@ -1,0 +1,70 @@
+[Unit]
+# cktest-runner — Phase 0 of the claw fleet migration. Sandbox HTTP service
+# that the vibedispatch worker (running on the Windows main host) calls
+# over Tailscale to execute crimson-kitty verify-phase test commands.
+#
+# Bring-up: see /srv/vibedispatch/scripts/cktest-runner/README.md.
+# Wired into the per-host service-key + per-key ACL pattern documented in
+# hadoku_site/docs/operations/SECRETS.md.
+Description=cktest-runner — crimson-kitty verify sandbox
+Documentation=file:///srv/vibedispatch/scripts/cktest-runner/README.md
+Documentation=https://github.com/WolffM/hadoku_site/blob/main/docs/operations/cktest-runner-migration.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cktest
+Group=cktest
+
+# Repo lives at /srv/vibedispatch (a clone of WolffM/vibedispatch), updated
+# via `git pull` on each redeploy. The service runs from inside the cloned
+# tree so a code change is just `git pull && systemctl restart cktest-runner`.
+WorkingDirectory=/srv/vibedispatch/scripts/cktest-runner
+
+# ── Bearer fetch (fail-closed)
+# fetch-bearer.sh curls the vault broker with the per-host service key
+# (/etc/cktest-runner/service.key, mode 0600, owned by cktest:cktest) and
+# writes /run/cktest-runner/env containing CKTEST_RUNNER_BEARER=…. If the
+# vault is sealed or the service key is rejected, the unit refuses to
+# start — a vault outage is a downtime signal we want surfaced, not papered
+# over with a stale local file.
+RuntimeDirectory=cktest-runner
+RuntimeDirectoryMode=0750
+ExecStartPre=/srv/vibedispatch/scripts/cktest-runner/fetch-bearer.sh
+EnvironmentFile=/run/cktest-runner/env
+
+# Defaults; override per-host if needed.
+Environment=CKTEST_PORT=5500
+Environment=CKTEST_MAX_CONCURRENT=1
+Environment=CKTEST_RETRY_AFTER_S=60
+Environment=CKTEST_PER_JOB_TIMEOUT_S=300
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 server.py
+
+# ── Resilience
+Restart=always
+RestartSec=5
+# `fetch-bearer.sh` failures count as start failures; cap restart loops
+# so a sealed vault doesn't burn CPU on retries.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+# ── Hardening (light touch — the service runs untrusted shell commands
+# from the agent allowlist by design, so heavy seccomp filters would
+# break legit test runs).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# Allow writes to /tmp (for cktest-* clone dirs) and the runtime dir.
+ReadWritePaths=/tmp /var/tmp
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

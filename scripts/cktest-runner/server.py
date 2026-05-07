@@ -2,10 +2,9 @@
 
 Single-endpoint HTTP service that runs a test command on a freshly-cloned
 fork branch in an isolated tmp directory, capturing stdout+stderr and
-returning to the caller. Runs inside the `debian-cktest` WSL distro;
-called by `temporal/activities/test_runner.py`'s
-`run_test_command` over host-loopback (Windows worker → WSL service via
-WSL2's default localhostForwarding).
+returning to the caller. Runs as a systemd service on `claw-3` (claw fleet,
+Debian Trixie); called by `temporal/activities/test_runner.py`'s
+`run_test_command` over Tailscale (`http://claw-3:5500`).
 
 Why this exists: in the v4 batch every workflow's verify phase failed
 to produce `06-verified/test_output.txt` because Copilot is bad at
@@ -15,31 +14,44 @@ pipeline calls this service to run it.
 
 Endpoint:
   POST /run
+  Header: Authorization: Bearer <CKTEST_RUNNER_BEARER>
   Body: {"fork_slug": "WolffM/foo", "branch": "crimson-kitty-42",
          "command": "go test ./pkg -run TestFoo -v"}
   Response 200: {"stdout": "...", "stderr": "...", "exit_code": 0,
                  "duration_ms": 1234, "language": "go"}
   Response 200 with error: {"error": "...", "stdout": "", ...} —
                  caller treats as ok=False
+  Response 401: missing/mismatched bearer
+  Response 503: server already running a job (semaphore full); response
+                includes `Retry-After: 60` header — caller backs off.
   Response 4xx: input validation failure (caller bug)
   Response 5xx: server-side runtime error
 
-Auth: NONE. The service binds to 0.0.0.0:5500 inside the cktest WSL
-distro, which is reachable only via WSL2's localhost forwarding from
-the same Windows host. Don't expose this on the public internet.
+Auth: `Authorization: Bearer <secret>` on `/run`. Secret read from
+`CKTEST_RUNNER_BEARER` env at request time (populated by systemd's
+`ExecStartPre=fetch-bearer.sh`, which curls the vault broker). `/health`
+remains unauth'd so monitoring can probe liveness without the secret.
+The command-allowlist downstream is a hygiene check, not the auth boundary.
 
-Toolchains assumed pre-installed in the cktest distro: git, go, python3
+Concurrency: `threading.Semaphore(CKTEST_MAX_CONCURRENT)` (default 1) gates
+`/run`. claw-3's 16 GB RAM ceiling + Ollama co-tenancy makes >1 concurrent
+job genuinely risky for big-monorepo cases. Worker retries 503 with
+exponential backoff before falling back to text-only verify.
+
+Toolchains assumed pre-installed by `provision.sh`: git, go, python3
 (+pytest), node 20+ (+pnpm), rustc/cargo, gh CLI. See README.md.
 """
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -81,6 +93,37 @@ _SLUG_RE = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
 # Branch names are git ref-name compliant — tighter than slugs to
 # avoid `-foo` flags being interpreted as command options.
 _BRANCH_RE = re.compile(r"^[a-zA-Z0-9._/][a-zA-Z0-9._/-]*$")
+
+# Concurrency gate — claw-3's 16 GB RAM ceiling + Ollama co-tenancy
+# makes >1 concurrent job risky for big-monorepo cases. Sized via env so
+# a beefier replacement host can lift the ceiling without code change.
+_MAX_CONCURRENT = int(os.environ.get("CKTEST_MAX_CONCURRENT", "1"))
+_CONCURRENCY_SEM = threading.Semaphore(_MAX_CONCURRENT)
+# Retry-After hint when 503'd. Covers the typical job wall-time of
+# 30s–8min badly, but it's a hint — the worker has its own backoff
+# schedule and may retry sooner.
+_RETRY_AFTER_S = int(os.environ.get("CKTEST_RETRY_AFTER_S", "60"))
+
+
+def _check_bearer() -> bool:
+    """Constant-time compare of `Authorization: Bearer <secret>` header
+    against `CKTEST_RUNNER_BEARER` env. Returns False (→ 401) when:
+
+    - Server has no bearer configured (misconfig — fail closed)
+    - Header is missing or not `Bearer <token>` shape
+    - Token mismatches the configured secret
+
+    Reads env at request time so a `systemctl reload` / unit restart
+    picks up rotated secrets without a code change."""
+    expected = os.environ.get("CKTEST_RUNNER_BEARER", "")
+    if not expected:
+        return False
+    header = request.headers.get("Authorization", "")
+    prefix = "Bearer "
+    if not header.startswith(prefix):
+        return False
+    presented = header[len(prefix):].strip()
+    return hmac.compare_digest(presented, expected)
 
 
 def _detect_language(workdir: Path) -> str:
@@ -204,74 +247,109 @@ def health():
 
 @app.route("/run", methods=["POST"])
 def run():
-    body = request.get_json(silent=True) or {}
-    fork_slug = (body.get("fork_slug") or "").strip()
-    branch = (body.get("branch") or "").strip()
-    command = (body.get("command") or "").strip()
+    # ── Auth gate (bearer). Reject before parsing the body so a leaky
+    #    error message can't surface validation details to unauth'd callers.
+    if not _check_bearer():
+        return jsonify({"error": "unauthorized"}), 401
 
-    # ── Input validation
-    if not _SLUG_RE.match(fork_slug):
-        return jsonify({"error": f"invalid fork_slug: {fork_slug!r}"}), 400
-    if not _BRANCH_RE.match(branch):
-        return jsonify({"error": f"invalid branch: {branch!r}"}), 400
-    if not command:
-        return jsonify({"error": "empty command"}), 400
-    first_token = command.split(None, 1)[0]
-    if first_token not in _ALLOWED_FIRST_TOKENS:
-        return jsonify({
-            "error": (
-                f"command first token {first_token!r} not in allowlist; "
-                f"allowed: {sorted(_ALLOWED_FIRST_TOKENS)}"
-            )
-        }), 400
-
-    # ── Stage tmp clone dir
-    job_id = uuid.uuid4().hex[:8]
-    workdir = Path(tempfile.gettempdir()) / f"cktest-{job_id}"
-    logger.info("job %s: %s @ %s — %s", job_id, fork_slug, branch, command[:80])
+    # ── Concurrency gate. Non-blocking acquire — if another job holds
+    #    the semaphore, return 503 with Retry-After so the worker backs
+    #    off rather than queueing here (queueing inside Flask would tie
+    #    up worker threads + RAM with no upper bound).
+    if not _CONCURRENCY_SEM.acquire(blocking=False):
+        resp = jsonify({"error": "runner busy", "retry_after_s": _RETRY_AFTER_S})
+        resp.status_code = 503
+        resp.headers["Retry-After"] = str(_RETRY_AFTER_S)
+        return resp
 
     try:
-        # ── Clone (shallow, single branch — fastest)
-        clone_url = f"https://github.com/{fork_slug}.git"
-        clone = subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", branch, clone_url, str(workdir)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if clone.returncode != 0:
-            return jsonify({
-                "error": f"clone failed: {clone.stderr[-500:]}",
-                "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
-            }), 200  # 200 with error field — non-fatal to caller
+        body = request.get_json(silent=True) or {}
+        fork_slug = (body.get("fork_slug") or "").strip()
+        branch = (body.get("branch") or "").strip()
+        command = (body.get("command") or "").strip()
 
-        # ── Detect language + install deps
-        language = _detect_language(workdir)
-        install_rc, install_log = _install_deps(workdir, language, timeout_s=240)
-        if install_rc != 0:
+        # ── Input validation
+        if not _SLUG_RE.match(fork_slug):
+            return jsonify({"error": f"invalid fork_slug: {fork_slug!r}"}), 400
+        if not _BRANCH_RE.match(branch):
+            return jsonify({"error": f"invalid branch: {branch!r}"}), 400
+        if not command:
+            return jsonify({"error": "empty command"}), 400
+        first_token = command.split(None, 1)[0]
+        if first_token not in _ALLOWED_FIRST_TOKENS:
             return jsonify({
-                "error": f"install failed (rc={install_rc}): {install_log[-1000:]}",
-                "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
+                "error": (
+                    f"command first token {first_token!r} not in allowlist; "
+                    f"allowed: {sorted(_ALLOWED_FIRST_TOKENS)}"
+                )
+            }), 400
+
+        # ── Stage tmp clone dir
+        job_id = uuid.uuid4().hex[:8]
+        workdir = Path(tempfile.gettempdir()) / f"cktest-{job_id}"
+        logger.info("job %s: %s @ %s — %s", job_id, fork_slug, branch, command[:80])
+
+        try:
+            # ── Clone (shallow, single branch — fastest)
+            clone_url = f"https://github.com/{fork_slug}.git"
+            clone = subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", branch, clone_url, str(workdir)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if clone.returncode != 0:
+                return jsonify({
+                    "error": f"clone failed: {clone.stderr[-500:]}",
+                    "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
+                }), 200  # 200 with error field — non-fatal to caller
+
+            # ── Detect language + install deps
+            language = _detect_language(workdir)
+            install_rc, install_log = _install_deps(workdir, language, timeout_s=240)
+            if install_rc != 0:
+                return jsonify({
+                    "error": f"install failed (rc={install_rc}): {install_log[-1000:]}",
+                    "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
+                    "language": language,
+                }), 200
+
+            # ── Run the test
+            exit_code, stdout, stderr, duration_ms = _run_test(
+                workdir, command, timeout_s=_PER_JOB_TIMEOUT_S,
+            )
+            return jsonify({
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
                 "language": language,
             }), 200
 
-        # ── Run the test
-        exit_code, stdout, stderr, duration_ms = _run_test(
-            workdir, command, timeout_s=_PER_JOB_TIMEOUT_S,
-        )
-        return jsonify({
-            "stdout": stdout,
-            "stderr": stderr,
-            "exit_code": exit_code,
-            "duration_ms": duration_ms,
-            "language": language,
-        }), 200
-
+        finally:
+            _cleanup(workdir)
     finally:
-        _cleanup(workdir)
+        _CONCURRENCY_SEM.release()
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("CKTEST_PORT", "5500"))
-    logger.info("cktest-runner starting on 0.0.0.0:%d", port)
-    app.run(host="0.0.0.0", port=port)
+    if not os.environ.get("CKTEST_RUNNER_BEARER"):
+        # Fail closed at startup. Systemd's ExecStartPre=fetch-bearer.sh
+        # populates this from the vault; if it didn't run or the vault
+        # was sealed, refuse to start so the failure surfaces as a unit
+        # restart loop in journald rather than a silently-open service.
+        raise SystemExit(
+            "cktest-runner: refusing to start — CKTEST_RUNNER_BEARER unset. "
+            "On claw-3 this means fetch-bearer.sh did not populate "
+            "/run/cktest-runner/env (vault sealed? service-key invalid?)."
+        )
+    logger.info(
+        "cktest-runner starting on 0.0.0.0:%d (max_concurrent=%d)",
+        port, _MAX_CONCURRENT,
+    )
+    # Threaded=True so the semaphore actually gates parallel /run calls;
+    # default Flask dev server is single-threaded and the semaphore would
+    # be no-op decoration. For prod we should front this with gunicorn,
+    # but a single Flask process is fine at MAX_CONCURRENT=1.
+    app.run(host="0.0.0.0", port=port, threaded=True)
