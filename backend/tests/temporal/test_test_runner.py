@@ -255,3 +255,154 @@ def test_run_test_command_uses_default_runner_url_when_unspecified(ev):
         mod._DEFAULT_RUNNER_URL = original
 
     assert captured[0]["runner_url"] == "http://cktest:5500"
+
+
+def test_default_dispatch_sends_bearer_header(monkeypatch):
+    """The default `requests`-based dispatch reads CKTEST_RUNNER_BEARER
+    from env and sends `Authorization: Bearer <secret>`. Server-side
+    bearer check verifies this exact shape."""
+    from temporal.activities.test_runner import _default_dispatch_test
+
+    monkeypatch.setenv("CKTEST_RUNNER_BEARER", "deadbeefcafe")
+
+    captured: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+        headers: dict = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"stdout": "ok", "stderr": "", "exit_code": 0, "duration_ms": 1}
+
+    def fake_post(url, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    import requests  # type: ignore
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    result = _default_dispatch_test(
+        runner_url="http://claw-3:5500",
+        fork_slug="WolffM/x",
+        branch="b",
+        command="pytest",
+        timeout_s=60.0,
+    )
+
+    assert result["exit_code"] == 0
+    assert captured["url"] == "http://claw-3:5500/run"
+    assert captured["headers"] == {"Authorization": "Bearer deadbeefcafe"}
+    assert captured["json"] == {"fork_slug": "WolffM/x", "branch": "b", "command": "pytest"}
+
+
+def test_default_dispatch_raises_runner_busy_on_503(monkeypatch):
+    """503 response → RunnerBusy503 (so run_test_command can back off).
+    Other non-2xx codes still raise via raise_for_status()."""
+    from temporal.activities.test_runner import RunnerBusy503, _default_dispatch_test
+
+    monkeypatch.setenv("CKTEST_RUNNER_BEARER", "x")
+
+    class Busy:
+        status_code = 503
+        headers = {"Retry-After": "60"}
+
+        def raise_for_status(self):
+            raise AssertionError("should not reach raise_for_status on 503")
+
+        def json(self):
+            return {"error": "runner busy"}
+
+    import requests  # type: ignore
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: Busy())
+
+    with pytest.raises(RunnerBusy503) as exc_info:
+        _default_dispatch_test("http://x:5500", "a/b", "br", "pytest", 60.0)
+    assert "Retry-After" in str(exc_info.value)
+
+
+def test_run_test_command_retries_on_503_and_succeeds(ev):
+    """When the runner returns 503 once then 200, the activity backs
+    off and retries rather than failing — covers the common case where
+    a parallel batch job finished while we were waiting."""
+    from temporal.activities.test_runner import RunnerBusy503, run_test_command
+
+    ev.write_text("05-fixed/test_command.txt", "pytest")
+
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def flaky(runner_url, fork_slug, branch, command, timeout_s):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RunnerBusy503("first call busy")
+        return {"stdout": "PASS", "stderr": "", "exit_code": 0, "duration_ms": 50}
+
+    result = run_test_command(
+        ev, fork_slug="WolffM/x", branch_name="b",
+        dispatch=flaky, sleep=sleeps.append,
+    )
+
+    assert result["ok"] is True
+    assert result["exit_code"] == 0
+    assert len(attempts) == 2  # first 503, second succeeded
+    assert sleeps == [1.0]  # one backoff between the two attempts
+    assert ev.exists("06-verified/test_output.txt")
+
+
+def test_run_test_command_falls_back_after_exhausting_busy_retries(ev):
+    """If the runner stays 503 across the full backoff schedule, the
+    activity returns ok=False — workflow falls back to text-only verify
+    rather than blocking the batch indefinitely."""
+    from temporal.activities.test_runner import RunnerBusy503, run_test_command
+
+    ev.write_text("05-fixed/test_command.txt", "pytest")
+
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def always_busy(runner_url, fork_slug, branch, command, timeout_s):
+        attempts.append(1)
+        raise RunnerBusy503("still busy")
+
+    result = run_test_command(
+        ev, fork_slug="WolffM/x", branch_name="b",
+        dispatch=always_busy, sleep=sleeps.append,
+        busy_retry_schedule=(0.1, 0.2, 0.4),
+    )
+
+    assert result["ok"] is False
+    assert "runner busy after 4 attempts" in result["reason"]
+    assert len(attempts) == 4  # initial + 3 retries
+    assert sleeps == [0.1, 0.2, 0.4]
+    assert not ev.exists("06-verified/test_output.txt")
+
+
+def test_run_test_command_does_not_retry_non_busy_errors(ev):
+    """Connection errors / timeouts / 401 surface immediately — retrying
+    won't help and we want the failure visible in workflow logs fast."""
+    from temporal.activities.test_runner import run_test_command
+
+    ev.write_text("05-fixed/test_command.txt", "pytest")
+
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def boom(runner_url, fork_slug, branch, command, timeout_s):
+        attempts.append(1)
+        raise ConnectionRefusedError("no listener")
+
+    result = run_test_command(
+        ev, fork_slug="WolffM/x", branch_name="b",
+        dispatch=boom, sleep=sleeps.append,
+    )
+
+    assert result["ok"] is False
+    assert "runner unreachable" in result["reason"]
+    assert len(attempts) == 1  # no retry
+    assert sleeps == []
