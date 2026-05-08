@@ -12,6 +12,12 @@ Documentation=https://github.com/WolffM/hadoku_site/blob/main/docs/operations/ck
 After=network-online.target
 Wants=network-online.target
 
+# Restart-loop cap — these are [Unit] keys in systemd ≥230, not [Service].
+# Without them here, fetch-bearer.sh failures (sealed vault, broker
+# unreachable) would burn CPU on infinite restart. Same numbers as before.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
 [Service]
 Type=simple
 User=cktest
@@ -32,7 +38,12 @@ WorkingDirectory=/srv/vibedispatch/scripts/cktest-runner
 RuntimeDirectory=cktest-runner
 RuntimeDirectoryMode=0750
 ExecStartPre=/srv/vibedispatch/scripts/cktest-runner/fetch-bearer.sh
-EnvironmentFile=/run/cktest-runner/env
+# Leading dash: file is created BY fetch-bearer.sh during ExecStartPre.
+# Without `-`, systemd hard-fails the unit before ExecStartPre can run
+# (env files are evaluated up-front; missing file = fatal load error).
+# systemd reloads env from this file before each ExecStart* invocation,
+# so the file written during ExecStartPre is picked up by ExecStart.
+EnvironmentFile=-/run/cktest-runner/env
 
 # Defaults; override per-host if needed.
 Environment=CKTEST_PORT=5500
@@ -46,10 +57,7 @@ ExecStart=/usr/bin/python3 server.py
 # ── Resilience
 Restart=always
 RestartSec=5
-# `fetch-bearer.sh` failures count as start failures; cap restart loops
-# so a sealed vault doesn't burn CPU on retries.
-StartLimitIntervalSec=300
-StartLimitBurst=10
+# Restart-loop cap moved to [Unit] section above (systemd ≥230 requirement).
 
 # ── Hardening (light touch — the service runs untrusted shell commands
 # from the agent allowlist by design, so heavy seccomp filters would
