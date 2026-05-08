@@ -47,7 +47,7 @@ trap 'rm -f "${TMP}"' EXIT
 
 HTTP_STATUS="$(curl --silent --show-error --fail-with-body \
   --max-time 10 \
-  --header "X-Service-Key: ${SERVICE_KEY}" \
+  --header "X-User-Key: ${SERVICE_KEY}" \
   --output "${TMP}" \
   --write-out '%{http_code}' \
   "${BROKER_URL}" || true)"
