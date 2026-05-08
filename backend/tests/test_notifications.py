@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from helpers.notifications import (
     send_discord_notification,
-    notify_dispatched,
     notify_copilot_pr_ready,
     notify_fork_merged,
     notify_upstream_submitted,
@@ -93,31 +92,6 @@ class TestSendDiscordNotification:
     def test_exception_does_not_raise(self, mock_post):
         send_discord_notification("Title", "Desc")
         mock_post.assert_called_once()
-
-
-class TestNotifyDispatched:
-
-    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("helpers.notifications.requests.post")
-    def test_includes_issue_link_in_description(self, mock_post):
-        notify_dispatched("microsoft/terminal", 5301, "Fix tab close", "https://github.com/WolffM/terminal/issues/1", 1)
-
-        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
-        embed = payload["embeds"][0]
-        assert "microsoft/terminal#5301" in embed["description"]
-        assert "github.com/microsoft/terminal/issues/5301" in embed["description"]
-        assert embed["color"] == COLOR_INFO
-
-    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("helpers.notifications.requests.post")
-    def test_omits_context_tier_when_none(self, mock_post):
-        notify_dispatched("org/repo", 1, "Fix", "https://fork/1", None)
-
-        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
-        embed = payload["embeds"][0]
-        # Context Tier field should be filtered out (None value)
-        tier_fields = [f for f in embed.get("fields", []) if f["name"] == "Context Tier"]
-        assert len(tier_fields) == 0
 
 
 class TestNotifyCopilotPrReady:

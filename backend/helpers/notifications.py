@@ -60,23 +60,6 @@ def send_discord_notification(title, description, color=None, fields=None):
         logger.debug("Discord notification failed: %s", e)
 
 
-# --- Stage 3: Dispatched ---
-
-def notify_dispatched(origin_slug, issue_number, issue_title, fork_issue_url, context_tier):
-    """Notify when an issue is dispatched (forked + Copilot assigned)."""
-    issue_link = _issue_url(origin_slug, issue_number)
-    send_discord_notification(
-        title="Dispatched",
-        description=f"[{origin_slug}#{issue_number}]({issue_link}): {issue_title}" if issue_link
-                    else f"{origin_slug} #{issue_number}: {issue_title}",
-        color=COLOR_INFO,
-        fields=[
-            _field("Fork Issue", fork_issue_url),
-            _field("Context Tier", context_tier, inline=True),
-        ],
-    )
-
-
 # --- Stage 4: Copilot PR ready ---
 
 def notify_copilot_pr_ready(origin_slug, issue_number, fork_pr_url, pr_title):
