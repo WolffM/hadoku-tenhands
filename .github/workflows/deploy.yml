@@ -14,42 +14,63 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger hadoku_site to redeploy
+      - name: Trigger hadoku_site to redeploy both pm2 services
         env:
           HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
         run: |
-          echo "Requesting hadoku_site to redeploy vibedispatch..."
-          echo "Commit: ${{ github.sha }}"
-
+          # vibedispatch is two pm2 services on the prod host: the Flask
+          # backend (`vibedispatch`) and the Temporal worker
+          # (`vibedispatch-temporal`). Both run from the same repo
+          # checkout via services/pm2/vibedispatch-wrapper.mjs with
+          # different script args. We need to redeploy BOTH on every
+          # push — until 2026-05-09 only the Flask app was redeployed,
+          # which silently left the worker on stale code (the
+          # 2026-05-09 cktest-runner test_command_synthesizer commit
+          # was the proof point: synth landed in main but didn't
+          # actually run because the worker process never restarted).
           if [ -z "$HADOKU_SITE_TOKEN" ]; then
             echo "❌ Error: HADOKU_SITE_TOKEN not available"
             exit 1
           fi
 
-          payload=$(cat <<EOF
+          dispatch_one() {
+            local service="$1"
+            echo "→ requesting redeploy: $service"
+            local payload
+            payload=$(cat <<EOF
           {
             "event_type": "redeploy_service",
             "client_payload": {
-              "service": "vibedispatch",
+              "service": "$service",
               "sha": "${{ github.sha }}",
               "ref": "${{ github.ref }}"
             }
           }
           EOF
-          )
+            )
+            local status_code
+            status_code=$(curl -sS \
+              -o /dev/null \
+              -w "%{http_code}" \
+              -X POST "https://api.github.com/repos/${{ vars.DEPLOY_TARGET_REPO || 'WolffM/hadoku_site' }}/dispatches" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -d "$payload")
+            if [ "$status_code" = "204" ]; then
+              echo "  ✅ $service redeploy requested"
+              return 0
+            else
+              echo "  ❌ $service dispatch failed (HTTP $status_code)"
+              return 1
+            fi
+          }
 
-          status_code=$(curl -sS \
-            -o /dev/null \
-            -w "%{http_code}" \
-            -X POST "https://api.github.com/repos/${{ vars.DEPLOY_TARGET_REPO || 'WolffM/hadoku_site' }}/dispatches" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -d "$payload")
-
-          if [ "$status_code" = "204" ]; then
-            echo "✅ Notified hadoku_site to redeploy vibedispatch"
-          else
-            echo "❌ Failed to notify hadoku_site (HTTP $status_code)"
-            exit 1
-          fi
+          # Fire both. We don't bail on the first failure — if the
+          # Flask redeploy fails but the worker redeploy succeeds (or
+          # vice versa), still surface what landed instead of leaving
+          # the user guessing which half deployed.
+          rc=0
+          dispatch_one "vibedispatch"          || rc=1
+          dispatch_one "vibedispatch-temporal" || rc=1
+          exit $rc
