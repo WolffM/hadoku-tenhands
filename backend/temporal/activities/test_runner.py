@@ -145,6 +145,14 @@ def run_test_command(
         `time.sleep`); tests pass a no-op so the suite stays fast.
       `busy_retry_schedule` overrides the default backoff seconds.
     """
+    # If Copilot didn't commit 05-fixed/test_command.txt (the common
+    # case — Copilot consistently ignores that REQUIRED instruction),
+    # synthesize one from the language hint + files_touched. Quiet on
+    # failure: stays no-op when we can't infer a sensible command,
+    # preserving the prior text-only-verify fallback path.
+    from .test_command_synthesizer import synthesize_test_command_if_missing
+    synthesize_test_command_if_missing(evidence)
+
     if not evidence.exists("05-fixed/test_command.txt"):
         return {"ok": False, "reason": "no test_command.txt"}
 
