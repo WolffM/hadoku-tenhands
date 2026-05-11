@@ -55,6 +55,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 from flask import Flask, jsonify, request
 
@@ -247,9 +248,26 @@ def health():
 
 @app.route("/run", methods=["POST"])
 def run():
+    # Log every incoming request before any gate so unauth'd hammering
+    # is visible in journald (auth abuse detection). bearer_present
+    # without the value — auth value is never logged.
+    remote = request.headers.get("X-Forwarded-For") or request.remote_addr or "?"
+    auth_header = request.headers.get("Authorization", "")
+    has_bearer = auth_header.startswith("Bearer ")
+    bearer_chars = len(auth_header[7:]) if has_bearer else 0
+    logger.info(
+        "/run ← from=%s bearer_present=%s bearer_chars=%d ua=%r",
+        remote, has_bearer, bearer_chars,
+        (request.headers.get("User-Agent") or "")[:60],
+    )
+
     # ── Auth gate (bearer). Reject before parsing the body so a leaky
     #    error message can't surface validation details to unauth'd callers.
     if not _check_bearer():
+        logger.warning(
+            "/run → 401 unauthorized from=%s bearer_present=%s bearer_chars=%d",
+            remote, has_bearer, bearer_chars,
+        )
         return jsonify({"error": "unauthorized"}), 401
 
     # ── Concurrency gate. Non-blocking acquire — if another job holds
@@ -257,11 +275,15 @@ def run():
     #    off rather than queueing here (queueing inside Flask would tie
     #    up worker threads + RAM with no upper bound).
     if not _CONCURRENCY_SEM.acquire(blocking=False):
+        logger.info("/run → 503 busy from=%s retry_after=%ds", remote, _RETRY_AFTER_S)
         resp = jsonify({"error": "runner busy", "retry_after_s": _RETRY_AFTER_S})
         resp.status_code = 503
         resp.headers["Retry-After"] = str(_RETRY_AFTER_S)
         return resp
 
+    job_id = uuid.uuid4().hex[:8]
+    overall_started = time.time()
+    workdir: Optional[Path] = None
     try:
         body = request.get_json(silent=True) or {}
         fork_slug = (body.get("fork_slug") or "").strip()
@@ -270,13 +292,20 @@ def run():
 
         # ── Input validation
         if not _SLUG_RE.match(fork_slug):
+            logger.warning("job %s: 400 invalid fork_slug=%r from=%s", job_id, fork_slug, remote)
             return jsonify({"error": f"invalid fork_slug: {fork_slug!r}"}), 400
         if not _BRANCH_RE.match(branch):
+            logger.warning("job %s: 400 invalid branch=%r from=%s", job_id, branch, remote)
             return jsonify({"error": f"invalid branch: {branch!r}"}), 400
         if not command:
+            logger.warning("job %s: 400 empty command from=%s", job_id, remote)
             return jsonify({"error": "empty command"}), 400
         first_token = command.split(None, 1)[0]
         if first_token not in _ALLOWED_FIRST_TOKENS:
+            logger.warning(
+                "job %s: 400 disallowed token=%r from=%s",
+                job_id, first_token, remote,
+            )
             return jsonify({
                 "error": (
                     f"command first token {first_token!r} not in allowlist; "
@@ -285,51 +314,79 @@ def run():
             }), 400
 
         # ── Stage tmp clone dir
-        job_id = uuid.uuid4().hex[:8]
         workdir = Path(tempfile.gettempdir()) / f"cktest-{job_id}"
-        logger.info("job %s: %s @ %s — %s", job_id, fork_slug, branch, command[:80])
+        logger.info(
+            "job %s START fork=%s branch=%s cmd=%r tmp=%s",
+            job_id, fork_slug, branch, command[:120], workdir,
+        )
 
-        try:
-            # ── Clone (shallow, single branch — fastest)
-            clone_url = f"https://github.com/{fork_slug}.git"
-            clone = subprocess.run(
-                ["git", "clone", "--depth", "1", "--branch", branch, clone_url, str(workdir)],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if clone.returncode != 0:
-                return jsonify({
-                    "error": f"clone failed: {clone.stderr[-500:]}",
-                    "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
-                }), 200  # 200 with error field — non-fatal to caller
-
-            # ── Detect language + install deps
-            language = _detect_language(workdir)
-            install_rc, install_log = _install_deps(workdir, language, timeout_s=240)
-            if install_rc != 0:
-                return jsonify({
-                    "error": f"install failed (rc={install_rc}): {install_log[-1000:]}",
-                    "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
-                    "language": language,
-                }), 200
-
-            # ── Run the test
-            exit_code, stdout, stderr, duration_ms = _run_test(
-                workdir, command, timeout_s=_PER_JOB_TIMEOUT_S,
+        # ── Clone (shallow, single branch — fastest)
+        clone_url = f"https://github.com/{fork_slug}.git"
+        clone_started = time.time()
+        clone = subprocess.run(
+            ["git", "clone", "--depth", "1", "--branch", branch, clone_url, str(workdir)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        clone_ms = int((time.time() - clone_started) * 1000)
+        if clone.returncode != 0:
+            logger.warning(
+                "job %s CLONE FAILED rc=%d in %dms — %s",
+                job_id, clone.returncode, clone_ms, clone.stderr[-300:].strip(),
             )
             return jsonify({
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": exit_code,
-                "duration_ms": duration_ms,
+                "error": f"clone failed: {clone.stderr[-500:]}",
+                "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
+            }), 200  # 200 with error field — non-fatal to caller
+        logger.info("job %s clone OK in %dms", job_id, clone_ms)
+
+        # ── Detect language + install deps
+        language = _detect_language(workdir)
+        logger.info("job %s detected language=%s", job_id, language)
+        install_started = time.time()
+        install_rc, install_log = _install_deps(workdir, language, timeout_s=240)
+        install_ms = int((time.time() - install_started) * 1000)
+        if install_rc != 0:
+            logger.warning(
+                "job %s INSTALL FAILED rc=%d in %dms — %s",
+                job_id, install_rc, install_ms, install_log[-300:].strip(),
+            )
+            return jsonify({
+                "error": f"install failed (rc={install_rc}): {install_log[-1000:]}",
+                "stdout": "", "stderr": "", "exit_code": -1, "duration_ms": 0,
                 "language": language,
             }), 200
+        logger.info("job %s install OK in %dms (language=%s)", job_id, install_ms, language)
 
-        finally:
-            _cleanup(workdir)
+        # ── Run the test
+        exit_code, stdout, stderr, duration_ms = _run_test(
+            workdir, command, timeout_s=_PER_JOB_TIMEOUT_S,
+        )
+        logger.info(
+            "job %s DONE exit=%d duration_ms=%d stdout_bytes=%d stderr_bytes=%d (total=%dms)",
+            job_id, exit_code, duration_ms, len(stdout), len(stderr),
+            int((time.time() - overall_started) * 1000),
+        )
+        return jsonify({
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "language": language,
+        }), 200
+
+    except Exception:
+        logger.exception("job %s UNHANDLED EXCEPTION", job_id)
+        raise
     finally:
+        if workdir is not None:
+            _cleanup(workdir)
         _CONCURRENCY_SEM.release()
+        logger.info(
+            "/run → response sent for job %s (total=%dms)",
+            job_id, int((time.time() - overall_started) * 1000),
+        )
 
 
 if __name__ == "__main__":

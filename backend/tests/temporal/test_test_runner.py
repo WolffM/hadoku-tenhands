@@ -270,6 +270,8 @@ def test_default_dispatch_sends_bearer_header(monkeypatch):
     class FakeResponse:
         status_code = 200
         headers: dict = {}
+        ok = True
+        text = ""
 
         def raise_for_status(self):
             pass

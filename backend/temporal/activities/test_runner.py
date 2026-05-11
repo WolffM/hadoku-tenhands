@@ -96,21 +96,64 @@ def _default_dispatch_test(
     bearer = os.environ.get("CKTEST_RUNNER_BEARER", "")
     headers = {"Authorization": f"Bearer {bearer}"}
 
-    r = requests.post(
-        f"{runner_url}/run",
-        json={
-            "fork_slug": fork_slug,
-            "branch": branch,
-            "command": command,
-        },
-        headers=headers,
-        timeout=timeout_s,
+    # Log the attempt before the wire so a hang/timeout still leaves
+    # breadcrumbs. bearer_chars (not the value) tells us whether the
+    # vault fetch landed without leaking the secret to logs.
+    logger.info(
+        "cktest dispatch → %s/run fork=%s branch=%s cmd=%r "
+        "bearer_chars=%d timeout_s=%.0f",
+        runner_url, fork_slug, branch, command[:120], len(bearer), timeout_s,
     )
+
+    started = time.monotonic()
+    try:
+        r = requests.post(
+            f"{runner_url}/run",
+            json={
+                "fork_slug": fork_slug,
+                "branch": branch,
+                "command": command,
+            },
+            headers=headers,
+            timeout=timeout_s,
+        )
+    except Exception as e:
+        elapsed_s = time.monotonic() - started
+        logger.warning(
+            "cktest dispatch CONNECTION FAILED in %.2fs: %s: %s",
+            elapsed_s, type(e).__name__, e,
+        )
+        raise
+
+    elapsed_s = time.monotonic() - started
     if r.status_code == 503:
         retry_after = r.headers.get("Retry-After", "")
+        logger.info(
+            "cktest dispatch ← 503 busy (Retry-After=%s) elapsed=%.2fs",
+            retry_after, elapsed_s,
+        )
         raise RunnerBusy503(f"runner busy (Retry-After={retry_after!r})")
+    if not r.ok:
+        # raise_for_status will throw below — log first so the caller's
+        # exception handler doesn't lose the actual response body.
+        body_preview = (r.text or "")[:300]
+        logger.warning(
+            "cktest dispatch ← HTTP %d elapsed=%.2fs body=%r",
+            r.status_code, elapsed_s, body_preview,
+        )
     r.raise_for_status()
-    return r.json()
+    body = r.json()
+    logger.info(
+        "cktest dispatch ← 200 elapsed=%.2fs exit=%s lang=%s "
+        "stdout_bytes=%d stderr_bytes=%d error=%r",
+        elapsed_s,
+        body.get("exit_code"),
+        body.get("language"),
+        len(body.get("stdout") or ""),
+        len(body.get("stderr") or ""),
+        (body.get("error") or "")[:200] or None,
+    )
+    return body
 
 
 def run_test_command(
@@ -145,15 +188,30 @@ def run_test_command(
         `time.sleep`); tests pass a no-op so the suite stays fast.
       `busy_retry_schedule` overrides the default backoff seconds.
     """
+    logger.info(
+        "run_test_command START fork=%s branch=%s evidence_root=%s",
+        fork_slug, branch_name,
+        getattr(evidence, "root", "<no-root-attr>"),
+    )
+
     # If Copilot didn't commit 05-fixed/test_command.txt (the common
     # case — Copilot consistently ignores that REQUIRED instruction),
     # synthesize one from the language hint + files_touched. Quiet on
     # failure: stays no-op when we can't infer a sensible command,
     # preserving the prior text-only-verify fallback path.
     from .test_command_synthesizer import synthesize_test_command_if_missing
-    synthesize_test_command_if_missing(evidence)
+    synthesized = synthesize_test_command_if_missing(evidence)
+    if synthesized:
+        logger.info(
+            "run_test_command synthesized command for %s@%s: %r",
+            fork_slug, branch_name, synthesized,
+        )
 
     if not evidence.exists("05-fixed/test_command.txt"):
+        logger.info(
+            "run_test_command SKIP fork=%s branch=%s reason=no_test_command",
+            fork_slug, branch_name,
+        )
         return {"ok": False, "reason": "no test_command.txt"}
 
     command = evidence.read_text("05-fixed/test_command.txt").strip()
@@ -198,12 +256,16 @@ def run_test_command(
             continue
         except Exception as e:
             logger.warning(
-                "test-runner dispatch failed for %s@%s: %s",
-                fork_slug, branch_name, e, exc_info=True,
+                "run_test_command FAIL fork=%s branch=%s reason=runner_unreachable: %s: %s",
+                fork_slug, branch_name, type(e).__name__, e, exc_info=True,
             )
             return {"ok": False, "reason": f"runner unreachable: {type(e).__name__}: {e}"}
     else:
         # Exhausted the schedule without a successful dispatch.
+        logger.warning(
+            "run_test_command FAIL fork=%s branch=%s reason=runner_busy_after_%d_attempts",
+            fork_slug, branch_name, len(busy_retry_schedule) + 1,
+        )
         return {
             "ok": False,
             "reason": f"runner busy after {len(busy_retry_schedule) + 1} attempts: {last_busy}",
@@ -211,10 +273,18 @@ def run_test_command(
     assert result is not None  # break path above always populates this
 
     if not isinstance(result, dict):
+        logger.warning(
+            "run_test_command FAIL fork=%s branch=%s reason=non_dict_response type=%s",
+            fork_slug, branch_name, type(result).__name__,
+        )
         return {"ok": False, "reason": f"runner returned non-dict: {type(result).__name__}"}
 
     error = result.get("error")
     if error:
+        logger.warning(
+            "run_test_command FAIL fork=%s branch=%s reason=runner_internal_error: %s",
+            fork_slug, branch_name, str(error)[:300],
+        )
         return {"ok": False, "reason": f"runner internal error: {str(error)[:200]}"}
 
     stdout = result.get("stdout", "") or ""
@@ -242,6 +312,13 @@ def run_test_command(
         )
 
     evidence.write_text("06-verified/test_output.txt", output)
+    logger.info(
+        "run_test_command OK fork=%s branch=%s exit=%s bytes=%d duration_ms=%s",
+        fork_slug, branch_name,
+        result.get("exit_code"),
+        len(output),
+        result.get("duration_ms"),
+    )
 
     return {
         "ok": True,
