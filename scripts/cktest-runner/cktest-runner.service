@@ -52,11 +52,11 @@ Environment=CKTEST_RETRY_AFTER_S=60
 Environment=CKTEST_PER_JOB_TIMEOUT_S=300
 Environment=PYTHONUNBUFFERED=1
 
-# Redirect language-toolchain caches under /tmp. Default locations
-# (HOME/go, HOME/.cache, HOME/.cargo, HOME/.npm…) sit on a read-only
-# filesystem under ProtectSystem=strict + ProtectHome=true, so the very
-# first `go mod download` / `pnpm install` / `cargo fetch` aborts with
-# "read-only file system". /tmp is already in ReadWritePaths below.
+# Redirect language-toolchain caches off the read-only base FS. Cheap-
+# to-rebuild caches (go modules, npm, pip) go under /tmp so PrivateTmp
+# wipes them on each restart — that's fine, they re-fill quickly. The
+# Rust toolchain cache (rustup downloads ~300MB per version) goes to
+# persistent /var/lib paths so we don't pay that cost every restart.
 Environment=HOME=/tmp/cktest-home
 Environment=GOPATH=/tmp/cktest-home/go
 Environment=GOMODCACHE=/tmp/cktest-home/go/pkg/mod
@@ -64,8 +64,24 @@ Environment=GOCACHE=/tmp/cktest-home/go-build
 Environment=XDG_CACHE_HOME=/tmp/cktest-home/.cache
 Environment=npm_config_cache=/tmp/cktest-home/.npm
 Environment=PNPM_HOME=/tmp/cktest-home/.pnpm
-Environment=CARGO_HOME=/tmp/cktest-home/.cargo
 Environment=PIP_CACHE_DIR=/tmp/cktest-home/.pip-cache
+
+# Auto-fetch the Go toolchain version the repo's go.mod requires (Go
+# ≥ 1.21 built-in). Costs nothing when the local Go is already new
+# enough; pulls the right version on demand when it isn't. Zero-config
+# equivalent of rustup for the Go ecosystem.
+Environment=GOTOOLCHAIN=auto
+
+# rustup-managed Rust toolchains. RUSTUP_HOME holds downloaded
+# toolchains (rustc/cargo/std for each version pinned by repos'
+# rust-toolchain.toml); CARGO_HOME holds the registry index + cargo
+# bin shims. Both must be in ReadWritePaths below and outside /tmp so
+# they survive systemd unit restarts.
+Environment=RUSTUP_HOME=/var/lib/cktest-rustup
+Environment=CARGO_HOME=/var/lib/cktest-cargo
+# Put rustup's bin first so `cargo`/`rustc` invocations hit the shims
+# (which read rust-toolchain.toml) rather than any system fallback.
+Environment=PATH=/var/lib/cktest-cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 ExecStart=/usr/bin/python3 server.py
 
@@ -80,8 +96,10 @@ RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-# Allow writes to /tmp (for cktest-* clone dirs) and the runtime dir.
-ReadWritePaths=/tmp /var/tmp
+# Allow writes to /tmp (for cktest-* clone dirs + cheap language
+# caches) and the persistent rustup/cargo dirs. /var/tmp is included
+# as a fallback for tools that ignore TMPDIR.
+ReadWritePaths=/tmp /var/tmp /var/lib/cktest-rustup /var/lib/cktest-cargo
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelLogs=true
