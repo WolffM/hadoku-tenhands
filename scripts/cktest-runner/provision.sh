@@ -37,8 +37,12 @@ else
   echo "==> service user ${SERVICE_USER} already exists, skipping"
 fi
 
-# ── 2. Base toolchains (apt). Trixie has go 1.22+ and rustc 1.76+ in the
-#    default repos which is fine for the test commands we run.
+# ── 2. Base toolchains (apt). Trixie has go 1.22+ in the default repos
+#    which is fine — Go ≥ 1.21's GOTOOLCHAIN=auto will fetch newer
+#    versions on demand per go.mod's `go N.NN` directive. apt rustc is
+#    NOT installed here; rustup handles Rust below so each repo's
+#    rust-toolchain.toml gets respected (and we can ship newer than
+#    distro for things like bat@0.26 needing rustc 1.88).
 echo "==> apt: base toolchains"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -46,8 +50,7 @@ apt-get install -y --no-install-recommends \
   ca-certificates curl gnupg \
   git build-essential make \
   python3 python3-pip python3-venv python3-flask python3-requests \
-  golang \
-  rustc cargo
+  golang
 
 # ── 3. Node 20 + pnpm
 if ! command -v node >/dev/null 2>&1 || ! node --version | grep -qE '^v(20|22|24)\.'; then
@@ -63,6 +66,40 @@ if ! command -v pnpm >/dev/null 2>&1; then
 else
   echo "==> pnpm $(pnpm --version) already installed, skipping"
 fi
+
+# ── 3b. Rust via rustup. Toolchain + cargo caches live under
+#    /var/lib/cktest-{rustup,cargo} so they persist across systemd
+#    restarts — PrivateTmp=true wipes /tmp on every restart, and a
+#    fresh ~300MB toolchain download per restart isn't acceptable.
+#
+#    Why rustup instead of apt rustc: per-repo `rust-toolchain.toml`
+#    pins the exact rustc version the project ships with (bat@0.26
+#    needs 1.88, distro rustc lags by 6-12 months). rustup reads the
+#    pin on every `cargo` invocation and auto-fetches if missing —
+#    one-time download per version, cached forever afterward.
+RUSTUP_HOME_DIR=/var/lib/cktest-rustup
+CARGO_HOME_DIR=/var/lib/cktest-cargo
+install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${RUSTUP_HOME_DIR}"
+install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${CARGO_HOME_DIR}"
+
+if [[ ! -x "${CARGO_HOME_DIR}/bin/rustup" ]]; then
+  echo "==> installing rustup (RUSTUP_HOME=${RUSTUP_HOME_DIR}, CARGO_HOME=${CARGO_HOME_DIR})"
+  sudo -u "${SERVICE_USER}" \
+    RUSTUP_HOME="${RUSTUP_HOME_DIR}" \
+    CARGO_HOME="${CARGO_HOME_DIR}" \
+    bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable --profile minimal'
+else
+  echo "==> rustup already installed at ${CARGO_HOME_DIR}/bin/rustup"
+  sudo -u "${SERVICE_USER}" \
+    RUSTUP_HOME="${RUSTUP_HOME_DIR}" \
+    CARGO_HOME="${CARGO_HOME_DIR}" \
+    "${CARGO_HOME_DIR}/bin/rustup" update stable
+fi
+
+# If a distro-packaged rustc/cargo is still on PATH, remove the apt
+# package so rustup's shims are unambiguous. Idempotent (returns 0
+# even if not installed).
+apt-get remove --purge -y rustc cargo 2>/dev/null || true
 
 # ── 4. gh CLI (used by some clone paths; cktest-runner currently goes
 #    through anonymous HTTPS but having gh available is cheap insurance)
