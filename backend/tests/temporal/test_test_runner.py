@@ -408,3 +408,104 @@ def test_run_test_command_does_not_retry_non_busy_errors(ev):
     assert "runner unreachable" in result["reason"]
     assert len(attempts) == 1  # no retry
     assert sleeps == []
+
+
+def test_run_test_command_retries_branch_not_pushed_then_succeeds(ev):
+    """The runner can return a `clone failed: ...not found` error when
+    GitHub hasn't yet propagated the post-fix branch push (observed
+    4-second gap in production). Retry with the branch_retry_schedule
+    and succeed on a later attempt."""
+    from temporal.activities.test_runner import BranchNotPushedYet, run_test_command
+
+    ev.write_text("05-fixed/test_command.txt", "go test ./...")
+
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def flaky(runner_url, fork_slug, branch, command, timeout_s):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise BranchNotPushedYet(
+                "clone failed: Remote branch crimson-kitty-42 not found in upstream origin"
+            )
+        return {"exit_code": 0, "stdout": "PASS", "stderr": "", "duration_ms": 100}
+
+    result = run_test_command(
+        ev, fork_slug="WolffM/x", branch_name="crimson-kitty-42",
+        dispatch=flaky, sleep=sleeps.append,
+        branch_retry_schedule=(0.2, 0.4, 0.8, 1.6),
+    )
+
+    assert result["ok"] is True
+    assert result["exit_code"] == 0
+    assert len(attempts) == 3  # two BranchNotPushedYet, third succeeded
+    assert sleeps == [0.2, 0.4]
+    assert ev.exists("06-verified/test_output.txt")
+
+
+def test_run_test_command_falls_back_after_branch_never_pushes(ev):
+    """If the branch never appears on GitHub through the full schedule,
+    the activity returns ok=False with branch-specific reason so the
+    workflow falls back to text-only verify rather than wedging."""
+    from temporal.activities.test_runner import BranchNotPushedYet, run_test_command
+
+    ev.write_text("05-fixed/test_command.txt", "go test ./...")
+
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def always_not_found(runner_url, fork_slug, branch, command, timeout_s):
+        attempts.append(1)
+        raise BranchNotPushedYet("clone failed: not found")
+
+    result = run_test_command(
+        ev, fork_slug="WolffM/x", branch_name="b",
+        dispatch=always_not_found, sleep=sleeps.append,
+        branch_retry_schedule=(0.1, 0.2, 0.4),
+    )
+
+    assert result["ok"] is False
+    assert "branch not pushed after 4 attempts" in result["reason"]
+    assert len(attempts) == 4  # initial + 3 retries
+    assert sleeps == [0.1, 0.2, 0.4]
+    assert not ev.exists("06-verified/test_output.txt")
+
+
+def test_dispatch_fn_raises_branch_not_pushed_on_clone_failed_not_found(monkeypatch):
+    """The default dispatch fn translates the runner's
+    `{"error": "clone failed: ...not found..."}` body into a typed
+    BranchNotPushedYet exception so the retry loop can recognize it."""
+    import requests
+    from unittest.mock import MagicMock
+    from temporal.activities.test_runner import (
+        BranchNotPushedYet, _default_dispatch_test,
+    )
+
+    class FakeResponse:
+        status_code = 200
+        ok = True
+        text = ""
+        def json(self):
+            return {
+                "error": (
+                    "clone failed: Cloning into ...\nwarning: Could not find "
+                    "remote branch crimson-kitty-1 to clone.\nfatal: Remote "
+                    "branch crimson-kitty-1 not found in upstream origin"
+                ),
+                "stdout": "",
+                "stderr": "",
+                "exit_code": -1,
+            }
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(requests, "post", MagicMock(return_value=FakeResponse()))
+    monkeypatch.setenv("CKTEST_RUNNER_BEARER", "x")
+
+    try:
+        _default_dispatch_test(
+            "http://x", "WolffM/x", "crimson-kitty-1", "go test ./...", 5.0,
+        )
+        assert False, "expected BranchNotPushedYet"
+    except BranchNotPushedYet:
+        pass  # expected
