@@ -52,6 +52,21 @@ Environment=CKTEST_RETRY_AFTER_S=60
 Environment=CKTEST_PER_JOB_TIMEOUT_S=300
 Environment=PYTHONUNBUFFERED=1
 
+# Redirect language-toolchain caches under /tmp. Default locations
+# (HOME/go, HOME/.cache, HOME/.cargo, HOME/.npm…) sit on a read-only
+# filesystem under ProtectSystem=strict + ProtectHome=true, so the very
+# first `go mod download` / `pnpm install` / `cargo fetch` aborts with
+# "read-only file system". /tmp is already in ReadWritePaths below.
+Environment=HOME=/tmp/cktest-home
+Environment=GOPATH=/tmp/cktest-home/go
+Environment=GOMODCACHE=/tmp/cktest-home/go/pkg/mod
+Environment=GOCACHE=/tmp/cktest-home/go-build
+Environment=XDG_CACHE_HOME=/tmp/cktest-home/.cache
+Environment=npm_config_cache=/tmp/cktest-home/.npm
+Environment=PNPM_HOME=/tmp/cktest-home/.pnpm
+Environment=CARGO_HOME=/tmp/cktest-home/.cargo
+Environment=PIP_CACHE_DIR=/tmp/cktest-home/.pip-cache
+
 ExecStart=/usr/bin/python3 server.py
 
 # ── Resilience
