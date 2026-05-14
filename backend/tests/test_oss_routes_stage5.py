@@ -286,3 +286,113 @@ class TestSubmitToOrigin:
         )
 
         assert resp.get_json()["success"] is False
+
+
+# ============ Archive Ready-to-Submit ============
+
+
+class TestArchiveReadyToSubmit:
+    """POST /api/oss/admin/archive-ready-to-submit moves stale entries
+    out of the ready queue and into submitted-prs.json under
+    state="merged-in-fork-only" so they stop showing up as actionable."""
+
+    @patch("routes.oss_routes_stage5.OSSService")
+    def test_archive_calls_service_method_and_returns_counts(
+        self, mock_svc_cls, client,
+    ):
+        svc = mock_svc_cls.return_value
+        svc.archive_ready_to_submit_as_fork_merged_only.return_value = {
+            "archived": 4, "cleared": 7,
+        }
+
+        resp = client.post(f"{PREFIX}/api/oss/admin/archive-ready-to-submit")
+
+        body = resp.get_json()
+        assert resp.status_code == 200
+        assert body["success"] is True
+        assert body["archived"] == 4
+        assert body["cleared"] == 7
+        svc.archive_ready_to_submit_as_fork_merged_only.assert_called_once_with()
+
+    def test_archive_dedups_by_origin_branch_and_keeps_earliest_merged_at(
+        self, tmp_path, monkeypatch,
+    ):
+        """Direct test on the state mixin: 5 dupes of the same fork PR
+        collapse to one record using the earliest merged_at."""
+        from services import oss_service
+        from services.oss_service import OSSService
+
+        monkeypatch.setattr(oss_service, "OSS_DATA_DIR", str(tmp_path))
+        # Seed 5 dupes of microsoft/markitdown#183
+        ready_path = tmp_path / "ready-to-submit.json"
+        ready_path.write_text(json.dumps([
+            {"origin_slug": "microsoft/markitdown", "repo": "markitdown",
+             "branch": "copilot/fix-x", "title": "Fix x", "base_branch": "main",
+             "issue_number": 183, "merged_at": "2026-03-17T19:55:03Z"},
+            {"origin_slug": "microsoft/markitdown", "repo": "markitdown",
+             "branch": "copilot/fix-x", "title": "Fix x", "base_branch": "main",
+             "issue_number": 183, "merged_at": "2026-03-17T18:42:54Z"},  # earliest
+            {"origin_slug": "microsoft/markitdown", "repo": "markitdown",
+             "branch": "copilot/fix-x", "title": "Fix x", "base_branch": "main",
+             "issue_number": 183, "merged_at": "2026-03-17T19:47:56Z"},
+            # Distinct entry
+            {"origin_slug": "acme/widget", "repo": "widget",
+             "branch": "feat/y", "title": "Feat y", "base_branch": "main",
+             "issue_number": 7, "merged_at": "2026-04-01T00:00:00Z"},
+        ]))
+        (tmp_path / "submitted-prs.json").write_text("[]")
+
+        svc = OSSService()
+        result = svc.archive_ready_to_submit_as_fork_merged_only()
+
+        assert result["cleared"] == 4  # 4 raw rows
+        assert result["archived"] == 2  # 2 unique destinations
+        ready_after = json.loads(ready_path.read_text())
+        assert ready_after == []
+
+        submitted = json.loads((tmp_path / "submitted-prs.json").read_text())
+        assert len(submitted) == 2
+        markitdown = next(s for s in submitted
+                          if s["origin_slug"] == "microsoft/markitdown")
+        assert markitdown["state"] == "merged-in-fork-only"
+        assert markitdown["submission_method"] == "merged-in-fork-only"
+        assert markitdown["pr_url"] == ""
+        assert markitdown["pr_number"] is None
+        # Earliest merged_at wins
+        assert markitdown["merged_at"] == "2026-03-17T18:42:54Z"
+        assert markitdown["submitted_at"] == "2026-03-17T18:42:54Z"
+
+    def test_archive_is_idempotent(self, tmp_path, monkeypatch):
+        """Calling twice doesn't duplicate the archived record."""
+        from services import oss_service
+        from services.oss_service import OSSService
+
+        monkeypatch.setattr(oss_service, "OSS_DATA_DIR", str(tmp_path))
+        (tmp_path / "ready-to-submit.json").write_text(json.dumps([
+            {"origin_slug": "x/y", "repo": "y", "branch": "br",
+             "title": "T", "base_branch": "main", "issue_number": 1,
+             "merged_at": "2026-01-01T00:00:00Z"},
+        ]))
+        (tmp_path / "submitted-prs.json").write_text("[]")
+
+        svc = OSSService()
+        first = svc.archive_ready_to_submit_as_fork_merged_only()
+        assert first == {"archived": 1, "cleared": 1}
+
+        second = svc.archive_ready_to_submit_as_fork_merged_only()
+        assert second == {"archived": 0, "cleared": 0}
+
+        submitted = json.loads((tmp_path / "submitted-prs.json").read_text())
+        assert len(submitted) == 1
+
+    def test_archive_on_empty_ready_returns_zeros(self, tmp_path, monkeypatch):
+        from services import oss_service
+        from services.oss_service import OSSService
+
+        monkeypatch.setattr(oss_service, "OSS_DATA_DIR", str(tmp_path))
+        (tmp_path / "ready-to-submit.json").write_text("[]")
+        (tmp_path / "submitted-prs.json").write_text("[]")
+
+        svc = OSSService()
+        result = svc.archive_ready_to_submit_as_fork_merged_only()
+        assert result == {"archived": 0, "cleared": 0}
