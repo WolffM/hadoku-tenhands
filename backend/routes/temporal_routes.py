@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -202,6 +202,62 @@ def temporal_evidence_list(batch_id: str, issue_id: str):
             files = [f.name for f in sorted(child.iterdir()) if f.is_file()]
             stages[child.name] = files
     return _envelope({"stages": stages})
+
+
+@bp.route("/api/temporal/inbox/<batch_id>/<issue_id>/resolve", methods=["POST"])
+def temporal_inbox_resolve(batch_id: str, issue_id: str):
+    """Mark an inbox entry resolved (clears it from `/api/temporal/inbox`).
+
+    Writes `<issue_dir>/awaiting/resolved` — the inbox-list query reads
+    this marker and skips the entry. The workflow itself doesn't write
+    this file on abort signals today (gap surfaced 2026-05-14 while
+    cleaning up 19 stale entries), so this endpoint covers both the
+    backfill-cleanup case and any future cases where the workflow exits
+    without resolving its own inbox state.
+
+    Idempotent: returns success even if the marker already exists or
+    the inbox entry never existed.
+    """
+    d = _issue_dir(batch_id, issue_id)
+    if not d.exists():
+        return _error(f"issue not found: {batch_id}/{issue_id}", status=404)
+
+    awaiting = d / "awaiting"
+    awaiting.mkdir(parents=True, exist_ok=True)
+    resolved = awaiting / "resolved"
+    if not resolved.exists():
+        resolved.write_text(
+            datetime.now(timezone.utc).isoformat(),
+            encoding="utf-8",
+        )
+    return _envelope({"batch_id": batch_id, "issue_id": issue_id, "resolved": True})
+
+
+@bp.route("/api/temporal/inbox/resolve-all", methods=["POST"])
+def temporal_inbox_resolve_all():
+    """Bulk-resolve every currently-deferred inbox entry.
+
+    Use sparingly — clears the operator queue wholesale. Returns the
+    list of (batch_id, issue_id) tuples that were marked resolved.
+    Useful for cleanup after a wave of stale entries (e.g. abandoned
+    smoke-test batches whose workflows already exited via abort).
+    """
+    resolved_items = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for b in _list_batches():
+        bd = _batch_dir(b["batch_id"])
+        for issue_dir in sorted(bd.iterdir()):
+            if not issue_dir.is_dir():
+                continue
+            inbox_file = issue_dir / "awaiting" / "inbox_entry.json"
+            resolved_marker = issue_dir / "awaiting" / "resolved"
+            if not inbox_file.exists() or resolved_marker.exists():
+                continue
+            resolved_marker.write_text(now_iso, encoding="utf-8")
+            resolved_items.append(
+                {"batch_id": b["batch_id"], "issue_id": issue_dir.name}
+            )
+    return _envelope({"resolved": resolved_items, "count": len(resolved_items)})
 
 
 @bp.route("/api/temporal/inbox", methods=["GET"])
