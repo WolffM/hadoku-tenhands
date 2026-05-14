@@ -79,12 +79,14 @@ case "${HTTP_STATUS}" in
     ;;
 esac
 
-# Vault returns the raw secret value as the response body. Strip any
-# trailing newline so the env file doesn't end up with a literal `\n` in
-# the bearer.
-BEARER="$(tr -d '\r\n' < "${TMP}")"
+# Vault returns JSON: {"success":true,"key":"...","value":"<bearer>"}.
+# Pluck out .value with python3 (jq isn't guaranteed on every host).
+BEARER="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' < "${TMP}" 2>/dev/null | tr -d '\r\n')"
 if [[ -z "${BEARER}" ]]; then
-  echo "fetch-bearer: vault returned 200 but with empty body" >&2
+  echo "fetch-bearer: vault returned 200 but .value was empty or unparseable" >&2
+  echo "  raw body (first 200 chars):" >&2
+  head -c 200 "${TMP}" >&2 || true
+  echo >&2
   exit 1
 fi
 
