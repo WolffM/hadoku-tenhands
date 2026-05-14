@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from helpers.notifications import (
     send_discord_notification,
-    notify_copilot_pr_ready,
     notify_fork_merged,
     notify_upstream_submitted,
     notify_upstream_merged,
@@ -92,20 +91,6 @@ class TestSendDiscordNotification:
     def test_exception_does_not_raise(self, mock_post):
         send_discord_notification("Title", "Desc")
         mock_post.assert_called_once()
-
-
-class TestNotifyCopilotPrReady:
-
-    @patch("helpers.notifications.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
-    @patch("helpers.notifications.requests.post")
-    def test_includes_fork_pr_link(self, mock_post):
-        notify_copilot_pr_ready("microsoft/terminal", 5301, "https://github.com/WolffM/terminal/pull/2", "Fix tab close")
-
-        payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
-        embed = payload["embeds"][0]
-        assert "Copilot PR Ready" in embed["title"]
-        fork_pr_field = next(f for f in embed["fields"] if f["name"] == "Fork PR")
-        assert "WolffM/terminal/pull/2" in fork_pr_field["value"]
 
 
 class TestNotifyUpstreamMerged:
