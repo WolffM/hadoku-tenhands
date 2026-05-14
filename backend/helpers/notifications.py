@@ -60,22 +60,6 @@ def send_discord_notification(title, description, color=None, fields=None):
         logger.debug("Discord notification failed: %s", e)
 
 
-# --- Stage 4: Copilot PR ready ---
-
-def notify_copilot_pr_ready(origin_slug, issue_number, fork_pr_url, pr_title):
-    """Notify when Copilot has created a PR on the fork."""
-    issue_link = _issue_url(origin_slug, issue_number)
-    send_discord_notification(
-        title="Copilot PR Ready",
-        description=f"[{origin_slug}#{issue_number}]({issue_link})" if issue_link
-                    else f"{origin_slug} #{issue_number}",
-        color=COLOR_INFO,
-        fields=[
-            _field("Fork PR", fork_pr_url),
-        ],
-    )
-
-
 # --- Stage 4.5: Merged & sanitized on fork ---
 
 def notify_fork_merged(origin_slug, issue_number, pr_title, clean_branch):

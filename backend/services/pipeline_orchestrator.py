@@ -35,12 +35,6 @@ from .pipeline_retrospective import (
     collect_retrospective as _collect_retrospective_fn,
 )
 
-try:
-    from ..helpers.notifications import notify_copilot_pr_ready
-except ImportError:
-    from helpers.notifications import notify_copilot_pr_ready
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -130,20 +124,12 @@ class PipelineOrchestrator:
             }
             self._update_assignment(assignment, updates)
 
-            # Notify: Copilot PR is ready for review
-            origin_slug = assignment.get("origin_slug", "")
-            issue_number = assignment.get("issue_number", 0)
+            # Close any other open Copilot PRs on this fork that are stale
+            # (Copilot creates a new branch+PR each time it retries)
             my_user = ctx.get("my_user", "")
             repo = assignment.get("repo", "")
             pr_num = result.get("pr_number")
             if pr_num and my_user and repo:
-                fork_pr_url = f"https://github.com/{my_user}/{repo}/pull/{pr_num}"
-                notify_copilot_pr_ready(
-                    origin_slug, issue_number, fork_pr_url,
-                    result.get("pr_title", f"PR #{pr_num}"),
-                )
-                # Close any other open Copilot PRs on this fork that are stale
-                # (Copilot creates a new branch+PR each time it retries)
                 self._close_stale_copilot_prs(my_user, repo, pr_num)
 
             return {"success": True, "status": "swe_agent_done",
