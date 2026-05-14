@@ -325,6 +325,22 @@ class IssueWorkflow:
                     run_gates_after=False,
                 )
 
+            # Render the PR title + body BEFORE replicate, because
+            # replicate reads `09-submittable/pr_title.txt` and
+            # `09-submittable/pr_body.md` to build the squashed commit
+            # message. We re-render below after verify so the body picks
+            # up the test-output screenshot URL.
+            await workflow.execute_activity(
+                "render_pr_body",
+                RenderInput(
+                    upstream_slug=inp.upstream_slug,
+                    issue_number=inp.issue_number,
+                    state_root=inp.state_root,
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
             # Sever the agent-attribution lineage: squash the agent's fix
             # into a single operator-authored commit on branch_name, open a
             # fork-internal preview PR, and close the agent's draft. After
@@ -340,8 +356,7 @@ class IssueWorkflow:
             # of the time because the ref it wanted was created seconds
             # later by replicate. See docker/compose#13772 verify run
             # (2026-05-13 18:51): 5 retry attempts spanning 31s all
-            # missed because the branch authored time was 18:51:45 —
-            # AFTER all the retries had exhausted at 18:51:40.
+            # missed because the branch authored time was 18:51:45.
             await workflow.execute_activity(
                 "replicate_fix_as_operator",
                 ReplicateInput(
@@ -355,14 +370,14 @@ class IssueWorkflow:
             )
 
             # Run the agent-supplied test command in the cktest sandbox
-            # runner and capture stdout+stderr to
-            # 06-verified/test_output.txt. Phase 5.6 split: Copilot
-            # commits 05-fixed/test_command.txt (one shell line); the
-            # pipeline runs it in a clean sandbox rather than asking
-            # Copilot to do shell ops. Non-fatal: if the agent didn't
-            # commit a command or the runner is unavailable, the
-            # screenshot stage downstream no-ops gracefully and
-            # verification falls back to text-only.
+            # runner against the now-existing operator branch and capture
+            # stdout+stderr to 06-verified/test_output.txt. Phase 5.6
+            # split: Copilot commits 05-fixed/test_command.txt (one
+            # shell line); the pipeline runs it in a clean sandbox
+            # rather than asking Copilot to do shell ops. Non-fatal: if
+            # the agent didn't commit a command or the runner is
+            # unavailable, the screenshot stage downstream no-ops
+            # gracefully and verification falls back to text-only.
             await workflow.execute_activity(
                 "run_test_command",
                 RunTestInput(
@@ -376,7 +391,7 @@ class IssueWorkflow:
 
             # Render a terminal-styled screenshot of the verification
             # test output and upload it to the fork's release assets.
-            # The body renderer below reads the resulting URL from
+            # The body re-render below reads the resulting URL from
             # `06-verified/after_url.txt` and embeds it inline at the
             # top of the Verification section. Non-fatal: if there's no
             # test output to render, chromium isn't available, or the
@@ -393,9 +408,9 @@ class IssueWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            # Render the PR body after replicate + verify so it can
-            # embed both the post-squash commit history and the
-            # verification screenshot URL.
+            # Re-render the PR body now that the verify screenshot URL
+            # exists on disk — idempotent w.r.t. the earlier call but
+            # produces the final body that the preview PR ships with.
             await workflow.execute_activity(
                 "render_pr_body",
                 RenderInput(
@@ -855,13 +870,27 @@ class IssueWorkflow:
             **remediation_kwargs,
         )
 
-        # Re-replicate FIRST so the operator branch reflects the
+        # Re-render the PR title/body before replicate so the squashed
+        # commit message reflects any post-remediation reframing. Same
+        # dependency as the main path: replicate reads pr_title.txt.
+        await workflow.execute_activity(
+            "render_pr_body",
+            RenderInput(
+                upstream_slug=inp.upstream_slug,
+                issue_number=inp.issue_number,
+                state_root=inp.state_root,
+            ),
+            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        # Re-replicate so the operator branch reflects the
         # post-remediation fix. Then test against that fresh branch and
-        # render the body with the fresh verification screenshot. Same
-        # ordering reason as the main path: run_test_command needs the
-        # operator branch to actually exist on the fork remote with the
-        # latest commits — putting replicate after the test means we'd
-        # be testing stale pre-remediation code.
+        # render the body again with the fresh verification screenshot.
+        # Same ordering reason as the main path: run_test_command needs
+        # the operator branch to actually exist on the fork remote with
+        # the latest commits — putting replicate after the test means
+        # we'd be testing stale pre-remediation code.
         await workflow.execute_activity(
             "replicate_fix_as_operator",
             ReplicateInput(
