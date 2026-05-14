@@ -61,9 +61,15 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_RUNNER_URL = os.environ.get("TEST_RUNNER_URL", "http://localhost:5500")
 _DEFAULT_TIMEOUT_S = float(os.environ.get("TEST_RUNNER_TIMEOUT_S", "600"))
-# Backoff schedule for 503 responses (in seconds). Exhausting these falls
-# back to text-only verify; the workflow-level fallback is graceful.
+# Backoff schedule for 503-busy AND for branch-not-pushed-yet (clone
+# failed: not found). Both classes use the same schedule; exhausting it
+# falls back to text-only verify, which the workflow handles gracefully.
 _BUSY_RETRY_SCHEDULE_S = (1.0, 2.0, 4.0, 8.0)
+# Slower schedule for branch propagation — push → GitHub visibility can
+# be 2-6s in practice (see docker/compose#13739: branch authored at
+# 00:58:15 UTC, clone tried at 00:58:11 UTC and failed). 1s/2s won't
+# cover it; longer waits do.
+_BRANCH_PROPAGATION_SCHEDULE_S = (3.0, 5.0, 8.0, 15.0)
 
 
 class RunnerBusy503(Exception):
@@ -74,6 +80,17 @@ class RunnerBusy503(Exception):
     failures (ConnectionError, Timeout, etc.) keep the existing
     "runner unreachable" semantics — retry only buys us anything when
     the runner is up but holding the semaphore."""
+
+
+class BranchNotPushedYet(Exception):
+    """Raised by a dispatch fn when the runner returned 200 with
+    error='clone failed: ...not found...'.
+
+    Signals the retry loop that the branch hasn't propagated to GitHub
+    yet (the push following request_fix can lag run_test_command by a
+    handful of seconds). Different schedule from RunnerBusy503 because
+    the cause is different — we're waiting on GitHub's git ref to be
+    visible, not on the runner's semaphore."""
 
 
 def _default_dispatch_test(
@@ -153,6 +170,13 @@ def _default_dispatch_test(
         len(body.get("stderr") or ""),
         (body.get("error") or "")[:200] or None,
     )
+    err = body.get("error") or ""
+    # "Remote branch <name> not found" comes through when the workflow's
+    # post-fix push hasn't landed on GitHub yet. Surface as a typed
+    # exception so the retry loop can back off and try again rather than
+    # giving up and falling back to text-only verify.
+    if err.startswith("clone failed:") and "not found" in err.lower():
+        raise BranchNotPushedYet(err[:200])
     return body
 
 
@@ -166,6 +190,7 @@ def run_test_command(
     dispatch: Optional[Callable[..., dict]] = None,
     sleep: Optional[Callable[[float], None]] = None,
     busy_retry_schedule: Optional[tuple[float, ...]] = None,
+    branch_retry_schedule: Optional[tuple[float, ...]] = None,
 ) -> dict:
     """Read `05-fixed/test_command.txt`, dispatch to runner, persist output.
 
@@ -234,25 +259,59 @@ def run_test_command(
         sleep = time.sleep
     if busy_retry_schedule is None:
         busy_retry_schedule = _BUSY_RETRY_SCHEDULE_S
+    if branch_retry_schedule is None:
+        branch_retry_schedule = _BRANCH_PROPAGATION_SCHEDULE_S
 
-    # Retry on 503 with the configured backoff. Total attempts =
-    # len(schedule) + 1 (initial try + one per scheduled wait). After the
-    # last attempt we give up and fall back to text-only verify — the
-    # runner is genuinely overloaded, not in a transient blip.
+    # Retry on 503-busy AND on branch-not-pushed-yet, each with its own
+    # backoff schedule + budget. Either budget exhausting alone fails the
+    # call. Budgets are independent: e.g. 1× busy + 4× not-pushed could
+    # still find a clean dispatch on attempt 6 if both schedules allow it.
     result: Optional[dict] = None
     last_busy: Optional[Exception] = None
-    for attempt_idx, wait_s in enumerate((0.0, *busy_retry_schedule)):
-        if wait_s > 0:
-            logger.info(
-                "test-runner busy for %s@%s; backing off %.1fs (attempt %d)",
-                fork_slug, branch_name, wait_s, attempt_idx + 1,
-            )
-            sleep(wait_s)
+    last_branch: Optional[Exception] = None
+    busy_count = 0
+    branch_count = 0
+    while True:
         try:
             result = dispatch(runner_url, fork_slug, branch_name, command, timeout_s)
             break
         except RunnerBusy503 as e:
             last_busy = e
+            if busy_count >= len(busy_retry_schedule):
+                logger.warning(
+                    "run_test_command FAIL fork=%s branch=%s reason=runner_busy_after_%d_attempts",
+                    fork_slug, branch_name, busy_count + 1,
+                )
+                return {
+                    "ok": False,
+                    "reason": f"runner busy after {busy_count + 1} attempts: {last_busy}",
+                }
+            wait_s = busy_retry_schedule[busy_count]
+            busy_count += 1
+            logger.info(
+                "test-runner runner_busy for %s@%s; backing off %.1fs (attempt %d/%d)",
+                fork_slug, branch_name, wait_s, busy_count, len(busy_retry_schedule),
+            )
+            sleep(wait_s)
+            continue
+        except BranchNotPushedYet as e:
+            last_branch = e
+            if branch_count >= len(branch_retry_schedule):
+                logger.warning(
+                    "run_test_command FAIL fork=%s branch=%s reason=branch_not_pushed_after_%d_attempts: %s",
+                    fork_slug, branch_name, branch_count + 1, last_branch,
+                )
+                return {
+                    "ok": False,
+                    "reason": f"branch not pushed after {branch_count + 1} attempts: {last_branch}",
+                }
+            wait_s = branch_retry_schedule[branch_count]
+            branch_count += 1
+            logger.info(
+                "test-runner branch_not_pushed_yet for %s@%s; backing off %.1fs (attempt %d/%d)",
+                fork_slug, branch_name, wait_s, branch_count, len(branch_retry_schedule),
+            )
+            sleep(wait_s)
             continue
         except Exception as e:
             logger.warning(
@@ -260,16 +319,6 @@ def run_test_command(
                 fork_slug, branch_name, type(e).__name__, e, exc_info=True,
             )
             return {"ok": False, "reason": f"runner unreachable: {type(e).__name__}: {e}"}
-    else:
-        # Exhausted the schedule without a successful dispatch.
-        logger.warning(
-            "run_test_command FAIL fork=%s branch=%s reason=runner_busy_after_%d_attempts",
-            fork_slug, branch_name, len(busy_retry_schedule) + 1,
-        )
-        return {
-            "ok": False,
-            "reason": f"runner busy after {len(busy_retry_schedule) + 1} attempts: {last_busy}",
-        }
     assert result is not None  # break path above always populates this
 
     if not isinstance(result, dict):
