@@ -284,6 +284,79 @@ def test_inbox_skips_resolved_entries(client, state_root):
     assert resp.get_json()["data"]["count"] == 0
 
 
+def test_inbox_resolve_single_marks_resolved(client, state_root):
+    """Posting to /api/temporal/inbox/<batch>/<issue>/resolve writes the
+    `awaiting/resolved` marker so the inbox listing skips that entry."""
+    _seed_issue(
+        state_root, "batch-a", "issue-1",
+        inbox={"state": "fixed", "gate": "relevance"},
+    )
+    # Sanity: inbox sees it before resolve
+    assert client.get("/dispatch/api/temporal/inbox").get_json()["data"]["count"] == 1
+
+    resp = client.post("/dispatch/api/temporal/inbox/batch-a/issue-1/resolve")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["success"] is True
+    assert body["data"]["resolved"] is True
+    assert (state_root / "batch-a" / "issue-1" / "awaiting" / "resolved").exists()
+
+    # Inbox no longer lists it
+    assert client.get("/dispatch/api/temporal/inbox").get_json()["data"]["count"] == 0
+
+
+def test_inbox_resolve_is_idempotent(client, state_root):
+    """Calling resolve twice doesn't error and doesn't clobber timestamp."""
+    _seed_issue(
+        state_root, "batch-a", "issue-1",
+        inbox={"state": "fixed", "gate": "relevance"},
+    )
+    resp1 = client.post("/dispatch/api/temporal/inbox/batch-a/issue-1/resolve")
+    assert resp1.status_code == 200
+    first_ts = (state_root / "batch-a" / "issue-1" / "awaiting" / "resolved").read_text()
+
+    resp2 = client.post("/dispatch/api/temporal/inbox/batch-a/issue-1/resolve")
+    assert resp2.status_code == 200
+    second_ts = (state_root / "batch-a" / "issue-1" / "awaiting" / "resolved").read_text()
+    # Idempotent: marker isn't re-written on subsequent calls
+    assert first_ts == second_ts
+
+
+def test_inbox_resolve_404_when_issue_missing(client):
+    resp = client.post("/dispatch/api/temporal/inbox/no-such-batch/no-issue/resolve")
+    assert resp.status_code == 404
+
+
+def test_inbox_resolve_all_clears_every_deferred_entry(client, state_root):
+    """Bulk endpoint resolves every entry that has an inbox file and no
+    resolved marker. Returns the list it touched."""
+    _seed_issue(state_root, "batch-a", "issue-1",
+                inbox={"state": "fixed", "gate": "relevance"})
+    _seed_issue(state_root, "batch-a", "issue-2",
+                inbox={"state": "submittable", "gate": "submission_judge"})
+    _seed_issue(state_root, "batch-b", "issue-3",
+                inbox={"state": "awaiting_signoff", "gate": "operator_signoff"})
+
+    # One already resolved — bulk should skip it (not double-write).
+    (state_root / "batch-a" / "issue-2" / "awaiting" / "resolved").write_text("prior")
+
+    resp = client.post("/dispatch/api/temporal/inbox/resolve-all")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["success"] is True
+    assert body["data"]["count"] == 2  # only the two unresolved ones
+    touched = {(i["batch_id"], i["issue_id"]) for i in body["data"]["resolved"]}
+    assert touched == {("batch-a", "issue-1"), ("batch-b", "issue-3")}
+
+    # Pre-resolved marker is preserved verbatim
+    assert (
+        state_root / "batch-a" / "issue-2" / "awaiting" / "resolved"
+    ).read_text() == "prior"
+
+    # Inbox is now empty
+    assert client.get("/dispatch/api/temporal/inbox").get_json()["data"]["count"] == 0
+
+
 # ── 6. /api/temporal/dispatch (POST) ──────────────────────────────────────
 
 
