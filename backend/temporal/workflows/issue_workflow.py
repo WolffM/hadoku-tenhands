@@ -325,6 +325,35 @@ class IssueWorkflow:
                     run_gates_after=False,
                 )
 
+            # Sever the agent-attribution lineage: squash the agent's fix
+            # into a single operator-authored commit on branch_name, open a
+            # fork-internal preview PR, and close the agent's draft. After
+            # this step, 05-fixed/commits.json reflects the new single
+            # commit so downstream gates scan the real submission-bound
+            # history.
+            #
+            # IMPORTANT: replicate MUST run before run_test_command. The
+            # cktest sandbox clones `inp.branch_name` (the crimson-kitty-N
+            # operator branch), and that branch doesn't exist on the fork
+            # remote until replicate force-pushes it here. Putting
+            # run_test_command first meant claw-3 was clone-failing 100%
+            # of the time because the ref it wanted was created seconds
+            # later by replicate. See docker/compose#13772 verify run
+            # (2026-05-13 18:51): 5 retry attempts spanning 31s all
+            # missed because the branch authored time was 18:51:45 —
+            # AFTER all the retries had exhausted at 18:51:40.
+            await workflow.execute_activity(
+                "replicate_fix_as_operator",
+                ReplicateInput(
+                    upstream_slug=inp.upstream_slug,
+                    fork_slug=inp.fork_slug,
+                    branch_name=inp.branch_name,
+                    state_root=inp.state_root,
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
             # Run the agent-supplied test command in the cktest sandbox
             # runner and capture stdout+stderr to
             # 06-verified/test_output.txt. Phase 5.6 split: Copilot
@@ -364,8 +393,9 @@ class IssueWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            # Render the PR body before the replicate/gate steps — those
-            # read pr_title.txt / pr_body.md.
+            # Render the PR body after replicate + verify so it can
+            # embed both the post-squash commit history and the
+            # verification screenshot URL.
             await workflow.execute_activity(
                 "render_pr_body",
                 RenderInput(
@@ -375,24 +405,6 @@ class IssueWorkflow:
                 ),
                 start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            # Sever the agent-attribution lineage: squash the agent's fix
-            # into a single operator-authored commit on branch_name, open a
-            # fork-internal preview PR, and close the agent's draft. After
-            # this step, 05-fixed/commits.json reflects the new single
-            # commit so downstream gates scan the real submission-bound
-            # history.
-            await workflow.execute_activity(
-                "replicate_fix_as_operator",
-                ReplicateInput(
-                    upstream_slug=inp.upstream_slug,
-                    fork_slug=inp.fork_slug,
-                    branch_name=inp.branch_name,
-                    state_root=inp.state_root,
-                ),
-                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-                retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
             await workflow.execute_activity(
@@ -843,13 +855,28 @@ class IssueWorkflow:
             **remediation_kwargs,
         )
 
-        # Re-render + re-replicate. replicate_fix_as_operator detects the
-        # existing operator preview PR and PATCHes its title/body instead
-        # of opening a new one; the fork branch is force-updated so the
-        # upstream PR's diff auto-refreshes via GitHub's branch tracking.
-        # Re-run the test in the cktest sandbox to capture fresh output
-        # (remediation may have changed the fix, and the screenshot must
-        # reflect the latest run, not the pre-remediation one).
+        # Re-replicate FIRST so the operator branch reflects the
+        # post-remediation fix. Then test against that fresh branch and
+        # render the body with the fresh verification screenshot. Same
+        # ordering reason as the main path: run_test_command needs the
+        # operator branch to actually exist on the fork remote with the
+        # latest commits — putting replicate after the test means we'd
+        # be testing stale pre-remediation code.
+        await workflow.execute_activity(
+            "replicate_fix_as_operator",
+            ReplicateInput(
+                upstream_slug=inp.upstream_slug,
+                fork_slug=inp.fork_slug,
+                branch_name=inp.branch_name,
+                state_root=inp.state_root,
+            ),
+            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+        # Re-run the verify against the just-pushed operator branch so
+        # the screenshot/body reflect the post-remediation fix, not
+        # whatever was tested in the pre-remediation pass.
         await workflow.execute_activity(
             "run_test_command",
             RunTestInput(
@@ -879,17 +906,6 @@ class IssueWorkflow:
             ),
             start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        await workflow.execute_activity(
-            "replicate_fix_as_operator",
-            ReplicateInput(
-                upstream_slug=inp.upstream_slug,
-                fork_slug=inp.fork_slug,
-                branch_name=inp.branch_name,
-                state_root=inp.state_root,
-            ),
-            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-            retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
         await workflow.execute_activity(
