@@ -192,6 +192,77 @@ class OSSStateMixin:
         """Write the full updated submitted PRs list (used by polling endpoint)."""
         _save_json("submitted-prs.json", items)
 
+    def archive_ready_to_submit_as_fork_merged_only(self):
+        """Move every ready-to-submit item to submitted-prs.json as
+        `state="merged-in-fork-only"` and clear the ready-to-submit list.
+
+        Used for one-time cleanup of stale records whose fork PR merged
+        but where the upstream submission never happened (and the fork
+        may even be deleted now). Dedups by (origin_slug, branch) since
+        the original save path could append duplicates on retries.
+
+        Returns a dict with `archived` (count of unique records moved)
+        and `cleared` (count of raw rows that were in ready-to-submit
+        before the call, including duplicates). Idempotent — calling
+        twice on an empty ready-to-submit returns counts of 0.
+        """
+        raw_items = self.get_ready_to_submit()
+        cleared = len(raw_items)
+
+        # Dedup by (origin_slug, branch) — earliest merged_at wins so
+        # the historical timestamp reflects when the work first landed.
+        seen: dict[tuple[str, str], dict] = {}
+        for item in raw_items:
+            key = (item.get("origin_slug", ""), item.get("branch", ""))
+            existing = seen.get(key)
+            if existing is None or (
+                item.get("merged_at", "") < existing.get("merged_at", "")
+            ):
+                seen[key] = item
+
+        submitted = self.get_submitted_prs()
+        already_archived_keys = {
+            (s.get("origin_slug", ""), s.get("branch", ""))
+            for s in submitted
+            if s.get("state") == "merged-in-fork-only"
+        }
+
+        new_archives = 0
+        for key, item in seen.items():
+            if key in already_archived_keys:
+                continue
+            submitted.append({
+                "origin_slug": item.get("origin_slug", ""),
+                "repo": item.get("repo", ""),
+                "branch": item.get("branch", ""),
+                "title": item.get("title", ""),
+                "issue_number": item.get("issue_number"),
+                # No upstream PR was ever opened.
+                "pr_url": "",
+                "pr_number": None,
+                # New terminal state — the polling loop skips anything
+                # whose state != "open", so this won't trigger gh API
+                # calls on records that have no upstream PR to poll.
+                "state": "merged-in-fork-only",
+                "review_decision": None,
+                "merged_at": item.get("merged_at"),
+                "closed_at": None,
+                "last_polled_at": None,
+                # submitted_at stays the original merge timestamp so
+                # the historical ordering in the submitted view makes
+                # sense. submission_method records the lineage.
+                "submitted_at": item.get("merged_at"),
+                "submission_method": "merged-in-fork-only",
+            })
+            new_archives += 1
+
+        if new_archives:
+            self.update_submitted_prs(submitted)
+        # Clear ready-to-submit regardless — even items already archived
+        # in submitted-prs shouldn't keep showing up under "Ready".
+        _save_json("ready-to-submit.json", [])
+        return {"archived": new_archives, "cleared": cleared}
+
     # --- Retrospective logs ---
 
     def get_retrospective_logs(self):

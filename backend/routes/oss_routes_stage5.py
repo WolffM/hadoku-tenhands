@@ -44,6 +44,25 @@ def api_oss_stage5_submit():
     return jsonify({"success": True, "ready": items, "owner": my_user})
 
 
+@bp.route("/api/oss/admin/archive-ready-to-submit", methods=["POST"])
+def api_oss_admin_archive_ready_to_submit():
+    """One-time cleanup: move stale ready-to-submit records into
+    submitted-prs.json under `state="merged-in-fork-only"`.
+
+    Used for entries whose fork PR merged but where the upstream
+    submission never happened (and the fork may now be deleted, making
+    submission impossible anyway). Dedups duplicate rows on the way.
+
+    The records stay queryable in submitted-prs.json for retrospective,
+    they just disappear from the actionable "Ready to submit" panel.
+    Idempotent — calling again on an empty ready-to-submit returns
+    {archived: 0, cleared: 0}.
+    """
+    svc = OSSService()
+    result = svc.archive_ready_to_submit_as_fork_merged_only()
+    return jsonify({"success": True, **result})
+
+
 @bp.route("/api/oss/submit-to-origin", methods=["POST"])
 @limiter.limit("5 per minute")
 def api_oss_submit_to_origin():
