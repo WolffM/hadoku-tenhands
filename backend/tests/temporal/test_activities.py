@@ -2335,7 +2335,7 @@ def test_enqueue_for_human_review_writes_entry_and_notifies(ev):
         upstream_slug="microsoft/markitdown",
         issue_number=183,
         evidence=ev,
-        notify=lambda m: notifications.append(m),
+        notify=lambda m, **kw: notifications.append((m, kw)),
     )
 
     entry = ev.read_json("awaiting/inbox_entry.json")
@@ -2344,13 +2344,17 @@ def test_enqueue_for_human_review_writes_entry_and_notifies(ev):
     assert entry["score"] == 0.55
     assert ev.exists("awaiting/queued_at")
     assert len(notifications) == 1
-    assert "183" in notifications[0]
+    msg, kw = notifications[0]
+    assert "183" in msg
+    # Deep-link URL is computed from evidence.root; the test fixture's
+    # evidence path encodes batch+issue ids that should appear in the URL.
+    assert "view=temporal" in kw["url"]
 
 
 def test_enqueue_for_human_review_swallows_notify_errors(ev):
     from temporal.activities.inbox import enqueue_for_human_review
 
-    def boom(message: str):
+    def boom(message: str, **kw):
         raise RuntimeError("discord down")
 
     # Should not raise — notification failure is best-effort

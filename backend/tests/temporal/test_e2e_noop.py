@@ -339,7 +339,7 @@ async def real_enqueue(inp: InboxInput) -> dict:
         upstream_slug=inp.upstream_slug,
         issue_number=inp.issue_number,
         evidence=_ev(inp.state_root),
-        notify=lambda m: None,
+        notify=lambda m, **kw: None,
     )
 
 

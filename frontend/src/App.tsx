@@ -2,7 +2,8 @@ import { useRef, useState, useEffect } from 'react'
 import { ConnectedThemePicker, LoadingSkeleton } from '@wolffm/task-ui-components'
 import { THEME_ICON_MAP } from '@wolffm/themes'
 import { useTheme } from './hooks/useTheme'
-import { usePipelineStore } from './store'
+import { usePipelineStore, type ViewType } from './store'
+import { useTemporalStore } from './store/temporalStore'
 import { getOwner } from './api/endpoints'
 import { Navigation } from './components/common'
 import {
@@ -21,9 +22,31 @@ export default function App(props: VibeDispatchProps = {}) {
 
   // Get active view and owner from store
   const activeView = usePipelineStore(state => state.activeView)
+  const setActiveView = usePipelineStore(state => state.setActiveView)
   const owner = usePipelineStore(state => state.owner)
   const setOwner = usePipelineStore(state => state.setOwner)
   const addLog = usePipelineStore(state => state.addLog)
+  const loadTemporalBatch = useTemporalStore(state => state.loadBatch)
+  const selectTemporalIssue = useTemporalStore(state => state.selectIssue)
+
+  // Deep links from Discord notifications: ?view=temporal&batch=X&issue=Y
+  // lands the operator on the temporal pipeline with the issue pre-selected.
+  // Only consumed once on mount; subsequent in-app navigation is store-driven.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const view = params.get('view') as ViewType | null
+    if (view && view !== 'select') {
+      setActiveView(view)
+    }
+    const batch = params.get('batch')
+    const issue = params.get('issue')
+    if (view === 'temporal' && batch) {
+      void loadTemporalBatch(batch).then(() => {
+        if (issue) selectTemporalIssue(issue)
+      })
+    }
+    // run once on mount
+  }, [loadTemporalBatch, selectTemporalIssue, setActiveView])
 
   // Initialize owner from props or fetch from API
   useEffect(() => {
