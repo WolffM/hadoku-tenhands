@@ -36,8 +36,13 @@ def _field(name, value, inline=False):
     return {"name": name, "value": str(value), "inline": inline}
 
 
-def send_discord_notification(title, description, color=None, fields=None):
-    """Send a Discord webhook notification with an embed."""
+def send_discord_notification(title, description, color=None, fields=None, components=None):
+    """Send a Discord webhook notification with an embed.
+
+    `components` accepts Discord ActionRow payloads (e.g. link buttons).
+    Discord silently ignores `components` on non-application webhooks,
+    so it's safe to always pass when present — embed always renders.
+    """
     if not DISCORD_WEBHOOK_URL:
         return
 
@@ -47,17 +52,35 @@ def send_discord_notification(title, description, color=None, fields=None):
         "color": color or COLOR_INFO,
     }
     if fields:
-        # Filter out None entries from _field() calls
         embed["fields"] = [f for f in fields if f]
+
+    payload = {"embeds": [embed]}
+    if components:
+        payload["components"] = components
 
     try:
         requests.post(
             DISCORD_WEBHOOK_URL,
-            json={"embeds": [embed]},
+            json=payload,
             timeout=5,
         )
     except Exception as e:
         logger.debug("Discord notification failed: %s", e)
+
+
+def _link_button(label, url):
+    """Build a Discord link-button component (style 5)."""
+    if not url:
+        return None
+    return {"type": 2, "style": 5, "label": label, "url": url}
+
+
+def _action_row(*buttons):
+    """Wrap up to 5 buttons in an ActionRow. Returns None if all buttons are None."""
+    real = [b for b in buttons if b]
+    if not real:
+        return None
+    return {"type": 1, "components": real}
 
 
 # --- Stage 4.5: Merged & sanitized on fork ---
@@ -140,7 +163,7 @@ def notify_upstream_closed(origin_slug, pr_url, title):
 
 # --- Phase 5: Inbox + watcher notifications ---
 
-def notify_inbox_queue(message):
+def notify_inbox_queue(message, *, url=None, pr_url=None):
     """Notify when a workflow enqueues an entry to the operator inbox.
 
     Fires for both judge defers (relevance, submission_judge) and for
@@ -149,8 +172,8 @@ def notify_inbox_queue(message):
     Discord channel — operator_signoff = "all gates passed, your call",
     judge defer = "judge wasn't sure, please decide".
 
-    Caller passes a pre-formatted string from
-    `temporal/activities/inbox.py:enqueue_for_human_review`.
+    Optional `url` deep-links to the inbox UI; optional `pr_url` points
+    at the relevant fork PR (where one exists at defer time).
     """
     if "operator_signoff" in message:
         title = "Inbox: Awaiting Signoff"
@@ -161,10 +184,20 @@ def notify_inbox_queue(message):
     else:
         title = "Inbox"
         color = COLOR_INFO
+    fields = [
+        _field("Review in UI", url, inline=True),
+        _field("PR", pr_url, inline=True),
+    ]
+    row = _action_row(
+        _link_button("Review in UI", url),
+        _link_button("View PR", pr_url),
+    )
     send_discord_notification(
         title=title,
         description=message,
         color=color,
+        fields=fields,
+        components=[row] if row else None,
     )
 
 
