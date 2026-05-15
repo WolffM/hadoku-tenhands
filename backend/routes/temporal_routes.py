@@ -284,9 +284,13 @@ def temporal_inbox():
             entry = _read_json_safely(inbox_file)
             if not isinstance(entry, dict):
                 continue
+            # Temporal workflow id is `{batch_id}-{issue_id}` per
+            # batch_workflow.py:47. Surface it so the inbox UI can POST
+            # /api/temporal/issue/<workflow_id>/signal without guessing.
             enriched = {
                 "batch_id": b["batch_id"],
                 "issue_id": issue_dir.name,
+                "workflow_id": f"{b['batch_id']}-{issue_dir.name}",
                 **entry,
             }
             if entry.get("gate") == "operator_signoff":

@@ -24,7 +24,8 @@ import type { TemporalInboxItem, TemporalSignalDecision } from '../../api/types'
 
 function workflowIdFor(item: TemporalInboxItem): string {
   if (typeof item.workflow_id === 'string' && item.workflow_id) return item.workflow_id
-  return `issue-${item.batch_id}-${item.issue_id}`
+  // Mirrors batch_workflow.py:47 — `{batch_id}-{issue_id}`, no `issue-` prefix.
+  return `${item.batch_id}-${item.issue_id}`
 }
 
 interface RowProps {
