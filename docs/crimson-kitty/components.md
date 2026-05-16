@@ -108,7 +108,6 @@ New modules introduced by crimson-kitty.
 | Script | Purpose |
 |---|---|
 | `scripts/temporal_retro_report.py` | Crimson-kitty retro tool. Reads from `state/{batch}/{issue}/` evidence dirs, not the legacy API. Separate codebase from `retro_report.py`; allowed to diverge. |
-| `scripts/cleanup_legacy_forks.py` | One-time Phase 0 script. Backs up `WolffM/*` fork list to `state/legacy-forks-backup.jsonl`, then deletes via `gh repo delete --confirm`. Excludes forks with open upstream PRs. |
 
 ### Tests — add
 
