@@ -121,11 +121,21 @@ def _issue_summary(batch_id: str, issue_id: str) -> dict:
     current_state = transitions[-1]["to"] if transitions else "candidate"
     is_deferred = inbox is not None and not (d / "awaiting" / "resolved").exists()
 
+    # When the run aborted, the last transition carries the reason — surface
+    # it so the UI can explain a stopped run that has no failed gate (e.g. an
+    # activity crash like a fork 403, which never produces a gate verdict).
+    abort_reason = (
+        transitions[-1].get("reason", "")
+        if transitions and current_state == "aborted"
+        else None
+    )
+
     return {
         "batch_id": batch_id,
         "issue_id": issue_id,
         "current_state": current_state,
         "is_deferred": is_deferred,
+        "abort_reason": abort_reason,
         "deferred_at": inbox.get("state") if isinstance(inbox, dict) else None,
         "deferred_gate": inbox.get("gate") if isinstance(inbox, dict) else None,
         "transition_count": len(transitions),

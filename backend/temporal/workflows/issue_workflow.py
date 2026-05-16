@@ -532,16 +532,17 @@ class IssueWorkflow:
             )
 
         except _GateFailed as gf:
+            reason = f"gate {gf.gate_name} failed: {gf.reason}"
+            await self._record_abort(inp, self.state, reason)
             self.state = "aborted"
-            return IssueResult(
-                final_state="aborted",
-                abort_reason=f"gate {gf.gate_name} failed: {gf.reason}",
-            )
+            return IssueResult(final_state="aborted", abort_reason=reason)
         except _OperatorAborted as oa:
+            reason = f"operator aborted at {oa.state}/{oa.gate_name}: {oa.reason}"
+            await self._record_abort(inp, self.state, reason)
             self.state = "aborted"
             return IssueResult(
                 final_state="aborted",
-                abort_reason=f"operator aborted at {oa.state}/{oa.gate_name}: {oa.reason}",
+                abort_reason=reason,
                 deferred_at=oa.state,
                 deferred_gate=oa.gate_name,
             )
@@ -552,12 +553,41 @@ class IssueWorkflow:
             # reason via the existing retro view / inbox surfaces instead
             # of having to dig through Temporal event history.
             crashed_at = self.state
-            self.state = "aborted"
-            reason = f"{type(e).__name__}: {str(e)[:400]}"
-            return IssueResult(
-                final_state="aborted",
-                abort_reason=f"activity crashed at state={crashed_at}: {reason}",
+            reason = (
+                f"activity crashed at state={crashed_at}: "
+                f"{type(e).__name__}: {str(e)[:400]}"
             )
+            await self._record_abort(inp, crashed_at, reason)
+            self.state = "aborted"
+            return IssueResult(final_state="aborted", abort_reason=reason)
+
+    async def _record_abort(self, inp: IssueInput, from_state: str, reason: str) -> None:
+        """Persist the abort to the evidence store.
+
+        Without this the workflow only set `self.state = "aborted"` in memory
+        and returned an IssueResult — nothing on disk recorded the abort, so
+        `transitions.jsonl` froze at the crash point and the UI showed the
+        run stuck mid-pipeline (e.g. `eligible`) with no failed gate to
+        explain it. Writing the `→ aborted` transition makes `current_state`
+        resolve to `aborted` and carries the reason for the operator.
+
+        Best-effort: a failure here must not mask the original abort.
+        """
+        try:
+            await workflow.execute_activity(
+                "record_transition",
+                TransitionInput(
+                    state_root=inp.state_root,
+                    from_state=from_state,
+                    to_state="aborted",
+                    reason=reason,
+                    decided_by="system:workflow",
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:
+            pass
 
     # ── helpers ───────────────────────────────────────────────────────────
 

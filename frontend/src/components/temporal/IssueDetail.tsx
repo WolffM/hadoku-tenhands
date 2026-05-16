@@ -62,7 +62,7 @@ export function IssueDetail({ batchId, issueId }: IssueDetailProps) {
         <h2 className="temporal-issue-detail__title">
           {issue.batch_id} / {issue.issue_id}
         </h2>
-        <StateBadge state={issue.current_state} />
+        <StateBadge state={issue.current_state} isDeferred={issue.is_deferred} />
         {issue.is_deferred && (
           <span
             className="temporal-issue-detail__deferred-note"
@@ -72,6 +72,12 @@ export function IssueDetail({ batchId, issueId }: IssueDetailProps) {
           </span>
         )}
       </header>
+
+      {issue.current_state === 'aborted' && issue.abort_reason && (
+        <div className="temporal-issue-detail__abort" data-testid="temporal-issue-abort-reason">
+          <strong>Run aborted.</strong> {issue.abort_reason}
+        </div>
+      )}
 
       <section className="temporal-issue-detail__section" data-testid="temporal-issue-timeline">
         <h3>Timeline ({issue.transitions.length})</h3>
