@@ -604,6 +604,10 @@ export interface TemporalIssueSummary {
   issue_id: string
   current_state: string
   is_deferred: boolean
+  /** Reason the run aborted — only set when current_state === 'aborted'.
+   *  Explains stopped runs that have no failed gate (e.g. an activity
+   *  crash like a fork 403, which never produces a gate verdict). */
+  abort_reason?: string | null
   deferred_at: string | null
   deferred_gate: string | null
   transition_count: number

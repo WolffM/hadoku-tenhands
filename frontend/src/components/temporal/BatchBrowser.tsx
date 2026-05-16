@@ -98,7 +98,7 @@ export function BatchBrowser({ batches, emptyText }: BatchBrowserProps) {
                           onClick={() => selectIssue(i.issue_id)}
                         >
                           <span className="temporal-browser__run-name">{i.issue_id}</span>
-                          <StateBadge state={i.current_state} />
+                          <StateBadge state={i.current_state} isDeferred={i.is_deferred} />
                         </button>
                       </li>
                     ))}

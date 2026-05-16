@@ -162,8 +162,14 @@ async def fake_enqueue(inp: InboxInput) -> dict:
     return {"ok": True}
 
 
+# Records every record_transition call so abort-path tests can assert the
+# workflow now persists the `→ aborted` transition to the evidence store.
+_RECORDED_TRANSITIONS: list[TransitionInput] = []
+
+
 @activity.defn(name="record_transition")
 async def fake_transition(inp: TransitionInput) -> dict:
+    _RECORDED_TRANSITIONS.append(inp)
     return {"ok": True}
 
 
@@ -373,11 +379,18 @@ async def test_issue_workflow_aborts_on_gate_failure(issue_input):
     _set_all_gates_pass()
     _FAKE_GATE_RESULTS["fixed"] = [_gate_fail("diff_non_empty", "diff is empty")]
 
+    _RECORDED_TRANSITIONS.clear()
     result = await _run_workflow(issue_input)
 
     assert result.final_state == "aborted"
     assert "diff_non_empty" in result.abort_reason
     assert "diff is empty" in result.abort_reason
+
+    # The abort must be persisted to the evidence store, not just returned —
+    # otherwise the UI shows the run frozen mid-pipeline with no explanation.
+    abort_rows = [t for t in _RECORDED_TRANSITIONS if t.to_state == "aborted"]
+    assert len(abort_rows) == 1
+    assert "diff_non_empty" in abort_rows[0].reason
 
 
 @pytest.mark.asyncio
