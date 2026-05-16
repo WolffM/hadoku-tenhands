@@ -10,6 +10,11 @@
  *
  * A deferred run reports `current_state: "replicated"` but is NOT done — it
  * is waiting for an inbox decision — so `isDeferred` overrides to warning.
+ *
+ * A dead run is labelled `crashed` when `abortKind === 'crashed'` — an
+ * activity threw, so there's no gate verdict and it's worth re-dispatching.
+ * Gate-fail and operator aborts stay `aborted` (the gate row already
+ * explains a gate fail; re-dispatch won't change a decision).
  */
 
 import { Badge, type BadgeVariant } from '../common/Badge'
@@ -27,12 +32,23 @@ function variantFor(state: string, isDeferred?: boolean): BadgeVariant {
 interface StateBadgeProps {
   state: string
   isDeferred?: boolean
+  abortKind?: 'crashed' | 'gate' | 'operator' | null
 }
 
-export function StateBadge({ state, isDeferred }: StateBadgeProps) {
-  const label = isDeferred ? `${state.replace(/_/g, ' ')} · deferred` : state.replace(/_/g, ' ')
+export function StateBadge({ state, isDeferred, abortKind }: StateBadgeProps) {
+  let label = state.replace(/_/g, ' ')
+  if (isDeferred) {
+    label = `${label} · deferred`
+  } else if (state === 'aborted' && abortKind === 'crashed') {
+    label = 'crashed'
+  }
   return (
-    <span data-testid="temporal-state-badge" data-state={state} data-deferred={!!isDeferred}>
+    <span
+      data-testid="temporal-state-badge"
+      data-state={state}
+      data-deferred={!!isDeferred}
+      data-abort-kind={abortKind ?? undefined}
+    >
       <Badge variant={variantFor(state, isDeferred)}>{label}</Badge>
     </span>
   )

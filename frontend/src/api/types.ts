@@ -608,6 +608,10 @@ export interface TemporalIssueSummary {
    *  Explains stopped runs that have no failed gate (e.g. an activity
    *  crash like a fork 403, which never produces a gate verdict). */
   abort_reason?: string | null
+  /** Abort classification. 'crashed' = an activity threw (retryable, no
+   *  gate verdict exists); 'gate' = a gate failed the work; 'operator' =
+   *  operator abort. Only 'crashed' is worth re-dispatching. */
+  abort_kind?: 'crashed' | 'gate' | 'operator' | null
   deferred_at: string | null
   deferred_gate: string | null
   transition_count: number
