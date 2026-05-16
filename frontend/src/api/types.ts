@@ -592,6 +592,11 @@ export interface TemporalEnvelope<T> {
 export interface TemporalBatchSummary {
   batch_id: string
   issue_count: number
+  /** Issues parked in the operator inbox. Added by the backend so the UI
+   *  can split Active vs Archive tabs without fetching every batch. */
+  deferred_count?: number
+  /** True when deferred_count > 0 — the batch needs operator attention. */
+  active?: boolean
 }
 
 export interface TemporalIssueSummary {

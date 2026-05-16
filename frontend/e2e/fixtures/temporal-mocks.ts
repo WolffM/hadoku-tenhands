@@ -14,8 +14,8 @@
 import type { Page } from '@playwright/test'
 
 export const mockTemporalBatches = [
-  { batch_id: 'crimson-kitty', issue_count: 3 },
-  { batch_id: 'smoke-1', issue_count: 1 }
+  { batch_id: 'crimson-kitty', issue_count: 3, deferred_count: 1, active: true },
+  { batch_id: 'smoke-1', issue_count: 1, deferred_count: 0, active: false }
 ]
 
 export const mockTemporalBatchDetail = {

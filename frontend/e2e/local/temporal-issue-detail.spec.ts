@@ -16,10 +16,13 @@ test.describe('Temporal issue detail', () => {
     await page.goto('/?key=test-key')
     await page.locator('.pipeline-select-card').filter({ hasText: 'Crimson-Kitty' }).click()
     await expect(page.getByTestId('temporal-pipeline-view')).toBeVisible()
+    // Batch browsing lives on the Active tab (crimson-kitty has inbox items).
+    await page.getByTestId('temporal-tab-active').click()
   })
 
   test('shows header, timeline, gates, evidence, and events', async ({ page }) => {
-    // Select the first batch
+    // The first batch + first run auto-select on tab open; the explicit
+    // clicks below just make the selection deterministic for the asserts.
     await page.getByTestId('temporal-batch-button').first().click()
     await expect(page.getByTestId('temporal-issues-list')).toBeVisible()
 

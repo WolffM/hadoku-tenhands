@@ -71,6 +71,16 @@ def _read_jsonl_safely(path: Path) -> list[dict]:
 
 
 def _list_batches() -> list[dict]:
+    """List every batch with a cheap activity summary.
+
+    `deferred_count` is the number of issues parked in the operator inbox
+    (`awaiting/inbox_entry.json` present, no `resolved` marker). `active`
+    is True when a batch has at least one such issue — the frontend uses
+    it to split the Active vs Archive tabs without fetching every batch's
+    detail. Inbox membership is the only cheap, disk-derived signal that's
+    reliably "needs the operator" — running-vs-aborted can't be told apart
+    from disk state alone, and the operator doesn't act on those anyway.
+    """
     root = _state_root()
     if not root.exists():
         return []
@@ -78,10 +88,17 @@ def _list_batches() -> list[dict]:
     for batch_dir in sorted(root.iterdir()):
         if not batch_dir.is_dir():
             continue
-        issues = [d.name for d in batch_dir.iterdir() if d.is_dir()]
+        issue_dirs = [d for d in batch_dir.iterdir() if d.is_dir()]
+        deferred = 0
+        for d in issue_dirs:
+            aw = d / "awaiting"
+            if (aw / "inbox_entry.json").exists() and not (aw / "resolved").exists():
+                deferred += 1
         batches.append({
             "batch_id": batch_dir.name,
-            "issue_count": len(issues),
+            "issue_count": len(issue_dirs),
+            "deferred_count": deferred,
+            "active": deferred > 0,
         })
     return batches
 

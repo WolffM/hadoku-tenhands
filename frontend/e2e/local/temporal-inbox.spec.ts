@@ -90,9 +90,11 @@ test.describe('Temporal pipeline inbox', () => {
   // Phase 5.4 — operator signoff card variant.
 
   test('operator_signoff entry renders the signoff card variant', async ({ page }) => {
+    // data-card-variant is set on the row element itself, so select by the
+    // combined attribute selector rather than `filter({ has })` — `has`
+    // only matches descendants, never the element it's called on.
     const signoffRow = page
-      .getByTestId('temporal-inbox-row')
-      .filter({ has: page.locator('[data-card-variant="signoff"]') })
+      .locator('[data-testid="temporal-inbox-row"][data-card-variant="signoff"]')
       .first()
     // The 4th mock entry is the signoff one — the filter above should find
     // exactly one row with the signoff variant.
@@ -128,8 +130,7 @@ test.describe('Temporal pipeline inbox', () => {
 
   test('approve on signoff card sends approve signal', async ({ page }) => {
     const signoffRow = page
-      .getByTestId('temporal-inbox-row')
-      .filter({ has: page.locator('[data-card-variant="signoff"]') })
+      .locator('[data-testid="temporal-inbox-row"][data-card-variant="signoff"]')
       .first()
     const expectedWorkflow = 'issue-crimson-kitty-signoff-microsoft__terminal-5301'
 
@@ -156,8 +157,7 @@ test.describe('Temporal pipeline inbox', () => {
     // card, NOT a signoff card — confirms the gate-name branch leaves the
     // existing flow untouched.
     const judgeRow = page
-      .getByTestId('temporal-inbox-row')
-      .filter({ has: page.locator('[data-card-variant="judge-defer"]') })
+      .locator('[data-testid="temporal-inbox-row"][data-card-variant="judge-defer"]')
       .first()
     await expect(judgeRow).toBeVisible()
     await expect(judgeRow.getByTestId('temporal-inbox-approve')).toBeVisible()
