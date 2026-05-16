@@ -130,12 +130,27 @@ def _issue_summary(batch_id: str, issue_id: str) -> dict:
         else None
     )
 
+    # Classify the abort. `crashed` is the one worth distinguishing: an
+    # activity threw, so there is NO gate verdict to explain the stop and
+    # the run is worth re-dispatching. `gate`/`operator` aborts are
+    # decisions, not accidents — re-dispatch won't change the outcome. The
+    # reason prefixes are set verbatim by issue_workflow.py's abort paths.
+    abort_kind = None
+    if abort_reason:
+        if abort_reason.startswith("activity crashed"):
+            abort_kind = "crashed"
+        elif abort_reason.startswith("gate "):
+            abort_kind = "gate"
+        elif abort_reason.startswith("operator aborted"):
+            abort_kind = "operator"
+
     return {
         "batch_id": batch_id,
         "issue_id": issue_id,
         "current_state": current_state,
         "is_deferred": is_deferred,
         "abort_reason": abort_reason,
+        "abort_kind": abort_kind,
         "deferred_at": inbox.get("state") if isinstance(inbox, dict) else None,
         "deferred_gate": inbox.get("gate") if isinstance(inbox, dict) else None,
         "transition_count": len(transitions),

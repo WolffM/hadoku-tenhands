@@ -196,6 +196,32 @@ def test_issue_returns_full_evidence(client, state_root):
     assert len(data["transitions"]) == 2
     assert len(data["gates"]) == 2
     assert len(data["events"]) == 1
+    # Not aborted → no abort fields.
+    assert data["abort_reason"] is None
+    assert data["abort_kind"] is None
+
+
+def test_issue_classifies_abort_kind(client, state_root):
+    """An aborted run's last transition reason is classified so the UI can
+    tell a re-dispatchable crash from a final gate/operator decision."""
+    cases = {
+        "crashed-one": ("activity crashed at state=eligible: RuntimeError: fork 403", "crashed"),
+        "gate-one": ("gate submission_judge failed: quality too low", "gate"),
+        "operator-one": ("operator aborted at awaiting_signoff/operator_signoff: declined", "operator"),
+    }
+    for issue_id, (reason, _kind) in cases.items():
+        _seed_issue(
+            state_root, "batch-x", issue_id,
+            transitions=[
+                {"from": "candidate", "to": "eligible", "ts": "t0"},
+                {"from": "eligible", "to": "aborted", "reason": reason, "ts": "t1"},
+            ],
+        )
+    for issue_id, (reason, kind) in cases.items():
+        data = client.get(f"/dispatch/api/temporal/issue/batch-x/{issue_id}").get_json()["data"]
+        assert data["current_state"] == "aborted"
+        assert data["abort_reason"] == reason
+        assert data["abort_kind"] == kind
 
 
 # ── 5. /api/temporal/inbox ────────────────────────────────────────────────
