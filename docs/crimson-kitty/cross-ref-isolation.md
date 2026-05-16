@@ -224,6 +224,8 @@ as the public record.
 
 ## Migration
 
-Phase 0 cleans the namespace by deleting all `WolffM/*` jade-hare-era forks
-via `scripts/cleanup_legacy_forks.py`. Crimson-kitty starts with a clean
-namespace and re-forks fresh on first issue per upstream.
+Phase 0 cleaned the namespace by deleting all `WolffM/*` jade-hare-era forks
+(a one-time manual cleanup, since removed). Crimson-kitty started with a clean
+namespace and re-forks fresh on first issue per upstream. Forks now persist
+indefinitely — the fork step reuses any existing fork, so re-dispatch never
+re-forks.
