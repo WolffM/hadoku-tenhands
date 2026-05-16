@@ -1,117 +1,90 @@
 /**
  * TemporalPipelineView — main view for the crimson-kitty pipeline.
  *
- * Three panes:
- *   - batches list (left)
- *   - inbox (right top)
- *   - selected issue detail (right bottom)
+ * Three tabs:
+ *   - Inbox   — the operator action queue (deferred workflows). Default.
+ *   - Active  — batches that still have inbox items, browsable run-by-run.
+ *   - Archive — batches with nothing pending.
  *
- * Uses `useTemporalStore` exclusively — the composite `usePipelineStore`
- * is not used here because the temporal pipeline has its own data shape.
+ * The inbox lives on its own tab so the operator never scrolls past it to
+ * reach a run, and batch browsing is a separate side-by-side layout with
+ * the first batch + first run auto-selected.
+ *
+ * Uses `useTemporalStore` exclusively.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTemporalStore } from '../store/temporalStore'
-import { PipelineInbox, IssueDetail, StateBadge } from '../components/temporal'
+import { PipelineInbox, BatchBrowser } from '../components/temporal'
+
+type TabKey = 'inbox' | 'active' | 'archive'
 
 export function TemporalPipelineView() {
   const batches = useTemporalStore(s => s.batches)
-  const batchDetail = useTemporalStore(s => s.batchDetail)
+  const inbox = useTemporalStore(s => s.inbox)
   const selectedBatchId = useTemporalStore(s => s.selectedBatchId)
-  const selectedIssueId = useTemporalStore(s => s.selectedIssueId)
   const loadBatches = useTemporalStore(s => s.loadBatches)
-  const loadBatch = useTemporalStore(s => s.loadBatch)
-  const selectIssue = useTemporalStore(s => s.selectIssue)
+  const loadInbox = useTemporalStore(s => s.loadInbox)
+
+  const [tab, setTab] = useState<TabKey>('inbox')
+  const deepLinkHandled = useRef(false)
 
   useEffect(() => {
     void loadBatches()
-  }, [loadBatches])
+    void loadInbox()
+  }, [loadBatches, loadInbox])
+
+  const activeBatches = batches.items.filter(b => b.active)
+  const archiveBatches = batches.items.filter(b => !b.active)
+
+  // Deep links (?view=temporal&batch=…) pre-select a batch in App.tsx. Once
+  // the batch list first loads, jump to the tab that holds the pre-selected
+  // batch so the selection is visible instead of stranded behind the default
+  // Inbox tab. Guarded by a ref so it runs exactly once and never fights a
+  // later manual tab click.
+  useEffect(() => {
+    if (deepLinkHandled.current || batches.items.length === 0) return
+    deepLinkHandled.current = true
+    if (!selectedBatchId) return
+    if (activeBatches.some(b => b.batch_id === selectedBatchId)) setTab('active')
+    else if (archiveBatches.some(b => b.batch_id === selectedBatchId)) setTab('archive')
+  }, [batches.items.length, selectedBatchId, activeBatches, archiveBatches])
+
+  const tabs: { key: TabKey; label: string; count: number }[] = [
+    { key: 'inbox', label: 'Inbox', count: inbox.items.length },
+    { key: 'active', label: 'Active', count: activeBatches.length },
+    { key: 'archive', label: 'Archive', count: archiveBatches.length }
+  ]
 
   return (
     <div className="temporal-pipeline-view" data-testid="temporal-pipeline-view">
-      <div className="temporal-pipeline-view__layout">
-        <aside className="temporal-pipeline-view__batches" data-testid="temporal-batches-pane">
-          <header>
-            <h2>Batches</h2>
-            <button
-              type="button"
-              className="btn btn--secondary btn--sm"
-              onClick={() => {
-                void loadBatches()
-              }}
-              disabled={batches.loading}
-            >
-              Refresh
-            </button>
-          </header>
-          {batches.error && (
-            <div className="temporal-pipeline-view__error" data-testid="temporal-batches-error">
-              {batches.error}
-            </div>
-          )}
-          {batches.items.length === 0 ? (
-            <p data-testid="temporal-batches-empty">
-              {batches.loading
-                ? 'Loading…'
-                : 'No batches yet. Dispatch one with POST /api/temporal/dispatch.'}
-            </p>
-          ) : (
-            <ul className="temporal-pipeline-view__batch-list">
-              {batches.items.map(b => (
-                <li key={b.batch_id}>
-                  <button
-                    type="button"
-                    data-testid="temporal-batch-button"
-                    data-batch-id={b.batch_id}
-                    data-active={selectedBatchId === b.batch_id}
-                    onClick={() => {
-                      void loadBatch(b.batch_id)
-                    }}
-                  >
-                    {b.batch_id} ({b.issue_count})
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+      <nav className="temporal-tabs" data-testid="temporal-tabs">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            type="button"
+            className="temporal-tabs__tab"
+            data-testid={`temporal-tab-${t.key}`}
+            data-active={tab === t.key}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+            <span className="temporal-tabs__count">{t.count}</span>
+          </button>
+        ))}
+      </nav>
 
-          {batchDetail.data && (
-            <div className="temporal-pipeline-view__issues" data-testid="temporal-issues-list">
-              <h3>Issues in {batchDetail.data.batch_id}</h3>
-              <ul>
-                {batchDetail.data.issues.map(i => (
-                  <li key={i.issue_id}>
-                    <button
-                      type="button"
-                      data-testid="temporal-issue-button"
-                      data-issue-id={i.issue_id}
-                      data-active={selectedIssueId === i.issue_id}
-                      onClick={() => selectIssue(i.issue_id)}
-                    >
-                      <span>{i.issue_id}</span>
-                      <StateBadge state={i.current_state} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </aside>
-
-        <div className="temporal-pipeline-view__main">
-          <div className="temporal-pipeline-view__inbox-pane">
-            <PipelineInbox />
-          </div>
-          <div className="temporal-pipeline-view__detail-pane">
-            {selectedBatchId && selectedIssueId ? (
-              <IssueDetail batchId={selectedBatchId} issueId={selectedIssueId} />
-            ) : (
-              <p data-testid="temporal-detail-empty">
-                Select an issue from a batch to see evidence, gates, and transitions.
-              </p>
-            )}
-          </div>
-        </div>
+      <div className="temporal-pipeline-view__body">
+        {tab === 'inbox' && <PipelineInbox />}
+        {tab === 'active' && (
+          <BatchBrowser
+            batches={activeBatches}
+            emptyText="No active batches — the inbox is clear."
+          />
+        )}
+        {tab === 'archive' && (
+          <BatchBrowser batches={archiveBatches} emptyText="No archived batches yet." />
+        )}
       </div>
     </div>
   )

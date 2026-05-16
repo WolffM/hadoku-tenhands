@@ -33,8 +33,12 @@ test.describe('Temporal pipeline select', () => {
 
     await expect(page.locator('text=Select a Pipeline')).not.toBeVisible()
     await expect(page.getByTestId('temporal-pipeline-view')).toBeVisible()
-    await expect(page.getByTestId('temporal-batches-pane')).toBeVisible()
+    // Tab bar is present; the Inbox tab is the default landing surface.
+    await expect(page.getByTestId('temporal-tabs')).toBeVisible()
     await expect(page.getByTestId('temporal-inbox')).toBeVisible()
+    // The batches pane lives on the Active tab.
+    await page.getByTestId('temporal-tab-active').click()
+    await expect(page.getByTestId('temporal-batches-pane')).toBeVisible()
   })
 
   test('Home → Crimson-Kitty card switches into the view from another pipeline', async ({

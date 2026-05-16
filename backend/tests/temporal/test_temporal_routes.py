@@ -113,6 +113,34 @@ def test_batches_lists_seeded_batches(client, state_root):
     assert batches == {"batch-a": 2, "batch-b": 1}
 
 
+def test_batches_report_activity_for_active_vs_archive_split(client, state_root):
+    # batch-a has one deferred issue (inbox entry, no resolved marker) → active.
+    _seed_issue(state_root, "batch-a", "issue-1", transitions=[],
+                inbox={"gate": "submission_judge", "score": 0.7})
+    _seed_issue(state_root, "batch-a", "issue-2", transitions=[])
+    # batch-b has no inbox entries at all → archive.
+    _seed_issue(state_root, "batch-b", "issue-3", transitions=[])
+
+    body = client.get("/dispatch/api/temporal/batches").get_json()
+    by_id = {b["batch_id"]: b for b in body["data"]["batches"]}
+    assert by_id["batch-a"]["deferred_count"] == 1
+    assert by_id["batch-a"]["active"] is True
+    assert by_id["batch-b"]["deferred_count"] == 0
+    assert by_id["batch-b"]["active"] is False
+
+
+def test_batches_resolved_marker_clears_active(client, state_root):
+    _seed_issue(state_root, "batch-c", "issue-9", transitions=[],
+                inbox={"gate": "relevance"})
+    # operator resolved it → no longer active even though inbox_entry.json stays.
+    (state_root / "batch-c" / "issue-9" / "awaiting" / "resolved").write_text("done")
+
+    body = client.get("/dispatch/api/temporal/batches").get_json()
+    batch_c = next(b for b in body["data"]["batches"] if b["batch_id"] == "batch-c")
+    assert batch_c["deferred_count"] == 0
+    assert batch_c["active"] is False
+
+
 # ── 3. /api/temporal/batch/<batch_id> ─────────────────────────────────────
 
 
