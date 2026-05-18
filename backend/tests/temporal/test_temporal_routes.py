@@ -261,6 +261,23 @@ def test_inbox_lists_deferred_issues(client, state_root):
     assert data["items"][0]["score"] == 0.55
 
 
+def test_inbox_sorts_scored_by_score_then_unscored_oldest_first(client, state_root):
+    # Two scored entries (out of score order) + two unscored (out of age order).
+    _seed_issue(state_root, "b", "scored-hi", transitions=[],
+                inbox={"gate": "submission_judge", "score": 0.74, "queued_at": "t9"})
+    _seed_issue(state_root, "b", "scored-lo", transitions=[],
+                inbox={"gate": "submission_judge", "score": 0.62, "queued_at": "t9"})
+    _seed_issue(state_root, "b", "signoff-new", transitions=[],
+                inbox={"gate": "operator_signoff", "queued_at": "2026-05-18T10:00:00Z"})
+    _seed_issue(state_root, "b", "signoff-old", transitions=[],
+                inbox={"gate": "operator_signoff", "queued_at": "2026-05-01T10:00:00Z"})
+
+    items = client.get("/dispatch/api/temporal/inbox").get_json()["data"]["items"]
+    order = [i["issue_id"] for i in items]
+    # scored first, ascending by score; then unscored, oldest queued_at first.
+    assert order == ["scored-lo", "scored-hi", "signoff-old", "signoff-new"]
+
+
 def test_inbox_enriches_operator_signoff_with_preview_pr_and_body(client, state_root):
     """Phase 5.4: when gate='operator_signoff', the inbox response
     attaches the fork preview PR URL + body excerpt so the frontend
