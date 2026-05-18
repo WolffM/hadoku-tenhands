@@ -360,6 +360,16 @@ def temporal_inbox():
                     except OSError:
                         pass
             items.append(enriched)
+
+    # Sort: scored entries first, ascending by score (most-borderline on
+    # top); unscored entries (e.g. operator_signoff) after, oldest first.
+    def _sort_key(it: dict):
+        score = it.get("score")
+        if isinstance(score, (int, float)):
+            return (0, score, "")
+        return (1, 0.0, it.get("queued_at") or "")
+
+    items.sort(key=_sort_key)
     return _envelope({"items": items, "count": len(items)})
 
 
