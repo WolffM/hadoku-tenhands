@@ -48,6 +48,7 @@ This has leaked in 3 consecutive runs. If cross-references reach upstream, the s
 
 ## Development
 
+- **Python env:** both pm2 services (`vibedispatch`, `vibedispatch-temporal`) run from a per-repo `.venv` (not the system Python). hadoku_site's deploy creates `.venv` and installs `backend/requirements.txt` into it; the PM2 wrapper launches the venv interpreter. Local: `python -m venv .venv` at the repo root, then `.venv/bin/pip install -r backend/requirements.txt` (`.venv\Scripts\` on Windows).
 - **Production:** pm2 service managed by hadoku_site. Deploy by pushing to `main` (triggers deploy.yml → hadoku_site dispatch). Never start manually in prod.
 - **Local:** backend `python3 app.py` (port 5024, `/dispatch`); frontend `pnpm dev` (port 5184, proxies to backend)
 - **Tests:** `cd backend && python3 -m pytest tests/ -v`. Discord: `DISCORD_WEBHOOK_URL` (prod), `DISCORD_TEST_WEBHOOK_URL` (test). Tests auto-route to test channel.
