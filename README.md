@@ -90,10 +90,10 @@ Create a pull request from the fork to the upstream repository and track its sta
 ### Backend
 
 ```bash
-cd backend
-pip install -r requirements.txt
-cp ../.env.example ../.env   # configure environment variables
-cd .. && python3 -m backend.app
+python -m venv .venv                                # repo root — matches the deploy
+.venv/bin/pip install -r backend/requirements.txt   # .venv\Scripts\ on Windows
+cp .env.example .env   # configure environment variables
+.venv/bin/python -m backend.app
 ```
 
 The API server starts on `http://localhost:5024` by default.
