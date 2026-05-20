@@ -683,29 +683,58 @@ def _build_signoff_line(run_gh) -> str:
     return f"Signed-off-by: {display} <{email}>"
 
 
-def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
-    """Strip leading hash markers, optionally prepend a per-repo prefix
-    derived from `conventions`, and cap at 80 chars.
+_TITLE_BRACKET_PREFIX_RE = re.compile(
+    r"^\s*\[[^\]]+\]\s*:?\s*",
+    re.IGNORECASE,
+)
 
-    Phase 5.3:
-    - `commit_style="conventional"` → prepend `fix: ` (we don't have
-      enough signal to pick a more specific scope; `fix` is the safest
-      verb for a bug fix and the most common merge category).
-    - `commit_style="prefix-required"` with a JIRA-style
-      `title_prefix_pattern` → leave the title alone (we have no
-      project key to invent); operator must edit before signoff. The
-      submission_judge gate's PR-quality check will flag a missing
-      prefix on the live preview content.
-    - `commit_style="freeform"` (default) → no prefix.
+
+def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
+    """Render the PR title from the upstream issue title.
+
+    Three deterministic steps fixing the three recurring title defects
+    the submission_judge has flagged across crimson-kitty batches:
+
+      1. Strip bracketed issue prefixes — `[Bug]`, `[BUG]`, `[FEATURE]`,
+         `[question]`, with or without trailing `:` — that the upstream
+         issue tracker uses but a PR title shouldn't carry. Also handles
+         the coolify case where the agent wound up with `fix: [Bug]:`
+         (we strip BEFORE applying the conventional prefix).
+      2. Apply `fix: ` unless a conventional prefix is already present.
+         (Previously gated on `commit_style="conventional"`; bare
+         issue titles read as issue titles rather than PR titles, so we
+         always normalize. An operator can edit before upstream
+         submission if a specific repo prefers a different verb.)
+      3. Cap at 80 chars on a word boundary, with an ellipsis when the
+         cut actually happens — the previous cap chopped mid-word
+         (`...withou`, `...visiting specif`).
     """
     cleaned = (issue_title or "").strip().lstrip("#").strip()
+    # Strip one or more bracketed prefixes (`[Bug] [BUG]:` → "").
+    while True:
+        stripped = _TITLE_BRACKET_PREFIX_RE.sub("", cleaned, count=1)
+        if stripped == cleaned:
+            break
+        cleaned = stripped.strip()
     if not cleaned:
         cleaned = "Crimson-kitty fix"
 
-    style = (conventions or {}).get("commit_style") if conventions else None
-    if style == "conventional" and not _has_conventional_prefix(cleaned):
+    if not _has_conventional_prefix(cleaned):
         cleaned = f"fix: {cleaned}"
-    return cleaned[:80]
+
+    return _word_snap(cleaned, 80)
+
+
+def _word_snap(text: str, limit: int) -> str:
+    """Cap `text` at `limit` chars on a word boundary, appending `…` if
+    truncation actually removed content. Keeps full words intact."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    space = cut.rfind(" ")
+    if space > 0:
+        cut = cut[:space]
+    return cut.rstrip(" ,:;.-") + "…"
 
 
 _CONVENTIONAL_PREFIX_RE = re.compile(
@@ -835,19 +864,34 @@ def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
             "",
             repro_steps.strip(),
         ])
-    parts.extend([
-        "",
-        "## Fix",
-        "",
-        f"The change spans {len(commit_shas)} commit(s) touching {len(files_touched)} file(s):",
-        "",
-    ])
-    parts.extend(f"- `{f}`" for f in files_touched[:20])
-    if len(files_touched) > 20:
-        parts.append(f"- …and {len(files_touched) - 20} more")
-    if commit_shas:
-        parts.extend(["", "Commits:"])
-        parts.extend(f"- `{sha[:8]}`" for sha in commit_shas[:10])
+    # Filter scratch files we already strip from the operator's PR tree
+    # (notes.md, etc.) so the body matches what's actually pushed — the
+    # judge was flagging notes.md as unexplained even though the tree
+    # already strips it.
+    displayed_files = [f for f in files_touched if f not in _TREE_STRIP_PATHS]
+
+    # Use the squashed commit message as the Fix prose. The agent doesn't
+    # write a Fix description anywhere, but `replicate_fix_as_operator`
+    # generates a meaningful operator-authored commit message at squash
+    # time; that's the closest thing to "what changed and why" we have.
+    fix_prose = ""
+    if evidence.exists("05-fixed/commits.json"):
+        commits = evidence.read_json("05-fixed/commits.json")
+        if isinstance(commits, list) and commits:
+            msg = (commits[0].get("message") or "").strip()
+            if msg:
+                fix_prose = _scrub_internal_language(msg).strip()
+
+    parts.extend(["", "## Fix", ""])
+    if fix_prose:
+        parts.append(fix_prose)
+        parts.append("")
+    if displayed_files:
+        parts.append(f"Files changed ({len(displayed_files)}):")
+        parts.append("")
+        parts.extend(f"- `{f}`" for f in displayed_files[:20])
+        if len(displayed_files) > 20:
+            parts.append(f"- …and {len(displayed_files) - 20} more")
     parts.extend([
         "",
         "## Verification",
@@ -972,61 +1016,96 @@ def _scrub_internal_language(text: str) -> str:
     return "\n".join(keep)
 
 
-def _extract_verification(evidence) -> str:
-    """Build the Verification section content for the upstream PR body.
+_TEST_FILE_RE = re.compile(
+    r"(^|/)(test|tests|__tests__|spec|specs)/|"
+    r"\.(test|spec)\.[a-z]+$|"
+    r"_test\.(go|py|ts|tsx|js|jsx|cpp|hpp|c|h|rb|rs|java|kt|scala)$|"
+    r"Test\.(php|java|kt|scala)$",
+    re.IGNORECASE,
+)
 
-    Order of preference (2026-04-30 redesign with terminal screenshot):
-      0. Inline screenshot (`06-verified/after_url.txt` — URL of a PNG
-         hosted as a fork release asset, written by the screenshot
-         activity). When present, embed `![Verification](url)` at the
-         top of the section as visual proof of the test run.
-      1. Synthesized verify_notes.md complement (file list + concrete
-         sentence about what the tests cover). Pairs well with the
-         screenshot — image shows the run, prose names the test files.
-         When image is present we SKIP the raw test-output code block
-         (it's redundant — the image is already that output rendered).
-      2. Real test output as a fenced code block (only when no image).
-      3. Final fallback when nothing else — terse, no "Reviewers can
-         run..." filler.
 
-    Whatever we return goes verbatim into the upstream PR. Any line
-    that mentions internal pipeline language ("agent", "harvest",
-    "exit_reason", "orchestrator", "auto-synthesized", "copilot") is
-    stripped before return.
+def _looks_like_test_file(path: str) -> bool:
+    return bool(_TEST_FILE_RE.search(path))
+
+
+def _summarize_test_changes(evidence) -> str:
+    """Render an unambiguous "tests added/modified/none" sentence from the
+    actual diff file list.
+
+    Replaces the agent's "no separate test file added" phrasing, which the
+    submission_judge read as contradictory whenever a test file was in the
+    diff (nodejs, coolify). Always speaks from what the diff says.
     """
-    image_md = ""
+    if not evidence.exists("05-fixed/files_touched.txt"):
+        return ""
+    files = [
+        l.strip()
+        for l in evidence.read_text("05-fixed/files_touched.txt").splitlines()
+        if l.strip() and l.strip() not in _TREE_STRIP_PATHS
+    ]
+    test_files = [f for f in files if _looks_like_test_file(f)]
+    if not test_files:
+        return ""
+    if len(test_files) == 1:
+        return f"Test file changed: `{test_files[0]}`."
+    head = ", ".join(f"`{f}`" for f in test_files[:3])
+    if len(test_files) > 3:
+        head += f", and {len(test_files) - 3} more"
+    return f"Test files changed: {head}."
+
+
+_VERIFICATION_TEST_OUTPUT_MAX = 1200  # generous — judge needs the whole tail
+_VERIFICATION_FALLBACK = (
+    "Reviewers should run the project's test suite to confirm the "
+    "regression described above is no longer reproducible."
+)
+
+
+def _extract_verification(evidence) -> str:
+    """Build the Verification section deterministically from real evidence.
+
+    Layout (each piece optional, in this order):
+      1. Inline screenshot — `06-verified/after_url.txt` URL embedded as
+         `![Verification](url)` for at-a-glance visual proof of the run.
+      2. Deterministic test-changes sentence from the diff file list (NOT
+         the agent's hand-wavy "no separate test file added" phrasing).
+      3. Captured test output as a fenced code block from
+         `06-verified/test_output.txt`. We show the tail (last 1200 chars)
+         since failures usually surface at the end of the output.
+
+    The agent's `verify_notes.md` is deliberately ignored — the recurring
+    "the diff is small enough to read in full" / "behavior is exercised by
+    the diff" hand-wave came from there. This renderer speaks only from
+    machine-captured evidence.
+    """
+    lines: list[str] = []
+
     if evidence.exists("06-verified/after_url.txt"):
         url = evidence.read_text("06-verified/after_url.txt").strip()
         if url:
-            image_md = f"![Verification]({url})\n\n"
+            lines.append(f"![Verification]({url})")
+            lines.append("")
 
-    # When the image is present, prefer verify_notes.md (file list +
-    # concrete prose) as the textual complement and skip the raw
-    # test_output.txt code block (which the image already renders).
-    if image_md and evidence.exists("06-verified/verify_notes.md"):
-        notes = _clean_verify_notes(evidence.read_text("06-verified/verify_notes.md"))
-        if notes:
-            return f"{image_md}{notes}"
-    if image_md:
-        return image_md.rstrip()
+    test_changes = _summarize_test_changes(evidence)
+    if test_changes:
+        lines.append(test_changes)
+        lines.append("")
 
-    # No screenshot: fall through to the original text-only chain.
     if evidence.exists("06-verified/test_output.txt"):
-        text = evidence.read_text("06-verified/test_output.txt").strip()
-        excerpt = text[:400]
-        return f"Test output:\n\n```\n{excerpt}\n```"
+        raw = evidence.read_text("06-verified/test_output.txt").strip()
+        if raw:
+            excerpt = raw if len(raw) <= _VERIFICATION_TEST_OUTPUT_MAX else (
+                "…" + raw[-(_VERIFICATION_TEST_OUTPUT_MAX - 1):]
+            )
+            lines.append("Test output:")
+            lines.append("")
+            lines.append("```")
+            lines.append(excerpt)
+            lines.append("```")
 
-    if evidence.exists("06-verified/verify_notes.md"):
-        notes = _clean_verify_notes(evidence.read_text("06-verified/verify_notes.md"))
-        if notes:
-            return notes
-
-    return (
-        "Reviewers should run the project's test suite to confirm the "
-        "regression described above is no longer reproducible. If a "
-        "specific regression-test convention is expected for this fix, "
-        "please flag it in review."
-    )
+    rendered = "\n".join(lines).rstrip()
+    return rendered or _VERIFICATION_FALLBACK
 
 
 def _clean_verify_notes(raw: str) -> str:
