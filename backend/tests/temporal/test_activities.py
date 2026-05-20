@@ -1228,6 +1228,124 @@ def test_render_pr_body_pulls_rich_content_from_evidence(ev):
     assert len(body.split()) >= 60
 
 
+def test_render_pr_body_uses_fix_summary_md_for_fix_prose(ev):
+    """2026-05-20: judge complained that the Fix section was always just a
+    file list. Agent now writes `05-fixed/fix_summary.md` describing what
+    the code change does; the renderer surfaces it as the Fix-section
+    prose. When the file is absent, the section falls back to the file
+    list only (no hallucinated prose)."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"title": "Parser drops merged-cell anchors", "body": "Bug."},
+    })
+    ev.write_text("05-fixed/files_touched.txt", "src/parser.py\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text("05-fixed/commit_shas.txt", "abc\n")
+    ev.write_text(
+        "05-fixed/fix_summary.md",
+        "Clamped the anchor-cell lookup in `parser.py` to "
+        "`max(0, anchor_row)` so the walk stays inside the merged range "
+        "when row 0 has span > 1.",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+    assert "## Fix" in body
+    assert "Clamped the anchor-cell lookup" in body
+    # File list still appears beneath the prose.
+    assert "src/parser.py" in body
+
+
+def test_render_pr_body_fix_section_omits_prose_when_summary_md_absent(ev):
+    """Without `05-fixed/fix_summary.md`, the Fix section is just the
+    file list — no fabricated prose. The judge will defer/fail this,
+    which is the correct signal: the agent didn't produce a fix
+    description."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"title": "Bug", "body": "Body."},
+    })
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text("05-fixed/commit_shas.txt", "abc\n")
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+    # Fix section present but with file list only.
+    assert "## Fix" in body
+    assert "src/x.py" in body
+    # No phantom prose: the Files-changed line is the first content beneath
+    # the Fix heading.
+    _, fix_and_after = body.split("## Fix", 1)
+    fix_section = fix_and_after.split("\n## ", 1)[0]
+    assert "Files changed" in fix_section
+
+
+def test_render_pr_body_filters_notes_md_from_displayed_files(ev):
+    """The operator PR tree already strips notes.md; the rendered file
+    list must match — otherwise the judge flags notes.md as unexplained
+    even though it's not actually in the diff being submitted."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"title": "Bug", "body": "Body."},
+    })
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\nnotes.md\ntests/test_x.py\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text("05-fixed/commit_shas.txt", "abc\n")
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+    _, fix_and_after = body.split("## Fix", 1)
+    fix_section = fix_and_after.split("\n## ", 1)[0]
+    # Source + test file appear; notes.md does not.
+    assert "src/x.py" in fix_section
+    assert "tests/test_x.py" in fix_section
+    assert "notes.md" not in fix_section
+
+
+def test_build_title_strips_bracket_prefix_and_word_snaps(ev):
+    """2026-05-20: the title renderer was emitting `[Bug] ...`-prefixed
+    titles + chopping mid-word at the 80-char cap. Strip prefixes, add
+    `fix:`, snap to a word boundary."""
+    from temporal.activities.submission import _build_title
+
+    assert _build_title("[Bug] Failed to load source map") == (
+        "fix: Failed to load source map"
+    )
+    assert _build_title("[BUG]: NanoGPT Model Selector overflowing") == (
+        "fix: NanoGPT Model Selector overflowing"
+    )
+    assert _build_title("[question] is it possible to stop parsing") == (
+        "fix: is it possible to stop parsing"
+    )
+    # Already-conventional title is not double-prefixed.
+    assert _build_title("feat: add new flag") == "feat: add new flag"
+    # Long title word-snaps at the cap, with an ellipsis.
+    long_in = (
+        "Random sorting in GetSimilarItems (PR #14918) breaks recommendation "
+        "accuracy in More Like This panel rendering"
+    )
+    out = _build_title(long_in)
+    assert out.startswith("fix: Random sorting")
+    assert out.endswith("…")
+    assert len(out) <= 80
+    # Title that arrives empty after stripping prefixes still produces a
+    # sensible default rather than a bare `fix: `.
+    assert _build_title("[Bug]") == "fix: Crimson-kitty fix"
+
+
 def test_render_pr_body_with_template(ev):
     from temporal.activities.submission import render_pr_body
 
@@ -1460,15 +1578,16 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
     assert len(open_pr_calls) == 1
     op_pr_body = _json.loads(open_pr_calls[0][1])["body"]
 
-    # Stale agent SHAs must NOT appear in the operator PR body
+    # Stale agent SHAs must NOT appear in the operator PR body. The Fix
+    # section no longer carries the squashed commit message as prose
+    # (that just restated the Summary) — prose now comes from an agent-
+    # written `05-fixed/fix_summary.md`, absent in this test. The leak-
+    # prevention promise still holds: agent SHAs botA/botB don't appear,
+    # and `commits.json` is rewritten to only the new squashed commit.
     assert "botA" not in op_pr_body
     assert "botB" not in op_pr_body
-    # 2026-05-20: The Fix section now carries the squashed commit's MESSAGE
-    # as prose (the operator-authored "Fix the merged-cell bug" we built),
-    # not the raw SHA. The leak-prevention promise still holds: agent SHAs
-    # botA/botB don't appear, and the section is sourced from
-    # commits.json which only has the new squashed commit.
-    assert "Fix the merged-cell bug" in op_pr_body
+    # Sanity: the file list is still present so the operator can see scope.
+    assert "src/x.py" in op_pr_body
 
     # No internal pipeline language can leak into the upstream-visible body
     body_lower = op_pr_body.lower()
