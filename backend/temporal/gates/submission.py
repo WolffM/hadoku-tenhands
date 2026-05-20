@@ -16,7 +16,9 @@ See docs/crimson-kitty/gates.md.
 from __future__ import annotations
 
 import json
+import re
 
+from ..activities.submission import _TREE_STRIP_PATHS, _looks_like_test_file
 from ..judge import (
     JudgeParseError,
     JudgeUnreachable,
@@ -27,6 +29,20 @@ from . import Defer, Fail, GateResult, IssueRef, Pass, gate
 
 MIN_SUBMISSION_SCORE_PASS = 0.75
 MIN_SUBMISSION_SCORE_DEFER = 0.55
+
+# Tool/infra error fingerprints that should never appear in a Verification
+# section. These mean the test command itself couldn't run — the run hasn't
+# proven anything and the captured output would gaslight the judge.
+_INFRA_ERROR_PATTERNS = (
+    "ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL",
+    "ERR_PNPM",
+    "command not found",
+    "Cannot find module",
+    "Module not found",
+    "No such file or directory",
+    "ECONNREFUSED",
+    "EACCES",
+)
 
 
 # ── no_upstream_refs ──────────────────────────────────────────────────────
@@ -129,6 +145,150 @@ def pr_template_compliance(issue: IssueRef, evidence) -> GateResult:
         "09-submittable/template_compliance.json",
         {"required_sections": [s.get("heading") for s in sections if s.get("required")], "missing": []},
     )
+    return Pass()
+
+
+# ── body_lint (mechanical) ────────────────────────────────────────────────
+
+
+_MD_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
+
+
+@gate(after="submittable", kind="mechanical")
+def body_lint(issue: IssueRef, evidence) -> GateResult:
+    """Reject mechanically-malformed PR bodies before the judge sees them.
+
+    Catches three render-bug classes the submission_judge previously had
+    to flag as content problems (vitest's empty Summary, terminal's
+    duplicate "Steps to reproduce", openlibrary's unclosed/truncated code
+    snippet). These are renderer defects, not content judgement — failing
+    them here forces a re-render rather than burning a judge call.
+
+    Title truncation isn't checked here — `_build_title` now word-snaps
+    with `…` so a title that ends in `…` is intentional, not garbled.
+    """
+    if not evidence.exists("09-submittable/pr_body.md"):
+        return Fail("pr_body.md missing")
+    body = evidence.read_text("09-submittable/pr_body.md")
+
+    issues: list[str] = []
+
+    # 1. Unclosed/unbalanced code fences.
+    fence_count = body.count("```")
+    if fence_count % 2 != 0:
+        issues.append(f"unbalanced code fences (found {fence_count} ```)")
+
+    # 2. Scan headings: collect order + bodies between them.
+    lines = body.splitlines()
+    sections: list[tuple[str, list[str]]] = []
+    current_head: str | None = None
+    current_body: list[str] = []
+    for line in lines:
+        m = _MD_HEADING_RE.match(line)
+        if m:
+            if current_head is not None:
+                sections.append((current_head, current_body))
+            current_head = m.group(1).strip()
+            current_body = []
+        else:
+            current_body.append(line)
+    if current_head is not None:
+        sections.append((current_head, current_body))
+
+    # 3. Empty sections (header with no non-blank content beneath it).
+    for head, content in sections:
+        if not any(line.strip() for line in content):
+            issues.append(f"empty section under heading '{head}'")
+
+    # 4. Duplicate headings.
+    seen: dict[str, int] = {}
+    for head, _ in sections:
+        seen[head] = seen.get(head, 0) + 1
+    for head, count in seen.items():
+        if count > 1:
+            issues.append(f"duplicate heading '{head}' (appears {count} times)")
+
+    if issues:
+        evidence.write_json(
+            "09-submittable/body_lint.json",
+            {"failures": issues, "section_count": len(sections)},
+        )
+        return Fail(
+            f"PR body has {len(issues)} structural issue(s): {'; '.join(issues[:3])}",
+            evidence_data={"failures": issues},
+        )
+    return Pass(evidence_data={"section_count": len(sections)})
+
+
+# ── no_source_touched (mechanical) ────────────────────────────────────────
+
+
+@gate(after="submittable", kind="mechanical")
+def no_source_touched(issue: IssueRef, evidence) -> GateResult:
+    """Fail when the agent only touched tests / scratch files / nothing.
+
+    Hit by the bun#15964 case: agent committed `notes.md` + a test file
+    and nothing else. That's not a scope-creep problem — it's an
+    "agent didn't actually implement the fix" problem. Better to catch
+    that here than burn a judge call on a PR with zero real change.
+    """
+    if not evidence.exists("05-fixed/files_touched.txt"):
+        return Fail("files_touched.txt missing")
+
+    files = [
+        l.strip()
+        for l in evidence.read_text("05-fixed/files_touched.txt").splitlines()
+        if l.strip()
+    ]
+    # Strip scratch files we already remove from the PR tree.
+    files = [f for f in files if f not in _TREE_STRIP_PATHS]
+    non_test = [f for f in files if not _looks_like_test_file(f)]
+
+    if not non_test:
+        return Fail(
+            "diff only contains test files and/or scratch notes — no source "
+            "files were touched. Likely the agent did not implement the fix.",
+            evidence_data={
+                "files_touched": files,
+                "test_only": True,
+            },
+        )
+    return Pass(evidence_data={"non_test_file_count": len(non_test)})
+
+
+# ── verification_health (mechanical) ──────────────────────────────────────
+
+
+@gate(after="submittable", kind="mechanical")
+def verification_health(issue: IssueRef, evidence) -> GateResult:
+    """Block when the captured test output advertises a tool failure as
+    verification evidence.
+
+    vitest#8107 had `ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL` in its captured
+    output — pnpm's spawn-the-test-runner step itself failed, so the
+    run-test-command run proved nothing. Letting that through forced the
+    judge to wade through a broken verification block; cheaper to fail
+    here and force a real verification (or accept that this issue can't
+    be auto-verified at all).
+
+    Genuine test failures (`FAIL: test_foo`) are NOT caught here — those
+    are content judgements for the judge, not mechanical errors.
+    """
+    path = "06-verified/test_output.txt"
+    if not evidence.exists(path):
+        return Pass(reason="no test output captured (synth skipped)")
+    text = evidence.read_text(path)
+    if not text.strip():
+        return Pass(reason="test output is empty")
+
+    matched = [p for p in _INFRA_ERROR_PATTERNS if p.lower() in text.lower()]
+    if matched:
+        return Fail(
+            f"captured test output contains infrastructure error(s): "
+            f"{', '.join(matched[:3])}. The test command itself didn't run, "
+            f"so the Verification section would gaslight reviewers.",
+            evidence_data={"matched_patterns": matched},
+        )
     return Pass()
 
 

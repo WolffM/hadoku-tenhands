@@ -1024,9 +1024,14 @@ def test_render_pr_body_scrubs_internal_language_from_verify_notes(ev):
 def test_render_pr_body_embeds_screenshot_when_after_url_present(ev):
     """2026-04-30: when the screenshot activity uploaded a verification
     PNG to the fork's release assets and persisted the URL to
-    06-verified/after_url.txt, the rendered Verification section must
-    embed `![Verification](url)` at the top — visual proof of the test
-    run replaces the third-person "Reviewers can run..." prose."""
+    06-verified/after_url.txt, the rendered Verification section embeds
+    `![Verification](url)` at the top — visual proof of the test run.
+
+    Updated 2026-05-20: the agent's `verify_notes.md` is now ignored
+    (recurring hand-wave phrases were leaking through). The image is
+    the only signal coming out of this test fixture; the test-changes
+    sentence and the test_output codeblock only fire when their inputs
+    are present."""
     from temporal.activities.submission import render_pr_body
 
     ev.write_json("01-eligible/issue_brief.json", {"issue": {"title": "x", "body": "y"}})
@@ -1037,12 +1042,12 @@ def test_render_pr_body_embeds_screenshot_when_after_url_present(ev):
         "06-verified/after_url.txt",
         "https://github.com/WolffM/demo/releases/download/crimson-kitty-assets/issue-1-after.png\n",
     )
+    # Agent verify_notes is deliberately ignored now — seeded only to
+    # prove the renderer no longer reaches for it.
     ev.write_text(
         "06-verified/verify_notes.md",
         "Adds tests covering the corrected behavior:\n\n"
-        "- `tests/test_x.py`\n\n"
-        "Each new test reproduces the original failure on the base "
-        "branch and asserts the corrected output in this PR.",
+        "- `tests/test_x.py`\n\nThe diff is small enough to read in full.",
     )
 
     def fake_get(endpoint: str):
@@ -1051,30 +1056,26 @@ def test_render_pr_body_embeds_screenshot_when_after_url_present(ev):
     render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
     body = ev.read_text("09-submittable/pr_body.md")
 
-    # Image markdown landed at the top of the Verification section
     assert (
         "![Verification](https://github.com/WolffM/demo/releases/download/"
         "crimson-kitty-assets/issue-1-after.png)" in body
     )
-    # Verify-notes prose still appears underneath as the textual complement
-    assert "Adds tests covering the corrected behavior:" in body
-    assert "`tests/test_x.py`" in body
+    # Agent's verify_notes content must NOT appear anywhere.
+    assert "diff is small enough to read in full" not in body
+    assert "Adds tests covering the corrected behavior" not in body
 
 
-def test_render_pr_body_skips_test_output_codeblock_when_screenshot_present(ev):
-    """When the screenshot is embedded, the raw test_output.txt code
-    block becomes redundant (the image IS that output rendered). The
-    image + verify_notes prose carry the section; we don't double up."""
+def test_render_pr_body_embeds_both_screenshot_and_test_output(ev):
+    """Updated 2026-05-20: a screenshot does not replace the raw test
+    output. The image is at-a-glance proof; the code block is what the
+    submission_judge actually reads. Both render."""
     from temporal.activities.submission import render_pr_body
 
     ev.write_json("01-eligible/issue_brief.json", {"issue": {"title": "x", "body": "y"}})
     ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
     ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
     ev.write_text("05-fixed/diff.patch", "diff")
-    ev.write_text(
-        "06-verified/after_url.txt",
-        "https://example.com/after.png\n",
-    )
+    ev.write_text("06-verified/after_url.txt", "https://example.com/after.png\n")
     ev.write_text(
         "06-verified/test_output.txt",
         "PASS: TestExample (0.01s)\nok      example.com/foo    0.034s\n",
@@ -1086,11 +1087,9 @@ def test_render_pr_body_skips_test_output_codeblock_when_screenshot_present(ev):
     render_pr_body("a/b", 1, ev, aggregator_get=fake_get)
     body = ev.read_text("09-submittable/pr_body.md")
 
-    # Image embed is present
     assert "![Verification](https://example.com/after.png)" in body
-    # Raw test-output code block is NOT (image already conveys it)
-    assert "Test output:\n\n```" not in body
-    assert "PASS: TestExample" not in body
+    assert "Test output:" in body
+    assert "PASS: TestExample" in body
 
 
 def test_render_pr_body_falls_back_to_text_when_no_screenshot(ev):
@@ -1217,7 +1216,9 @@ def test_render_pr_body_pulls_rich_content_from_evidence(ev):
     assert "cell coalescing" in body  # from the repro notes' Observed section
     assert "## Steps to reproduce" in body
     assert "## Fix" in body
-    assert "abc1234" in body  # commit SHA
+    # 2026-05-20: SHA-listing dropped from the Fix section; file list stays
+    # so reviewers can see scope, and the post-replicate commit message
+    # (when present in commits.json) supplies the prose.
     assert "src/XlsxParser.java" in body
     assert "## Verification" in body
     assert "12 tests passed" in body
@@ -1305,7 +1306,7 @@ def test_render_pr_body_template_path_uses_rich_default_content(ev):
     assert "Prettier doesn't currently preserve" in body  # issue prose
     assert "## Root cause" in body
     assert "Comments are stripped from the element scope" in body  # repro observed
-    assert "abcdef12" in body  # commit SHA
+    # 2026-05-20: SHA-listing dropped from Fix section; file list still here.
     assert "src/angular/parser.js" in body
     assert "42 tests passed" in body
 
@@ -1462,8 +1463,12 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
     # Stale agent SHAs must NOT appear in the operator PR body
     assert "botA" not in op_pr_body
     assert "botB" not in op_pr_body
-    # The new squash SHA SHOULD appear (truncated by render to 8 chars)
-    assert "NEW_SQUA" in op_pr_body  # NEW_SQUASH_SHA[:8]
+    # 2026-05-20: The Fix section now carries the squashed commit's MESSAGE
+    # as prose (the operator-authored "Fix the merged-cell bug" we built),
+    # not the raw SHA. The leak-prevention promise still holds: agent SHAs
+    # botA/botB don't appear, and the section is sourced from
+    # commits.json which only has the new squashed commit.
+    assert "Fix the merged-cell bug" in op_pr_body
 
     # No internal pipeline language can leak into the upstream-visible body
     body_lower = op_pr_body.lower()

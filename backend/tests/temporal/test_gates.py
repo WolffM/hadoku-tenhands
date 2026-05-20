@@ -32,9 +32,12 @@ from temporal.gates.input_context_clean import input_context_clean
 from temporal.gates.remediation import remediation_complete
 from temporal.gates.repro import repro_evidence_present
 from temporal.gates.submission import (
+    body_lint,
+    no_source_touched,
     no_upstream_refs,
     pr_template_compliance,
     submission_judge,
+    verification_health,
 )
 from temporal.gates.verify import verified_evidence_present
 
@@ -524,6 +527,110 @@ def test_pr_template_compliance_fails_on_missing_section(issue, ev):
     })
     r = pr_template_compliance(issue, ev)
     assert r.verdict == "fail" and "Test plan" in r.reason
+
+
+# ── body_lint ─────────────────────────────────────────────────────────────
+
+
+def test_body_lint_pass_on_clean_body(issue, ev):
+    ev.write_text(
+        "09-submittable/pr_body.md",
+        "## Summary\n\nReal content.\n\n## Fix\n\nMore content.\n",
+    )
+    assert body_lint(issue, ev).verdict == "pass"
+
+
+def test_body_lint_fails_on_empty_section(issue, ev):
+    # vitest#8107 — Summary header with no content beneath it.
+    ev.write_text(
+        "09-submittable/pr_body.md",
+        "## Summary\n\n## Fix\n\nThe change does X.\n",
+    )
+    r = body_lint(issue, ev)
+    assert r.verdict == "fail" and "empty section" in r.reason
+
+
+def test_body_lint_fails_on_duplicate_heading(issue, ev):
+    # terminal#5366 — two "Steps to reproduce" sections.
+    ev.write_text(
+        "09-submittable/pr_body.md",
+        "## Summary\n\nA.\n\n## Steps to reproduce\n\nB.\n\n"
+        "## Steps to reproduce\n\nC.\n",
+    )
+    r = body_lint(issue, ev)
+    assert r.verdict == "fail" and "duplicate heading" in r.reason
+
+
+def test_body_lint_fails_on_unbalanced_code_fences(issue, ev):
+    ev.write_text(
+        "09-submittable/pr_body.md",
+        "## Summary\n\n```\nopen fence with no close\n",
+    )
+    r = body_lint(issue, ev)
+    assert r.verdict == "fail" and "code fences" in r.reason
+
+
+# ── no_source_touched ─────────────────────────────────────────────────────
+
+
+def test_no_source_touched_pass_with_real_source(issue, ev):
+    ev.write_text("05-fixed/files_touched.txt", "src/foo.py\ntests/test_foo.py\n")
+    assert no_source_touched(issue, ev).verdict == "pass"
+
+
+def test_no_source_touched_fails_when_only_notes_and_tests(issue, ev):
+    # bun#15964 — agent committed only notes.md + a test file, zero source.
+    ev.write_text("05-fixed/files_touched.txt", "notes.md\ntests/test_foo.py\n")
+    r = no_source_touched(issue, ev)
+    assert r.verdict == "fail" and "no source files" in r.reason
+
+
+def test_no_source_touched_treats_top_level_md_as_source(issue, ev):
+    # A genuine README/docs fix should pass — only test files and notes.md
+    # are excluded.
+    ev.write_text("05-fixed/files_touched.txt", "README.md\n")
+    assert no_source_touched(issue, ev).verdict == "pass"
+
+
+# ── verification_health ───────────────────────────────────────────────────
+
+
+def test_verification_health_pass_on_no_test_output(issue, ev):
+    # No test_output.txt → synth was skipped → trivially healthy.
+    assert verification_health(issue, ev).verdict == "pass"
+
+
+def test_verification_health_pass_on_clean_output(issue, ev):
+    ev.write_text(
+        "06-verified/test_output.txt",
+        "PASS  src/foo.test.ts\n  ✓ widget renders\n\nTests: 1 passed",
+    )
+    assert verification_health(issue, ev).verdict == "pass"
+
+
+def test_verification_health_fails_on_pnpm_recursive_error(issue, ev):
+    # vitest#8107 — the exact infra error pattern that gaslit the judge.
+    ev.write_text(
+        "06-verified/test_output.txt",
+        "ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  packages/vitest@3.0.0 test: ...\n",
+    )
+    r = verification_health(issue, ev)
+    assert r.verdict == "fail" and "infrastructure error" in r.reason
+
+
+def test_verification_health_fails_on_module_not_found(issue, ev):
+    ev.write_text("06-verified/test_output.txt", "Error: Cannot find module 'foo'\n")
+    r = verification_health(issue, ev)
+    assert r.verdict == "fail"
+
+
+def test_verification_health_passes_on_test_failures_not_infra(issue, ev):
+    # Genuine test failures aren't this gate's job — that's a judge call.
+    ev.write_text(
+        "06-verified/test_output.txt",
+        "FAIL  src/foo.test.ts\n  ✕ widget renders\n\nTests: 1 failed",
+    )
+    assert verification_health(issue, ev).verdict == "pass"
 
 
 # ── submission_judge ──────────────────────────────────────────────────────
