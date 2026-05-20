@@ -290,7 +290,10 @@ def replicate_fix_as_operator(
 
     title = evidence.read_text("09-submittable/pr_title.txt").strip() or "Crimson-kitty fix"
     body = evidence.read_text("09-submittable/pr_body.md")
-    first_para = body.split("\n\n", 1)[0].strip() if body else ""
+    # The body starts with a `## Summary` heading, so naively taking the
+    # first `\n\n`-delimited block gave us the heading string itself as the
+    # commit body. Walk to the first non-heading non-blank paragraph instead.
+    first_para = _first_prose_paragraph(body) if body else ""
     commit_message = title if not first_para else f"{title}\n\n{first_para}"
 
     if conventions.get("signoff_required"):
@@ -725,6 +728,24 @@ def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
     return _word_snap(cleaned, 80)
 
 
+def _first_prose_paragraph(body: str) -> str:
+    """First non-heading paragraph of a rendered PR body.
+
+    The body starts with a `## Summary` heading line; the naive
+    `body.split("\\n\\n", 1)[0]` returns the heading itself. This walks
+    past heading-only blocks to the first paragraph that actually carries
+    prose, returning it trimmed."""
+    for block in body.split("\n\n"):
+        cleaned = block.strip()
+        if not cleaned:
+            continue
+        # Skip markdown headings — every line in the block starts with `#`.
+        if all(line.lstrip().startswith("#") for line in cleaned.splitlines()):
+            continue
+        return cleaned
+    return ""
+
+
 def _word_snap(text: str, limit: int) -> str:
     """Cap `text` at `limit` chars on a word boundary, appending `…` if
     truncation actually removed content. Keeps full words intact."""
@@ -870,17 +891,16 @@ def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
     # already strips it.
     displayed_files = [f for f in files_touched if f not in _TREE_STRIP_PATHS]
 
-    # Use the squashed commit message as the Fix prose. The agent doesn't
-    # write a Fix description anywhere, but `replicate_fix_as_operator`
-    # generates a meaningful operator-authored commit message at squash
-    # time; that's the closest thing to "what changed and why" we have.
+    # Fix prose from agent-written `05-fixed/fix_summary.md` when present.
+    # We deliberately do NOT fall back to the squashed commit message:
+    # `replicate_fix_as_operator` builds that as `{title}\n\n{summary_para}`
+    # so the body would just restate the Summary section above (which IS
+    # that paragraph). fix_summary.md is the only source that's about
+    # "what the code change does" rather than "what the bug was."
     fix_prose = ""
-    if evidence.exists("05-fixed/commits.json"):
-        commits = evidence.read_json("05-fixed/commits.json")
-        if isinstance(commits, list) and commits:
-            msg = (commits[0].get("message") or "").strip()
-            if msg:
-                fix_prose = _scrub_internal_language(msg).strip()
+    if evidence.exists("05-fixed/fix_summary.md"):
+        raw = evidence.read_text("05-fixed/fix_summary.md")
+        fix_prose = _scrub_internal_language(raw).strip()
 
     parts.extend(["", "## Fix", ""])
     if fix_prose:
