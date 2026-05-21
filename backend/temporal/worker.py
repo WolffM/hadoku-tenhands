@@ -77,8 +77,9 @@ async def run_worker() -> None:
     # issue fast.
     main_task = asyncio.create_task(main_worker.run(), name="main_worker")
     copilot_task = asyncio.create_task(copilot_worker.run(), name="copilot_worker")
+    alive_task = asyncio.create_task(_alive_log_loop(), name="alive_log")
     done, pending = await asyncio.wait(
-        [main_task, copilot_task], return_when=asyncio.FIRST_COMPLETED,
+        [main_task, copilot_task, alive_task], return_when=asyncio.FIRST_COMPLETED,
     )
     for task in pending:
         task.cancel()
@@ -91,6 +92,19 @@ async def run_worker() -> None:
         if exc is not None:
             raise exc
     raise RuntimeError("a worker exited without raising — pm2 restart needed")
+
+
+async def _alive_log_loop() -> None:
+    """Periodic heartbeat from the worker process itself, independent of
+    activity-level heartbeats. Helps distinguish "worker dead/restarting"
+    from "worker alive but activity stuck" — when investigating a timed-
+    out activity, the absence/presence of this log around the failure
+    time tells you which side broke."""
+    started_at = asyncio.get_event_loop().time()
+    while True:
+        await asyncio.sleep(60)
+        uptime_s = asyncio.get_event_loop().time() - started_at
+        logger.info("worker alive: uptime_s=%.0f", uptime_s)
 
 
 def main() -> int:
