@@ -18,9 +18,44 @@ that have dropped out of the aggregator's top-100 scored window:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+_call_logger = logging.getLogger("crimson-kitty.eligibility")
+
+
+def _timed(label: str, callable_):
+    """Wrap an HTTP/gh callable to log elapsed time + outcome per call.
+
+    Used in `check_eligibility` to pinpoint which upstream call is slow —
+    the 604-second eligibility timings on 2026-05-21 came from somewhere
+    in this chain and the previous instrumentation couldn't distinguish
+    aggregator-slow from gh-slow."""
+
+    def wrapped(*args, **kwargs):
+        start = time.monotonic()
+        outcome = "ok"
+        size = None
+        try:
+            result = callable_(*args, **kwargs)
+            try:
+                if isinstance(result, dict):
+                    size = len(str(result))
+            except Exception:
+                size = None
+            return result
+        except Exception as e:
+            outcome = f"exc:{type(e).__name__}"
+            raise
+        finally:
+            elapsed = time.monotonic() - start
+            arg_snippet = ", ".join(str(a)[:80] for a in args) or "-"
+            _call_logger.info(
+                "%s elapsed_s=%.2f outcome=%s bytes=%s args=%s",
+                label, elapsed, outcome, size, arg_snippet,
+            )
+    return wrapped
 
 
 def _slug_to_aggregator(upstream_slug: str) -> str:
@@ -60,6 +95,17 @@ def check_eligibility(
     if gh_issue_fetcher is None:
         gh_issue_fetcher = _default_gh_issue_fetcher
 
+    # Time-instrument every upstream call so a slow eligibility run names
+    # the exact culprit (aggregator endpoint X / scored-issues fallback /
+    # gh api). No-op for tests that already pass timed callables.
+    elig_start = time.monotonic()
+    aggregator_get = _timed("aggregator_get", aggregator_get)
+    aggregator_post = _timed("aggregator_post", aggregator_post)
+    gh_issue_fetcher = _timed("gh_issue_fetcher", gh_issue_fetcher)
+    _call_logger.info(
+        "eligibility begin: upstream=%s issue=%d", upstream_slug, issue_number,
+    )
+
     slug_h = _slug_to_aggregator(upstream_slug)
 
     dossier_envelope = aggregator_get(f"/recon/{slug_h}/dossier")
@@ -82,6 +128,11 @@ def check_eligibility(
     contrib_envelope = aggregator_get(f"/recon/{slug_h}/contributing")
     contrib = _unwrap(contrib_envelope, "contributing")
     evidence.write_json("01-eligible/contributing_check.json", contrib)
+
+    _call_logger.info(
+        "eligibility end: upstream=%s issue=%d total_s=%.2f source=%s",
+        upstream_slug, issue_number, time.monotonic() - elig_start, brief_source,
+    )
 
     return {
         "ok": True,
