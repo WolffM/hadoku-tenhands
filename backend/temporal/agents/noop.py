@@ -61,6 +61,8 @@ class NoopAgent:
         issue: IssueRef,
         brief: str,
         instruction: str = "",
+        *,
+        batch_id: str = "",
     ) -> AgentJob:
         job_id = f"noop-{uuid.uuid4().hex[:8]}"
         self._poll_counts[job_id] = 0
@@ -69,7 +71,11 @@ class NoopAgent:
             agent_kind="noop",
             fork_slug=issue.fork_slug,
             branch_name=f"fix-issue-{issue.number}",
-            metadata={"brief_chars": len(brief), "instruction_chars": len(instruction)},
+            metadata={
+                "brief_chars": len(brief),
+                "instruction_chars": len(instruction),
+                "batch_id": batch_id,
+            },
         )
 
     def poll(self, job: AgentJob) -> AgentStatus:

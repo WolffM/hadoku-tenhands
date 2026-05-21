@@ -34,10 +34,16 @@ async def request_repro(
     *,
     instruction: str = "",
     heartbeat: Optional[Callable[[str], None]] = None,
+    batch_id: str = "",
 ) -> dict:
     """Tell the agent to reproduce the bug. Polls until done, writes evidence."""
     job = await asyncio.to_thread(
-        agent.assign, issue, brief=scrubbed_brief, instruction=instruction or _REPRO_INSTRUCTION,
+        lambda: agent.assign(
+            issue,
+            brief=scrubbed_brief,
+            instruction=instruction or _REPRO_INSTRUCTION,
+            batch_id=batch_id,
+        ),
     )
     result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 
@@ -65,10 +71,16 @@ async def request_fix(
     *,
     instruction: str = "",
     heartbeat: Optional[Callable[[str], None]] = None,
+    batch_id: str = "",
 ) -> dict:
     """Tell the agent to produce a fix. Writes diff + commits + files into evidence."""
     job = await asyncio.to_thread(
-        agent.assign, issue, brief=scrubbed_brief, instruction=instruction or _FIX_INSTRUCTION,
+        lambda: agent.assign(
+            issue,
+            brief=scrubbed_brief,
+            instruction=instruction or _FIX_INSTRUCTION,
+            batch_id=batch_id,
+        ),
     )
     result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 
@@ -98,10 +110,16 @@ async def request_verify(
     *,
     instruction: str = "",
     heartbeat: Optional[Callable[[str], None]] = None,
+    batch_id: str = "",
 ) -> dict:
     """Tell the agent to verify the fix. Writes test_output.txt or after.png."""
     job = await asyncio.to_thread(
-        agent.assign, issue, brief=scrubbed_brief, instruction=instruction or _VERIFY_INSTRUCTION,
+        lambda: agent.assign(
+            issue,
+            brief=scrubbed_brief,
+            instruction=instruction or _VERIFY_INSTRUCTION,
+            batch_id=batch_id,
+        ),
     )
     result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 
@@ -131,6 +149,7 @@ async def request_remediation(
     *,
     instruction: str = "",
     heartbeat: Optional[Callable[[str], None]] = None,
+    batch_id: str = "",
 ) -> dict:
     """Tell the agent to remediate review comments."""
     comments_text = ""
@@ -144,7 +163,12 @@ async def request_remediation(
     augmented = f"{scrubbed_brief}\n\n## Review comments to address\n\n{comments_text}"
 
     job = await asyncio.to_thread(
-        agent.assign, issue, brief=augmented, instruction=instruction or _REMEDIATION_INSTRUCTION,
+        lambda: agent.assign(
+            issue,
+            brief=augmented,
+            instruction=instruction or _REMEDIATION_INSTRUCTION,
+            batch_id=batch_id,
+        ),
     )
     result = await _wait_and_harvest(agent, job, heartbeat=heartbeat)
 

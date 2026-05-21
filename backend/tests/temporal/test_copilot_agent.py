@@ -228,6 +228,65 @@ def test_assign_creates_fresh_when_existing_issue_tag_does_not_match(agent, fake
     assert len(posts) == 1
 
 
+def test_assign_does_not_adopt_across_batches(agent, fake_gh, issue):
+    """Audit 2026-05-21 fix: a prior batch's open fork issue must NOT be
+    adopted by a re-dispatch in a new batch — even when the upstream issue
+    title matches. The batch_id correlation tag scopes adoption to within
+    the current batch only (cross-batch reuse made Copilot no-op because
+    the OLD assignment was already complete)."""
+    fake_gh.existing_fork_issues = [
+        {
+            "number": 17,
+            "body": (
+                "<issue_title>fix the merged-cell xlsx bug</issue_title>\n"
+                "<batch_id>amber-fox</batch_id>\n\n## Context\n..."
+            ),
+        },
+    ]
+    fake_gh.assignee_present_after = 1
+
+    job = agent.assign(
+        issue, brief="fix the merged-cell xlsx bug", batch_id="crimson-kitty",
+    )
+
+    assert job.job_id == "42"
+    assert job.metadata.get("adopted") is not True
+
+
+def test_assign_adopts_within_same_batch(agent, fake_gh, issue):
+    """In-batch crash recovery must still reuse a prior assignment so we
+    don't burn a duplicate Copilot premium request when retrying."""
+    fake_gh.existing_fork_issues = [
+        {
+            "number": 17,
+            "body": (
+                "<issue_title>fix the merged-cell xlsx bug</issue_title>\n"
+                "<batch_id>crimson-kitty</batch_id>\n\n## Context\n..."
+            ),
+        },
+    ]
+
+    job = agent.assign(
+        issue, brief="fix the merged-cell xlsx bug", batch_id="crimson-kitty",
+    )
+
+    assert job.job_id == "17"
+    assert job.metadata.get("adopted") is True
+
+
+def test_assign_embeds_batch_id_in_body(agent, fake_gh, issue):
+    """The `<batch_id>` tag must be present in the new issue body so
+    a future re-dispatch in the same batch can correlate."""
+    agent.assign(issue, brief="fix the bug", batch_id="emerald-otter")
+
+    create_call = next(
+        c for c, _ in fake_gh.calls if c[0] == "api" and c[1].endswith("/issues") and "POST" in c
+    )
+    stdin = next(s for c, s in fake_gh.calls if c == create_call)
+    payload = json.loads(stdin)
+    assert "<batch_id>emerald-otter</batch_id>" in payload["body"]
+
+
 def test_assign_raises_when_create_issue_fails(fake_gh, issue):
     def failing_gh(args, stdin_data=None):
         # Idempotent-assign lookup — return no existing issues

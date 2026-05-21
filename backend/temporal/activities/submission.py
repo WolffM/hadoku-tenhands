@@ -405,6 +405,12 @@ def replicate_fix_as_operator(
             or f"https://github.com/{fork_slug}/pull/{existing_op_pr_number}"
         )
     else:
+        # Close any stale open PRs on this same head branch first. A prior
+        # batch over the same upstream issue would have created a preview
+        # PR against `crimson-kitty-{N}` and left it open — without this
+        # close-pass, today's run creates a duplicate PR and the operator
+        # sees two preview PRs on one branch (audit 2026-05-21).
+        _close_stale_branch_prs(run_gh, fork_slug, branch_name)
         op_pr_payload = json.dumps({
             "title": title,
             "body": body_for_pr,
@@ -649,6 +655,37 @@ def _format_close_keyword(syntax: str, keyword: str, issue_number: int) -> str:
     if "N" in syntax:
         return syntax.replace("N", str(issue_number))
     return f"{keyword} #{issue_number}"
+
+
+def _close_stale_branch_prs(run_gh, fork_slug: str, branch_name: str) -> None:
+    """Close any open PRs on the fork that target `branch_name` as their head.
+
+    Called before opening a fresh operator preview PR so a prior batch's
+    PR (left open because the prior run never reached cleanup, or because
+    it was deferred to the inbox indefinitely) doesn't sit alongside the
+    new one. Best-effort — failures are logged via gh's stderr but never
+    raised; a stray stale PR is less bad than crashing the submission
+    activity. The new PR's force-pushed branch will make the stale PR's
+    diff look identical anyway.
+    """
+    fork_owner = fork_slug.split("/", 1)[0]
+    listing = run_gh([
+        "api",
+        f"repos/{fork_slug}/pulls?state=open&head={fork_owner}:{branch_name}&per_page=20",
+        "--jq", "[.[] | .number]",
+    ])
+    if not listing.get("success"):
+        return
+    try:
+        numbers = json.loads(listing.get("output") or "[]")
+    except (ValueError, TypeError):
+        return
+    close_payload = json.dumps({"state": "closed"})
+    for n in numbers:
+        run_gh([
+            "api", f"repos/{fork_slug}/pulls/{n}",
+            "-X", "PATCH", "--input", "-",
+        ], stdin_data=close_payload)
 
 
 def _build_signoff_line(run_gh) -> str:
