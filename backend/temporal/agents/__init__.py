@@ -107,6 +107,8 @@ class Agent(Protocol):
         issue: IssueRef,
         brief: str,
         instruction: str = "",
+        *,
+        batch_id: str = "",
     ) -> AgentJob: ...
 
     def poll(self, job: AgentJob) -> AgentStatus: ...

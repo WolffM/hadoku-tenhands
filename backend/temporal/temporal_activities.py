@@ -50,6 +50,19 @@ def _issue_ref(upstream_slug: str, fork_slug: str, number: int) -> IssueRef:
     return IssueRef(fork_slug=fork_slug, number=number, upstream_slug=upstream_slug)
 
 
+def _batch_id_from_state_root(state_root: str) -> str:
+    """Extract `batch_id` from a state_root path.
+
+    Layout: `state/{batch_id}/{issue_id}/` — so the immediate parent of
+    the issue dir is the batch dir. Used to scope `agent.assign` adoption
+    to within the current batch (audit 2026-05-21).
+    """
+    try:
+        return Path(state_root).parent.name
+    except Exception:
+        return ""
+
+
 # ── Eligibility ───────────────────────────────────────────────────────────
 
 
@@ -200,6 +213,7 @@ async def act_request_repro(inp: AgentPhaseInput) -> dict:
     return await request_repro(
         _agent(), issue, _load_scrubbed_brief(ev), ev,
         instruction=inp.instruction, heartbeat=_hb,
+        batch_id=_batch_id_from_state_root(inp.state_root),
     )
 
 
@@ -212,6 +226,7 @@ async def act_request_fix(inp: AgentPhaseInput) -> dict:
     return await request_fix(
         _agent(), issue, _load_scrubbed_brief(ev), ev,
         instruction=inp.instruction, heartbeat=_hb,
+        batch_id=_batch_id_from_state_root(inp.state_root),
     )
 
 
@@ -224,6 +239,7 @@ async def act_request_verify(inp: AgentPhaseInput) -> dict:
     return await request_verify(
         _agent(), issue, _load_scrubbed_brief(ev), ev,
         instruction=inp.instruction, heartbeat=_hb,
+        batch_id=_batch_id_from_state_root(inp.state_root),
     )
 
 
@@ -246,6 +262,7 @@ async def act_request_remediation(inp: RemediationInput) -> dict:
         review_comments_path="07-reviewed/comments.json",
         evidence=ev,
         heartbeat=_hb,
+        batch_id=_batch_id_from_state_root(inp.state_root),
     )
 
 

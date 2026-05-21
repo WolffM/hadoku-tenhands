@@ -879,9 +879,9 @@ async def test_request_remediation_appends_review_comments_to_brief(ev, issue):
     captured_briefs = []
 
     class CapturingAgent(NoopAgent):
-        def assign(self, issue, brief, instruction=""):
+        def assign(self, issue, brief, instruction="", *, batch_id=""):
             captured_briefs.append(brief)
-            return super().assign(issue, brief=brief, instruction=instruction)
+            return super().assign(issue, brief=brief, instruction=instruction, batch_id=batch_id)
 
     await request_remediation(
         CapturingAgent(),
@@ -1508,6 +1508,12 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
         # POST git/refs — create branch ref
         if args[1] == "repos/WolffM/demo/git/refs" and "-X" in args and "POST" in args:
             return {"success": True, "output": '{"ref":"refs/heads/crimson-kitty-183"}'}
+        # GET pulls?state=open&head=... — stale-preview-PR audit (2026-05-21)
+        if (
+            args[:2] == ["api"][:1] + [args[1]]
+            and "pulls?state=open&head=" in args[1]
+        ):
+            return {"success": True, "output": "[]"}
         # POST pulls — open operator PR
         if args[1] == "repos/WolffM/demo/pulls" and "-X" in args and "POST" in args:
             return {"success": True, "output": '{"number":42,"html_url":"https://github.com/WolffM/demo/pull/42"}'}
@@ -1599,6 +1605,75 @@ def test_replicate_fix_as_operator_squashes_and_opens_preview(ev):
     new_shas = ev.read_text("05-fixed/commit_shas.txt").strip()
     assert new_shas == "NEW_SQUASH_SHA"
     assert ev.exists("05-fixed/agent_original_commit_shas.txt")
+
+
+def test_replicate_closes_stale_branch_prs_before_opening_new(ev):
+    """Audit 2026-05-21 fix: if a prior batch left an open operator preview
+    PR on the same head branch, replicate must close it before opening a
+    fresh one — otherwise the operator sees two PRs on one branch."""
+    from temporal.activities.submission import replicate_fix_as_operator
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {"number": 183, "title": "Fix X", "body": "broken"},
+    })
+    ev.write_json("05-fixed/agent_result.json", {
+        "pr_url": "https://github.com/WolffM/demo/pull/7",
+        "commit_shas": ["bot1"],
+        "files_touched": ["src/x.py"],
+        "diff_bytes": 50,
+        "exit_reason": "success",
+    })
+    ev.write_json("05-fixed/commits.json", [{"sha": "bot1", "message": "fix"}])
+    ev.write_text("05-fixed/commit_shas.txt", "bot1\n")
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("09-submittable/pr_title.txt", "Fix X")
+    ev.write_text("09-submittable/pr_body.md", "## Summary\n\nbroken thing\n")
+
+    closed_prs: list[int] = []
+
+    def fake_gh(args, stdin_data=None):
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/7"] and "--jq" in args:
+            return {"success": True, "output": '{"head_ref":"copilot/x","head_sha":"H","base_ref":"main"}'}
+        if len(args) > 1 and "git/commits/H" in args[1]:
+            return {"success": True, "output": "T\n"}
+        if args[1] == "repos/WolffM/demo/git/trees/T" and "--jq" in args:
+            return {"success": True, "output": '["src/x.py"]'}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/main" and "--jq" in args:
+            return {"success": True, "output": "BASE\n"}
+        if args[1] == "repos/WolffM/demo/git/commits" and "POST" in args:
+            return {"success": True, "output": '{"sha":"NEW"}'}
+        if args[1] == "repos/WolffM/demo/git/refs/heads/crimson-kitty-183" and "--silent" in args:
+            return {"success": False, "error": "404"}
+        if args[1] == "repos/WolffM/demo/git/refs" and "POST" in args:
+            return {"success": True, "output": '{}'}
+        # Stale-PR lookup returns one open PR (#99) on the head branch
+        if "pulls?state=open&head=WolffM:crimson-kitty-183" in args[1]:
+            return {"success": True, "output": "[99]"}
+        # PATCH /pulls/99 — the stale one being closed
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/99"] and "PATCH" in args:
+            closed_prs.append(99)
+            return {"success": True, "output": "{}"}
+        if args[1] == "repos/WolffM/demo/pulls" and "POST" in args:
+            return {"success": True, "output": '{"number":100,"html_url":"https://github.com/WolffM/demo/pull/100"}'}
+        if args[:2] == ["api", "repos/WolffM/demo/pulls/7"] and "PATCH" in args:
+            return {"success": True, "output": "{}"}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    def fake_agg(endpoint):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    result = replicate_fix_as_operator(
+        upstream_slug="upstream/demo",
+        fork_slug="WolffM/demo",
+        branch_name="crimson-kitty-183",
+        evidence=ev,
+        run_gh=fake_gh,
+        aggregator_get=fake_agg,
+    )
+
+    assert result["operator_pr_number"] == 100
+    # The stale PR #99 from a prior batch was closed before #100 was opened
+    assert closed_prs == [99]
 
 
 # ── Phase 5.3 — per-repo contribution conventions ────────────────────────

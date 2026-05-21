@@ -75,6 +75,8 @@ class CopilotAgent:
         issue: IssueRef,
         brief: str,
         instruction: str = "",
+        *,
+        batch_id: str = "",
     ) -> AgentJob:
         """Create a context issue on the fork, assign Copilot, verify it stuck.
 
@@ -84,22 +86,23 @@ class CopilotAgent:
         dropped the assignee) raise too — the orchestrator activity will
         translate the exception into a workflow gate failure.
 
-        Idempotent: if there's already an open fork issue with our
-        `<issue_title>{title}</issue_title>` tag in its body, adopt
-        that assignment instead of creating a duplicate. This lets a
-        re-dispatch after an infrastructure-caused abort reuse the
-        Copilot work already in flight on the fork rather than burning
-        another premium request for a duplicate PR.
+        Idempotent within a batch only: if there's an open fork issue with
+        BOTH our `<issue_title>{title}</issue_title>` and a matching
+        `<batch_id>{batch_id}</batch_id>` tag, adopt it (lets in-batch
+        crash recovery reuse the Copilot work). Cross-batch re-dispatch
+        always creates a fresh context issue — the prior batch's issue is
+        considered abandoned by definition (audit 2026-05-21: stale
+        context issues were causing Copilot to no-op on re-dispatch).
         """
         owner, repo = issue.fork_slug.split("/", 1)
 
         # 1. Build the context issue body. The brief is already scrubbed of
         #    upstream refs by `sanitizer.scrub_brief()` upstream of this call,
         #    so we just inject it verbatim with the correlation tag.
-        body = self._build_issue_body(issue, brief, instruction)
+        body = self._build_issue_body(issue, brief, instruction, batch_id=batch_id)
         title = self._derive_title(brief)
 
-        existing = self._find_existing_assignment(owner, repo, title)
+        existing = self._find_existing_assignment(owner, repo, title, batch_id=batch_id)
         if existing is not None:
             return AgentJob(
                 job_id=str(existing),
@@ -299,21 +302,21 @@ class CopilotAgent:
 
     # ── helpers ───────────────────────────────────────────────────────────
 
-    def _build_issue_body(self, issue: IssueRef, brief: str, instruction: str) -> str:
+    def _build_issue_body(
+        self, issue: IssueRef, brief: str, instruction: str, *, batch_id: str = "",
+    ) -> str:
         """Build the fork issue body Copilot will read.
 
         The brief is ALREADY scrubbed of upstream refs by the time it gets
-        here — we just glue it together with the correlation tag and the
-        operator instruction (if any).
+        here — we just glue it together with the correlation tag(s) and the
+        operator instruction (if any). The `<batch_id>` tag scopes
+        adoption to within the current dispatch batch.
         """
         title = self._derive_title(brief)
-        parts = [
-            f"<issue_title>{title}</issue_title>",
-            "",
-            "## Context",
-            "",
-            brief,
-        ]
+        parts = [f"<issue_title>{title}</issue_title>"]
+        if batch_id:
+            parts.append(f"<batch_id>{batch_id}</batch_id>")
+        parts.extend(["", "## Context", "", brief])
         if instruction:
             parts.extend(["", "## Operator instruction", "", instruction])
         return "\n".join(parts)
@@ -327,18 +330,24 @@ class CopilotAgent:
         return "Crimson-kitty: scrubbed task"
 
     def _find_existing_assignment(
-        self, owner: str, repo: str, title: str,
+        self, owner: str, repo: str, title: str, *, batch_id: str = "",
     ) -> int | None:
         """Return the fork issue number of a prior assignment for this title,
         or None if none exists.
 
-        Matches on the `<issue_title>{title}</issue_title>` marker we embed
-        in every context issue body. Only adopts OPEN issues with Copilot
-        still in the assignees list — closed or unassigned fork issues mean
-        the prior session was either completed (submit stage) or manually
-        cleared, and we should start fresh.
+        Matches on BOTH `<issue_title>{title}</issue_title>` AND
+        `<batch_id>{batch_id}</batch_id>` when `batch_id` is set — so
+        adoption is scoped to within this batch only. Tests that don't
+        pass a batch_id fall back to title-only matching (legacy
+        behavior).
+
+        Only adopts OPEN issues with Copilot still in the assignees list —
+        closed or unassigned fork issues mean the prior session was either
+        completed (submit stage) or manually cleared, and we should start
+        fresh.
         """
-        tag = f"<issue_title>{title}</issue_title>"
+        title_tag = f"<issue_title>{title}</issue_title>"
+        batch_tag = f"<batch_id>{batch_id}</batch_id>" if batch_id else ""
         listing = self.run_gh([
             "api",
             f"repos/{owner}/{repo}/issues?state=open&assignee={COPILOT_ASSIGNEE}&per_page=30",
@@ -352,8 +361,12 @@ class CopilotAgent:
         except json.JSONDecodeError:
             return None
         for item in items:
-            if tag in (item.get("body") or ""):
-                return int(item["number"])
+            body = item.get("body") or ""
+            if title_tag not in body:
+                continue
+            if batch_tag and batch_tag not in body:
+                continue
+            return int(item["number"])
         return None
 
     def _list_open_prs(self, owner: str, repo: str) -> list[dict]:
