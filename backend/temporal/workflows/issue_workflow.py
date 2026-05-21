@@ -606,11 +606,35 @@ class IssueWorkflow:
         }
         if long and inp.copilot_task_queue:
             activity_kwargs["task_queue"] = inp.copilot_task_queue
-        await workflow.execute_activity(
-            activity_name,
-            arg,
-            **activity_kwargs,
+        # Instrumentation: log the workflow-side view of each transition so
+        # we can correlate workflow timing with activity timing on the worker
+        # side. `workflow.now()` is replay-safe (deterministic). Elapsed
+        # measures the activity's wall-clock from schedule to result —
+        # bridges the "did the activity hang?" vs "did orchestration drop?"
+        # gap when an activity reports timed-out.
+        start_ns = workflow.now()
+        workflow.logger.info(
+            "transition start: from=%s to=%s activity=%s long=%s",
+            self.state, target, activity_name, long,
         )
+        try:
+            await workflow.execute_activity(
+                activity_name,
+                arg,
+                **activity_kwargs,
+            )
+            elapsed = (workflow.now() - start_ns).total_seconds()
+            workflow.logger.info(
+                "transition activity ok: %s elapsed_s=%.1f",
+                activity_name, elapsed,
+            )
+        except Exception:
+            elapsed = (workflow.now() - start_ns).total_seconds()
+            workflow.logger.warning(
+                "transition activity fail: %s elapsed_s=%.1f",
+                activity_name, elapsed,
+            )
+            raise
 
         await workflow.execute_activity(
             "record_transition",

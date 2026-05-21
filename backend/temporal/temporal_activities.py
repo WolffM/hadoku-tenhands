@@ -17,7 +17,9 @@ This is the seam test workflows use to stay hermetic.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -28,6 +30,9 @@ from .agents import IssueRef
 from .agents.copilot import CopilotAgent
 from .agents.noop import NoopAgent
 from .evidence.store import EvidenceStore
+
+_hb_logger = logging.getLogger("crimson-kitty.heartbeat")
+_activity_logger = logging.getLogger("crimson-kitty.activity")
 
 
 def _evidence_for(state_root: str) -> EvidenceStore:
@@ -153,11 +158,37 @@ def _load_scrubbed_brief(ev: EvidenceStore) -> str:
     return ev.read_text("02-forked/scrubbed_brief.md", default="")
 
 
+# Per-activity-instance heartbeat counters. Logged every 10 beats so we
+# can see "activity is alive and counting" without spamming. When the
+# activity ends, the count + total elapsed lands in the activity-end log.
+_HB_STATE: dict[str, dict] = {}
+
+
 def _hb(detail: str) -> None:
     try:
         activity.heartbeat(detail)
     except Exception:
-        pass
+        return
+    try:
+        info = activity.info()
+    except Exception:
+        return
+    aid = info.activity_id
+    st = _HB_STATE.get(aid)
+    if st is None:
+        st = {"count": 0, "started_at": time.monotonic(), "type": info.activity_type}
+        _HB_STATE[aid] = st
+    st["count"] += 1
+    # Log every 10th heartbeat (~every 200s at the agent activities' 20s
+    # interval) and ALWAYS log the first one. Carries enough signal to
+    # distinguish "agent hanging" (heartbeats stop) from "connection
+    # dropped" (heartbeats continue but Temporal times the activity out).
+    if st["count"] == 1 or st["count"] % 10 == 0:
+        elapsed = time.monotonic() - st["started_at"]
+        _hb_logger.info(
+            "hb activity=%s id=%s n=%d elapsed_s=%.0f detail=%s",
+            st["type"], aid, st["count"], elapsed, (detail or "")[:120],
+        )
 
 
 @activity.defn(name="request_repro")
