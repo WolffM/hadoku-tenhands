@@ -429,8 +429,6 @@ async def test_e2e_noop_agent_full_pipeline(tmp_path):
         install_cmd=["true"],
         workdir=str(tmp_path),
         pr_number_for_review=999,
-        # e2e covers the full happy path to upstream submission
-        submit_to_upstream=True,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as env:

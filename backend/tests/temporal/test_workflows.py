@@ -302,7 +302,19 @@ def _reset_gate_results():
     _FAKE_WATCH_DEFAULT = {}
 
 
-async def _run_workflow(issue_input: IssueInput) -> IssueResult:
+async def _run_workflow(
+    issue_input: IssueInput,
+    *,
+    signoff: str | None = "approve",
+) -> IssueResult:
+    """Run an IssueWorkflow to completion.
+
+    Every workflow that clears the submittable gates now defers at
+    `operator_signoff` — there's no `submit_to_upstream=false` short-circuit
+    anymore. To keep tests deterministic, this helper auto-sends a
+    `submit_human_decision` signal once the workflow has had time to reach
+    the wait_condition. Set `signoff=None` to test the wait itself.
+    """
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -310,12 +322,43 @@ async def _run_workflow(issue_input: IssueInput) -> IssueResult:
             workflows=[IssueWorkflow, BatchWorkflow],
             activities=_FAKE_ACTIVITIES,
         ):
-            return await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 IssueWorkflow.run,
                 issue_input,
                 id=f"issue-{issue_input.issue_number}",
                 task_queue="test-tq",
             )
+            if signoff is not None:
+                # The workflow needs a beat to reach the wait_condition;
+                # time-skipping makes 0.1s real-time elapse instantly.
+                await asyncio.sleep(0.1)
+                try:
+                    await handle.signal("submit_human_decision", signoff)
+                except Exception:
+                    # Workflow may have already aborted before reaching
+                    # the wait (e.g. gate fail) — that's a valid path.
+                    pass
+            return await handle.result()
+
+
+async def _signoff_batch_children(env_client, batch_id: str,
+                                    issues: list[IssueInput],
+                                    *, decision: str = "approve") -> None:
+    """Send `submit_human_decision` to every child issue workflow of a batch.
+
+    The BatchWorkflow assigns each child id `{batch_id}-{slug}-{N}` (see
+    batch_workflow.py). Best-effort: a child that already terminated
+    silently rejects the signal."""
+    await asyncio.sleep(0.5)
+    for inp in issues:
+        cid = (
+            f"{batch_id}-{inp.upstream_slug.replace('/', '__')}-{inp.issue_number}"
+        )
+        try:
+            h = env_client.get_workflow_handle(cid)
+            await h.signal("submit_human_decision", decision)
+        except Exception:
+            pass
 
 
 # ── 1D.1 — IssueWorkflow tests ────────────────────────────────────────────
@@ -326,15 +369,12 @@ async def test_issue_workflow_happy_path(issue_input):
     """Every gate passes + operator signs off + upstream merges →
     workflow reaches `merged` and execution completes.
 
-    With submit_to_upstream=True the workflow pauses at awaiting_signoff;
-    the test sends the `approve` signal to unblock submission. The
-    Phase 5.1 post-submission loop then polls upstream — the default
-    fake watcher returns `merged=True` on the first poll, so the
-    workflow exits cleanly.
+    Every run defers at operator_signoff now; the test sends the
+    `approve` signal to unblock submission. The Phase 5.1 post-submission
+    loop then polls upstream — the default fake watcher returns
+    `merged=True` on the first poll, so the workflow exits cleanly.
     """
     _set_all_gates_pass()
-    from dataclasses import replace
-    issue_input = replace(issue_input, submit_to_upstream=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -360,17 +400,32 @@ async def test_issue_workflow_happy_path(issue_input):
 
 
 @pytest.mark.asyncio
-async def test_issue_workflow_stops_at_replicated_by_default(issue_input):
-    """Default: `submit_to_upstream=False` → workflow terminates cleanly
-    after `replicate_fix_as_operator`, leaving the fork-internal preview
-    PR for the operator to review before real-upstream shipping."""
+async def test_issue_workflow_routes_through_operator_signoff_to_merged(issue_input):
+    """Default path: every run that clears the submittable gates defers at
+    `operator_signoff` for the operator to approve or abort. The earlier
+    `submit_to_upstream=false` short-circuit to `replicated` is gone — the
+    operator inbox is the single ship-or-stop authority."""
     _set_all_gates_pass()
 
-    result = await _run_workflow(issue_input)
+    result = await _run_workflow(issue_input, signoff="approve")
 
-    assert result.final_state == "replicated"
-    assert result.upstream_pr_url == ""
-    assert result.upstream_pr_number is None
+    # Approve → workflow continues through submit_upstream_pr and the
+    # post-submission watch loop, which the fake watcher resolves as
+    # merged on the first poll.
+    assert result.final_state == "merged"
+    assert result.upstream_pr_number == 9999
+
+
+@pytest.mark.asyncio
+async def test_issue_workflow_operator_signoff_abort_aborts(issue_input):
+    """The operator_signoff defer also accepts `abort` — workflow records
+    aborted with the operator's reason."""
+    _set_all_gates_pass()
+
+    result = await _run_workflow(issue_input, signoff="abort")
+
+    assert result.final_state == "aborted"
+    assert "operator aborted" in result.abort_reason
 
 
 @pytest.mark.asyncio
@@ -397,11 +452,9 @@ async def test_issue_workflow_aborts_on_gate_failure(issue_input):
 async def test_issue_workflow_defer_then_operator_approve_continues(issue_input):
     """A judge defer pauses the workflow; an `approve` signal resumes it.
 
-    Uses submit_to_upstream=False so the workflow terminates at
-    `replicated` without a second signal-wait — keeps this test focused
-    on the defer-resume path. The two-wait happy path is covered by
-    test_issue_workflow_happy_path.
-    """
+    There are now TWO wait points in the happy path: the judge defer
+    (relevance, here) and the operator_signoff that fires after
+    submission_judge passes. Both get `approve` signals."""
     _set_all_gates_pass()
     _FAKE_GATE_RESULTS["fixed"] = [_gate_defer("relevance", "borderline")]
 
@@ -418,13 +471,18 @@ async def test_issue_workflow_defer_then_operator_approve_continues(issue_input)
                 id=f"issue-{issue_input.issue_number}-defer",
                 task_queue="test-tq",
             )
-            # Give the workflow a moment to reach the wait_condition
+            # First wait — the judge defer.
             await asyncio.sleep(0.1)
             _FAKE_GATE_RESULTS["fixed"] = [_gate_pass("relevance")]
             await handle.signal("submit_human_decision", "approve")
+            # Second wait — operator_signoff.
+            await asyncio.sleep(0.1)
+            await handle.signal("submit_human_decision", "approve")
             result = await handle.result()
 
-    assert result.final_state == "replicated"
+    # After both approves the post-submission loop sees the fake watcher's
+    # default merged response and terminates.
+    assert result.final_state == "merged"
 
 
 @pytest.mark.asyncio
@@ -463,10 +521,6 @@ async def test_issue_workflow_defer_then_operator_abort_aborts(issue_input):
 async def test_batch_workflow_fans_out_to_children(tmp_path):
     _set_all_gates_pass()
 
-    # submit_to_upstream omitted (default False) so each child terminates
-    # at `replicated` without waiting for an operator-signoff signal —
-    # this test is about fan-out shape, not the upstream-submission
-    # subset of the state machine.
     issues = [
         IssueInput(
             upstream_slug="microsoft/markitdown",
@@ -486,19 +540,24 @@ async def test_batch_workflow_fans_out_to_children(tmp_path):
             workflows=[IssueWorkflow, BatchWorkflow],
             activities=_FAKE_ACTIVITIES,
         ):
-            result = await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 BatchWorkflow.run,
                 BatchInput(batch_id="test-batch", issues=issues),
                 id="batch-test",
                 task_queue="test-tq",
             )
+            # Every child defers at operator_signoff now — approve them all
+            # so the batch can complete.
+            await _signoff_batch_children(env.client, "test-batch", issues)
+            result = await handle.result()
 
     assert result.batch_id == "test-batch"
     assert result.total == 3
     assert result.aborted == 0
-    # All 3 reach `replicated` — fan-out worked end to end without
-    # any child crashing or being silently dropped.
-    assert all(r.final_state == "replicated" for r in result.results)
+    # All 3 reach `merged` (fake watcher returns merged on first poll) —
+    # fan-out worked end to end without any child crashing or being
+    # silently dropped.
+    assert all(r.final_state == "merged" for r in result.results)
 
 
 @pytest.mark.asyncio
@@ -524,8 +583,6 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
             raw_brief_text=f"fix bug {n}",
             branch_name=f"fix-{n}",
             copilot_task_queue="test-copilot-tq",
-            # Default submit_to_upstream=False — terminate at replicated
-            # without an operator-signoff signal pause
         )
         for n in (301, 302)
     ]
@@ -534,6 +591,9 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
         fake_eligibility, fake_fork, fake_environment,
         fake_review, fake_read_review_summary, fake_run_test_command, fake_screenshot, fake_render, fake_replicate,
         fake_submit, fake_run_gates, fake_enqueue, fake_transition,
+        # Post-submission loop activities — always reached now that every
+        # run routes through operator_signoff → submit_upstream_pr → watch.
+        fake_watch_upstream_pr_state, fake_notify_human_comments,
     ]
     copilot_activities = [fake_repro, fake_fix, fake_verify, fake_remediation]
 
@@ -549,16 +609,18 @@ async def test_copilot_activities_route_to_configured_queue(tmp_path):
             activities=copilot_activities,
             max_concurrent_activities=2,
         ):
-            result = await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 BatchWorkflow.run,
                 BatchInput(batch_id="routed-batch", issues=issues),
                 id="batch-routed",
                 task_queue="test-tq",
             )
+            await _signoff_batch_children(env.client, "routed-batch", issues)
+            result = await handle.result()
 
     assert result.total == 2
     assert result.aborted == 0
-    assert all(r.final_state == "replicated" for r in result.results)
+    assert all(r.final_state == "merged" for r in result.results)
 
 
 # ── Phase 5.1 — Post-submission lifecycle ─────────────────────────────────
@@ -594,8 +656,6 @@ def _watch_transient_failure() -> dict:
 async def test_post_submission_merged_terminates_workflow(issue_input):
     """Acceptance: merged upstream PR transitions to merged + workflow ends."""
     _set_all_gates_pass()
-    from dataclasses import replace
-    issue_input = replace(issue_input, submit_to_upstream=True)
 
     _FAKE_WATCH_RESULTS.extend([
         _watch_poll_no_change(),
@@ -630,8 +690,6 @@ async def test_post_submission_merged_terminates_workflow(issue_input):
 async def test_post_submission_closed_unmerged_transitions_to_closed_by_upstream(issue_input):
     """Acceptance: closed-without-merge → workflow ends in closed_by_upstream."""
     _set_all_gates_pass()
-    from dataclasses import replace
-    issue_input = replace(issue_input, submit_to_upstream=True)
 
     _FAKE_WATCH_RESULTS.extend([
         _watch_poll_no_change(),
@@ -668,8 +726,6 @@ async def test_post_submission_blocking_review_runs_remediation_then_re_signoff(
     re-enter awaiting_signoff. Operator approves the remediated content;
     on the next poll the upstream PR merges and the workflow ends."""
     _set_all_gates_pass()
-    from dataclasses import replace
-    issue_input = replace(issue_input, submit_to_upstream=True)
 
     # The workflow has TWO awaiting_signoff waits in this scenario (initial
     # submission + post-remediation). Under time-skipping the 14-day
@@ -769,8 +825,6 @@ async def test_post_submission_transient_poll_failure_is_recoverable(issue_input
     """Acceptance: poll failures (network blip, rate limit) don't abort
     the workflow — the next cycle retries and eventually succeeds."""
     _set_all_gates_pass()
-    from dataclasses import replace
-    issue_input = replace(issue_input, submit_to_upstream=True)
 
     _FAKE_WATCH_RESULTS.extend([
         _watch_transient_failure(),
@@ -834,14 +888,17 @@ async def test_local_remediation_fires_when_review_finds_blockers(issue_input):
             workflows=[IssueWorkflow, BatchWorkflow],
             activities=activities,
         ):
-            result = await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 IssueWorkflow.run,
                 issue_input,
                 id=f"issue-{issue_input.issue_number}-localremed",
                 task_queue="test-tq",
             )
+            await asyncio.sleep(0.1)
+            await handle.signal("submit_human_decision", "approve")
+            result = await handle.result()
 
-    assert result.final_state == "replicated"
+    assert result.final_state == "merged"
     assert len(remediation_calls) == 1
 
 
@@ -897,8 +954,8 @@ async def test_local_remediation_aborts_at_iteration_cap(issue_input):
 @pytest.mark.asyncio
 async def test_local_remediation_skipped_when_review_clean(issue_input):
     """Smoke: clean initial review → no remediation fires → workflow
-    proceeds straight to replicated (existing happy path with
-    blocking=0 explicitly)."""
+    proceeds straight through operator_signoff → merged with no
+    remediation cycle in between."""
     _set_all_gates_pass()
 
     _FAKE_REVIEW_SUMMARIES.append({"blocking": 0, "suggested": 0, "nit": 0})
@@ -920,12 +977,15 @@ async def test_local_remediation_skipped_when_review_clean(issue_input):
             workflows=[IssueWorkflow, BatchWorkflow],
             activities=activities,
         ):
-            result = await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 IssueWorkflow.run,
                 issue_input,
                 id=f"issue-{issue_input.issue_number}-cleanreview",
                 task_queue="test-tq",
             )
+            await asyncio.sleep(0.1)
+            await handle.signal("submit_human_decision", "approve")
+            result = await handle.result()
 
-    assert result.final_state == "replicated"
+    assert result.final_state == "merged"
     assert remediation_calls == []

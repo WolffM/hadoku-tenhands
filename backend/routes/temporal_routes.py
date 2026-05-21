@@ -382,21 +382,23 @@ def temporal_dispatch():
     body = request.get_json(silent=True) or {}
     batch_id = body.get("batch_id")
     issues_raw = body.get("issues")
-    submit_to_upstream = bool(body.get("submit_to_upstream", False))
     if not batch_id or not isinstance(issues_raw, list) or not issues_raw:
         return _error("batch_id and non-empty issues[] required", status=400)
+    # `submit_to_upstream` was a Phase-4.5 dispatch-time flag — kept here only
+    # to log + ignore legacy payloads. Every run now routes through the
+    # operator_signoff inbox defer; the operator is the single ship gate.
+    if "submit_to_upstream" in body:
+        body.pop("submit_to_upstream", None)
 
     try:
-        result = asyncio.run(_dispatch_batch(batch_id, issues_raw, submit_to_upstream))
+        result = asyncio.run(_dispatch_batch(batch_id, issues_raw))
     except Exception as e:
         return _error(f"dispatch failed: {e}", status=502)
 
     return _envelope(result, status=202)
 
 
-async def _dispatch_batch(
-    batch_id: str, issues_raw: list[dict], submit_to_upstream: bool = False,
-) -> dict:
+async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
     """Connect to Temporal and start the BatchWorkflow."""
     from temporalio.client import Client
 
@@ -419,7 +421,6 @@ async def _dispatch_batch(
             branch_name=i.get("branch_name") or f"crimson-kitty-{i['issue_number']}",
             base_branch=i.get("base_branch", "main"),
             copilot_task_queue=cfg.copilot_task_queue,
-            submit_to_upstream=submit_to_upstream,
         )
         for i in issues_raw
     ]
