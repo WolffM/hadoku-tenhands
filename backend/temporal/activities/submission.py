@@ -766,24 +766,34 @@ def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
 
 
 def _first_prose_paragraph(body: str) -> str:
-    """First non-heading paragraph of a body.
+    """First block of a body that actually carries prose.
 
     Used on rendered PR bodies (which start with a `## Summary` heading)
     AND raw upstream issue bodies. The naive `body.split("\\n\\n", 1)[0]`
     returns the leading heading itself — and for GitHub issue-forms repos
     (svelte, keycloak) that heading is the whole first block (e.g.
     `### Describe the bug`), so the summary came out as just a heading.
-    This walks past heading-only and empty-form-placeholder blocks to the
-    first block that actually carries prose, returning it trimmed."""
-    for block in body.split("\n\n"):
+
+    Block splitting is line-ending- and whitespace-tolerant: issue bodies
+    arrive with mixed `\\r\\n`/`\\n` and sometimes whitespace-only "blank"
+    lines, so we normalize CRLF and split on any blank line. Each block is
+    skipped if it carries no prose — heading-only blocks, GitHub-forms
+    empty markers (`_No response_`), and unfilled `<!-- … -->` template
+    comments all count as non-prose."""
+    normalized = body.replace("\r\n", "\n").replace("\r", "\n")
+    for block in re.split(r"\n[ \t]*\n", normalized):
         cleaned = block.strip()
         if not cleaned:
             continue
+        lines = cleaned.splitlines()
         # Skip markdown headings — every line in the block starts with `#`.
-        if all(line.lstrip().startswith("#") for line in cleaned.splitlines()):
+        if all(line.lstrip().startswith("#") for line in lines):
             continue
         # Skip GitHub issue-forms empty-field markers (`_No response_`).
         if cleaned.strip("_ ").lower() == "no response":
+            continue
+        # Skip unfilled HTML-comment template placeholders (`<!-- … -->`).
+        if cleaned.startswith("<!--") and cleaned.endswith("-->"):
             continue
         return cleaned
     return ""
