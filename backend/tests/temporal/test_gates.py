@@ -684,3 +684,32 @@ def test_submission_judge_defers_on_unreachable(monkeypatch, issue, ev):
     monkeypatch.setattr("temporal.gates.submission.judge_score", boom)
     r = submission_judge(issue, ev)
     assert r.verdict == "defer" and "system:judge_unreachable" in r.reason
+
+
+def test_submission_judge_payload_strips_notes_md(monkeypatch, issue, ev):
+    """2026-05-21: the judge payload's 'Fix summary' listed notes.md (3
+    files) while the PR body's 'Files changed' stripped it (2 files). The
+    judge correctly flagged the 2-vs-3 mismatch. The payload must apply
+    the same _TREE_STRIP_PATHS filter so both counts agree."""
+    ev.write_text("09-submittable/pr_title.txt", "Fix x")
+    ev.write_text(
+        "09-submittable/pr_body.md",
+        "## Summary\n\nFixed it.\n\n## Fix\n\nFiles changed (2):\n\n- `a.py`\n- `b.py`\n",
+    )
+    ev.write_text("05-fixed/files_touched.txt", "a.py\nb.py\nnotes.md\n")
+    ev.write_text("05-fixed/diff.patch", "diff " * 50)
+    ev.write_text("05-fixed/commit_shas.txt", "abc\n")
+
+    captured = {}
+    from temporal import judge as j
+
+    def capture(rubric, payload):
+        captured["payload"] = payload
+        return j.JudgeResult(verdict="pass", score=0.9, reasoning="ok", raw={})
+
+    monkeypatch.setattr("temporal.gates.submission.judge_score", capture)
+    submission_judge(issue, ev)
+
+    payload = captured["payload"]
+    assert "files touched: 2" in payload
+    assert "notes.md" not in payload

@@ -306,10 +306,16 @@ def submission_judge(issue: IssueRef, evidence) -> GateResult:
     title = evidence.read_text("09-submittable/pr_title.txt")
     body = evidence.read_text("09-submittable/pr_body.md")
 
+    # Filter scratch files stripped from the operator PR tree (notes.md)
+    # so the judge's "Fix summary" file count matches the PR body's
+    # "Files changed" count. _render_default applies the same filter; the
+    # judge previously read the raw list, so it saw "3 files" against the
+    # body's "2 files" and (correctly) flagged the mismatch.
     files_touched = []
     if evidence.exists("05-fixed/files_touched.txt"):
         files_touched = [
-            l.strip() for l in evidence.read_text("05-fixed/files_touched.txt").splitlines() if l.strip()
+            l.strip() for l in evidence.read_text("05-fixed/files_touched.txt").splitlines()
+            if l.strip() and l.strip() not in _TREE_STRIP_PATHS
         ]
 
     diff_bytes = 0
