@@ -1265,6 +1265,25 @@ def test_render_pr_body_summary_skips_issue_form_heading(ev):
     assert "_No response_" not in body
 
 
+def test_first_prose_paragraph_skips_non_prose_blocks():
+    """Lower-level guard for the issue-forms summary fix. Block splitting
+    must be line-ending- and whitespace-tolerant, and skip every non-prose
+    leading block (heading-only, `_No response_`, `<!-- … -->`)."""
+    from temporal.activities.submission import _first_prose_paragraph
+
+    prose = "The real prose is here."
+    assert _first_prose_paragraph(f"Plain prose first.\n\n{prose}") == "Plain prose first."
+    # heading skipped across LF, CRLF, and whitespace-only blank separators
+    assert _first_prose_paragraph(f"### Describe the bug\n\n{prose}") == prose
+    assert _first_prose_paragraph(f"### Describe the bug\r\n\r\n{prose}") == prose
+    assert _first_prose_paragraph(f"### Description\n   \n{prose}") == prose
+    # GitHub-forms empty marker + HTML-comment placeholder skipped
+    assert _first_prose_paragraph(f"_No response_\n\n{prose}") == prose
+    assert _first_prose_paragraph(f"<!-- describe here -->\n\n{prose}") == prose
+    # all-junk body yields empty (caller falls back to the title sentence)
+    assert _first_prose_paragraph("### Description\n\n_No response_\n\n<!-- x -->") == ""
+
+
 def test_render_pr_body_uses_fix_summary_md_for_fix_prose(ev):
     """2026-05-20: judge complained that the Fix section was always just a
     file list. Agent now writes `05-fixed/fix_summary.md` describing what
