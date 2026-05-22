@@ -435,10 +435,7 @@ class IssueWorkflow:
 
             # Every run that clears the submittable gates routes through
             # the operator_signoff inbox defer — the operator is the
-            # single ship-or-stop authority, no separate dispatch-time
-            # flag. The earlier `submit_to_upstream=false` short-circuit
-            # to `replicated` was removed because it caused passed runs
-            # to terminate silently without surfacing for review.
+            # single ship-or-stop authority.
 
             # Operator signoff gate. Submittable gates have passed,
             # the preview PR is on the fork. Pause here so the operator
