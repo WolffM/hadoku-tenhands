@@ -766,18 +766,24 @@ def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
 
 
 def _first_prose_paragraph(body: str) -> str:
-    """First non-heading paragraph of a rendered PR body.
+    """First non-heading paragraph of a body.
 
-    The body starts with a `## Summary` heading line; the naive
-    `body.split("\\n\\n", 1)[0]` returns the heading itself. This walks
-    past heading-only blocks to the first paragraph that actually carries
-    prose, returning it trimmed."""
+    Used on rendered PR bodies (which start with a `## Summary` heading)
+    AND raw upstream issue bodies. The naive `body.split("\\n\\n", 1)[0]`
+    returns the leading heading itself — and for GitHub issue-forms repos
+    (svelte, keycloak) that heading is the whole first block (e.g.
+    `### Describe the bug`), so the summary came out as just a heading.
+    This walks past heading-only and empty-form-placeholder blocks to the
+    first block that actually carries prose, returning it trimmed."""
     for block in body.split("\n\n"):
         cleaned = block.strip()
         if not cleaned:
             continue
         # Skip markdown headings — every line in the block starts with `#`.
         if all(line.lstrip().startswith("#") for line in cleaned.splitlines()):
+            continue
+        # Skip GitHub issue-forms empty-field markers (`_No response_`).
+        if cleaned.strip("_ ").lower() == "no response":
             continue
         return cleaned
     return ""
@@ -971,11 +977,13 @@ def _extract_summary(evidence, issue_title: str) -> str:
         if isinstance(issue_obj, dict):
             body = (issue_obj.get("body") or "").strip()
             if body:
-                # First non-empty paragraph, capped, with markdown preserved.
-                first = body.split("\n\n", 1)[0].strip()
-                if len(first) > 600:
-                    first = first[:600].rsplit(" ", 1)[0] + "…"
-                return first
+                # First prose paragraph (skips issue-form heading/placeholder
+                # blocks like `### Describe the bug`), capped, markdown kept.
+                first = _first_prose_paragraph(body)
+                if first:
+                    if len(first) > 600:
+                        first = first[:600].rsplit(" ", 1)[0] + "…"
+                    return first
     return f"Addresses the upstream issue: {issue_title}".strip()
 
 

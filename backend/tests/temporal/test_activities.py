@@ -1228,6 +1228,43 @@ def test_render_pr_body_pulls_rich_content_from_evidence(ev):
     assert len(body.split()) >= 60
 
 
+def test_render_pr_body_summary_skips_issue_form_heading(ev):
+    """2026-05-21: GitHub issue-forms repos (svelte, keycloak) start the
+    issue body with a bare template heading (`### Describe the bug`,
+    `### Description`). The naive first-paragraph extraction returned just
+    that heading, so the PR Summary rendered as an empty `### Describe the
+    bug` block. The summary must skip the heading and use real prose."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {
+            "title": "Promote dynamic client scopes feature to preview",
+            "body": (
+                "### Description\n\n"
+                "Promote dynamic client scopes feature to preview.\n\n"
+                "### Value Proposition\n\n"
+                "Allows parameterizable scopes.\n\n"
+                "### Discussion\n\n_No response_\n"
+            ),
+        },
+    })
+    ev.write_text("04-reproduced/notes.md", "## Observed\nFeature stays EXPERIMENTAL.\n")
+    ev.write_text("05-fixed/files_touched.txt", "common/src/main/java/Profile.java\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("keycloak/keycloak", 46523, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    # The Summary section carries the real description, not the bare heading
+    assert "Promote dynamic client scopes feature to preview." in body
+    # No orphaned issue-form heading leaked in as the summary content
+    assert "### Description" not in body
+    assert "_No response_" not in body
+
+
 def test_render_pr_body_uses_fix_summary_md_for_fix_prose(ev):
     """2026-05-20: judge complained that the Fix section was always just a
     file list. Agent now writes `05-fixed/fix_summary.md` describing what
