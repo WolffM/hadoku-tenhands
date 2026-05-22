@@ -384,11 +384,6 @@ def temporal_dispatch():
     issues_raw = body.get("issues")
     if not batch_id or not isinstance(issues_raw, list) or not issues_raw:
         return _error("batch_id and non-empty issues[] required", status=400)
-    # `submit_to_upstream` was a Phase-4.5 dispatch-time flag — kept here only
-    # to log + ignore legacy payloads. Every run now routes through the
-    # operator_signoff inbox defer; the operator is the single ship gate.
-    if "submit_to_upstream" in body:
-        body.pop("submit_to_upstream", None)
 
     try:
         result = asyncio.run(_dispatch_batch(batch_id, issues_raw))
