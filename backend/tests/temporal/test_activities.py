@@ -1284,6 +1284,52 @@ def test_first_prose_paragraph_skips_non_prose_blocks():
     assert _first_prose_paragraph("### Description\n\n_No response_\n\n<!-- x -->") == ""
 
 
+def test_extract_summary_stitches_lead_in_into_code(ev):
+    """2026-05-21 follow-up: svelte#13759's issue body is a narrative where
+    every prose block ends in `:` and leads into a code fence. Taking only
+    the first block gave a dangling fragment ('…overload:') the judge
+    flagged as incomplete. The summary must stitch the lead-in with the
+    block it introduces so it carries a complete thought."""
+    from temporal.activities.submission import _extract_summary
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {
+            "title": "Snippet type mismatch",
+            "body": (
+                "### Describe the bug\r\n\r\n"
+                "In a class, I have the following overload:\r\n\r\n"
+                "```typescript\r\n    show(content: string | Snippet): void;\r\n```\r\n\r\n"
+                "This is a SvelteKit project.\r\n"
+            ),
+        },
+    })
+    summary = _extract_summary(ev, "Snippet type mismatch")
+
+    # Not a dangling lead-in: the colon sentence carries its code block
+    assert summary.startswith("In a class, I have the following overload:")
+    assert "show(content: string | Snippet): void;" in summary
+    assert not summary.rstrip().endswith(":")
+
+
+def test_extract_summary_keeps_self_contained_block(ev):
+    """A self-contained first sentence (not a lead-in) must NOT pull in
+    following blocks — keycloak#46523 should stay a clean one-liner."""
+    from temporal.activities.submission import _extract_summary
+
+    ev.write_json("01-eligible/issue_brief.json", {
+        "issue": {
+            "title": "Promote feature",
+            "body": (
+                "### Description\n\n"
+                "Promote dynamic client scopes feature to preview.\n\n"
+                "### Value Proposition\n\nAllows parameterizable scopes.\n"
+            ),
+        },
+    })
+    summary = _extract_summary(ev, "Promote feature")
+    assert summary == "Promote dynamic client scopes feature to preview."
+
+
 def test_render_pr_body_uses_fix_summary_md_for_fix_prose(ev):
     """2026-05-20: judge complained that the Fix section was always just a
     file list. Agent now writes `05-fixed/fix_summary.md` describing what

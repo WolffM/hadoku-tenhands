@@ -765,38 +765,61 @@ def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
     return _word_snap(cleaned, 80)
 
 
-def _first_prose_paragraph(body: str) -> str:
-    """First block of a body that actually carries prose.
-
-    Used on rendered PR bodies (which start with a `## Summary` heading)
-    AND raw upstream issue bodies. The naive `body.split("\\n\\n", 1)[0]`
-    returns the leading heading itself — and for GitHub issue-forms repos
-    (svelte, keycloak) that heading is the whole first block (e.g.
-    `### Describe the bug`), so the summary came out as just a heading.
+def _prose_blocks(body: str) -> list[str]:
+    """The blocks of `body` that carry content, in order, trimmed.
 
     Block splitting is line-ending- and whitespace-tolerant: issue bodies
     arrive with mixed `\\r\\n`/`\\n` and sometimes whitespace-only "blank"
-    lines, so we normalize CRLF and split on any blank line. Each block is
-    skipped if it carries no prose — heading-only blocks, GitHub-forms
-    empty markers (`_No response_`), and unfilled `<!-- … -->` template
-    comments all count as non-prose."""
+    lines, so we normalize CRLF and split on any blank line. Blocks that
+    carry no real content are dropped — heading-only blocks (e.g.
+    `### Describe the bug`), GitHub issue-forms empty markers
+    (`_No response_`), and unfilled `<!-- … -->` template comments."""
     normalized = body.replace("\r\n", "\n").replace("\r", "\n")
+    out: list[str] = []
     for block in re.split(r"\n[ \t]*\n", normalized):
         cleaned = block.strip()
         if not cleaned:
             continue
         lines = cleaned.splitlines()
-        # Skip markdown headings — every line in the block starts with `#`.
         if all(line.lstrip().startswith("#") for line in lines):
             continue
-        # Skip GitHub issue-forms empty-field markers (`_No response_`).
         if cleaned.strip("_ ").lower() == "no response":
             continue
-        # Skip unfilled HTML-comment template placeholders (`<!-- … -->`).
         if cleaned.startswith("<!--") and cleaned.endswith("-->"):
             continue
-        return cleaned
-    return ""
+        out.append(cleaned)
+    return out
+
+
+def _first_prose_paragraph(body: str) -> str:
+    """First content block of a body (single block).
+
+    Used on rendered PR bodies (which start with a `## Summary` heading)
+    where the naive `body.split("\\n\\n", 1)[0]` would return the heading
+    itself. Returns one block — callers that need a complete lead-in (the
+    PR summary) use `_stitch_lead_in` instead."""
+    blocks = _prose_blocks(body)
+    return blocks[0] if blocks else ""
+
+
+def _stitch_lead_in(blocks: list[str]) -> str:
+    """Join a lead-in block with the block(s) it introduces.
+
+    Issue authors often write a narrative where a sentence ends in `:` and
+    the next block is the code/example it introduces (svelte#13759: every
+    prose block is a lead-in into a code fence). Taking only the first
+    block yields a dangling fragment ("In a class, I have the following
+    overload:") that the submission judge correctly flags as incomplete.
+    Keep appending while the running text still dangles on a colon, so the
+    summary carries a complete thought. The caller caps total length."""
+    if not blocks:
+        return ""
+    parts = [blocks[0]]
+    i = 1
+    while parts[-1].rstrip().endswith(":") and i < len(blocks):
+        parts.append(blocks[i])
+        i += 1
+    return "\n\n".join(parts)
 
 
 def _word_snap(text: str, limit: int) -> str:
@@ -987,13 +1010,15 @@ def _extract_summary(evidence, issue_title: str) -> str:
         if isinstance(issue_obj, dict):
             body = (issue_obj.get("body") or "").strip()
             if body:
-                # First prose paragraph (skips issue-form heading/placeholder
-                # blocks like `### Describe the bug`), capped, markdown kept.
-                first = _first_prose_paragraph(body)
-                if first:
-                    if len(first) > 600:
-                        first = first[:600].rsplit(" ", 1)[0] + "…"
-                    return first
+                # Skip issue-form heading/placeholder blocks, then stitch a
+                # lead-in sentence with the block it introduces so the
+                # summary isn't a dangling "…overload:" fragment. Capped,
+                # markdown preserved.
+                summary = _stitch_lead_in(_prose_blocks(body))
+                if summary:
+                    if len(summary) > 600:
+                        summary = summary[:600].rsplit(" ", 1)[0] + "…"
+                    return summary
     return f"Addresses the upstream issue: {issue_title}".strip()
 
 
