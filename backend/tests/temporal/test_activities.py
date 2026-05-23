@@ -1021,6 +1021,61 @@ def test_render_pr_body_scrubs_internal_language_from_verify_notes(ev):
         assert forbidden not in body, f"'{forbidden}' leaked into PR body"
 
 
+def test_scrub_internal_language_strips_workspace_paths():
+    """2026-05-22 — keycloak#46523 v3: the agent wrote absolute container
+    paths into notes.md (`/tmp/workspace/WolffM/keycloak-keycloak/...`).
+    `_render_default` then lifted those lines verbatim into the upstream
+    PR body, leaking the runtime container path, fork owner, and encoded
+    fork slug to upstream reviewers. The scrubber must rewrite each known
+    workspace prefix to repo-relative form."""
+    from temporal.activities.submission import _scrub_internal_language
+
+    text = (
+        "1. From repository root, run `./mvnw test`.\n"
+        "2. Inspect `/tmp/workspace/WolffM/keycloak-keycloak/common/src/main/java/Profile.java`.\n"
+        "3. Also see `/home/runner/work/keycloak-keycloak/keycloak-keycloak/js/apps/mock.json`.\n"
+        "4. Codespace shape: `/workspaces/keycloak-keycloak/common/Profile.java`.\n"
+    )
+    out = _scrub_internal_language(text)
+
+    # None of the absolute prefixes survive
+    assert "/tmp/workspace" not in out
+    assert "/home/runner/work" not in out
+    assert "/workspaces/" not in out
+    # Repo-relative paths preserved
+    assert "common/src/main/java/Profile.java" in out
+    assert "js/apps/mock.json" in out
+    assert "common/Profile.java" in out
+
+
+def test_render_pr_body_strips_workspace_paths_from_steps(ev):
+    """End-to-end: a notes.md whose Steps to reproduce mention absolute
+    workspace paths must produce a PR body with only repo-relative refs."""
+    from temporal.activities.submission import render_pr_body
+
+    ev.write_json("01-eligible/issue_brief.json", {"issue": {"title": "x", "body": "y"}})
+    ev.write_text("05-fixed/files_touched.txt", "src/x.py\n")
+    ev.write_text("05-fixed/commit_shas.txt", "abc1234\n")
+    ev.write_text("05-fixed/diff.patch", "diff")
+    ev.write_text(
+        "04-reproduced/notes.md",
+        "## Steps to reproduce\n"
+        "1. From repo root, run `./mvnw test`.\n"
+        "2. Inspect `/tmp/workspace/WolffM/keycloak-keycloak/common/Profile.java`.\n\n"
+        "## Observed\nThe assertion fails.\n",
+    )
+
+    def fake_get(endpoint: str):
+        return {"success": True, "data": {"path": None, "raw_text": None, "sections": []}}
+
+    render_pr_body("keycloak/keycloak", 46523, ev, aggregator_get=fake_get)
+    body = ev.read_text("09-submittable/pr_body.md")
+
+    assert "/tmp/workspace" not in body
+    assert "WolffM" not in body  # fork owner must not leak
+    assert "common/Profile.java" in body  # repo-relative path preserved
+
+
 def test_render_pr_body_embeds_screenshot_when_after_url_present(ev):
     """2026-04-30: when the screenshot activity uploaded a verification
     PNG to the fork's release assets and persisted the URL to
