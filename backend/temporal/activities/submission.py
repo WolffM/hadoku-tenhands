@@ -1082,25 +1082,44 @@ _INTERNAL_LANGUAGE_LINES = (
 _STALE_SHA_RE = re.compile(r"^\s*-\s*`?[0-9a-fA-F]{7,40}`?\s*$")
 _COMMIT_SHA_HEADING_RE = re.compile(r"^\s*\**Commit\s+SHAs?\**\s*:?\s*$", re.IGNORECASE)
 
+# Strip absolute Copilot/Actions workspace prefixes down to repo-relative.
+# Copilot writes paths like `/tmp/workspace/WolffM/keycloak-keycloak/...`
+# into notes.md, which `_render_default` then lifts verbatim into the
+# upstream PR body (caught 2026-05-22 on keycloak#46523 — judge flagged
+# "hardcoded absolute paths… environment-specific"). The leak exposes the
+# runtime container path, fork owner, and encoded fork slug to upstream
+# reviewers. Handles the three common shapes:
+#   /tmp/workspace/<owner>/<repo>/        Copilot SWE agent
+#   /home/runner/work/<repo>/<repo>/      GitHub Actions runners
+#   /workspaces/<repo>/                   Codespaces
+_WORKSPACE_PATH_RE = re.compile(
+    r"(?:/tmp/workspace/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/"
+    r"|/home/runner/work/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/"
+    r"|/workspaces/[A-Za-z0-9._-]+/)"
+)
+
 
 def _scrub_internal_language(text: str) -> str:
-    """Drop lines containing internal pipeline vocabulary or stale SHAs.
+    """Clean lines of internal pipeline vocabulary, stale SHAs, and
+    absolute workspace paths.
 
-    Three filters in one pass:
-      1. Lines mentioning internal terms (agent, harvest, exit_reason,
-         orchestrator, copilot, scrubbed, auto-synthesized) — B16/B20.
-      2. Stale `Commit SHAs:` heading lines — older notes.md files
+    Three drop filters + one rewrite, in one pass:
+      1. Drop lines mentioning internal terms (agent, harvest,
+         exit_reason, orchestrator, copilot, scrubbed, auto-synthesized) —
+         B16/B20.
+      2. Drop stale `Commit SHAs:` heading lines — older notes.md files
          embedded a "Commit SHAs:" block in the Steps to reproduce
          section. After replicate, those SHAs reference commits that
          no longer exist on the submission branch (B26 — flagged on v15
          svelte/cli where the body listed `eab5c43` and `f862221` which
          had been squashed away).
-      3. Lines that are JUST a hex commit SHA bullet (`- abc1234`)
-         that follow a stripped SHA heading. This is conservative —
-         the rendered Fix section formats SHAs differently
-         (`f"- `{sha[:8]}`") inside a labelled "Commits:" block we
-         build ourselves and that lives outside notes.md, so any bare
-         SHA bullet in extracted prose is the leak we're cleaning.
+      3. Drop lines that are JUST a hex commit SHA bullet (`- abc1234`)
+         that follow a stripped SHA heading. Conservative — the rendered
+         Fix section formats SHAs differently inside a labelled "Commits:"
+         block we build ourselves; any bare SHA bullet in extracted prose
+         is the leak we're cleaning.
+      4. Rewrite absolute workspace paths to repo-relative form so the
+         upstream PR body doesn't carry `/tmp/workspace/<owner>/<repo>/`.
     """
     needles = tuple(s.lower() for s in _INTERNAL_LANGUAGE_LINES)
     keep: list[str] = []
@@ -1112,7 +1131,7 @@ def _scrub_internal_language(text: str) -> str:
             continue
         if _STALE_SHA_RE.match(line):
             continue
-        keep.append(line)
+        keep.append(_WORKSPACE_PATH_RE.sub("", line))
     return "\n".join(keep)
 
 
