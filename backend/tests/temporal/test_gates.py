@@ -713,3 +713,119 @@ def test_submission_judge_payload_strips_notes_md(monkeypatch, issue, ev):
     payload = captured["payload"]
     assert "files touched: 2" in payload
     assert "notes.md" not in payload
+
+
+# ── M0(c): uniform gate-decision telemetry ────────────────────────────────
+
+
+class TestUniformGateDecisionTelemetry:
+    """Every gate result must be mirrored to gate_decisions/<name>.json so
+    funnel analysis is a one-line read per gate. Telemetry must never
+    block the gate runner."""
+
+    def test_run_gates_writes_decision_per_gate(self, issue, ev):
+        from temporal.gates import (
+            _clear_registry_for_tests, gate, Pass, Fail, run_gates,
+        )
+
+        _clear_registry_for_tests()
+        try:
+            @gate(after="x", kind="mechanical")
+            def passes(issue, evidence):
+                return Pass("looks good")
+
+            @gate(after="x", kind="mechanical")
+            def fails(issue, evidence):
+                return Fail("nope", score=0.1)
+
+            results = run_gates("x", issue, ev)
+            assert {r.verdict for r in results} == {"pass", "fail"}
+
+            pass_record = ev.read_json("gate_decisions/passes.json")
+            assert pass_record["verdict"] == "pass"
+            assert pass_record["reason"] == "looks good"
+            assert pass_record["kind"] == "mechanical"
+            assert pass_record["at"]  # ISO timestamp present
+
+            fail_record = ev.read_json("gate_decisions/fails.json")
+            assert fail_record["verdict"] == "fail"
+            assert fail_record["score"] == 0.1
+        finally:
+            _clear_registry_for_tests()
+
+    def test_run_gates_writes_decision_for_crashed_gate(self, issue, ev):
+        """A gate that raises an exception still gets a decision file
+        with the system:gate_crashed reason so the funnel attribution
+        is preserved."""
+        from temporal.gates import (
+            _clear_registry_for_tests, gate, run_gates,
+        )
+
+        _clear_registry_for_tests()
+        try:
+            @gate(after="y", kind="mechanical")
+            def explodes(issue, evidence):
+                raise RuntimeError("boom")
+
+            results = run_gates("y", issue, ev)
+            assert len(results) == 1
+            assert results[0].verdict == "defer"
+
+            record = ev.read_json("gate_decisions/explodes.json")
+            assert record["verdict"] == "defer"
+            assert "system:gate_crashed" in record["reason"]
+            assert "RuntimeError" in record["reason"]
+        finally:
+            _clear_registry_for_tests()
+
+    def test_run_gates_does_not_block_on_disk_failure(self, issue):
+        """If evidence.write_json raises (e.g. disk full, permission),
+        the gate result must still propagate via the return list.
+        Telemetry is observation, not enforcement."""
+        from temporal.gates import (
+            _clear_registry_for_tests, gate, Pass, run_gates,
+        )
+
+        class FlakyEvidence:
+            def write_json(self, path, payload):
+                raise OSError("disk full")
+
+        _clear_registry_for_tests()
+        try:
+            @gate(after="z", kind="mechanical")
+            def passes(issue, evidence):
+                return Pass("still works")
+
+            results = run_gates("z", issue, FlakyEvidence())
+            assert len(results) == 1
+            assert results[0].verdict == "pass"
+        finally:
+            _clear_registry_for_tests()
+
+    def test_run_gates_overwrites_prior_decision(self, issue, ev):
+        """Re-running a gate after a remediation cycle must overwrite the
+        prior decision file rather than append. The decision file holds
+        the LATEST verdict; the historical trail lives in gates.jsonl."""
+        from temporal.gates import (
+            _clear_registry_for_tests, gate, Pass, Fail, run_gates,
+        )
+
+        verdict_seq = ["fail", "pass"]
+
+        _clear_registry_for_tests()
+        try:
+            @gate(after="rerun", kind="mechanical")
+            def cycles(issue, evidence):
+                v = verdict_seq.pop(0)
+                return Fail("first try") if v == "fail" else Pass("retry ok")
+
+            run_gates("rerun", issue, ev)
+            first = ev.read_json("gate_decisions/cycles.json")
+            assert first["verdict"] == "fail"
+
+            run_gates("rerun", issue, ev)
+            second = ev.read_json("gate_decisions/cycles.json")
+            assert second["verdict"] == "pass"
+            assert second["reason"] == "retry ok"
+        finally:
+            _clear_registry_for_tests()
