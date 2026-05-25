@@ -107,6 +107,35 @@ def _maintainer_assoc(association: str) -> bool:
     return (association or "").upper() in {"OWNER", "MEMBER", "COLLABORATOR", "MAINTAINER"}
 
 
+def _strip_quoted_lines(body: str) -> str:
+    """Remove `>`-prefixed markdown quote lines from a comment body.
+
+    GitHub's "quote reply" UI prepends a copy of the parent comment as
+    blockquote lines, so the same text gets shipped to the LLM judge
+    twice. Strip the quoted lines plus a single trailing blank line so
+    the prose stays readable. Markdown blockquote semantics are
+    unambiguous so this is safe.
+    """
+    if not body:
+        return body
+    out: list[str] = []
+    prev_was_quote = False
+    for line in body.splitlines():
+        if line.lstrip().startswith(">"):
+            prev_was_quote = True
+            continue
+        if prev_was_quote and line.strip() == "":
+            prev_was_quote = False
+            continue
+        prev_was_quote = False
+        out.append(line)
+    while out and out[0].strip() == "":
+        out.pop(0)
+    while out and out[-1].strip() == "":
+        out.pop()
+    return "\n".join(out)
+
+
 def _fetch_issue_signals(upstream_slug: str, issue_number: int, *, run_gh, is_bot) -> dict:
     """One-stop fetch for the rubric's payload + signal flags."""
     out: dict = {"errors": []}
@@ -124,7 +153,9 @@ def _fetch_issue_signals(upstream_slug: str, issue_number: int, *, run_gh, is_bo
             "is_maintainer": _maintainer_assoc(c.get("author_association")),
             "is_bot": is_bot(login),
             "at": c.get("created_at"),
-            "body": (c.get("body") or "")[:2000],
+            # Strip GitHub "quote reply" blockquotes so the LLM doesn't
+            # double-process text it already saw in the parent comment.
+            "body": _strip_quoted_lines(c.get("body") or "")[:4000],
         })
     out["comments"] = comments
 
@@ -250,7 +281,9 @@ def _build_payload(brief_issue: dict, data: dict, flags: list[str]) -> str:
             kind = "[BOT]" if c["is_bot"] else ("[MAINTAINER]" if c["is_maintainer"] else "[user]")
             parts.append(f"### {c['author']} {kind} — {c['at']} (assoc: {c['association']})")
             parts.append("")
-            parts.append(c["body"][:800])
+            # Quote-stripped + capped at 4000 chars upstream — no further
+            # truncation here.
+            parts.append(c["body"])
             parts.append("")
     parts.extend([
         "",

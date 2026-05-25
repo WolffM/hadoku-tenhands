@@ -164,6 +164,41 @@ def _author_is_maintainer(association: str) -> bool:
     return (association or "").upper() in {"OWNER", "MEMBER", "COLLABORATOR", "MAINTAINER"}
 
 
+def _strip_quoted_lines(body: str) -> str:
+    """Remove `>`-prefixed markdown quote lines from a comment body.
+
+    GitHub's "quote reply" UI prepends a copy of the parent comment as
+    blockquote lines. That text is ALREADY in the previous comment in the
+    thread, so it's a duplicate token cost when we ship to the LLM (and
+    review noise). Strip the quoted lines and any single blank line
+    immediately following so the prose stays readable.
+
+    Markdown blockquote semantics are unambiguous (lines starting with
+    `>`), so this is safe.
+    """
+    if not body:
+        return body
+    out_lines: list[str] = []
+    prev_was_quote = False
+    for line in body.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith(">"):
+            prev_was_quote = True
+            continue
+        # Collapse a single blank line right after a quote run
+        if prev_was_quote and stripped == "":
+            prev_was_quote = False
+            continue
+        prev_was_quote = False
+        out_lines.append(line)
+    # Trim leading/trailing blank lines that result from quote stripping
+    while out_lines and out_lines[0].strip() == "":
+        out_lines.pop(0)
+    while out_lines and out_lines[-1].strip() == "":
+        out_lines.pop()
+    return "\n".join(out_lines)
+
+
 def _is_bot(login: str) -> bool:
     lower = (login or "").lower()
     return "[bot]" in lower or "copilot" in lower or lower in {
@@ -200,7 +235,10 @@ def fetch_issue_data(slug: str, number: int) -> dict:
             "is_maintainer": _author_is_maintainer(c.get("author_association")),
             "is_bot": _is_bot(c.get("user", {}).get("login", "")),
             "at": c.get("created_at"),
-            "body": (c.get("body") or "")[:2000],
+            # Strip `> quoted` lines (operator review surfaced 2026-05-25:
+            # the LLM was reading the same text twice when users replied
+            # with the inline-quote affordance). Then cap.
+            "body": _strip_quoted_lines((c.get("body") or ""))[:4000],
         }
         for c in comments if isinstance(c, dict)
     ]
@@ -340,7 +378,10 @@ def build_payload(data: dict, flags: list[str]) -> str:
             kind = "[BOT]" if c["is_bot"] else ("[MAINTAINER]" if c["is_maintainer"] else "[user]")
             parts.append(f"### {c['author']} {kind} — {c['at']} (assoc: {c['association']})")
             parts.append("")
-            parts.append(c["body"][:800])
+            # Body is already quote-stripped at fetch + capped at 4000 chars.
+            # No further truncation here — quote-stripping made bodies ~30%
+            # smaller on average so we can show more without blowing context.
+            parts.append(c["body"])
             parts.append("")
     parts.extend([
         "",
