@@ -99,6 +99,13 @@ For each signal you find — penalty OR reward — add an entry to the
   maintainer comment expanded the issue's scope significantly
 - **Recent team reassignment**: `team_reassigned`/`assigned`/`unassigned`
   in the last 30 days — the responsible team is in flux
+- **Explicit maintainer downvote**: a maintainer left a 👎 emoji, said
+  "Big 👎", "I'm against this", "no thanks", "we won't do this", or
+  any clear emoji/tone-explicit rejection — even if they then said "but
+  not my decision to make." Tone matters: an explicit downvote is a
+  STRONG signal, not weak, even when softened. (Distinct from blocking
+  `explicit_maintainer_block` which requires an action verb like "wait"
+  or "block on X".)
 
 ### `weak` — contributes to score, never alone triggers fail
 
@@ -107,8 +114,11 @@ For each signal you find — penalty OR reward — add an entry to the
 - **Stale conversation**: most recent maintainer comment is > 6 months old
 - **Vague problem statement**: the issue body doesn't have a specific
   failure mode, just "X is broken"
-- **Maintainer skepticism**: a maintainer questioned whether the bug is
-  worth fixing but didn't outright block
+- **Hedged maintainer skepticism**: a maintainer expressed uncertainty
+  without an explicit downvote — "not sure about this", "interesting
+  question, idk", "would need to think about it". Lower-confidence
+  pushback. (If they said 👎 / "Big 👎" / "I'm against this", that's a
+  `strong` penalty, see above.)
 
 ### Reward signals (severity inverse — `blocking` reward overrides `strong` penalty)
 
@@ -121,11 +131,47 @@ These EARN points back rather than subtracting:
   test, or unambiguous trace in the issue body
 - **`good first issue` / `help wanted` label** (strong reward): the
   maintainer has explicitly opened this to external contributors
+- **Multi-reporter open bug** (strong reward): **2+ distinct non-bot
+  users** have confirmed the bug in comments AND a maintainer has touched
+  the issue (commented or labeled) without blocking AND the issue is
+  still open. This means the bug is real, the maintainer knows about it,
+  and they've chosen NOT to close it — a strong implicit signal of
+  willingness to accept a fix even without an explicit "PR welcome."
 - **Active recent maintainer engagement** (weak reward): a maintainer
   commented within the last 30 days in a constructive way (asking
   clarifying questions, suggesting approach)
 - **Small, well-bounded surface** (weak reward): the body describes a
   localized change in 1–2 files
+
+## Important non-signals (do NOT penalize these)
+
+- **Absence of an explicit "PR welcome"**: the default state of most
+  issues is "no one has acked specifically." That is **neutral, not
+  negative**. Do NOT cite "no maintainer fix-ack" or "thread lacks PR
+  welcome" as a penalty. Only penalize *active* maintainer pushback
+  (the `strong` or `blocking` items above), not silence. If positive
+  signals are present (specific repro + maintainer-engaged-open + no
+  active linked PRs), that's a viable issue regardless of whether
+  anyone said the magic words "PR welcome."
+
+## Recency dominates aggregation
+
+**A more recent maintainer comment SUPERSEDES an older one.** Don't
+aggregate maintainer signals as if they were contemporaneous.
+
+Concretely:
+- Maintainer signals older than **~12 months** are heavily discounted
+  unless reinforced by a more recent maintainer comment on the same
+  axis. An old "this needs discussion first" doesn't still block today
+  if no maintainer has reinforced it since.
+- Symmetrically: an old "PR welcome" doesn't still grant today if the
+  thread has since shown maintainer disengagement or scope expansion.
+- When you see conflicting maintainer signals from different points in
+  time, weight the **most recent** one. Note the age difference in
+  your reasoning.
+
+This applies to PENALTIES (old "wait" stops being load-bearing) AND
+REWARDS (old "go ahead" stops counting as a current ack).
 
 ## How to compute the verdict
 
