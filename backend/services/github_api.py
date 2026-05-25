@@ -161,13 +161,41 @@ def run_gh_command(args, capture_output=True, timeout=30, stdin_data=None):
         return {"success": False, "error": str(e)}
 
 
+# Cache the authenticated GitHub user. The login of a token's owner is
+# stable for the life of the token, but `gh api user` shells out every
+# call — when prod's gh CLI is degraded (2026-05-24 incident: 30s hangs
+# on the credential-helper path), this turns every OSS/health/inbox
+# route into a 30s wait. Cache successful resolutions for an hour;
+# cache failures briefly so we don't hammer a broken path on every
+# route hit.
+_AUTH_USER_CACHE: dict = {"value": None, "expires_at": 0.0}
+_AUTH_USER_SUCCESS_TTL_S = 3600.0   # 1 hour — login is stable per token
+_AUTH_USER_FAILURE_TTL_S = 60.0     # 60s — back off briefly on errors
+
+
 def get_authenticated_user():
-    """Get the currently authenticated GitHub user."""
+    """Get the currently authenticated GitHub user (cached)."""
+    now = time.monotonic()
+    if _AUTH_USER_CACHE["value"] is not None and now < _AUTH_USER_CACHE["expires_at"]:
+        return _AUTH_USER_CACHE["value"]
+
     result = run_gh_command(["api", "user", "--jq", ".login"])
     if result["success"]:
-        return result["output"].strip()
+        login = result["output"].strip()
+        _AUTH_USER_CACHE["value"] = login
+        _AUTH_USER_CACHE["expires_at"] = now + _AUTH_USER_SUCCESS_TTL_S
+        return login
+
     logger.warning("Could not authenticate GitHub user: %s", result.get("error"))
+    _AUTH_USER_CACHE["value"] = "unknown"
+    _AUTH_USER_CACHE["expires_at"] = now + _AUTH_USER_FAILURE_TTL_S
     return "unknown"
+
+
+def invalidate_authenticated_user_cache() -> None:
+    """Force the next `get_authenticated_user()` call to re-probe gh."""
+    _AUTH_USER_CACHE["value"] = None
+    _AUTH_USER_CACHE["expires_at"] = 0.0
 
 
 def get_repos(limit=100):
