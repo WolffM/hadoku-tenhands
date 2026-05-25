@@ -1,0 +1,57 @@
+{
+  "batch": "crimson-kitty-ship-test-2026-05-21",
+  "issue_id": "sveltejs__svelte-13759",
+  "slug": "sveltejs/svelte",
+  "number": 13759,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.63,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "The original reporter confirmed they can no longer reproduce the bug themselves, and a second user's related variant also stopped reproducing. The maintainer asked for clarification and received confirmation that the issue is effectively resolved. There is no actionable bug remaining for a PR to fix.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 4,
+  "rubric_evidence": [
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "I am currently unable to reproduce my sample myself, even with the back-then dependency versions. I think this may have been a tooling issue that is no longer present.",
+      "comment_author": "webJose",
+      "at": "2025-02-06T17:00:19Z"
+    },
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "This one also doesn't reproduce anymore.",
+      "comment_author": "webJose",
+      "at": "2025-02-06T17:04:46Z"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Most recent comment is from 2025-02-06; no maintainer follow-up or resolution label applied since then.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "vague_problem_statement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Hopefully the above information is enough to reproduce? Do let me know, though.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 7,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 20.7,
+  "agreement": "agree_fail"
+}

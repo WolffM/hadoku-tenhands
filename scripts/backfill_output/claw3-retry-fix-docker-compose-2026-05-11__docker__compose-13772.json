@@ -1,0 +1,53 @@
+{
+  "batch": "claw3-retry-fix-docker-compose-2026-05-11",
+  "issue_id": "docker__compose-13772",
+  "slug": "docker/compose",
+  "number": 13772,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "defer",
+  "judge_score": 0.673,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "There is an active linked PR already open against this issue, which is a blocking penalty \u2014 colliding with in-flight work. The sole comment is from a CONTRIBUTOR (not a maintainer), offering no ack of fix direction. No blocking rewards exist to offset.",
+  "rubric_flags_computed": [
+    "active_linked_pr"
+  ],
+  "rubric_evidence_count": 3,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "linkedPrUrls: [\"https://github.com/docker/compose/pull/13779\"] and flags: [\"active_linked_pr\"]",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "no_maintainer_engagement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "commenterMix.maintainers: 0 \u2014 sole comment is from a CONTRIBUTOR, not OWNER/MEMBER/COLLABORATOR",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "status_triage_label",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "labels: ['kind/feature', 'status/0-triage'] \u2014 still in triage, no maintainer disposition",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 1,
+    "sub_issues_count": 0,
+    "timeline_events": 3,
+    "linked_pr_urls": [
+      "https://github.com/docker/compose/pull/13779"
+    ]
+  },
+  "elapsed_s": 25.4,
+  "agreement": "agree_fail"
+}

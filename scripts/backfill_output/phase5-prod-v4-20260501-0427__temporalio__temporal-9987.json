@@ -1,0 +1,84 @@
+{
+  "batch": "phase5-prod-v4-20260501-0427",
+  "issue_id": "temporalio__temporal-9987",
+  "slug": "temporalio/temporal",
+  "number": 9987,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.85,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.55,
+  "rubric_reasoning": "One strong penalty (team_reassignment_recent: assigned to yycptt 24 days ago) is offset by one strong reward (specific_repro: exact commit, version, logs, and proposed fix direction are all present). The fix direction also remains unsettled \u2014 comments shifted the diagnosis from stale Cassandra TTL to a join-timeout race \u2014 and no maintainer (OWNER/MEMBER/COLLABORATOR) has commented at all, let alone acked a specific fix. Mixed strong signals \u2192 defer.",
+  "rubric_flags_computed": [
+    "title_changed_recent",
+    "team_reassignment_recent"
+  ],
+  "rubric_evidence_count": 7,
+  "rubric_evidence": [
+    {
+      "signal": "team_reassignment_recent",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "assigned yycptt at 2026-04-30T22:10:49Z",
+      "comment_author": "issue_body",
+      "at": "2026-04-30T22:10:49Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "Introduced by: commit f7ca7745 ('set page token during ringpop bootstrap') \u2026 Proposed fix: reduce upsertMembershipRecordExpiryDefault from 48h to ~5m, or expose it as a configurable parameter",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "title_changed_recent",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Ringpop membership churn after upgrade to v1.30.x: bootstrap pagination fix (f7ca7745) exposes 48h Cassandra TTL causing SWIM zombie IP flooding \u2192 Ringpop membership churn after upgrade to v1.30.x",
+      "comment_author": "dnr",
+      "at": "2026-04-24T18:47:12Z"
+    },
+    {
+      "signal": "fix_direction_unsettled",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "This is a pure ringpop join timeout issue. Is maxJoinDuration: 30s tunable, or is there a known issue with large bootstrap lists causing join latency?",
+      "comment_author": "shankarkc",
+      "at": "2026-05-04T14:05:10Z"
+    },
+    {
+      "signal": "no_maintainer_engagement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "commenterMix.maintainers: 0 \u2014 no OWNER/MEMBER/COLLABORATOR has commented; no fix direction has been acked by anyone with merge authority",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "no_active_linked_pr",
+      "severity": "weak",
+      "direction": "reward",
+      "quote": "linkedPrUrls: []",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "recent_contributor_engagement",
+      "severity": "weak",
+      "direction": "reward",
+      "quote": "As a more general fix, we can try putting the rest of the bootstrap and other ringpop config knobs in the static config so you can play around with them.",
+      "comment_author": "dnr",
+      "at": "2026-05-05T03:42:57Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 5,
+    "sub_issues_count": 0,
+    "timeline_events": 3,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 86.2,
+  "agreement": "agree_defer"
+}

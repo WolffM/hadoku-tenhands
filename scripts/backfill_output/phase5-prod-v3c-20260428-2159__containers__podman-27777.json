@@ -1,0 +1,57 @@
+{
+  "batch": "phase5-prod-v3c-20260428-2159",
+  "issue_id": "containers__podman-27777",
+  "slug": "containers/podman",
+  "number": 27777,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "defer",
+  "judge_score": 0.695,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.45,
+  "rubric_reasoning": "Zero maintainer engagement: no OWNER/MEMBER/COLLABORATOR has commented, triaged, or acknowledged the issue at all. The bug is well-reproduced and specific, but without any maintainer signal the path to merge is unknown. The only strong negative is the complete absence of triage; the strong positive is a clear, reproducible bug report. With only weak penalties and one strong reward, the rubric lands at defer.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 4,
+  "rubric_evidence": [
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "Here's a rather minimalist but verbose Dockerfile to reproduce the issue... touch somedir triggers it",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "A friendly reminder that this issue had no activity for 30 days.",
+      "comment_author": "github-actions[bot]",
+      "at": "2026-02-05T00:26:36Z"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "The fact this didn't even reach a triage is rather disturbing",
+      "comment_author": "vit-zikmund",
+      "at": "2026-02-05T08:18:51Z"
+    },
+    {
+      "signal": "no_maintainer_engagement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "commenterMix.maintainers: 0 \u2014 no OWNER/MEMBER/COLLABORATOR has commented or triaged this issue",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 6,
+    "sub_issues_count": 0,
+    "timeline_events": 4,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 19.1,
+  "agreement": "agree_defer"
+}

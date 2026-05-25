@@ -1,0 +1,31 @@
+{
+  "cohort_size": 54,
+  "by_verdict": {
+    "fail": 27,
+    "defer": 24,
+    "pass": 3
+  },
+  "by_agreement": {
+    "agree_fail": 27,
+    "agree_defer": 16,
+    "softer_defer": 8,
+    "disagree_pass": 3
+  },
+  "disagree_pass_targets": [
+    {
+      "slug": "facebook/react",
+      "number": 17355,
+      "score": 0.75
+    },
+    {
+      "slug": "mermaid-js/mermaid",
+      "number": 2850,
+      "score": 0.85
+    },
+    {
+      "slug": "qdrant/qdrant",
+      "number": 7147,
+      "score": 0.75
+    }
+  ]
+}

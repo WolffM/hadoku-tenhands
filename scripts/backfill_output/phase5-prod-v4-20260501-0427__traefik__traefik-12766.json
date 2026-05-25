@@ -1,0 +1,73 @@
+{
+  "batch": "phase5-prod-v4-20260501-0427",
+  "issue_id": "traefik__traefik-12766",
+  "slug": "traefik/traefik",
+  "number": 12766,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.89,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.5,
+  "rubric_reasoning": "The maintainer added 'contributor/wanted' and responded constructively, but the issue is still unconfirmed ('kind/bug/possible') \u2014 a community contributor has tried twice to reproduce it and failed. The root cause is unclear: one workaround (disabling HTTP/2) was found, but the underlying mechanism isn't understood, and the last comment raises a possible HTTPS-backend dependency that hasn't been tested. Without a confirmed repro path, any PR is likely to stall in review.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 6,
+  "rubric_evidence": [
+    {
+      "signal": "maintainer_acked_fix",
+      "severity": "blocking",
+      "direction": "reward",
+      "quote": "If anyone can help us find verified steps to reproduce this (and ideally fix it), we'd really appreciate it!",
+      "comment_author": "kevinpollet",
+      "at": "2026-03-12T13:26:10Z"
+    },
+    {
+      "signal": "good_first_issue_label",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "labels include 'contributor/wanted'",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "I tried to reproduce the issue with an OIDC client (oauth2 proxy) + keycloak - ingress-nginx + traefik, but still cannot reproduce it.",
+      "comment_author": "Fernando-Benegas",
+      "at": "2026-04-14T04:16:10Z"
+    },
+    {
+      "signal": "vague_problem_statement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "I am a bit confused why it cannot be reproduced. For me it looks like the only difference is the HTTPs backend.",
+      "comment_author": "kseniya-schwarz",
+      "at": "2026-04-15T07:11:10Z"
+    },
+    {
+      "signal": "workaround_found_root_cause_unknown",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "following the issue ... we have disabled http2 and the issue was fixed. Could you please share if any fix will be available for HTTP2?",
+      "comment_author": "ksyblast",
+      "at": "2026-03-17T13:29:10Z"
+    },
+    {
+      "signal": "active_recent_maintainer_engagement",
+      "severity": "weak",
+      "direction": "reward",
+      "quote": "contributor/wanted label added by kevinpollet",
+      "comment_author": "kevinpollet",
+      "at": "2026-03-12T13:25:33Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 8,
+    "sub_issues_count": 0,
+    "timeline_events": 5,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 25.7,
+  "agreement": "agree_defer"
+}

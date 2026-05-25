@@ -1,0 +1,65 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14-recover",
+  "issue_id": "internetarchive__openlibrary-12737",
+  "slug": "internetarchive/openlibrary",
+  "number": 12737,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.7,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.45,
+  "rubric_reasoning": "The maintainer explicitly flagged 'Needs: Investigation' and 'Needs: Breakdown' as prerequisites before work can begin \u2014 the exact value reaching Acquisition.from_json is still unconfirmed. The lead has been assigned (@cdrini) and the issue is actively being triaged, but the investigation gate is not cleared. No maintainer has acked a fix direction, and the breakdown section contains only template placeholders.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 5,
+  "rubric_evidence": [
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "this issue will be ready to work on once: Needs: Investigation \u2014 the specific value being passed to Acquisition.from_json and how it ends up in providers needs to be confirmed before a fix can be written",
+      "comment_author": "mekarpeles",
+      "at": "2026-05-13T21:27:32Z"
+    },
+    {
+      "signal": "breakdown_incomplete",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "Needs: Breakdown \u2014 the implementation section contains only template placeholders",
+      "comment_author": "mekarpeles",
+      "at": "2026-05-13T21:27:32Z"
+    },
+    {
+      "signal": "needs_investigation_label",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "labels include 'Needs: Investigation', 'Needs: Breakdown', 'Needs: Help'",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "active_recent_maintainer_engagement",
+      "severity": "weak",
+      "direction": "reward",
+      "quote": "Lead: @cdrini assigned, Priority: 3 labeled, Needs: Help added \u2014 maintainer actively triaging as of 2026-05-18",
+      "comment_author": "mekarpeles",
+      "at": "2026-05-18T20:04:59Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "openlibrary/book_providers.py:113 \u2014 Acquisition.from_json() raises ValueError when its argument has neither an 'href' nor a 'url' key. The three active call sites are: Line 267, Line 574, Line 604",
+      "comment_author": "mekarpeles",
+      "at": "2026-05-13T21:27:32Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 1,
+    "sub_issues_count": 0,
+    "timeline_events": 11,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 25.6,
+  "agreement": "softer_defer"
+}

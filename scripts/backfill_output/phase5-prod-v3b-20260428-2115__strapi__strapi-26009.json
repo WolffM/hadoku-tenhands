@@ -1,0 +1,46 @@
+{
+  "batch": "phase5-prod-v3b-20260428-2115",
+  "issue_id": "strapi__strapi-26009",
+  "slug": "strapi/strapi",
+  "number": 26009,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.79,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "A contributor with CONTRIBUTOR association explicitly stated the fix was already merged and will ship in the next release. The signal summary confirms an active linked PR (https://github.com/strapi/strapi/pull/26010) which triggered the active_linked_pr flag. Dispatching against this issue would collide with already-merged work.",
+  "rubric_flags_computed": [
+    "active_linked_pr",
+    "team_reassignment_recent"
+  ],
+  "rubric_evidence_count": 2,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "https://github.com/strapi/strapi/pull/26010",
+      "comment_author": "signal_summary",
+      "at": "issue_body"
+    },
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "The fix was merged and will be part of the next version of Strapi (on Wednesday May 13th)",
+      "comment_author": "Adzouz",
+      "at": "2026-05-06T12:59:09Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 1,
+    "sub_issues_count": 0,
+    "timeline_events": 6,
+    "linked_pr_urls": [
+      "https://github.com/strapi/strapi/pull/26010"
+    ]
+  },
+  "elapsed_s": 15.7,
+  "agreement": "agree_fail"
+}

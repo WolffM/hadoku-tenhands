@@ -1,0 +1,53 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14",
+  "issue_id": "run-llama__llama_index-21658",
+  "slug": "run-llama/llama_index",
+  "number": 21658,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.67,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "An active linked PR (#21659) already exists for this issue, opened by a community member within minutes of the bug report. Dispatching against this issue would collide with in-flight work, which is an explicit blocking signal.",
+  "rubric_flags_computed": [
+    "active_linked_pr"
+  ],
+  "rubric_evidence_count": 3,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "Opened #21659.",
+      "comment_author": "moaedy",
+      "at": "2026-05-14T15:56:27Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "print(len(embeddings))  # Expected: 3, Actual: 1",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "maintainer_acked_fix",
+      "severity": "blocking",
+      "direction": "reward",
+      "quote": "Your suggested fix of wrapping each string in an explicit types.Content object is the right approach to restore per-input embeddings with google-genai SDK v1.71.0+.",
+      "comment_author": "dosubot[bot]",
+      "at": "2026-05-14T15:52:15Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 3,
+    "sub_issues_count": 0,
+    "timeline_events": 3,
+    "linked_pr_urls": [
+      "https://github.com/run-llama/llama_index/pull/21659"
+    ]
+  },
+  "elapsed_s": 18.5,
+  "agreement": "agree_fail"
+}

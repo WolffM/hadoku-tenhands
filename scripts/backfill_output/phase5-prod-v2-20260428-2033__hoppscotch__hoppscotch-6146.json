@@ -1,0 +1,45 @@
+{
+  "batch": "phase5-prod-v2-20260428-2033",
+  "issue_id": "hoppscotch__hoppscotch-6146",
+  "slug": "hoppscotch/hoppscotch",
+  "number": 6146,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "defer",
+  "judge_score": 0.63,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "The maintainer explicitly closed this issue as resolved in v2026.4.0, meaning there is no open problem for a PR to address. The active_linked_pr flag confirms a PR was already merged (pull/6147). Dispatching against a closed, already-fixed issue has zero path to merge.",
+  "rubric_flags_computed": [
+    "active_linked_pr"
+  ],
+  "rubric_evidence_count": 2,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "Closing since this is now resolved in the v2026.4.0 release.",
+      "comment_author": "jamesgeorge007",
+      "at": "2026-04-30T12:51:05Z"
+    },
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "Closing since this is now resolved in the v2026.4.0 release.",
+      "comment_author": "jamesgeorge007",
+      "at": "2026-04-30T12:51:05Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 1,
+    "sub_issues_count": 0,
+    "timeline_events": 5,
+    "linked_pr_urls": [
+      "https://github.com/hoppscotch/hoppscotch/pull/6147"
+    ]
+  },
+  "elapsed_s": 15.3,
+  "agreement": "agree_fail"
+}

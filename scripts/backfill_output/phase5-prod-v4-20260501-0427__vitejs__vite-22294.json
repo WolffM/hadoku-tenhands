@@ -1,0 +1,54 @@
+{
+  "batch": "phase5-prod-v4-20260501-0427",
+  "issue_id": "vitejs__vite-22294",
+  "slug": "vitejs/vite",
+  "number": 22294,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "defer",
+  "judge_score": 0.575,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "Two active linked PRs are already open against this issue (active_linked_pr flag confirmed), which is a blocking penalty \u2014 dispatching now would collide with in-flight work. No blocking reward is present to override.",
+  "rubric_flags_computed": [
+    "active_linked_pr"
+  ],
+  "rubric_evidence_count": 3,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "linkedPrUrls contains two open PRs: vitejs/vite/pull/22372 and vitejs/vite/pull/22505",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "Reproduction: https://github.com/Mister-Hope/vite-sass-bug/ \u2014 See action log, macOS and linux are fine, but windows fails. Includes full error trace with exact module path and conditions.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "stale_maintainer_engagement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "commenterMix.maintainers = 0 \u2014 no maintainer has commented on this issue; sapphi-red only applied labels via timeline events",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 1,
+    "sub_issues_count": 0,
+    "timeline_events": 6,
+    "linked_pr_urls": [
+      "https://github.com/vitejs/vite/pull/22372",
+      "https://github.com/vitejs/vite/pull/22505"
+    ]
+  },
+  "elapsed_s": 17.1,
+  "agreement": "agree_fail"
+}

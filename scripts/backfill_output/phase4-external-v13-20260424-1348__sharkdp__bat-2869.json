@@ -1,0 +1,57 @@
+{
+  "batch": "phase4-external-v13-20260424-1348",
+  "issue_id": "sharkdp__bat-2869",
+  "slug": "sharkdp/bat",
+  "number": 2869,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.87,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.45,
+  "rubric_reasoning": "No maintainer has acked a fix direction or confirmed the root cause \u2014 the single maintainer comment (eth-p) asked for a screenshot and noted the interaction is 'complicated' without resolving it. Subsequent comments are entirely from users (NONE association) proposing workarounds, not fixes. The bug is real and specific but lacks any reward signal from a maintainer, leaving only weak penalty signals (stale maintainer engagement, unresolved root cause) and no blocking or strong signals in either direction.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 4,
+  "rubric_evidence": [
+    {
+      "signal": "stale_maintainer_engagement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "If it's not too much trouble, would you be able to add a screenshot to demonstrate? Line chopping involves some complicated interactions between bat and less...",
+      "comment_author": "eth-p",
+      "at": "2024-02-21T20:12:42Z"
+    },
+    {
+      "signal": "reporter_abandonment",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "(maintainer asked for screenshot and clarification; no follow-up from maintainer after screenshot was provided; issue remains unresolved by maintainer for 14+ months)",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "vague_root_cause",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Line chopping involves some complicated interactions between bat and less, and either one of them could be doing the wrapping.",
+      "comment_author": "eth-p",
+      "at": "2024-02-21T20:12:42Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "bat file_with_long_lines.txt \u2014 pressing -S multiple times I still get wrapped lines (screenshot + diagnostic output provided)",
+      "comment_author": "SamuelLarkin",
+      "at": "2024-02-22T20:10:35Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 7,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 19.9,
+  "agreement": "agree_defer"
+}

@@ -1,0 +1,65 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14-recover",
+  "issue_id": "microsoft__monaco-editor-3336",
+  "slug": "microsoft/monaco-editor",
+  "number": 3336,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.67,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.45,
+  "rubric_reasoning": "The maintainer's only engagement was in March 2023 asking if the bug still applied, with no follow-up after reproduction was confirmed by multiple users \u2014 that's stale maintainer engagement (>6 months). The 'help wanted' label is a strong reward, but the most recent comment (2026-04-30) suggests the issue may be user error rather than a genuine bug, weakening the case for a code fix. No maintainer has acked a fix direction, and the last real user activity was 2023.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 5,
+  "rubric_evidence": [
+    {
+      "signal": "help_wanted_label",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "labels include 'help wanted', 'bug'",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "stale_maintainer_engagement",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "I cannot reproduce. Does this bug still apply?",
+      "comment_author": "hediet",
+      "at": "2023-03-13T15:52:39Z"
+    },
+    {
+      "signal": "reporter_abandonment",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Multiple users confirmed reproduction but maintainer never followed up after March 2023",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "maintainer_skepticism",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "I was getting this error because I was trying to load the editor directly instead of following the docs.",
+      "comment_author": "opsec-ai",
+      "at": "2026-04-30T00:38:58Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "DevTools failed to load source map: Could not load content for https://microsoft.github.io/min-maps/vs/base/common/worker/simpleWorker.nls.js.map: Fetch through target failed: Target not supported; Fallback: HTTP error: status code 404",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 11,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 21.4,
+  "agreement": "softer_defer"
+}

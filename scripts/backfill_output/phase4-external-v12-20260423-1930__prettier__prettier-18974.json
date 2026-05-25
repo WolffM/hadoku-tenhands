@@ -1,0 +1,49 @@
+{
+  "batch": "phase4-external-v12-20260423-1930",
+  "issue_id": "prettier__prettier-18974",
+  "slug": "prettier/prettier",
+  "number": 18974,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "defer",
+  "judge_score": 0.74,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.55,
+  "rubric_reasoning": "The maintainer added 'help wanted' (strong reward) and there is no active PR or explicit block. However, the same maintainer expressed a strong personal thumbs-down for the feature and flagged two concrete implementation gaps \u2014 no AST comment info and a required option to scope it to Angular-only. These unresolved technical prerequisites mean a naive PR would likely be rejected or require significant back-and-forth, making this a defer rather than a pass.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 3,
+  "rubric_evidence": [
+    {
+      "signal": "help_wanted_label",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "labels include 'help wanted', 'lang:angular'",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "maintainer_skepticism",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Big \ud83d\udc4e for this feature, but not our decision to make.",
+      "comment_author": "fisker",
+      "at": "2026-04-10T15:52:36Z"
+    },
+    {
+      "signal": "unresolved_prerequisites",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "there is no information about comments in the AST. our fork need implement an option to make sure it's only supported in `angular` parser, not other parsers `html`, `vue` etc.",
+      "comment_author": "fisker",
+      "at": "2026-04-10T15:52:36Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 2,
+    "sub_issues_count": 0,
+    "timeline_events": 3,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 19.9,
+  "agreement": "agree_defer"
+}

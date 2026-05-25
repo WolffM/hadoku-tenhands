@@ -1,0 +1,65 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14",
+  "issue_id": "mpv-player__mpv-11203",
+  "slug": "mpv-player/mpv",
+  "number": 11203,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.7,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.45,
+  "rubric_reasoning": "No blocking signals in either direction. The single maintainer engaged but only offered workarounds, never acking a fix direction or saying 'PR welcome'. The issue is a legitimate feature request with community interest, but maintainer stance is neutral-to-cold \u2014 three comments from Dudemanguy, all deflecting toward workarounds rather than endorsing implementation. No labels opening it to external contributors, no active linked PRs.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 5,
+  "rubric_evidence": [
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Yeah there's not currently a way to pick a msg-level at specific log levels.",
+      "comment_author": "Dudemanguy",
+      "at": "2023-01-24T17:14:04Z"
+    },
+    {
+      "signal": "maintainer_skepticism",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Just lower the log level in the script before saving state and the restore it to the old value afterwards.",
+      "comment_author": "Dudemanguy",
+      "at": "2024-09-27T02:29:00Z"
+    },
+    {
+      "signal": "reporter_abandonment",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "It's a shame that no one cares to do anything about this.",
+      "comment_author": "bpsib",
+      "at": "2023-10-09T09:36:01Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "An example is the annoying Audio/Video desynchronisation detected warning message... One of the others is the audio device underrun message.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "small_well_bounded_surface",
+      "severity": "weak",
+      "direction": "reward",
+      "quote": "The ability to suppress terminal message using wildcard matches. E.g. `--msg-level=\"*Audio/Video desynchronisation*=no\"`",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 8,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 26.4,
+  "agreement": "softer_defer"
+}

@@ -1,0 +1,57 @@
+{
+  "batch": "phase4-external-v15-20260425-1850",
+  "issue_id": "shadcn-ui__ui-7333",
+  "slug": "shadcn-ui/ui",
+  "number": 7333,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.86,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.45,
+  "rubric_reasoning": "Zero maintainer engagement across 10 comments spanning a year \u2014 no ack, no block, no direction. The bug is specific and reproducible (pinned to transform-import.ts:56-60 by a commenter), which is a strong reward, but the complete absence of maintainer signal means there's no evidence a PR would be received. Prefer defer over fail given the clear repro and no blocking penalties.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 4,
+  "rubric_evidence": [
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "This only replaces @/ with ~/ [pointing to packages/shadcn/src/utils/transformers/transform-import.ts#L56-L60]",
+      "comment_author": "snelusha",
+      "at": "2025-05-06T23:51:44Z"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "commenterMix.maintainers: 0 \u2014 no maintainer has commented across 10 comments over ~1 year",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "reporter_abandonment",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Most recent comment (2026-05-04) is from a new reporter confirming the bug, not the original reporter engaging with maintainer feedback",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "maintainer_skepticism",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "This has been an issue for at least a year now \u2014 no maintainer response despite sustained community reports",
+      "comment_author": "SoulEvans07",
+      "at": "2025-08-26T10:33:21Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 10,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 18.2,
+  "agreement": "agree_defer"
+}

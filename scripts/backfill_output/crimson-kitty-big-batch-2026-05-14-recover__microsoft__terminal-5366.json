@@ -1,0 +1,70 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14-recover",
+  "issue_id": "microsoft__terminal-5366",
+  "slug": "microsoft/terminal",
+  "number": 5366,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.73,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "The signal summary flags `active_linked_pr` with two linked PRs against this issue, meaning active work is already in progress. A new PR from an external agent would collide with existing in-flight work. This alone is a blocking penalty that triggers fail.",
+  "rubric_flags_computed": [
+    "active_linked_pr"
+  ],
+  "rubric_evidence_count": 5,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "linkedPrUrls contains https://github.com/microsoft/terminal/pull/7883 and https://github.com/microsoft/terminal/pull/7896 with flag active_linked_pr",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "maintainer_acked_fix",
+      "severity": "blocking",
+      "direction": "reward",
+      "quote": "Pretty sure this is due to the `IsInputKey` function. It needs to be swapped to a whitelist, or we need to add the volume vkey. Tagged it up for 1.26, because it's probably easy to fix.",
+      "comment_author": "lhecker",
+      "at": "2025-11-25T15:17:37Z"
+    },
+    {
+      "signal": "good_first_issue_label",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "labels include 'Help Wanted'",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "Open any terminal tab and run anything to fill up the screen (e.g. run `ls` 5 times). Scroll up until the text input area is off the page. Press any non-typing character that isn't a modifier (tested with 'calculator' key, play/pause, and volume control keys)",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Most recent maintainer comment referencing a fix direction was 2025-11-25, with no activity since; original report from 2020.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 5,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": [
+      "https://github.com/microsoft/terminal/pull/7883",
+      "https://github.com/microsoft/terminal/pull/7896"
+    ]
+  },
+  "elapsed_s": 19.4,
+  "agreement": "agree_fail"
+}

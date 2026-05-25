@@ -1,0 +1,57 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14",
+  "issue_id": "obsidian-tasks-group__obsidian-tasks-1016",
+  "slug": "obsidian-tasks-group/obsidian-tasks",
+  "number": 1016,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.83,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "The maintainer explicitly stated in the original 2022 response that 'we are unlikely to be able to fix it' because the root cause lives in Obsidian itself, not the Tasks plugin. The label 'type: third-party change needed' codifies this: the fix requires Obsidian to implement undo in reading mode, which is outside the plugin's control. The most recent maintainer activity (2026-04-20) focused on workarounds rather than any indication a PR would be accepted.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 4,
+  "rubric_evidence": [
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "But whilst the behaviour is the same as Obsidian, we are unlikely to be able to fix it.",
+      "comment_author": "claremacrae",
+      "at": "2022-08-13T08:45:46Z"
+    },
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "label: type: third-party change needed \u2014 maintainer has categorized this as requiring an upstream fix outside this repo",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Original bug report from 2022; maintainer's assessment of unfixability unchanged through 2026-04-20 discussion",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "maintainer_workaround_pivot",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "It's now trivially easy to find the most recently edited note(s) in a vault, by creating an Obsidian base file... [shares workaround instead of fix path]",
+      "comment_author": "claremacrae",
+      "at": "2026-04-20T09:45:41Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 17,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 23.4,
+  "agreement": "agree_fail"
+}

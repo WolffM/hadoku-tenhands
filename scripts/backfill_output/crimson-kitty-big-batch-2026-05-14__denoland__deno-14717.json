@@ -1,0 +1,45 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14",
+  "issue_id": "denoland__deno-14717",
+  "slug": "denoland/deno",
+  "number": 14717,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.96,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "There is an active linked PR already open against this issue (active_linked_pr flag, linkedPrUrls contains one PR), which is a blocking penalty \u2014 dispatching would collide with in-flight work. The maintainer's comment '@fibibot pick this up' confirms this is already assigned to an active contributor.",
+  "rubric_flags_computed": [
+    "active_linked_pr"
+  ],
+  "rubric_evidence_count": 2,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "linkedPrUrls: [\"https://github.com/denoland/deno/pull/34071\"]",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "explicit_maintainer_block",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "@fibibot pick this up",
+      "comment_author": "bartlomieju",
+      "at": "2026-05-14T16:01:29Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 3,
+    "sub_issues_count": 0,
+    "timeline_events": 2,
+    "linked_pr_urls": [
+      "https://github.com/denoland/deno/pull/34071"
+    ]
+  },
+  "elapsed_s": 17.8,
+  "agreement": "agree_fail"
+}

@@ -1,0 +1,65 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14",
+  "issue_id": "vitest-dev__vitest-8107",
+  "slug": "vitest-dev/vitest",
+  "number": 8107,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.7,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.5,
+  "rubric_reasoning": "Maintainers have engaged constructively but the scope is not fully resolved: there is active debate between community members and one maintainer comment about whether to support both Temporal.Instant and ZonedDateTime, with a timezone-mocking concern (fabon-f, Dec 2025) left unaddressed by maintainers. The label 'pending triage' confirms no maintainer has cleared a specific implementation path. No blocking signals fire, but the unresolved design question (Instant-only vs. also ZonedDateTime) and pending-triage label mean a PR could be rejected on scope grounds.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 5,
+  "rubric_evidence": [
+    {
+      "signal": "active_design_debate",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "The remaining open question is ZonedDateTime. fabon-f's December concern about timezone not being mocked hasn't been addressed yet. Worth implementing Temporal.Instant now and leaving ZonedDateTime as a follow-up, or does this need more triage first?",
+      "comment_author": "bwyard",
+      "at": "2026-03-31T10:23:42Z"
+    },
+    {
+      "signal": "maintainer_skepticism",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Since `setSystemTime` doesn't manipulate system time zone, wall-clock time of passed `Temporal.ZonedDateTime` will be ignored. I'm worried that this is a confusing behavior",
+      "comment_author": "fabon-f",
+      "at": "2025-12-12T04:39:02Z"
+    },
+    {
+      "signal": "pending_triage_label",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "labels: 'p2-to-be-discussed', 'enhancement: pending triage'",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "active_recent_maintainer_engagement",
+      "severity": "weak",
+      "direction": "reward",
+      "quote": "It looks like we could only extend to `number | Date | Temporal.Instant`, so don't have to deal with `Temporal.PlainDateTime` which is inherently ambiguous.",
+      "comment_author": "hi-ogawa",
+      "at": "2025-06-09T23:28:38Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "vi.setSystemTime only accepting `number | Date` \u2014 with a concrete workaround and specific API path described",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 8,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 25.3,
+  "agreement": "softer_defer"
+}

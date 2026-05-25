@@ -1,0 +1,65 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14",
+  "issue_id": "colinhacks__zod-1403",
+  "slug": "colinhacks/zod",
+  "number": 1403,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.74,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.25,
+  "rubric_reasoning": "The OWNER maintainer (colinhacks) explicitly stated they are not convinced the feature is worth the complexity increase, which constitutes maintainer skepticism at the boundary of a soft block. The COLLABORATOR maintainer (scotttrinh) redirected users to workarounds rather than expressing openness to a PR. Neither maintainer has acknowledged the fix direction or issued a 'PR welcome' signal in over 3 years of community pressure. With only a 'stale' label, no linked PRs, no sub-issues, and no recent maintainer engagement, this is a feature request where a clean PR has no credible path to merge.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 5,
+  "rubric_evidence": [
+    {
+      "signal": "maintainer_skepticism",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Some sort of `abortEarly` mode is certainly possible but I'm not convinced that it's worth the increase in complexity - it's not a very common use case.",
+      "comment_author": "colinhacks",
+      "at": "2022-09-12T07:21:25Z"
+    },
+    {
+      "signal": "maintainer_redirected_to_workaround",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "If you need to control the parallelism of your validation logic, I would building up some composable `superRefine`-style functions and sticking with those.",
+      "comment_author": "scotttrinh",
+      "at": "2023-06-01T13:12:21Z"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Most recent maintainer comment is from 2023-06-01 \u2014 over 3 years ago with no maintainer response to continued community pressure since.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "stale_label",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "labels: ['stale']",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "no_linked_prs",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "linkedPrUrls: [] \u2014 no existing PR attempts despite years of demand",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 59,
+    "sub_issues_count": 0,
+    "timeline_events": 0,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 24.6,
+  "agreement": "agree_fail"
+}

@@ -1,0 +1,65 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14",
+  "issue_id": "jellyfin__jellyfin-15342",
+  "slug": "jellyfin/jellyfin",
+  "number": 15342,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.625,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.5,
+  "rubric_reasoning": "The sole maintainer comment explains that the prior SimilarTo logic was removed during an EF Core refactor and the current implementation is a 'temporary solution' \u2014 this signals the area is in active architectural transition, making a targeted fix against the current state likely to be rebased or superseded. No maintainer has acked a fix direction or issued a PR welcome, and the issue has gone stale (120+ days without maintainer engagement after the one explanatory comment). The stale label was removed by the same maintainer who cross-referenced the issue twice, suggesting awareness but no concrete action or invitation.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 5,
+  "rubric_evidence": [
+    {
+      "signal": "active_refactor_in_progress",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "During the EF Core refactor, the prior SimilarTo logic was removed. As a temporary solution, the 'more like this' feature uses just genres and tags for matching.",
+      "comment_author": "theguymadmax",
+      "at": "2025-12-02T20:32:53Z"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "This issue has gone 120 days without an update and will be closed within 21 days if there is no new activity.",
+      "comment_author": "jellyfin-bot",
+      "at": "2026-04-02T02:18:35Z"
+    },
+    {
+      "signal": "no_maintainer_ack_or_pr_welcome",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Maintainer provided context but made no statement inviting a PR or acking a fix direction.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "1. Upgrade to Jellyfin 10.11.0 or 10.11.1 from 10.10.7\n2. Navigate to any movie or TV show detail page\n3. Scroll down to the 'More Like This' section\n4. Observe the recommended items",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "vague_fix_direction",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Add a configuration option to disable random sorting in GetSimilarItems, or modify the algorithm to maintain similarity-based ordering while only randomizing among items of equal similarity scores. Or maybe randomizing the first 20 - 30 items... Or maybe only randomize the trailing 6 - 10 items",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 5,
+    "sub_issues_count": 0,
+    "timeline_events": 4,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 27.9,
+  "agreement": "softer_defer"
+}

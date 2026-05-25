@@ -1,0 +1,57 @@
+{
+  "batch": "crimson-kitty-big-batch-2026-05-14-msft-v2",
+  "issue_id": "microsoft__pyright-11408",
+  "slug": "microsoft/pyright",
+  "number": 11408,
+  "outcome_state": "aborted_by_operator",
+  "judge_verdict": "defer",
+  "judge_score": 0.7,
+  "operator_override": null,
+  "rubric_verdict": "defer",
+  "rubric_score": 0.55,
+  "rubric_reasoning": "The maintainer (rchiodo, MEMBER) asked a single clarifying question and received an answer, but never followed up with a fix direction, PR welcome, or any ack of the approach. The bug is well-reproduced with a specific trace and version regression (1.1.399+), which is a strong reward. However, the maintainer has gone silent since their one question on 2026-04-28, and the thread is entirely user-pile-on with no maintainer engagement in the last 26 days \u2014 leaving no clear signal that a PR would be welcomed or merged without a maintainer first triaging the root cause.",
+  "rubric_flags_computed": [],
+  "rubric_evidence_count": 4,
+  "rubric_evidence": [
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "it does look like Pyright is sending a '$/progress' notification with an empty title on every keystroke... { 'value': { 'kind': 'begin', 'title': '' } }",
+      "comment_author": "plonky",
+      "at": "2026-04-28T19:48:38Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "this bug first occurred in pyright 1.1.399",
+      "comment_author": "Fidelxyz",
+      "at": "2026-05-02T02:47:20Z"
+    },
+    {
+      "signal": "stale_conversation",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "Maintainer's only comment was a clarifying question on 2026-04-28; no follow-up engagement in 26 days despite user responses",
+      "comment_author": "rchiodo",
+      "at": "2026-04-28T16:19:00Z"
+    },
+    {
+      "signal": "maintainer_skepticism",
+      "severity": "weak",
+      "direction": "penalty",
+      "quote": "What's the progress message? (single unanswered follow-up \u2014 maintainer asked but did not ack a fix direction after receiving the answer)",
+      "comment_author": "rchiodo",
+      "at": "2026-04-28T16:19:00Z"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 6,
+    "sub_issues_count": 0,
+    "timeline_events": 1,
+    "linked_pr_urls": []
+  },
+  "elapsed_s": 31.7,
+  "agreement": "softer_defer"
+}

@@ -1,0 +1,62 @@
+{
+  "batch": "synth-test-pulumi-2026-05-09",
+  "issue_id": "pulumi__pulumi-22713",
+  "slug": "pulumi/pulumi",
+  "number": 22713,
+  "outcome_state": "not_submitted",
+  "judge_verdict": "pass",
+  "judge_score": 0.93,
+  "operator_override": null,
+  "rubric_verdict": "fail",
+  "rubric_score": 0.1,
+  "rubric_reasoning": "There are two active linked PRs against this issue (active_linked_pr flag confirmed), which is a blocking penalty \u2014 colliding with in-flight work. Additionally, the sole maintainer comment frames this as 'a fairly substantial lift' requiring cross-SDK design work across Go, Python, .NET, and Java, signaling the fix scope is far larger than a single PR can address.",
+  "rubric_flags_computed": [
+    "active_linked_pr"
+  ],
+  "rubric_evidence_count": 4,
+  "rubric_evidence": [
+    {
+      "signal": "active_linked_pr",
+      "severity": "blocking",
+      "direction": "penalty",
+      "quote": "linkedPrUrls: ['https://github.com/pulumi/pulumi-kubernetes/pull/4306', 'https://github.com/pulumi/pulumi/pull/23306']",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    },
+    {
+      "signal": "maintainer_scope_expansion",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "If providers are depending on explicit null values separate from unset values we're going to have to find a way to express that in each SDK. [...] I think this is gonna be a fairly substantial lift to fix.",
+      "comment_author": "Frassle",
+      "at": "2026-05-21T09:24:02Z"
+    },
+    {
+      "signal": "active_design_debate",
+      "severity": "strong",
+      "direction": "penalty",
+      "quote": "I had asserted [...] that unset should be treated the same as null because none of our SDKs (bar TS) really support this concept of three valued optionals [...] This also leads to an inconsistency on inputs vs outputs.",
+      "comment_author": "Frassle",
+      "at": "2026-05-21T09:24:02Z"
+    },
+    {
+      "signal": "specific_repro",
+      "severity": "strong",
+      "direction": "reward",
+      "quote": "Wire capture shows Go programs like `pulumi.StringMap{\"temporary\": nil}` arrive at the engine as `\"temporary\"` absent from the map entirely, so the provider's preserved-null code path never engages.",
+      "comment_author": "issue_body",
+      "at": "issue_body"
+    }
+  ],
+  "fetched_signals": {
+    "comments": 1,
+    "sub_issues_count": 0,
+    "timeline_events": 9,
+    "linked_pr_urls": [
+      "https://github.com/pulumi/pulumi-kubernetes/pull/4306",
+      "https://github.com/pulumi/pulumi/pull/23306"
+    ]
+  },
+  "elapsed_s": 17.6,
+  "agreement": "agree_fail"
+}
