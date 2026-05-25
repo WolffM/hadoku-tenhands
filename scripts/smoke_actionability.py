@@ -113,6 +113,51 @@ def _gh(args: list[str], saml_org: bool = False) -> dict | list | None:
         return None
 
 
+def _gh_paginated(endpoint: str, saml_org: bool = False, max_pages: int = 10) -> list:
+    """Fetch a paginated GitHub list endpoint and concatenate all pages.
+
+    Used for /comments and /timeline where issues can have > 100 entries
+    and a single `?per_page=100` fetch silently truncates. Manually walks
+    pages until a short response (< 100) or `max_pages` is hit. We could
+    use `gh api --paginate` but its output format (concatenated JSON arrays
+    separated by newlines) is awkward to parse — manual pagination keeps
+    the response as a single Python list.
+
+    Returns an empty list on first-page failure rather than None so callers
+    don't need to special-case (truncation is bad but missing pagination
+    headers is worse — fail loudly via the empty list)."""
+    env = os.environ.copy()
+    if saml_org:
+        global _MSFT_TOKEN
+        if _MSFT_TOKEN is None:
+            _MSFT_TOKEN = _fetch_msft_sso()
+        if _MSFT_TOKEN:
+            env["GH_TOKEN"] = _MSFT_TOKEN
+
+    per_page = 100
+    base = endpoint
+    sep = "&" if "?" in base else "?"
+    out: list = []
+    for page in range(1, max_pages + 1):
+        url = f"{base}{sep}per_page={per_page}&page={page}"
+        r = subprocess.run(
+            ["gh", "api", url], capture_output=True, text=True, timeout=30, env=env,
+        )
+        if r.returncode != 0:
+            print(f"  ! gh paginated page {page} failed: {r.stderr[:120]}", file=sys.stderr)
+            break
+        try:
+            chunk = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(chunk, list):
+            break
+        out.extend(chunk)
+        if len(chunk) < per_page:
+            break
+    return out
+
+
 def _author_is_maintainer(association: str) -> bool:
     """OWNER / MEMBER / COLLABORATOR / MAINTAINER → maintainer.
     CONTRIBUTOR / FIRST_TIME_CONTRIBUTOR / FIRST_TIMER / NONE → not."""
@@ -144,8 +189,10 @@ def fetch_issue_data(slug: str, number: int) -> dict:
         out["errors"].append("issue fetch failed")
         return out
 
-    # Comments
-    comments = _gh([f"repos/{slug}/issues/{number}/comments?per_page=100"], saml_org=saml) or []
+    # Comments — paginated so we don't silently truncate on large threads
+    # (facebook/react#17355 has 131 comments; per_page=100 single-fetch
+    # missed the last 31 and shifted the rubric verdict).
+    comments = _gh_paginated(f"repos/{slug}/issues/{number}/comments", saml_org=saml)
     out["comments"] = [
         {
             "author": c.get("user", {}).get("login", ""),
@@ -158,8 +205,8 @@ def fetch_issue_data(slug: str, number: int) -> dict:
         for c in comments if isinstance(c, dict)
     ]
 
-    # Timeline events (filter to recent 180d, exclude noise)
-    timeline = _gh([f"repos/{slug}/issues/{number}/timeline?per_page=100"], saml_org=saml) or []
+    # Timeline events (filter to recent 180d, exclude noise) — paginated
+    timeline = _gh_paginated(f"repos/{slug}/issues/{number}/timeline", saml_org=saml)
     cutoff = datetime.now(timezone.utc) - timedelta(days=180)
     events = []
     for ev in timeline:
@@ -283,11 +330,17 @@ def build_payload(data: dict, flags: list[str]) -> str:
     if not data.get("comments"):
         parts.append("_(no comments)_")
     else:
-        for c in data["comments"][:40]:  # cap to keep payload bounded
+        # Show ALL comments now that fetch is paginated. Per-body truncated
+        # to 800 chars so large threads (131-comment facebook/react#17355)
+        # stay well inside the Sonnet context window. Previously this was
+        # capped at 40 comments × 1500 chars — when combined with the 100-
+        # comment fetch cap, a 131-comment issue lost both ends of its
+        # thread (31 missed in fetch + only first 40 in payload).
+        for c in data["comments"]:
             kind = "[BOT]" if c["is_bot"] else ("[MAINTAINER]" if c["is_maintainer"] else "[user]")
             parts.append(f"### {c['author']} {kind} — {c['at']} (assoc: {c['association']})")
             parts.append("")
-            parts.append(c["body"][:1500])
+            parts.append(c["body"][:800])
             parts.append("")
     parts.extend([
         "",
