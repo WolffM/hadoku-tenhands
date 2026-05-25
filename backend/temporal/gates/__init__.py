@@ -16,6 +16,7 @@ bug→gate mapping from the jade-hare retro.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
 # ── Types ─────────────────────────────────────────────────────────────────
@@ -98,6 +99,14 @@ def run_gates(state: str, issue: IssueRef, evidence: Any) -> list[GateResult]:
 
     The orchestrator interprets the results: any `fail` aborts the
     workflow, any `defer` queues for the operator inbox.
+
+    Phase 0 / M0(c) — uniform gate-decision telemetry. Every gate result
+    is mirrored to `gate_decisions/<gate_name>.json` under the issue's
+    state root so funnel analysis ("which gate is filtering most issues,
+    with what reasoning?") is a one-line read per gate instead of a
+    walk across gates.jsonl + transitions.jsonl + ad-hoc judge files.
+    `submission_judge.json` and other gate-specific richer files still
+    persist alongside — this one is the uniform-shape index.
     """
     results: list[GateResult] = []
     for after, kind, name, fn in _registry:
@@ -106,21 +115,53 @@ def run_gates(state: str, issue: IssueRef, evidence: Any) -> list[GateResult]:
         try:
             res = fn(issue, evidence)
         except Exception as e:
-            results.append(GateResult(
+            crashed = GateResult(
                 name=name, verdict="defer", kind=kind,
                 reason=f"system:gate_crashed: {type(e).__name__}: {e}",
-            ))
+            )
+            results.append(crashed)
+            _write_gate_decision(evidence, crashed)
             continue
         # Stamp the registered name + kind onto whatever the gate returned.
-        results.append(GateResult(
+        result = GateResult(
             name=name,
             verdict=res.verdict,
             reason=res.reason,
             evidence_data=res.evidence_data,
             score=res.score,
             kind=kind,
-        ))
+        )
+        results.append(result)
+        _write_gate_decision(evidence, result)
     return results
+
+
+def _write_gate_decision(evidence: Any, result: GateResult) -> None:
+    """Persist a gate decision in uniform shape under
+    `gate_decisions/<gate_name>.json`.
+
+    Failures are swallowed — telemetry should never block a workflow.
+    Evidence stores in tests may be substituted with stubs that lack
+    `write_json`; in that case the decision just isn't mirrored and
+    the gate result still propagates correctly via the return list."""
+    write_json = getattr(evidence, "write_json", None)
+    if write_json is None:
+        return
+    payload = {
+        "name": result.name,
+        "verdict": result.verdict,
+        "kind": result.kind,
+        "reason": result.reason,
+        "score": result.score,
+        "evidence_data": result.evidence_data,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        write_json(f"gate_decisions/{result.name}.json", payload)
+    except Exception:
+        # Telemetry must never block. Swallow so an evidence-store hiccup
+        # doesn't take down the gate runner.
+        pass
 
 
 def registry_snapshot() -> list[tuple[str, GateKind, str]]:
