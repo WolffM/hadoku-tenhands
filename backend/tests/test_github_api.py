@@ -5,7 +5,12 @@ from unittest.mock import patch, call
 
 import pytest
 
-from services.github_api import get_repo_issues, get_repo_prs
+from services.github_api import (
+    get_repo_issues,
+    get_repo_prs,
+    get_authenticated_user,
+    invalidate_authenticated_user_cache,
+)
 
 
 class TestGetRepoIssues:
@@ -185,3 +190,90 @@ class TestGetRepoPRs:
         args = mock_gh.call_args[0][0]
         jq_expr = " ".join(args)
         assert "reviewDecision: null" in jq_expr
+
+
+class TestGetAuthenticatedUserCache:
+    """Tests for get_authenticated_user — caches login to avoid re-shelling
+    out on every route call. The 2026-05-24 incident showed prod's gh CLI
+    can hang 30s on the auth probe; route handlers shouldn't re-pay that
+    cost when the username is stable for the life of the token."""
+
+    def setup_method(self):
+        invalidate_authenticated_user_cache()
+
+    @patch("services.github_api.run_gh_command")
+    def test_caches_successful_lookup(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": "alice\n"}
+
+        assert get_authenticated_user() == "alice"
+        assert get_authenticated_user() == "alice"
+        assert get_authenticated_user() == "alice"
+
+        # Single shell-out across three calls.
+        assert mock_gh.call_count == 1
+
+    @patch("services.github_api.run_gh_command")
+    def test_caches_failure_briefly_to_avoid_hammering_broken_path(self, mock_gh):
+        """When gh times out, return 'unknown' but cache it for the failure
+        TTL so a downstream burst of route hits doesn't re-trigger 30s
+        hangs in a tight loop."""
+        mock_gh.return_value = {"success": False, "error": "Command timed out after 30s"}
+
+        assert get_authenticated_user() == "unknown"
+        assert get_authenticated_user() == "unknown"
+        assert mock_gh.call_count == 1
+
+    @patch("services.github_api.run_gh_command")
+    def test_invalidate_forces_reprobe(self, mock_gh):
+        mock_gh.return_value = {"success": True, "output": "alice\n"}
+        assert get_authenticated_user() == "alice"
+        invalidate_authenticated_user_cache()
+        assert get_authenticated_user() == "alice"
+        assert mock_gh.call_count == 2
+
+    @patch("services.github_api.time")
+    @patch("services.github_api.run_gh_command")
+    def test_success_ttl_expires_after_one_hour(self, mock_gh, mock_time):
+        mock_gh.return_value = {"success": True, "output": "alice\n"}
+        mock_time.monotonic.return_value = 0.0
+        assert get_authenticated_user() == "alice"
+
+        # 59 minutes later — still cached
+        mock_time.monotonic.return_value = 59 * 60.0
+        assert get_authenticated_user() == "alice"
+        assert mock_gh.call_count == 1
+
+        # 61 minutes later — re-probes
+        mock_time.monotonic.return_value = 61 * 60.0
+        assert get_authenticated_user() == "alice"
+        assert mock_gh.call_count == 2
+
+    @patch("services.github_api.time")
+    @patch("services.github_api.run_gh_command")
+    def test_failure_ttl_expires_after_one_minute(self, mock_gh, mock_time):
+        mock_gh.return_value = {"success": False, "error": "timeout"}
+        mock_time.monotonic.return_value = 0.0
+        assert get_authenticated_user() == "unknown"
+
+        # 30s later — still cached
+        mock_time.monotonic.return_value = 30.0
+        assert get_authenticated_user() == "unknown"
+        assert mock_gh.call_count == 1
+
+        # 70s later — re-probes
+        mock_time.monotonic.return_value = 70.0
+        assert get_authenticated_user() == "unknown"
+        assert mock_gh.call_count == 2
+
+    @patch("services.github_api.run_gh_command")
+    def test_failure_then_success_swaps_in_real_user(self, mock_gh):
+        """Real recovery path: prod hangs briefly, then re-auths cleanly.
+        After failure cache expires, the cached 'unknown' must give way
+        to the actual login on the next successful probe."""
+        invalidate_authenticated_user_cache()
+        mock_gh.return_value = {"success": False, "error": "timeout"}
+        assert get_authenticated_user() == "unknown"
+
+        invalidate_authenticated_user_cache()
+        mock_gh.return_value = {"success": True, "output": "alice\n"}
+        assert get_authenticated_user() == "alice"
