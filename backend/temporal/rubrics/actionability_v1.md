@@ -106,6 +106,18 @@ For each signal you find — penalty OR reward — add an entry to the
   STRONG signal, not weak, even when softened. (Distinct from blocking
   `explicit_maintainer_block` which requires an action verb like "wait"
   or "block on X".)
+- **Unresolved debugging thread**: the comment thread is dominated by
+  users posting competing *theories or attempted fixes without
+  convergence on a root cause* — multiple "did you try…" exchanges,
+  trace dumps, version-pinning attempts that didn't help, no maintainer
+  ack of a confirmed fix direction, bug remains open. This is the
+  *opposite shape* from `multi_reporter_open_bug` (rewards below):
+  rewards fire when comments are mostly "+1 me too" confirmations of a
+  clear bug shape; THIS penalty fires when comments are unsuccessful
+  debugging attempts. Same number of commenters, different signal
+  quality — the rubric must distinguish "many users confirming a known
+  bug" (actionable) from "many users still trying to figure out what's
+  wrong" (not yet actionable).
 
 ### `weak` — contributes to score, never alone triggers fail
 
@@ -132,11 +144,17 @@ These EARN points back rather than subtracting:
 - **`good first issue` / `help wanted` label** (strong reward): the
   maintainer has explicitly opened this to external contributors
 - **Multi-reporter open bug** (strong reward): **2+ distinct non-bot
-  users** have confirmed the bug in comments AND a maintainer has touched
-  the issue (commented or labeled) without blocking AND the issue is
-  still open. This means the bug is real, the maintainer knows about it,
-  and they've chosen NOT to close it — a strong implicit signal of
-  willingness to accept a fix even without an explicit "PR welcome."
+  users** have *confirmed the same bug shape* in comments (e.g. "yes
+  same here", "still broken on v2.5", "+1, reproducing on macOS too")
+  AND a maintainer has touched the issue (commented or labeled) without
+  blocking AND the issue is still open. This means the bug is real, the
+  maintainer knows about it, and they've chosen NOT to close it — a
+  strong implicit signal of willingness to accept a fix even without an
+  explicit "PR welcome." **Read the comments carefully — multi-reporter
+  REWARD requires confirmations, not debugging.** If the comments are
+  competing theories / failed fix attempts / "did you try…" exchanges
+  without convergence, that's the `unresolved_debugging_thread` strong
+  penalty above, NOT this reward.
 - **Active recent maintainer engagement** (weak reward): a maintainer
   commented within the last 30 days in a constructive way (asking
   clarifying questions, suggesting approach)
