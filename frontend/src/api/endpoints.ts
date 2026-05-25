@@ -41,6 +41,7 @@ import type {
   TemporalDispatchIssueInput,
   TemporalDispatchResult,
   TemporalSignalDecision,
+  TemporalReasonCode,
   TemporalSignalResult
 } from './types'
 
@@ -563,12 +564,20 @@ export async function dispatchTemporalBatch(
 
 export async function sendTemporalSignal(
   workflowId: string,
-  decision: TemporalSignalDecision
+  decision: TemporalSignalDecision,
+  options?: {
+    reasonCode?: TemporalReasonCode | null
+    reasonText?: string
+  }
 ): Promise<TemporalSignalResult> {
   return unwrap(
     await apiClient.post<TemporalEnvelope<TemporalSignalResult>>(
       `/api/temporal/issue/${encodeURIComponent(workflowId)}/signal`,
-      { decision }
+      {
+        decision,
+        reason_code: options?.reasonCode ?? null,
+        reason_text: options?.reasonText ?? ''
+      }
     )
   )
 }

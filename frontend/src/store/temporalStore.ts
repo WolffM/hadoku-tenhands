@@ -22,7 +22,8 @@ import type {
   TemporalBatchDetail,
   TemporalIssueDetail,
   TemporalInboxItem,
-  TemporalSignalDecision
+  TemporalSignalDecision,
+  TemporalReasonCode
 } from '../api/types'
 import { getErrorMessage } from '../utils'
 
@@ -60,7 +61,11 @@ export interface TemporalState {
   loadBatch: (batchId: string) => Promise<void>
   loadIssue: (batchId: string, issueId: string) => Promise<void>
   loadInbox: () => Promise<void>
-  sendSignal: (workflowId: string, decision: TemporalSignalDecision) => Promise<void>
+  sendSignal: (
+    workflowId: string,
+    decision: TemporalSignalDecision,
+    options?: { reasonCode?: TemporalReasonCode | null; reasonText?: string }
+  ) => Promise<void>
   selectBatch: (batchId: string | null) => void
   selectIssue: (issueId: string | null) => void
 }
@@ -128,8 +133,12 @@ export const useTemporalStore = create<TemporalState>((set, get) => ({
     }
   },
 
-  sendSignal: async (workflowId: string, decision: TemporalSignalDecision) => {
-    await sendTemporalSignal(workflowId, decision)
+  sendSignal: async (
+    workflowId: string,
+    decision: TemporalSignalDecision,
+    options?: { reasonCode?: TemporalReasonCode | null; reasonText?: string }
+  ) => {
+    await sendTemporalSignal(workflowId, decision, options)
     // Optimistically remove any inbox entry whose workflow_id matches.
     set(s => ({
       inbox: {
