@@ -521,3 +521,149 @@ def test_signal_calls_temporal_client(client, monkeypatch):
     body = resp.get_json()
     assert body["success"] is True
     assert captured == {"workflow_id": "issue-183", "decision": "approve"}
+
+
+# ── M0.2: structured override-reason capture ──────────────────────────────
+
+
+def _seed_inbox_for_signal(state_root: Path, batch_id: str, issue_id: str):
+    """Seed a deferred issue dir so _find_issue_dir_for_workflow resolves."""
+    issue_dir = state_root / batch_id / issue_id
+    (issue_dir / "awaiting").mkdir(parents=True, exist_ok=True)
+    (issue_dir / "awaiting" / "inbox_entry.json").write_text("{}")
+
+
+def test_signal_rejects_invalid_reason_code(client, monkeypatch):
+    """reason_code must be in the vocab for the chosen decision."""
+    import routes.temporal_routes as tr
+    monkeypatch.setattr(tr, "_send_signal", lambda *a, **kw: None)
+
+    resp = client.post(
+        "/dispatch/api/temporal/issue/wf-1/signal",
+        data=json.dumps({"decision": "approve", "reason_code": "abort_quality"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 400
+    assert "reason_code" in resp.get_json()["error"]
+
+
+def test_signal_rejects_abort_other_without_reason_text(client, monkeypatch):
+    """abort_other is the escape hatch and MUST carry free-text rationale."""
+    import routes.temporal_routes as tr
+    monkeypatch.setattr(tr, "_send_signal", lambda *a, **kw: None)
+
+    resp = client.post(
+        "/dispatch/api/temporal/issue/wf-1/signal",
+        data=json.dumps({"decision": "abort", "reason_code": "abort_other"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 400
+    assert "reason_text" in resp.get_json()["error"]
+
+
+def test_signal_legacy_payload_without_reason_code_still_works(
+    client, monkeypatch, state_root,
+):
+    """Backward compat: a payload missing reason_code persists with
+    reason_code=null and still sends the Temporal signal. Rollout-period
+    behavior — frontend may not yet send structured reasons."""
+    state_root.mkdir(parents=True, exist_ok=True)
+    _seed_inbox_for_signal(state_root, "b1", "owner__repo-7")
+
+    async def fake_send(workflow_id, decision):
+        pass
+
+    import routes.temporal_routes as tr
+    monkeypatch.setattr(tr, "_send_signal", fake_send)
+
+    resp = client.post(
+        "/dispatch/api/temporal/issue/b1-owner__repo-7/signal",
+        data=json.dumps({"decision": "abort"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()["data"]
+    assert body["decision"] == "abort"
+    assert body["reason_code"] is None
+    # Persisted record exists with null reason_code
+    record = json.loads(
+        (state_root / "b1" / "owner__repo-7" / "awaiting" / "override_decision.json").read_text()
+    )
+    assert record["decision"] == "abort"
+    assert record["reason_code"] is None
+    assert record["at"]  # timestamp present
+
+
+def test_signal_persists_structured_override(client, monkeypatch, state_root):
+    """Happy path: structured payload → record persisted, signal sent."""
+    state_root.mkdir(parents=True, exist_ok=True)
+    _seed_inbox_for_signal(state_root, "b1", "owner__repo-7")
+
+    async def fake_send(workflow_id, decision):
+        pass
+
+    import routes.temporal_routes as tr
+    monkeypatch.setattr(tr, "_send_signal", fake_send)
+
+    resp = client.post(
+        "/dispatch/api/temporal/issue/b1-owner__repo-7/signal",
+        data=json.dumps({
+            "decision": "abort",
+            "reason_code": "abort_scope_mismatch",
+            "reason_text": "issue is now an epic with 10 sub-issues",
+        }),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    record = json.loads(
+        (state_root / "b1" / "owner__repo-7" / "awaiting" / "override_decision.json").read_text()
+    )
+    assert record["decision"] == "abort"
+    assert record["reason_code"] == "abort_scope_mismatch"
+    assert record["reason_text"] == "issue is now an epic with 10 sub-issues"
+
+
+def test_signal_works_when_issue_dir_not_found(client, monkeypatch, state_root):
+    """If the issue dir can't be located (e.g. state cleaned, batch_id
+    drift), the signal still goes through — we just lose the structured
+    record for that one decision. Operator intent is preserved by the
+    signal getting to Temporal."""
+    state_root.mkdir(parents=True, exist_ok=True)
+
+    async def fake_send(workflow_id, decision):
+        pass
+
+    import routes.temporal_routes as tr
+    monkeypatch.setattr(tr, "_send_signal", fake_send)
+
+    resp = client.post(
+        "/dispatch/api/temporal/issue/nonexistent-batch-xyz/signal",
+        data=json.dumps({"decision": "approve", "reason_code": "approve_clean"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()["data"]
+    assert body["persisted"] is None  # nothing to persist into
+
+
+def test_signal_retry_reason_codes_accepted(client, monkeypatch, state_root):
+    """retry has its own vocab (retry_transient / retry_with_changes)."""
+    state_root.mkdir(parents=True, exist_ok=True)
+    _seed_inbox_for_signal(state_root, "b1", "owner__repo-7")
+
+    async def fake_send(workflow_id, decision):
+        pass
+
+    import routes.temporal_routes as tr
+    monkeypatch.setattr(tr, "_send_signal", fake_send)
+
+    resp = client.post(
+        "/dispatch/api/temporal/issue/b1-owner__repo-7/signal",
+        data=json.dumps({"decision": "retry", "reason_code": "retry_transient"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    record = json.loads(
+        (state_root / "b1" / "owner__repo-7" / "awaiting" / "override_decision.json").read_text()
+    )
+    assert record["reason_code"] == "retry_transient"

@@ -582,6 +582,22 @@ export type TemporalState =
 export type TemporalGateVerdict = 'pass' | 'fail' | 'defer'
 export type TemporalSignalDecision = 'approve' | 'abort' | 'retry'
 
+/** Structured override reason codes — Phase 0 / M0.2. Backend enforces
+ *  that codes are scoped to their decision; `abort_other` requires a
+ *  non-empty reason_text. */
+export type TemporalApproveReasonCode = 'approve_clean' | 'approve_after_edit'
+export type TemporalAbortReasonCode =
+  | 'abort_scope_mismatch'
+  | 'abort_quality'
+  | 'abort_active_upstream'
+  | 'abort_stale_issue'
+  | 'abort_other'
+export type TemporalRetryReasonCode = 'retry_transient' | 'retry_with_changes'
+export type TemporalReasonCode =
+  | TemporalApproveReasonCode
+  | TemporalAbortReasonCode
+  | TemporalRetryReasonCode
+
 export interface TemporalEnvelope<T> {
   success: boolean
   data: T
@@ -696,4 +712,7 @@ export interface TemporalDispatchResult {
 export interface TemporalSignalResult {
   workflow_id: string
   decision: TemporalSignalDecision
+  reason_code?: TemporalReasonCode | null
+  reason_text?: string
+  persisted?: Record<string, unknown> | null
 }

@@ -20,7 +20,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTemporalStore } from '../../store/temporalStore'
-import type { TemporalInboxItem, TemporalSignalDecision } from '../../api/types'
+import type { TemporalInboxItem, TemporalSignalDecision, TemporalReasonCode } from '../../api/types'
 
 function workflowIdFor(item: TemporalInboxItem): string {
   if (typeof item.workflow_id === 'string' && item.workflow_id) return item.workflow_id
@@ -28,10 +28,105 @@ function workflowIdFor(item: TemporalInboxItem): string {
   return `${item.batch_id}-${item.issue_id}`
 }
 
+// Reason codes per decision — mirrors backend _OVERRIDE_REASON_CODES.
+// Phase 0 / M0.2: structured operator override capture for the
+// calibration corpus.
+const REASON_CODES: Record<TemporalSignalDecision, { code: TemporalReasonCode; label: string }[]> =
+  {
+    approve: [
+      { code: 'approve_clean', label: 'Approve — preview looks good as-is' },
+      { code: 'approve_after_edit', label: 'Approve — after editing the preview PR' }
+    ],
+    abort: [
+      {
+        code: 'abort_scope_mismatch',
+        label: "Abort — issue scope doesn't match what we worked on"
+      },
+      { code: 'abort_quality', label: 'Abort — fix is wrong / partial / unsafe' },
+      { code: 'abort_active_upstream', label: 'Abort — someone else already has a PR' },
+      { code: 'abort_stale_issue', label: 'Abort — issue is dead / wrong version / closed' },
+      { code: 'abort_other', label: 'Abort — other (free-text required)' }
+    ],
+    retry: [
+      { code: 'retry_transient', label: 'Retry — transient failure' },
+      { code: 'retry_with_changes', label: 'Retry — after manual changes' }
+    ]
+  }
+
+type SignalHandler = (
+  workflowId: string,
+  decision: TemporalSignalDecision,
+  options: { reasonCode: TemporalReasonCode; reasonText: string }
+) => Promise<void>
+
 interface RowProps {
   item: TemporalInboxItem
-  onSignal: (workflowId: string, decision: TemporalSignalDecision) => Promise<void>
+  onSignal: SignalHandler
   pending: string | null
+}
+
+interface ReasonPickerProps {
+  decision: TemporalSignalDecision
+  disabled: boolean
+  onConfirm: (reasonCode: TemporalReasonCode, reasonText: string) => void
+  onCancel: () => void
+}
+
+function ReasonPicker({ decision, disabled, onConfirm, onCancel }: ReasonPickerProps) {
+  const options = REASON_CODES[decision]
+  const [code, setCode] = useState<TemporalReasonCode>(options[0].code)
+  const [text, setText] = useState('')
+  const requiresText = code === 'abort_other'
+  const canConfirm = !disabled && (!requiresText || text.trim().length > 0)
+
+  return (
+    <div className="temporal-inbox__reason-picker" data-testid="temporal-inbox-reason-picker">
+      <label className="temporal-inbox__reason-label">
+        Reason
+        <select
+          data-testid="temporal-inbox-reason-select"
+          value={code}
+          disabled={disabled}
+          onChange={e => setCode(e.target.value as TemporalReasonCode)}
+        >
+          {options.map(opt => (
+            <option key={opt.code} value={opt.code}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <textarea
+        data-testid="temporal-inbox-reason-text"
+        className="temporal-inbox__reason-text"
+        placeholder={requiresText ? 'Required: what was wrong?' : 'Optional context'}
+        value={text}
+        disabled={disabled}
+        onChange={e => setText(e.target.value)}
+        rows={2}
+      />
+      <div className="temporal-inbox__reason-actions">
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          data-testid="temporal-inbox-reason-confirm"
+          disabled={!canConfirm}
+          onClick={() => onConfirm(code, text.trim())}
+        >
+          Confirm {decision}
+        </button>
+        <button
+          type="button"
+          className="btn btn--secondary btn--sm"
+          data-testid="temporal-inbox-reason-cancel"
+          disabled={disabled}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function SignoffCard({ item, onSignal, pending }: RowProps) {
@@ -39,6 +134,7 @@ function SignoffCard({ item, onSignal, pending }: RowProps) {
   const isPending = pending === workflowId
   const previewUrl = item.operator_pr_url
   const excerpt = item.pr_body_excerpt ?? ''
+  const [chosenDecision, setChosenDecision] = useState<TemporalSignalDecision | null>(null)
 
   return (
     <li
@@ -85,30 +181,38 @@ function SignoffCard({ item, onSignal, pending }: RowProps) {
         sanitizer on the live content.
       </p>
 
-      <div className="temporal-inbox__actions">
-        <button
-          type="button"
-          className="btn btn--success"
-          data-testid="temporal-inbox-approve"
+      {chosenDecision === null ? (
+        <div className="temporal-inbox__actions">
+          <button
+            type="button"
+            className="btn btn--success"
+            data-testid="temporal-inbox-approve"
+            disabled={isPending}
+            onClick={() => setChosenDecision('approve')}
+          >
+            Approve & ship upstream
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger"
+            data-testid="temporal-inbox-abort"
+            disabled={isPending}
+            onClick={() => setChosenDecision('abort')}
+          >
+            Abort
+          </button>
+        </div>
+      ) : (
+        <ReasonPicker
+          decision={chosenDecision}
           disabled={isPending}
-          onClick={() => {
-            void onSignal(workflowId, 'approve')
+          onConfirm={(reasonCode, reasonText) => {
+            void onSignal(workflowId, chosenDecision, { reasonCode, reasonText })
+            setChosenDecision(null)
           }}
-        >
-          Approve & ship upstream
-        </button>
-        <button
-          type="button"
-          className="btn btn--danger"
-          data-testid="temporal-inbox-abort"
-          disabled={isPending}
-          onClick={() => {
-            void onSignal(workflowId, 'abort')
-          }}
-        >
-          Abort
-        </button>
-      </div>
+          onCancel={() => setChosenDecision(null)}
+        />
+      )}
     </li>
   )
 }
@@ -116,6 +220,7 @@ function SignoffCard({ item, onSignal, pending }: RowProps) {
 function JudgeDeferCard({ item, onSignal, pending }: RowProps) {
   const workflowId = workflowIdFor(item)
   const isPending = pending === workflowId
+  const [chosenDecision, setChosenDecision] = useState<TemporalSignalDecision | null>(null)
 
   return (
     <li
@@ -137,41 +242,47 @@ function JudgeDeferCard({ item, onSignal, pending }: RowProps) {
         {item.reason && <span className="temporal-inbox__reason">{item.reason}</span>}
         {item.queued_at && <span className="temporal-inbox__queued">{item.queued_at}</span>}
       </div>
-      <div className="temporal-inbox__actions">
-        <button
-          type="button"
-          className="btn btn--success btn--sm"
-          data-testid="temporal-inbox-approve"
+      {chosenDecision === null ? (
+        <div className="temporal-inbox__actions">
+          <button
+            type="button"
+            className="btn btn--success btn--sm"
+            data-testid="temporal-inbox-approve"
+            disabled={isPending}
+            onClick={() => setChosenDecision('approve')}
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger btn--sm"
+            data-testid="temporal-inbox-abort"
+            disabled={isPending}
+            onClick={() => setChosenDecision('abort')}
+          >
+            Abort
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            data-testid="temporal-inbox-retry"
+            disabled={isPending}
+            onClick={() => setChosenDecision('retry')}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <ReasonPicker
+          decision={chosenDecision}
           disabled={isPending}
-          onClick={() => {
-            void onSignal(workflowId, 'approve')
+          onConfirm={(reasonCode, reasonText) => {
+            void onSignal(workflowId, chosenDecision, { reasonCode, reasonText })
+            setChosenDecision(null)
           }}
-        >
-          Approve
-        </button>
-        <button
-          type="button"
-          className="btn btn--danger btn--sm"
-          data-testid="temporal-inbox-abort"
-          disabled={isPending}
-          onClick={() => {
-            void onSignal(workflowId, 'abort')
-          }}
-        >
-          Abort
-        </button>
-        <button
-          type="button"
-          className="btn btn--secondary btn--sm"
-          data-testid="temporal-inbox-retry"
-          disabled={isPending}
-          onClick={() => {
-            void onSignal(workflowId, 'retry')
-          }}
-        >
-          Retry
-        </button>
-      </div>
+          onCancel={() => setChosenDecision(null)}
+        />
+      )}
     </li>
   )
 }
@@ -194,11 +305,11 @@ export function PipelineInbox() {
     void loadInbox()
   }, [loadInbox])
 
-  const handleSignal = async (workflowId: string, decision: TemporalSignalDecision) => {
+  const handleSignal: SignalHandler = async (workflowId, decision, options) => {
     setPending(workflowId)
     setLastError(null)
     try {
-      await sendSignal(workflowId, decision)
+      await sendSignal(workflowId, decision, options)
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err))
       // Re-fetch so UI reflects server truth after a failed optimistic update.

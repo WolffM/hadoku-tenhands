@@ -452,23 +452,152 @@ def _derive_fork(upstream_slug: str, owner: str = "WolffM") -> str:
     return f"{owner}/{combined}"
 
 
+# Structured override reason vocabulary — Phase 0 / M0.2.
+#
+# Captures WHY an operator decided what they did at the inbox so the
+# calibration corpus has queryable signal instead of free-text. Codes are
+# scoped to the decision: approve codes vs abort codes vs retry codes.
+# `abort_other` requires a non-empty `reason_text`; the escape hatch
+# exists so codes don't pile up faster than we curate them.
+_OVERRIDE_REASON_CODES = {
+    "approve": {"approve_clean", "approve_after_edit"},
+    "abort": {
+        "abort_scope_mismatch",
+        "abort_quality",
+        "abort_active_upstream",
+        "abort_stale_issue",
+        "abort_other",
+    },
+    "retry": {"retry_transient", "retry_with_changes"},
+}
+
+
+def _validate_override_reason(
+    decision: str, reason_code: str | None, reason_text: str,
+) -> str | None:
+    """Return None if valid, else an error string describing why.
+
+    `reason_code` is optional during the rollout: legacy clients that
+    don't send one still go through, but the structured record persists
+    with `reason_code: null` so we can measure rollout completeness."""
+    if reason_code is None:
+        return None
+    valid = _OVERRIDE_REASON_CODES.get(decision, set())
+    if reason_code not in valid:
+        return (
+            f"reason_code {reason_code!r} not valid for decision={decision!r}; "
+            f"expected one of {sorted(valid)} or null"
+        )
+    if reason_code == "abort_other" and not (reason_text or "").strip():
+        return "abort_other requires a non-empty reason_text"
+    return None
+
+
+def _find_issue_dir_for_workflow(workflow_id: str) -> Path | None:
+    """Walk state/ and return the issue dir whose `{batch_id}-{issue_id}`
+    matches the given workflow_id, or None if not found.
+
+    The split point between batch_id and issue_id can't be inferred from
+    the hyphen alone (batch_ids contain hyphens), so we resolve by
+    enumeration — cheap with O(batches) state dirs."""
+    root = _state_root()
+    if not root.exists():
+        return None
+    for batch_dir in root.iterdir():
+        if not batch_dir.is_dir():
+            continue
+        prefix = f"{batch_dir.name}-"
+        if not workflow_id.startswith(prefix):
+            continue
+        issue_id = workflow_id[len(prefix):]
+        candidate = batch_dir / issue_id
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _persist_override_decision(
+    issue_dir: Path,
+    decision: str,
+    reason_code: str | None,
+    reason_text: str,
+) -> dict:
+    """Write the structured override record to `awaiting/override_decision.json`.
+
+    Persisted regardless of whether the Temporal signal succeeds — the
+    operator's intent is data we want to keep even if the signal fails
+    and they have to retry. Caller can re-send the signal; the file
+    captures the decision either way.
+    """
+    record = {
+        "decision": decision,
+        "reason_code": reason_code,
+        "reason_text": (reason_text or "").strip(),
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    awaiting = issue_dir / "awaiting"
+    awaiting.mkdir(parents=True, exist_ok=True)
+    (awaiting / "override_decision.json").write_text(
+        json.dumps(record, indent=2),
+        encoding="utf-8",
+    )
+    return record
+
+
 @bp.route("/api/temporal/issue/<workflow_id>/signal", methods=["POST"])
 def temporal_signal(workflow_id: str):
     """Send a `submit_human_decision` signal to a deferred IssueWorkflow.
 
-    Body: {decision: "approve" | "abort" | "retry"}
+    Body: {
+      decision: "approve" | "abort" | "retry",
+      reason_code: str | null,    # constrained vocab per decision (see _OVERRIDE_REASON_CODES)
+      reason_text: str,           # free-text; required when reason_code = "abort_other"
+    }
+
+    Phase 0 / M0.2: persists a structured `awaiting/override_decision.json`
+    record under the issue's state root before sending the Temporal signal,
+    so operator decisions are queryable for actionability-rubric
+    calibration. `reason_code` is optional during the rollout — legacy
+    clients still work; the field persists as null in that case.
     """
     body = request.get_json(silent=True) or {}
     decision = body.get("decision")
+    reason_code = body.get("reason_code")  # may be None
+    reason_text = body.get("reason_text") or ""
     if decision not in ("approve", "abort", "retry"):
         return _error("decision must be one of approve|abort|retry", status=400)
+
+    err = _validate_override_reason(decision, reason_code, reason_text)
+    if err:
+        return _error(err, status=400)
+
+    # Persist the structured decision BEFORE signaling Temporal. If the
+    # signal fails, the operator's intent is captured and they can retry
+    # the signal; the override record doesn't need to re-write.
+    issue_dir = _find_issue_dir_for_workflow(workflow_id)
+    persisted: dict | None = None
+    if issue_dir is not None:
+        try:
+            persisted = _persist_override_decision(
+                issue_dir, decision, reason_code, reason_text,
+            )
+        except OSError as e:
+            # Don't block the signal on a disk write failure — log and
+            # carry on, calibration corpus loses this one record.
+            persisted = {"error": f"persist failed: {e}"}
 
     try:
         asyncio.run(_send_signal(workflow_id, decision))
     except Exception as e:
         return _error(f"signal failed: {e}", status=502)
 
-    return _envelope({"workflow_id": workflow_id, "decision": decision})
+    return _envelope({
+        "workflow_id": workflow_id,
+        "decision": decision,
+        "reason_code": reason_code,
+        "reason_text": reason_text,
+        "persisted": persisted,
+    })
 
 
 async def _send_signal(workflow_id: str, decision: str) -> None:
