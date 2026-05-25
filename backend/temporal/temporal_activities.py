@@ -450,6 +450,7 @@ async def act_run_gates(inp: GateInput) -> list[dict]:
     from .gates import IssueRef as GateIssueRef, run_gates
     # Import gate modules so their @gate decorators populate the registry.
     from .gates import (  # noqa: F401
+        actionability,
         eligibility,
         environment,
         fix,
