@@ -1,14 +1,20 @@
-"""Dispatch every issue in a select_batch output JSON via /api/oss/fork-and-assign.
+"""Dispatch every issue in a select_batch output JSON via /api/temporal/dispatch.
 
 Usage:
   python3 scripts/dispatch_batch.py state/selected/batch-YYYYMMDD-HHMM.json
-    [--start-from N]    resume from index N (1-based)
-    [--gap-seconds 15]  delay between dispatches (rate limit is 5/min)
+    [--batch-id NAME]   override batch name (default: dyn-YYYYMMDD-HHMM)
+    [--dry-run]         show payload, don't POST
 
-Per memory:
-  - /dispatch/* has 30s edge-router timeout; a 504 means the backend may
-    still be running. Treat as "verify, don't retry".
-  - rate limit is 5 per minute → 12s minimum gap; use 15s for safety.
+The Temporal endpoint dispatches the whole batch in one POST (returns 202).
+Temporal's BatchWorkflow + child IssueWorkflows handle fork/sync/assign per-issue
+with its own concurrency control. We poll /api/temporal/batch/<batch_id> to watch
+progress.
+
+Note: the legacy /api/oss/fork-and-assign route is broken for upstream repos
+where a fork already exists under the B23 prefixed name (e.g.
+WolffM/microsoft-typescript-go). wait_for_fork polls the wrong slug
+(unprefixed) and times out. Temporal's _derive_fork uses the prefixed name
+and gh's --fork-name flag.
 """
 
 from __future__ import annotations
@@ -29,139 +35,120 @@ def _admin_key() -> str:
     return json.loads((REPO_ROOT / ".devvault.local.json").read_text())["key"]
 
 
-def dispatch_one(admin_key: str, issue: dict) -> dict:
-    owner, repo = issue["owner_repo"].split("/", 1)
-    payload = {
-        "origin_owner": owner,
-        "repo": repo,
-        "issue_number": issue["number"],
-        "issue_title": issue["title"],
-        "issue_url": issue["url"],
-    }
+def _post(url: str, body: dict, admin_key: str, timeout: int = 60) -> dict:
     req = urllib.request.Request(
-        "https://hadoku.me/dispatch/api/oss/fork-and-assign",
-        data=json.dumps(payload).encode(),
+        url,
+        data=json.dumps(body).encode(),
         headers={
             "X-User-Key": admin_key,
             "Content-Type": "application/json",
-            "User-Agent": "dispatch_batch/1.0",
+            "User-Agent": "dispatch_batch/2.0",
         },
         method="POST",
     )
     try:
-        body = json.loads(urllib.request.urlopen(req, timeout=180).read())
-        return {"ok": True, "response": body}
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return {"ok": True, "status": resp.status, "body": json.loads(resp.read())}
     except urllib.error.HTTPError as e:
-        code = e.code
         try:
-            errbody = e.read().decode("utf-8", errors="replace")[:500]
+            err_body = e.read().decode("utf-8", errors="replace")[:500]
         except Exception:
-            errbody = ""
-        if code in (502, 504):
-            return {"ok": False, "edge_timeout": True, "status": code, "body": errbody}
-        return {"ok": False, "status": code, "body": errbody}
+            err_body = ""
+        return {"ok": False, "status": e.code, "body": err_body}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
-def verify_workflow(admin_key: str, owner_repo: str, number: int) -> dict | None:
-    """After a dispatch (esp. on 504), check temporal batches for a workflow
-    matching this issue. Returns the most recent matching entry or None."""
-    try:
-        req = urllib.request.Request(
-            "https://hadoku.me/dispatch/api/temporal/batches",
-            headers={"X-User-Key": admin_key, "User-Agent": "dispatch_batch/1.0"},
-        )
-        body = json.loads(urllib.request.urlopen(req, timeout=15).read())
-        batches = (body.get("data") or {}).get("batches") or []
-        # Most-recent first; look at the head for any matching issue id
-        for b in sorted(batches, key=lambda x: x.get("batch_id", ""), reverse=True)[:5]:
-            bid = b.get("batch_id", "")
-            # We can't filter by issue directly here without per-batch fetch,
-            # but a recent fresh batch usually means it worked. Return the head.
-            return {"batch_id": bid, "issue_count": b.get("issue_count")}
-    except Exception:
-        return None
-    return None
+def _get(url: str, admin_key: str, timeout: int = 30) -> dict:
+    req = urllib.request.Request(
+        url,
+        headers={"X-User-Key": admin_key, "User-Agent": "dispatch_batch/2.0"},
+    )
+    return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("batch_file")
-    p.add_argument("--start-from", type=int, default=1, help="1-based resume index")
-    p.add_argument("--gap-seconds", type=int, default=15,
-                   help="delay between dispatches (rate limit is 5/min → 12s min)")
-    p.add_argument("--max-issues", type=int, default=999,
-                   help="dispatch at most N (useful for incremental testing)")
+    p.add_argument("--batch-id", default=None,
+                   help="batch name (default: dyn-YYYYMMDD-HHMM)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print payload, don't POST")
     args = p.parse_args()
 
     batch = json.load(open(args.batch_file))
     selected = batch["selected"]
     admin = _admin_key()
 
-    print(f"== dispatching batch from {args.batch_file}")
-    print(f"   {len(selected)} issues, start_from={args.start_from}, gap={args.gap_seconds}s")
+    batch_id = args.batch_id or f"dyn-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
+
+    issues_payload = [
+        {
+            "upstream_slug": s["owner_repo"],
+            "issue_number": s["number"],
+            "raw_brief": "",  # temporal fetches the brief in an activity
+            "branch_name": f"crimson-kitty-{s['number']}",
+            "base_branch": "main",
+        }
+        for s in selected
+    ]
+
+    payload = {"batch_id": batch_id, "issues": issues_payload}
+
+    print(f"== dispatch via temporal: batch_id={batch_id}")
+    print(f"   {len(issues_payload)} issues")
+    for it in issues_payload[:3]:
+        print(f"   - {it['upstream_slug']}#{it['issue_number']}")
+    if len(issues_payload) > 3:
+        print(f"   ... +{len(issues_payload)-3} more")
+
+    if args.dry_run:
+        print("\n--dry-run set; payload not POSTed.")
+        return 0
+
     print()
+    print("== POSTing to /api/temporal/dispatch ==")
+    started = datetime.now(timezone.utc).isoformat()
+    t0 = time.time()
+    result = _post("https://hadoku.me/dispatch/api/temporal/dispatch", payload, admin, timeout=120)
+    dt = time.time() - t0
+    print(f"   {dt:.0f}s  ok={result.get('ok')}  status={result.get('status')}")
+    if not result.get("ok"):
+        print(f"   body: {result.get('body','')[:600]}")
+        return 2
 
-    results = []
-    start_idx = max(0, args.start_from - 1)
-    end_idx = min(len(selected), start_idx + args.max_issues)
-    started_at = datetime.now(timezone.utc).isoformat()
+    print(f"   response: {json.dumps(result.get('body'), indent=2)[:600]}")
 
-    for i, issue in enumerate(selected[start_idx:end_idx], start=start_idx + 1):
-        slug = issue["owner_repo"]
-        num = issue["number"]
-        title = issue.get("title") or ""
-        print(f"[{i}/{len(selected)}] {slug}#{num}")
-        print(f"  {title[:80]}")
-
-        t0 = time.time()
-        res = dispatch_one(admin, issue)
-        dt = time.time() - t0
-        res["elapsed_s"] = round(dt, 1)
-
-        if res.get("ok"):
-            data = res["response"].get("data") if isinstance(res["response"], dict) else None
-            wf = (data or {}).get("workflow_id") if isinstance(data, dict) else None
-            wf = wf or res["response"].get("workflow_id") if isinstance(res["response"], dict) else None
-            success_msg = res["response"].get("success") if isinstance(res["response"], dict) else None
-            print(f"  ✓ {dt:.0f}s  workflow={wf}  success={success_msg}")
-        elif res.get("edge_timeout"):
-            # 504/502 — check if backend made progress anyway
-            print(f"  ⚠ edge_timeout {res['status']} after {dt:.0f}s — checking temporal state…")
-            time.sleep(5)
-            verify = verify_workflow(admin, slug, num)
-            res["verify"] = verify
-            print(f"    most-recent batch: {verify}")
-        elif "status" in res:
-            print(f"  ✗ HTTP {res['status']}  body={res.get('body','')[:200]}")
-        else:
-            print(f"  ✗ {res.get('error')}")
-
-        results.append({"issue": issue, "result": res})
-
-        if i < end_idx:
-            print(f"  sleeping {args.gap_seconds}s (rate limit)…")
-            time.sleep(args.gap_seconds)
-        print()
-
-    succeeded = sum(1 for r in results if r["result"].get("ok"))
-    edge_timed = sum(1 for r in results if r["result"].get("edge_timeout"))
-    failed = sum(1 for r in results if not r["result"].get("ok") and not r["result"].get("edge_timeout"))
-    print("== summary ==")
-    print(f"  succeeded: {succeeded}/{len(results)}")
-    print(f"  edge timeouts (verify): {edge_timed}")
-    print(f"  failed: {failed}")
-
+    # Persist record of the dispatch
     out = Path(args.batch_file).with_name(Path(args.batch_file).stem + "_dispatched.json")
     out.write_text(json.dumps({
         "batch_file": args.batch_file,
-        "started_at": started_at,
-        "ended_at": datetime.now(timezone.utc).isoformat(),
-        "results": results,
+        "batch_id": batch_id,
+        "started_at": started,
+        "payload": payload,
+        "result": result,
     }, indent=2))
-    print(f"  wrote {out}")
-    return 0 if failed == 0 else 2
+    print(f"\n  wrote {out}")
+
+    # Quick check: confirm the batch shows up in /api/temporal/batches
+    print("\n== verifying batch is registered in temporal ==")
+    time.sleep(3)
+    try:
+        b = _get("https://hadoku.me/dispatch/api/temporal/batches", admin, timeout=15)
+        batches = (b.get("data") or {}).get("batches") or []
+        match = [x for x in batches if x.get("batch_id") == batch_id]
+        if match:
+            print(f"  ✓ batch found: {match[0]}")
+        else:
+            print(f"  ⚠ batch not yet registered; checking newest 3...")
+            for x in sorted(batches, key=lambda y: y.get('batch_id',''), reverse=True)[:3]:
+                print(f"    {x['batch_id']}: active={x['active']} issues={x['issue_count']}")
+    except Exception as e:
+        print(f"  could not verify: {e}")
+
+    print(f"\n  watch progress: GET /dispatch/api/temporal/batch/{batch_id}")
+    print(f"  inbox:          GET /dispatch/api/temporal/inbox")
+    return 0
 
 
 if __name__ == "__main__":
