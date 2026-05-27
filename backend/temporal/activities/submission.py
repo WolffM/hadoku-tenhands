@@ -140,7 +140,40 @@ def render_pr_body(
 
     body = _reorder_body_sections(body, conventions.get("body_structure") or [])
 
-    title = _build_title(issue_title, conventions=conventions)
+    # Title generation: prefer a haiku-judge-generated conventional commit
+    # title (describes the FIX, not the issue) over the issue title verbatim.
+    # The issue title is often `[Bug] ...` or long enough to hit our cap and
+    # ellipsis — argo-cd#28030 shipped with `fix: Disabling git submodules
+    # leads into a mess in reposerver repos when…` because the issue title
+    # was 87 chars. The judge writes a title describing what changed.
+    title = None
+    try:
+        fix_summary = evidence.read_text("05-fixed/fix_summary.md") if evidence.exists("05-fixed/fix_summary.md") else ""
+        files_touched = []
+        if evidence.exists("05-fixed/files_touched.txt"):
+            files_touched = [
+                l.strip() for l in evidence.read_text("05-fixed/files_touched.txt").splitlines() if l.strip()
+            ]
+        # Strip pipeline-internal scratch files before sending to the judge so
+        # the title doesn't get scoped to e.g. `notes.md`.
+        files_touched = [f for f in files_touched if f not in _TREE_STRIP_PATHS]
+        # Only attempt judge title generation when we have substantive fix
+        # context — otherwise it'll just paraphrase the issue title.
+        if fix_summary.strip() or files_touched:
+            from ..judge import generate_title, JudgeUnreachable, JudgeParseError
+            try:
+                title = generate_title(issue_title, fix_summary, files_touched)
+            except (JudgeUnreachable, JudgeParseError):
+                title = None
+    except Exception:
+        title = None
+
+    if not title:
+        title = _build_title(issue_title, conventions=conventions)
+    else:
+        # Still pass through _build_title for consistent prefix/cap rules.
+        title = _build_title(title, conventions=conventions)
+
     evidence.write_text("09-submittable/pr_title.txt", title)
     evidence.write_text("09-submittable/pr_body.md", body)
 
@@ -786,6 +819,21 @@ def _build_title(issue_title: str, *, conventions: dict | None = None) -> str:
     return _word_snap(cleaned, 80)
 
 
+_CHECKBOX_LINE_RE = re.compile(r"^\s*[-*]\s*\[[ xX]\]\s")
+_BOILERPLATE_LABEL_RE = re.compile(
+    r"^\s*\**\s*("
+    r"checklist|prerequisites|pre-requisites|pre-conditions|preconditions"
+    r"|before submitting|before opening( this issue)?|required information"
+    r")\s*:?\s*\**\s*$",
+    re.IGNORECASE,
+)
+# A line wrapped entirely in `**…**` (markdown bold) or `*…*` (italic) is
+# treated by GitHub issue templates as a section heading even though it
+# doesn't start with `#`. Surfaced 2026-05-27 on argo-cd#28030 — the
+# template uses `**Describe the bug**`, `**Steps to reproduce**`, etc.
+_BOLD_HEADING_RE = re.compile(r"^\s*\*{1,3}[^*][^\n]*?[^*]\*{1,3}\s*$")
+
+
 def _prose_blocks(body: str) -> list[str]:
     """The blocks of `body` that carry content, in order, trimmed.
 
@@ -794,7 +842,11 @@ def _prose_blocks(body: str) -> list[str]:
     lines, so we normalize CRLF and split on any blank line. Blocks that
     carry no real content are dropped — heading-only blocks (e.g.
     `### Describe the bug`), GitHub issue-forms empty markers
-    (`_No response_`), and unfilled `<!-- … -->` template comments."""
+    (`_No response_`), unfilled `<!-- … -->` template comments, and
+    issue-template checklist blocks (lead-in line ending in `:` followed
+    by `- [x]` / `- [ ]` lines — the argo-cd / Kubernetes-style "I've
+    searched in the docs and FAQ" boilerplate that leaks into PR
+    summaries if not filtered. Surfaced 2026-05-27 on argo-cd#28030)."""
     normalized = body.replace("\r\n", "\n").replace("\r", "\n")
     out: list[str] = []
     for block in re.split(r"\n[ \t]*\n", normalized):
@@ -804,10 +856,35 @@ def _prose_blocks(body: str) -> list[str]:
         lines = cleaned.splitlines()
         if all(line.lstrip().startswith("#") for line in lines):
             continue
+        # Bold-only "heading" lines (`**Describe the bug**`) — same role as
+        # a markdown H3 in GitHub issue templates.
+        if all(_BOLD_HEADING_RE.match(line) for line in lines):
+            continue
         if cleaned.strip("_ ").lower() == "no response":
             continue
         if cleaned.startswith("<!--") and cleaned.endswith("-->"):
             continue
+        # Issue-template checklist filter: a lead-in line ending in `:`
+        # (e.g. `Checklist:`) followed entirely by `- [x]` / `- [ ]`
+        # bullets, OR a block whose content is just the checkboxes. Both
+        # shapes are pure boilerplate that contributes no information
+        # about the actual bug. Also drops standalone boilerplate labels
+        # ("Checklist:", "Prerequisites:", etc.) that appear on their own
+        # block when the checklist content lives in a separate block.
+        non_blank = [ln for ln in lines if ln.strip()]
+        if non_blank:
+            lead = non_blank[0].rstrip()
+            rest = non_blank[1:]
+            if (
+                rest
+                and lead.endswith(":")
+                and all(_CHECKBOX_LINE_RE.match(ln) for ln in rest)
+            ):
+                continue
+            if all(_CHECKBOX_LINE_RE.match(ln) for ln in non_blank):
+                continue
+            if len(non_blank) == 1 and _BOILERPLATE_LABEL_RE.match(non_blank[0]):
+                continue
         out.append(cleaned)
     return out
 
@@ -1003,6 +1080,19 @@ def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
     if fix_prose:
         parts.append(fix_prose)
         parts.append("")
+    elif displayed_files:
+        # The agent didn't write 05-fixed/fix_summary.md (or wrote only
+        # whitespace). Mark the gap explicitly so the operator review
+        # surfaces it instead of shipping a Fix section that only lists
+        # files. Submission_judge today scores this pattern 0.4-0.6;
+        # making the gap explicit avoids surprising the operator at the
+        # signoff stage and lets them edit before upstream goes out.
+        parts.append(
+            "_(operator: no fix summary was written. Review the commits / "
+            "file list below to confirm the change matches the root cause "
+            "described above before approving.)_"
+        )
+        parts.append("")
     if displayed_files:
         parts.append(f"Files changed ({len(displayed_files)}):")
         parts.append("")
@@ -1016,6 +1106,31 @@ def _render_default(evidence, upstream_slug, issue_number, issue_title) -> str:
         verification,
     ])
     return "\n".join(parts)
+
+
+_GREETING_RE = re.compile(
+    r"^(hi|hello|hey|greetings|good (morning|afternoon|evening)|dear (team|maintainers))[\s,.!]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_degenerate_summary(text: str) -> bool:
+    """A summary is degenerate if it doesn't say anything about the bug.
+
+    Today's defers showed: bare greetings ("Hello,"), single-word
+    summaries, summaries under 20 substantive chars. These signal that
+    the body composer should fall back to the issue-title sentence
+    instead of shipping a non-summary.
+    """
+    if not text:
+        return True
+    # Strip markdown noise to compare substance only.
+    stripped = re.sub(r"[\*_`#>\-]+", " ", text).strip()
+    if len(stripped) < 20:
+        return True
+    if _GREETING_RE.match(stripped):
+        return True
+    return False
 
 
 def _extract_summary(evidence, issue_title: str) -> str:
@@ -1036,7 +1151,7 @@ def _extract_summary(evidence, issue_title: str) -> str:
                 # summary isn't a dangling "…overload:" fragment. Capped,
                 # markdown preserved.
                 summary = _stitch_lead_in(_prose_blocks(body))
-                if summary:
+                if summary and not _is_degenerate_summary(summary):
                     if len(summary) > 600:
                         summary = summary[:600].rsplit(" ", 1)[0] + "…"
                     return summary

@@ -278,3 +278,70 @@ def _compose_prompt(rubric_md: str, input_payload: str) -> str:
         f"Respond with exactly one fenced ```json block containing your verdict, "
         f"score, and reasoning per the rubric above. No prose outside the block."
     )
+
+
+_TITLE_PROMPT = """You write a single conventional-commit PR title for an open-source contribution.
+
+Given the issue title, brief description, and a summary of the diff, output exactly one fenced ```json block:
+
+```json
+{"title": "type(scope): imperative description"}
+```
+
+Rules for the title string:
+- ≤72 characters total
+- Conventional Commits format: `type(scope): description` (scope optional but encouraged when the diff is localized)
+- type ∈ {fix, feat, chore, refactor, docs, test, perf, build}
+- Lowercase except code symbols and proper nouns
+- No trailing punctuation, no ellipsis
+- Imperative voice ("clean working tree", not "cleans/cleaned")
+- Describe WHAT THE CHANGE DOES, not what the bug WAS
+- Do NOT copy the issue title verbatim — the issue title describes the bug; the PR title describes the fix.
+
+Respond with exactly one fenced ```json block. No prose outside the block."""
+
+
+def generate_title(issue_title: str, fix_summary: str, files_touched: list[str]) -> str:
+    """Generate a fresh, conventional-commit-style PR title via haiku.
+
+    Replaces the prior behavior of copying the issue title verbatim
+    (which often had `[Bug]` prefixes, was too long, and described the
+    bug rather than the fix — see argo-cd#28030 where the title ended
+    in `…`). Falls through `JudgeUnreachable` / `JudgeParseError` so
+    callers can apply their own fallback.
+    """
+    validate_judge_credentials()
+
+    files_block = "\n".join(f"- {f}" for f in (files_touched or [])[:30])
+    if len(files_touched or []) > 30:
+        files_block += f"\n- (+{len(files_touched) - 30} more)"
+
+    payload = (
+        f"## Issue title\n{issue_title}\n\n"
+        f"## Files touched\n{files_block or '_(none recorded)_'}\n\n"
+        f"## Fix summary\n{(fix_summary or '').strip()[:1200] or '_(none recorded)_'}\n"
+    )
+
+    prompt = f"{_TITLE_PROMPT}\n\n---\n\n## Input\n\n{payload}"
+
+    with _semaphore:
+        _canary_or_raise()
+        try:
+            result = _run_claude(
+                ["-p", "--model", JUDGE_MODEL, "--output-format", "json"],
+                timeout=JUDGE_TIMEOUT_S,
+                stdin_text=prompt,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise JudgeUnreachable(f"title judge timed out after {JUDGE_TIMEOUT_S}s") from e
+
+    if result.returncode != 0:
+        raise JudgeUnreachable(
+            f"title judge exit {result.returncode}: {result.stderr.strip()[:200]}"
+        )
+
+    parsed = _extract_json(result.stdout)
+    title = parsed.get("title") if isinstance(parsed, dict) else None
+    if not isinstance(title, str) or not title.strip():
+        raise JudgeParseError(f"title judge: expected 'title' string, got {type(title).__name__}")
+    return title.strip()
