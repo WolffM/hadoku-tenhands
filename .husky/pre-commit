@@ -28,6 +28,14 @@ if ! pnpm run typecheck; then
   exit 1
 fi
 
+# CSS gate — fails on `var(--x)` references to undeclared custom properties
+# (catches typos against @wolffm/themes + local theme.css)
+echo "🎨 Running stylelint..."
+if ! pnpm run lint:css; then
+  echo "❌ stylelint found unknown CSS custom properties — check the var name against @wolffm/themes."
+  exit 1
+fi
+
 # Bump version on every commit to ensure unique versions for publishing
 echo "📦 Bumping version..."
 
