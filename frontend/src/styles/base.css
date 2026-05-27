@@ -42,7 +42,7 @@
 .vibedispatch__content {
   background-color: var(--color-bg-card);
   border-radius: var(--hdk-radius);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--hdk-shadow-sm);
 }
 
 /* ============ Navigation ============ */

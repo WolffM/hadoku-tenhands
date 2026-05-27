@@ -727,7 +727,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
   margin-top: var(--hdk-space-md);
-  background: var(--color-surface);
+  background: var(--color-bg-card);
 }
 
 .retro-temporal-issue-card--expanded {
@@ -749,11 +749,11 @@
 }
 
 .retro-temporal-issue-card__header:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-bg-hover);
 }
 
 .retro-temporal-issue-card__id {
-  font-family: var(--font-family-mono);
+  font-family: monospace;
   font-weight: var(--font-weight-semibold);
   min-width: 0;
   overflow: hidden;
@@ -813,7 +813,7 @@
 }
 
 .retro-temporal-issue-card__transition-states {
-  font-family: var(--font-family-mono);
+  font-family: monospace;
   font-weight: var(--font-weight-semibold);
   white-space: nowrap;
 }
@@ -833,7 +833,7 @@
 .retro-temporal-issue-card__evidence {
   margin-top: var(--hdk-space-sm);
   padding: var(--hdk-space-sm) var(--hdk-space-md);
-  background: var(--color-surface-alt);
+  background: var(--color-bg-alt);
   border-radius: var(--hdk-radius-sm);
 }
 
@@ -878,8 +878,8 @@
 .retro-evidence-browser__file {
   padding: var(--hdk-space-xs) var(--hdk-space-sm);
   font-size: var(--hdk-text-xs);
-  font-family: var(--font-family-mono);
-  background: var(--color-surface-alt);
+  font-family: monospace;
+  background: var(--color-bg-alt);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
   color: var(--color-text);
@@ -887,12 +887,12 @@
 }
 
 .retro-evidence-browser__file:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-bg-hover);
 }
 
 .retro-evidence-browser__file--active {
   border-color: var(--color-primary);
-  background: var(--color-primary-subtle);
+  background: var(--color-primary-bg);
 }
 
 .retro-evidence-browser__viewer {
@@ -907,10 +907,10 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--hdk-space-sm) var(--hdk-space-md);
-  background: var(--color-surface-alt);
+  background: var(--color-bg-alt);
   border-bottom: 1px solid var(--color-border);
   font-size: var(--hdk-text-xs);
-  font-family: var(--font-family-mono);
+  font-family: monospace;
   color: var(--color-text-muted);
 }
 

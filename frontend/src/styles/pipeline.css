@@ -80,7 +80,7 @@
 }
 
 .pipeline-row:hover {
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--hdk-shadow-md);
 }
 
 .pipeline-row--expanded {
