@@ -67,28 +67,6 @@ def _get(url: str, admin_key: str, timeout: int = 30) -> dict:
     return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
 
 
-def _default_branch(owner_repo: str, gh_token: str) -> str:
-    """Query GitHub for the upstream repo's default branch.
-
-    Hard-coding `main` crashes the upstream-PR-create step for repos that
-    still use `master` (or trunk/develop/etc.). argoproj/argo-cd uses
-    `master`; the May 2026 batch crashed on `gh pr create --base main`.
-    """
-    req = urllib.request.Request(
-        f"https://api.github.com/repos/{owner_repo}",
-        headers={
-            "Authorization": f"Bearer {gh_token}",
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "dispatch_batch/2.0",
-        },
-    )
-    try:
-        body = json.loads(urllib.request.urlopen(req, timeout=10).read())
-        return body.get("default_branch") or "main"
-    except Exception:
-        return "main"
-
-
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("batch_file")
@@ -102,27 +80,22 @@ def main() -> int:
     selected = batch["selected"]
     admin = _admin_key()
 
-    # gh_token for querying default_branch per upstream — best-effort; if
-    # the env var is missing we fall back to "main" per-repo via _default_branch.
-    import os as _os
-    gh_token = _os.environ.get("HADOKU_SITE_TOKEN", "")
-
     batch_id = args.batch_id or f"dyn-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
 
-    print(f"   resolving default branches for {len(selected)} repos...")
-    issues_payload = []
-    for s in selected:
-        upstream = s["owner_repo"]
-        base_branch = _default_branch(upstream, gh_token)
-        issues_payload.append({
-            "upstream_slug": upstream,
+    # base_branch intentionally NOT passed — the server-side dispatch
+    # endpoint resolves it from each upstream's actual default_branch.
+    # See temporal_routes._resolve_default_branch. No hardcoding here
+    # OR there; if the client passes a value the server uses it, otherwise
+    # it queries gh on the operator's behalf.
+    issues_payload = [
+        {
+            "upstream_slug": s["owner_repo"],
             "issue_number": s["number"],
             "raw_brief": "",
             "branch_name": f"crimson-kitty-{s['number']}",
-            "base_branch": base_branch,
-        })
-        if base_branch != "main":
-            print(f"     {upstream} → base={base_branch}")
+        }
+        for s in selected
+    ]
 
     payload = {"batch_id": batch_id, "issues": issues_payload}
 

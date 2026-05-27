@@ -60,7 +60,12 @@ class IssueInput:
     state_root: str             # path to evidence dir for this issue
     raw_brief_text: str         # the unscrubbed brief text from the operator
     branch_name: str            # operator-readable branch (e.g. "fix-merged-cells")
-    base_branch: str = "main"
+    # No default for base_branch — the dispatch endpoint MUST resolve it
+    # from the upstream's actual default_branch before constructing
+    # IssueInput. A default of "main" silently produced PR-submission
+    # crashes against repos that use master/develop (argoproj/argo-cd
+    # 2026-05-27). Required field.
+    base_branch: str = ""
     install_cmd: list[str] = field(default_factory=lambda: ["python", "-c", "0"])
     workdir: str = "."
     pr_number_for_review: int | None = None  # set after fix/agent PR is identified
@@ -437,63 +442,118 @@ class IssueWorkflow:
             # the operator_signoff inbox defer — the operator is the
             # single ship-or-stop authority.
 
-            # Operator signoff gate. Submittable gates have passed,
-            # the preview PR is on the fork. Pause here so the operator
-            # can edit the preview PR (add screenshots, expand prose)
-            # before the upstream submission. submit_upstream_pr will
-            # read the LIVE preview content on resume.
-            await workflow.execute_activity(
-                "enqueue_for_human_review",
-                InboxInput(
-                    state="awaiting_signoff",
-                    gate_name="operator_signoff",
-                    reason="preview PR ready on fork; edit if needed, then approve to ship upstream",
-                    score=None,
-                    upstream_slug=inp.upstream_slug,
-                    issue_number=inp.issue_number,
-                    state_root=inp.state_root,
-                ),
-                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-            )
-            await workflow.execute_activity(
-                "record_transition",
-                TransitionInput(
-                    state_root=inp.state_root,
-                    from_state=self.state,
-                    to_state="awaiting_signoff",
-                    reason="awaiting operator signoff on preview PR",
-                    decided_by="system:workflow",
-                ),
-                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-            )
-            self.state = "awaiting_signoff"
-            await workflow.wait_condition(
-                lambda: self.human_decision is not None,
-                timeout=_OPERATOR_SIGNOFF_TIMEOUT,
-            )
-            decision = self.human_decision
-            self.human_decision = None
-            if decision == "abort":
-                raise _OperatorAborted(
-                    state="awaiting_signoff",
-                    gate_name="operator_signoff",
-                    reason="operator declined upstream submission",
+            # Operator signoff loop. Submittable gates have passed, the
+            # preview PR is on the fork. Each iteration:
+            #   1. Enqueue inbox (with last error context on retries)
+            #   2. Wait for operator signal (approve / retry / abort)
+            #   3. On abort → raise _OperatorAborted (caught below)
+            #   4. On approve/retry → try submit_upstream_pr
+            #   5. On submit success → break out of loop
+            #   6. On submit failure → record + loop back with error
+            #
+            # Looping (instead of letting a submit failure bubble to the
+            # catch-all and abort the workflow) is the 2026-05-27 fix
+            # after argoproj/argo-cd#27872 crashed at submit because
+            # base_branch=main against a master repo. The original
+            # mistake was hardcoded "main" in dispatch — now fixed in
+            # _resolve_default_branch — but the workflow's "park and
+            # wait for operator to fix it" path is the safety net.
+            submission_error: str | None = None
+            submit_result: dict | None = None
+            while True:
+                inbox_reason = (
+                    "preview PR ready on fork; edit if needed, then approve to ship upstream"
+                    if submission_error is None
+                    else f"previous submission attempt failed: {submission_error}. "
+                         f"Edit the fork PR / fix root cause, then approve again, "
+                         f"or signal abort."
                 )
-            # approve / retry both fall through to submit
+                await workflow.execute_activity(
+                    "enqueue_for_human_review",
+                    InboxInput(
+                        state="awaiting_signoff",
+                        gate_name="operator_signoff",
+                        reason=inbox_reason,
+                        score=None,
+                        upstream_slug=inp.upstream_slug,
+                        issue_number=inp.issue_number,
+                        state_root=inp.state_root,
+                    ),
+                    start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                )
+                # Only record the awaiting_signoff transition on first entry —
+                # subsequent loops re-enter the same state without a new
+                # transition event.
+                if submission_error is None:
+                    await workflow.execute_activity(
+                        "record_transition",
+                        TransitionInput(
+                            state_root=inp.state_root,
+                            from_state=self.state,
+                            to_state="awaiting_signoff",
+                            reason="awaiting operator signoff on preview PR",
+                            decided_by="system:workflow",
+                        ),
+                        start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                    )
+                    self.state = "awaiting_signoff"
+                await workflow.wait_condition(
+                    lambda: self.human_decision is not None,
+                    timeout=_OPERATOR_SIGNOFF_TIMEOUT,
+                )
+                decision = self.human_decision
+                self.human_decision = None
+                if decision == "abort":
+                    raise _OperatorAborted(
+                        state="awaiting_signoff",
+                        gate_name="operator_signoff",
+                        reason=(
+                            "operator declined upstream submission"
+                            if submission_error is None
+                            else f"operator abandoned after submission failure: {submission_error}"
+                        ),
+                    )
+                # approve / retry both fall through to submit
+                try:
+                    submit_result = await workflow.execute_activity(
+                        "submit_upstream_pr",
+                        SubmitInput(
+                            upstream_slug=inp.upstream_slug,
+                            fork_slug=inp.fork_slug,
+                            branch_name=inp.branch_name,
+                            base_branch=inp.base_branch,
+                            issue_number=inp.issue_number,
+                            state_root=inp.state_root,
+                        ),
+                        start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    # Success — record + exit loop
+                    break
+                except Exception as e:
+                    submission_error = f"{type(e).__name__}: {str(e)[:300]}"
+                    # Best-effort: log the failure to the events stream so
+                    # the inbox UI surfaces context. Not raising — we want
+                    # to loop back to the operator inbox.
+                    try:
+                        await workflow.execute_activity(
+                            "record_transition",
+                            TransitionInput(
+                                state_root=inp.state_root,
+                                from_state="awaiting_signoff",
+                                to_state="awaiting_signoff",
+                                reason=f"submit_upstream_pr failed: {submission_error}",
+                                decided_by="system:workflow",
+                            ),
+                            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                        )
+                    except Exception:
+                        pass  # Don't mask the real failure with a logging issue
+                    # loop back to operator inbox
+                    continue
 
-            submit_result = await workflow.execute_activity(
-                "submit_upstream_pr",
-                SubmitInput(
-                    upstream_slug=inp.upstream_slug,
-                    fork_slug=inp.fork_slug,
-                    branch_name=inp.branch_name,
-                    base_branch=inp.base_branch,
-                    issue_number=inp.issue_number,
-                    state_root=inp.state_root,
-                ),
-                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            # submit_result is guaranteed non-None here (loop only exits via break on success)
+            assert submit_result is not None
 
             await workflow.execute_activity(
                 "record_transition",
@@ -997,68 +1057,109 @@ class IssueWorkflow:
         # own gates.
         await self._run_state_gates_or_defer("submittable", inp)
 
-        # Re-enter awaiting_signoff. The operator's signal here governs
-        # whether we ship the updated content upstream.
-        await workflow.execute_activity(
-            "enqueue_for_human_review",
-            InboxInput(
-                state="awaiting_signoff",
-                gate_name="operator_signoff",
-                reason=(
-                    f"remediation cycle complete; preview PR refreshed in response to "
-                    f"upstream review on PR #{upstream_pr_number}"
-                ),
-                score=None,
-                upstream_slug=inp.upstream_slug,
-                issue_number=inp.issue_number,
-                state_root=inp.state_root,
-            ),
-            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-        )
-        await workflow.execute_activity(
-            "record_transition",
-            TransitionInput(
-                state_root=inp.state_root,
-                from_state=self.state,
-                to_state="awaiting_signoff",
-                reason="awaiting operator signoff on remediated preview PR",
-                decided_by="system:workflow",
-            ),
-            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-        )
-        self.state = "awaiting_signoff"
-
-        await workflow.wait_condition(
-            lambda: self.human_decision is not None,
-            timeout=timedelta(days=14),
-        )
-        decision = self.human_decision
-        self.human_decision = None
-        if decision == "abort":
-            raise _OperatorAborted(
-                state="awaiting_signoff",
-                gate_name="operator_signoff",
-                reason="operator declined remediated upstream submission",
+        # Re-enter awaiting_signoff with the same submission-failure
+        # safety net as the initial signoff loop above: if the upstream
+        # `gh pr edit` fails (e.g. PR closed by upstream while we were
+        # remediating), loop back to the operator inbox with the error
+        # rather than aborting the workflow.
+        submission_error: str | None = None
+        first_entry = True
+        while True:
+            base_reason = (
+                f"remediation cycle complete; preview PR refreshed in response to "
+                f"upstream review on PR #{upstream_pr_number}"
             )
+            inbox_reason = (
+                base_reason
+                if submission_error is None
+                else f"previous upstream-update attempt failed: {submission_error}. "
+                     f"Edit the fork PR / fix root cause, then approve again, "
+                     f"or signal abort."
+            )
+            await workflow.execute_activity(
+                "enqueue_for_human_review",
+                InboxInput(
+                    state="awaiting_signoff",
+                    gate_name="operator_signoff",
+                    reason=inbox_reason,
+                    score=None,
+                    upstream_slug=inp.upstream_slug,
+                    issue_number=inp.issue_number,
+                    state_root=inp.state_root,
+                ),
+                start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+            )
+            if first_entry:
+                await workflow.execute_activity(
+                    "record_transition",
+                    TransitionInput(
+                        state_root=inp.state_root,
+                        from_state=self.state,
+                        to_state="awaiting_signoff",
+                        reason="awaiting operator signoff on remediated preview PR",
+                        decided_by="system:workflow",
+                    ),
+                    start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                )
+                self.state = "awaiting_signoff"
+                first_entry = False
 
-        # Approve / retry → push the updated content upstream. Because
-        # 10-submitted/upstream_pr_number is recorded, submit_upstream_pr
-        # uses `gh pr edit` instead of `gh pr create`, so the existing
-        # upstream PR's title + body get updated. The branch was
-        # force-pushed during replicate; the diff auto-updates.
-        await workflow.execute_activity(
-            "submit_upstream_pr",
-            SubmitInput(
-                upstream_slug=inp.upstream_slug,
-                fork_slug=inp.fork_slug,
-                branch_name=inp.branch_name,
-                base_branch=inp.base_branch,
-                issue_number=inp.issue_number,
-                state_root=inp.state_root,
-            ),
-            start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+            await workflow.wait_condition(
+                lambda: self.human_decision is not None,
+                timeout=timedelta(days=14),
+            )
+            decision = self.human_decision
+            self.human_decision = None
+            if decision == "abort":
+                raise _OperatorAborted(
+                    state="awaiting_signoff",
+                    gate_name="operator_signoff",
+                    reason=(
+                        "operator declined remediated upstream submission"
+                        if submission_error is None
+                        else f"operator abandoned remediation after submission failure: {submission_error}"
+                    ),
+                )
+
+            # Approve / retry → push the updated content upstream. Because
+            # 10-submitted/upstream_pr_number is recorded, submit_upstream_pr
+            # uses `gh pr edit` instead of `gh pr create`, so the existing
+            # upstream PR's title + body get updated. The branch was
+            # force-pushed during replicate; the diff auto-updates.
+            try:
+                await workflow.execute_activity(
+                    "submit_upstream_pr",
+                    SubmitInput(
+                        upstream_slug=inp.upstream_slug,
+                        fork_slug=inp.fork_slug,
+                        branch_name=inp.branch_name,
+                        base_branch=inp.base_branch,
+                        issue_number=inp.issue_number,
+                        state_root=inp.state_root,
+                    ),
+                    start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                # Success — exit loop
+                break
+            except Exception as e:
+                submission_error = f"{type(e).__name__}: {str(e)[:300]}"
+                try:
+                    await workflow.execute_activity(
+                        "record_transition",
+                        TransitionInput(
+                            state_root=inp.state_root,
+                            from_state="awaiting_signoff",
+                            to_state="awaiting_signoff",
+                            reason=f"submit_upstream_pr (remediation update) failed: {submission_error}",
+                            decided_by="system:workflow",
+                        ),
+                        start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                    )
+                except Exception:
+                    pass
+                # Loop back to operator inbox
+                continue
         await workflow.execute_activity(
             "record_transition",
             TransitionInput(

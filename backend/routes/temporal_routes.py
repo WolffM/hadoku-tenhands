@@ -414,7 +414,12 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
             ),
             raw_brief_text=i.get("raw_brief", ""),
             branch_name=i.get("branch_name") or f"crimson-kitty-{i['issue_number']}",
-            base_branch=i.get("base_branch", "main"),
+            # base_branch: caller MAY provide it, but if not we resolve from
+            # the upstream repo's actual default_branch instead of falling
+            # back to "main". argoproj/argo-cd's default is master; the
+            # 2026-05-27 batch crashed at submit_upstream_pr because we
+            # hardcoded "main" here. Never hardcode a base ref again.
+            base_branch=i.get("base_branch") or _resolve_default_branch(i["upstream_slug"]),
             copilot_task_queue=cfg.copilot_task_queue,
         )
         for i in issues_raw
@@ -450,6 +455,37 @@ def _derive_fork(upstream_slug: str, owner: str = "WolffM") -> str:
     up_owner, up_repo = upstream_slug.split("/", 1)
     combined = f"{up_owner}-{up_repo}".replace("/", "-")
     return f"{owner}/{combined}"
+
+
+def _resolve_default_branch(upstream_slug: str) -> str:
+    """Query the upstream repo's actual default_branch via gh.
+
+    Never hardcode 'main' as a fallback for a base ref. argoproj/argo-cd,
+    sharkdp/bat, traefik/traefik, ggerganov/llama.cpp all use 'master';
+    mermaid-js/mermaid uses 'develop'. The 2026-05-27 batch crashed at
+    submit_upstream_pr because we passed --base main against argoproj
+    where main doesn't exist.
+
+    Raises RuntimeError on lookup failure rather than papering over it
+    with a "main" fallback — the failure surfaces immediately to the
+    operator instead of crashing four state transitions later during
+    upstream submission.
+    """
+    from services.github_api import run_gh_command  # type: ignore
+
+    result = run_gh_command([
+        "api", f"repos/{upstream_slug}",
+        "--jq", ".default_branch",
+    ])
+    if not result.get("success"):
+        raise RuntimeError(
+            f"could not resolve default_branch for {upstream_slug}: "
+            f"{result.get('error') or result.get('output', '')[:200]}"
+        )
+    branch = (result.get("output") or "").strip()
+    if not branch:
+        raise RuntimeError(f"gh returned empty default_branch for {upstream_slug}")
+    return branch
 
 
 # Structured override reason vocabulary — Phase 0 / M0.2.

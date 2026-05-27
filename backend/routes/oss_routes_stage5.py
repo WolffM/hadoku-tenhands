@@ -77,7 +77,23 @@ def api_oss_submit_to_origin():
     branch = data.get("branch")
     title = data.get("title")
     body = data.get("body")
-    base_branch = data.get("base_branch", "main")
+    # base_branch: caller MAY pass it; if not, resolve from upstream's
+    # actual default_branch via gh. No "main" fallback — argoproj/argo-cd
+    # uses master and the 2026-05-27 crash was caused by exactly this
+    # hardcode.
+    base_branch = data.get("base_branch")
+    if not base_branch and origin_slug:
+        try:
+            from .temporal_routes import _resolve_default_branch  # type: ignore
+        except ImportError:
+            from routes.temporal_routes import _resolve_default_branch  # type: ignore
+        try:
+            base_branch = _resolve_default_branch(origin_slug)
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"could not resolve base_branch for {origin_slug}: {e}",
+            })
 
     slug_err = validate_slug(origin_slug)
     if slug_err:
