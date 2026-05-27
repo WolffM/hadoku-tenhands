@@ -1,6 +1,6 @@
 {
   "name": "@wolffm/vibedispatch",
-  "version": "1.13.20",
+  "version": "1.14.0",
   "description": "VibeDispatch UI - Task dispatch and management interface",
   "type": "module",
   "repository": {
