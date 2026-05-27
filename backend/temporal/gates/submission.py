@@ -44,6 +44,21 @@ _INFRA_ERROR_PATTERNS = (
     "EACCES",
 )
 
+# Path pattern for `body_diff_coherence`. Matches things that look like
+# repo-relative paths with an extension (`pkg/api/handlers/foo.go`,
+# `src/utils/parse.ts`, `cmd/podman/compose.go`). Avoids matching URLs
+# (caller pre-strips `http(s)://` chunks) and bare module imports.
+_PATH_IN_PROSE_RE = re.compile(
+    r"\b("                                                  # whole-word
+    r"(?:[\w.-]+/){1,8}"                                    # one or more dir segments
+    r"[\w.-]+"                                              # final segment
+    r"\.[A-Za-z0-9]{1,6}"                                   # extension
+    r")\b"
+)
+# URLs that include paths-with-extensions and would otherwise match
+# `_PATH_IN_PROSE_RE`. We strip these from the prose before path-extract.
+_URL_RE = re.compile(r"https?://\S+")
+
 
 # ── no_upstream_refs ──────────────────────────────────────────────────────
 
@@ -290,6 +305,106 @@ def verification_health(issue: IssueRef, evidence) -> GateResult:
             evidence_data={"matched_patterns": matched},
         )
     return Pass()
+
+
+# ── body_diff_coherence (mechanical) ──────────────────────────────────────
+
+
+@gate(after="submittable", kind="mechanical")
+def body_diff_coherence(issue: IssueRef, evidence) -> GateResult:
+    """Block when the PR body's prose claims to fix files the diff didn't touch.
+
+    Today's defer pattern (2026-05-27 batch): podman#26383's body
+    described fixing `cmd/podman/compose.go` (forcibly setting
+    `DOCKER_BUILDKIT=0`), but the actually-touched files were in
+    `pkg/api/handlers/` and `pkg/api/server/`. submission_judge caught
+    this as a 0.65 borderline. Doing it mechanically up front saves the
+    judge call and gives a clearer signal to the operator.
+
+    Heuristic: extract paths-with-extensions from the body's prose
+    sections (ignoring the structured `Files changed:` bullet list,
+    which is built from files_touched and tautologically matches).
+    For each path mentioned in prose, require either an exact match in
+    files_touched OR a basename match. If neither, the body is claiming
+    a file the diff didn't touch.
+
+    Reverse direction (files touched but not mentioned in prose) is
+    NOT a failure — the agent may have omitted explaining every file
+    edit and that's the submission_judge's call, not a mechanical
+    contradiction.
+    """
+    if not evidence.exists("09-submittable/pr_body.md"):
+        return Fail("pr_body.md missing")
+    if not evidence.exists("05-fixed/files_touched.txt"):
+        return Pass(reason="no files_touched.txt to compare against")
+
+    body = evidence.read_text("09-submittable/pr_body.md")
+    files_touched = [
+        l.strip()
+        for l in evidence.read_text("05-fixed/files_touched.txt").splitlines()
+        if l.strip()
+    ]
+    files_touched = [f for f in files_touched if f not in _TREE_STRIP_PATHS]
+    if not files_touched:
+        return Pass(reason="no source files touched")
+
+    # Carve out the structured `Files changed:` bullet list — those are
+    # rendered from files_touched and tautologically match.
+    prose = body
+    files_changed_match = re.search(
+        r"\n(?:Files changed[^\n]*:)\n",
+        body,
+    )
+    if files_changed_match:
+        # Drop from the "Files changed:" header to the next blank line +
+        # next heading (whichever comes first).
+        start = files_changed_match.start()
+        tail = body[files_changed_match.end():]
+        next_heading = re.search(r"\n##\s", tail)
+        end = files_changed_match.end() + (next_heading.start() if next_heading else len(tail))
+        prose = body[:start] + body[end:]
+    # Strip URLs so e.g. `https://example.com/path/to/x.html` doesn't
+    # show up as a "claimed file".
+    prose = _URL_RE.sub("", prose)
+
+    # Strip fenced code blocks — paths in code snippets are usually
+    # examples / imports / type names, not claims about what the PR
+    # touched.
+    prose = re.sub(r"```.*?```", "", prose, flags=re.DOTALL)
+    # Inline backticks: keep the content (often the path itself), just
+    # remove the backtick characters.
+    prose = prose.replace("`", "")
+
+    mentioned: list[str] = list({m.group(1) for m in _PATH_IN_PROSE_RE.finditer(prose)})
+
+    if not mentioned:
+        return Pass(reason="no file paths mentioned in prose")
+
+    touched_set = set(files_touched)
+    touched_basenames = {f.rsplit("/", 1)[-1] for f in files_touched}
+
+    unmatched = [
+        m for m in mentioned
+        if m not in touched_set
+        and m.rsplit("/", 1)[-1] not in touched_basenames
+    ]
+
+    if unmatched:
+        # Keep the failure surfacing concrete: list up to 3 of the worst
+        # offenders so the operator can spot-check.
+        return Fail(
+            f"PR body mentions {len(unmatched)} file(s) the diff didn't touch: "
+            f"{', '.join(unmatched[:3])}"
+            + (f" (+{len(unmatched)-3} more)" if len(unmatched) > 3 else "")
+            + ". The body and the diff disagree about what changed.",
+            evidence_data={
+                "mentioned_in_prose": mentioned,
+                "files_touched": files_touched,
+                "unmatched": unmatched,
+            },
+        )
+
+    return Pass(evidence_data={"mentioned_count": len(mentioned)})
 
 
 # ── submission_judge ──────────────────────────────────────────────────────
