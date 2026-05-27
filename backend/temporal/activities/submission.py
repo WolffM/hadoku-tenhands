@@ -296,10 +296,17 @@ def replicate_fix_as_operator(
     first_para = _first_prose_paragraph(body) if body else ""
     commit_message = title if not first_para else f"{title}\n\n{first_para}"
 
-    if conventions.get("signoff_required"):
-        signoff_line = _build_signoff_line(run_gh)
-        if signoff_line and signoff_line not in commit_message:
-            commit_message = f"{commit_message.rstrip()}\n\n{signoff_line}\n"
+    # Always add the Signed-off-by trailer. It's required by DCO repos
+    # (apache/*, argoproj/*, CNCF projects); harmless on the rest. The
+    # aggregator's `signoff_required` detection is a useful signal but
+    # not a reliable single point of failure — argoproj/argo-cd#28030
+    # (2026-05-27) tripped DCO despite signoff_required=true because the
+    # signoff EMAIL didn't match the commit author email. Default-on
+    # behavior + email-format alignment in _build_signoff_line eliminates
+    # both failure modes.
+    signoff_line = _build_signoff_line(run_gh)
+    if signoff_line and signoff_line not in commit_message:
+        commit_message = f"{commit_message.rstrip()}\n\n{signoff_line}\n"
 
     # 4. Create the new commit. Author defaults to the gh token owner
     #    (operator) — no explicit author set so agent lineage is severed.
@@ -696,11 +703,18 @@ def _build_signoff_line(run_gh) -> str:
 
     Phase 5.3 — used when conventions.signoff_required is true (DCO
     repos like apache/*).
+
+    DCO requires the Signed-off-by EMAIL to match the commit AUTHOR
+    EMAIL exactly. Copilot's SWE agent commits with the modern noreply
+    format (`{id}+{login}@users.noreply.github.com`), so we construct
+    the same shape here. Using the legacy format (`{login}@…`) without
+    the ID prefix is what caused argoproj/argo-cd#28030 to fail DCO
+    on first submission (2026-05-27).
     """
     try:
         result = run_gh([
             "api", "user",
-            "--jq", '{name: (.name // .login // ""), login: .login, email: (.email // "")}',
+            "--jq", '{name: (.name // .login // ""), login: .login, id: .id, email: (.email // "")}',
         ])
     except Exception:
         return ""
@@ -712,11 +726,18 @@ def _build_signoff_line(run_gh) -> str:
         return ""
     name = (data.get("name") or "").strip()
     login = (data.get("login") or "").strip()
+    user_id = data.get("id")
     email = (data.get("email") or "").strip()
     if not email and login:
-        # Fall back to GitHub's noreply email — same shape git would use
-        # if user.email is unset and the user pushed via gh.
-        email = f"{login}@users.noreply.github.com"
+        # Modern GitHub noreply format includes the user's numeric ID prefix
+        # ({id}+{login}@users.noreply.github.com). This is what Copilot's SWE
+        # agent uses when committing via gh, so the signoff email must match
+        # this exact shape for DCO to pass. Fall back to legacy ({login}@…)
+        # only if the API didn't return an id, which shouldn't happen.
+        if user_id is not None:
+            email = f"{user_id}+{login}@users.noreply.github.com"
+        else:
+            email = f"{login}@users.noreply.github.com"
     display = name or login
     if not display or not email:
         return ""

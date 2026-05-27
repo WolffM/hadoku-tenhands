@@ -689,6 +689,9 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
             "- DO NOT use GitHub MCP tools to look up issues on other repositories.\n"
             "- DO NOT modify or weaken a test to make it pass.\n"
             "- DO NOT commit __pycache__/ directories. Add to .gitignore if missing.\n"
+            "- DO NOT commit notes.md, verify_notes.md, or any scratchpad file. "
+            "Use them only as local working memory; they are already excluded "
+            "via .git/info/exclude.\n"
             "- Keep changes minimal and focused.\n"
         )
 
@@ -773,6 +776,10 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
             f"    runs-on: {runner}\n"
             "    steps:\n"
             "      - uses: actions/checkout@v4\n"
+            "      - name: Exclude pipeline scratchpads from git\n"
+            "        run: |\n"
+            "          echo 'notes.md' >> .git/info/exclude\n"
+            "          echo 'verify_notes.md' >> .git/info/exclude\n"
         )
 
         setup = _LANG_SETUP_ACTION.get(lang, "")
