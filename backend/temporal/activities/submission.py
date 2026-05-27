@@ -242,9 +242,18 @@ def replicate_fix_as_operator(
     except (ValueError, TypeError) as e:
         raise RuntimeError(f"agent PR detail not JSON: {e}") from e
     agent_head_sha = pr_meta.get("head_sha") or ""
-    default_branch = pr_meta.get("base_ref") or "main"
+    # No "main" fallback: if the fork PR's base_ref isn't recorded, that's
+    # a real data integrity problem (fork PR exists but GitHub didn't
+    # surface its base). Fail loud rather than silently submitting against
+    # the wrong branch. 2026-05-27 lesson.
+    default_branch = pr_meta.get("base_ref") or ""
     if not agent_head_sha:
         raise RuntimeError(f"agent PR {agent_pr_number} has no head SHA")
+    if not default_branch:
+        raise RuntimeError(
+            f"agent PR {agent_pr_number} has no base_ref — cannot safely "
+            f"determine the fork's default branch"
+        )
 
     tree_call = run_gh([
         "api", f"repos/{fork_slug}/git/commits/{agent_head_sha}",

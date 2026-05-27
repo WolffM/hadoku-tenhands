@@ -448,9 +448,12 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
         tree_sha = commit_data["tree"]
         parents = commit_data["parents"]
 
-        # 2. Strip pipeline-owned files from the tree
+        # 2. Strip pipeline-owned files from the tree. base_branch must be
+        # passed through verbatim — `or "main"` would silently mismatch
+        # for repos using master/develop and leak pipeline files into
+        # upstream commits (2026-05-27 lesson).
         tree_sha, files_stripped = self._strip_pipeline_files(
-            my_user, repo, tree_sha, origin_slug, base_branch or "main"
+            my_user, repo, tree_sha, origin_slug, base_branch
         )
 
         # 3. Get user identity for authoring
