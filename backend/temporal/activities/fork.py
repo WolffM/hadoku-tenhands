@@ -90,7 +90,12 @@ def _configure_fork_safety(fork_slug: str, run_gh) -> dict:
     after retries — better to abort the workflow cleanly than to hand
     an unlocked fork to Copilot.
 
-    Disabling inherited workflows is best-effort (logged, not raised).
+    Disabling inherited workflows is REQUIRED, not best-effort: any
+    failure (listing, per-workflow disable, or post-verification finding
+    a non-keep workflow still active) raises RuntimeError so the dispatch
+    aborts before we push anything. Silent failures here have leaked
+    GitHub-hosted runner charges in the past (cli-cli + crewAIInc-crewAI,
+    2026-05-29).
 
     Returns a summary dict the caller can include in evidence.
     """
@@ -139,34 +144,77 @@ def _configure_fork_safety(fork_slug: str, run_gh) -> dict:
         )
 
     # 2. Disable every inherited workflow except the ones we whitelist.
-    listing = run_gh([
-        "api", f"repos/{fork_slug}/actions/workflows",
-        "--jq", ".workflows[] | [.id, .path, .state] | @tsv",
-        "--paginate",
-    ])
-    if not listing.get("success"):
-        logger.warning("could not list workflows on %s; skipping disable step", fork_slug)
-        return summary
+    #
+    # MUST fail-loud (raise) on any failure rather than warn-and-continue.
+    # Silent failures here have leaked real GitHub-hosted runner minutes to
+    # billing (cli-cli + crewAIInc-crewAI charges 2026-05-29). The contract
+    # is: a fork either has every non-keep workflow disabled before we push
+    # ANY commit to it, or we abort the dispatch.
+    def _list_workflows() -> list[tuple[str, str, str]]:
+        listing = run_gh([
+            "api", f"repos/{fork_slug}/actions/workflows",
+            "--jq", ".workflows[] | [.id, .path, .state] | @tsv",
+            "--paginate",
+        ])
+        if not listing.get("success"):
+            raise RuntimeError(
+                f"failed to list workflows on {fork_slug}: "
+                f"{listing.get('error') or listing.get('output', '')[:200]} — "
+                f"cannot guarantee inherited workflows are disabled, aborting "
+                f"to prevent GitHub-hosted runner charges"
+            )
+        rows: list[tuple[str, str, str]] = []
+        for line in (listing.get("output") or "").strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            rows.append((parts[0], parts[1], parts[2]))
+        return rows
 
-    for line in (listing.get("output") or "").strip().split("\n"):
-        if not line.strip():
-            continue
-        parts = line.split("\t")
-        if len(parts) < 3:
-            continue
-        wf_id, wf_path, wf_state = parts[0], parts[1], parts[2]
-
+    failed_disables: list[tuple[str, str, str]] = []  # (wf_id, wf_path, error)
+    for wf_id, wf_path, wf_state in _list_workflows():
         if wf_path in _KEEP_WORKFLOW_PATHS:
             summary["kept_workflows"].append(wf_path)
             continue
+        if wf_state != "active":
+            continue
+        r = run_gh([
+            "api", f"repos/{fork_slug}/actions/workflows/{wf_id}/disable",
+            "-X", "PUT",
+        ])
+        if r.get("success"):
+            summary["disabled_workflows"] += 1
+        else:
+            err = (r.get("error") or r.get("output", "") or "")[:120]
+            logger.error(
+                "disable failed for workflow %s (%s) on %s: %s",
+                wf_id, wf_path, fork_slug, err,
+            )
+            failed_disables.append((wf_id, wf_path, err))
 
-        if wf_state == "active":
-            r = run_gh([
-                "api", f"repos/{fork_slug}/actions/workflows/{wf_id}/disable",
-                "-X", "PUT",
-            ])
-            if r.get("success"):
-                summary["disabled_workflows"] += 1
+    if failed_disables:
+        raise RuntimeError(
+            f"failed to disable {len(failed_disables)} inherited workflow(s) on "
+            f"{fork_slug}: {[(p, e[:60]) for _, p, e in failed_disables[:3]]} — "
+            f"would leak GitHub-hosted runner charges on the first push, aborting"
+        )
+
+    # 3. Verification pass — re-list and confirm every non-keep is no longer
+    # active. Catches races where a workflow we "disabled" reappeared, or
+    # where the disable returned success but didn't take effect.
+    still_active = [
+        (wf_id, wf_path)
+        for wf_id, wf_path, wf_state in _list_workflows()
+        if wf_state == "active" and wf_path not in _KEEP_WORKFLOW_PATHS
+    ]
+    if still_active:
+        raise RuntimeError(
+            f"verification failed: {len(still_active)} non-keep workflow(s) "
+            f"still active on {fork_slug} after disable pass: "
+            f"{[p for _, p in still_active[:5]]} — aborting to prevent runner charges"
+        )
 
     if summary["disabled_workflows"]:
         logger.info("disabled %d inherited workflows on %s (kept %d)",
