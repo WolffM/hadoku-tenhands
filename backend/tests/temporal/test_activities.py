@@ -223,9 +223,20 @@ def _fake_gh_fork(include_upstream_workflows=True):
 
     Simulated workflow listing includes three inherited (`.github/workflows/*.yml`),
     three auto-provisioned dynamic/* (codeql, dependabot, copilot-reviewer), and
-    the copilot-swe-agent — the single workflow we keep.
+    the copilot-swe-agent — the single workflow we keep. Models stateful
+    disable so the post-disable verification re-list reflects actual state.
     """
     calls = []
+    disabled_ids: set[str] = set()
+    workflow_rows = [
+        ("1", ".github/workflows/test-matrix.yml"),
+        ("2", ".github/workflows/ci.yml"),
+        ("3", ".github/workflows/release.yml"),
+        ("4", "dynamic/github-code-scanning/codeql"),
+        ("5", "dynamic/dependabot/dependabot-updates"),
+        ("6", "dynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer"),
+        ("7", "dynamic/copilot-swe-agent/copilot"),
+    ]
 
     def fake_gh(args, stdin_data=None):
         calls.append(args)
@@ -248,22 +259,20 @@ def _fake_gh_fork(include_upstream_workflows=True):
         # Actions policy PUT
         if len(args) >= 4 and args[1].endswith("/actions/permissions") and args[2] == "-X" and args[3] == "PUT":
             return {"success": True, "output": ""}
-        # Workflow list
+        # Workflow list — reflects current disabled set
         if len(args) >= 2 and args[1].endswith("/actions/workflows"):
             if include_upstream_workflows:
                 rows = [
-                    "1\t.github/workflows/test-matrix.yml\tactive",
-                    "2\t.github/workflows/ci.yml\tactive",
-                    "3\t.github/workflows/release.yml\tactive",
-                    "4\tdynamic/github-code-scanning/codeql\tactive",
-                    "5\tdynamic/dependabot/dependabot-updates\tactive",
-                    "6\tdynamic/copilot-pull-request-reviewer/copilot-pull-request-reviewer\tactive",
-                    "7\tdynamic/copilot-swe-agent/copilot\tactive",
+                    f"{wid}\t{path}\t{'disabled_manually' if wid in disabled_ids else 'active'}"
+                    for wid, path in workflow_rows
                 ]
                 return {"success": True, "output": "\n".join(rows)}
             return {"success": True, "output": ""}
-        # Workflow disable
+        # Workflow disable — record the ID so the next list call reflects it
         if len(args) >= 2 and "/disable" in args[1]:
+            # path: api repos/.../actions/workflows/{id}/disable
+            wid = args[1].rsplit("/", 2)[-2]
+            disabled_ids.add(wid)
             return {"success": True, "output": ""}
         raise AssertionError(f"unexpected gh call: {args}")
 
@@ -456,6 +465,93 @@ def test_fork_disables_inherited_workflows(ev):
     assert summary["actions_policy_set"] is True
     assert summary["kept_workflows"] == ["dynamic/copilot-swe-agent/copilot"]
     assert result["workflows_disabled"] == 6
+
+
+def test_fork_raises_if_workflow_listing_fails(ev):
+    """Silent failure here previously skipped the disable step entirely —
+    fork got pushed to with inherited workflows still active, billing
+    GitHub-hosted runner minutes (cli-cli + crewAIInc 2026-05-29). Now
+    must abort the dispatch loudly."""
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    def fake_gh(args, stdin_data=None):
+        if args[:3] == ["api", "repos/WolffM/markitdown", "--silent"]:
+            return {"success": True, "output": ""}
+        if args[:2] == ["repo", "fork"]:
+            return {"success": True, "output": ""}
+        if (len(args) >= 4 and args[1] == "repos/WolffM/markitdown" and "PATCH" in args):
+            return {"success": True, "output": ""}
+        if len(args) >= 4 and args[1].endswith("/actions/permissions"):
+            return {"success": True, "output": ""}
+        if len(args) >= 2 and args[1].endswith("/actions/workflows"):
+            return {"success": False, "error": "API down", "output": ""}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    with pytest.raises(RuntimeError, match="failed to list workflows"):
+        fork_and_scrub_brief(
+            "microsoft/markitdown", 183, "brief", "b", ev, run_gh=fake_gh,
+        )
+
+
+def test_fork_raises_if_individual_disable_fails(ev):
+    """A single 422/403 on /workflows/{id}/disable used to be silently
+    ignored — the workflow stayed active and fired on push. Now any
+    disable failure aborts the dispatch."""
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    def fake_gh(args, stdin_data=None):
+        if args[:3] == ["api", "repos/WolffM/markitdown", "--silent"]:
+            return {"success": True, "output": ""}
+        if args[:2] == ["repo", "fork"]:
+            return {"success": True, "output": ""}
+        if (len(args) >= 4 and args[1] == "repos/WolffM/markitdown" and "PATCH" in args):
+            return {"success": True, "output": ""}
+        if len(args) >= 4 and args[1].endswith("/actions/permissions"):
+            return {"success": True, "output": ""}
+        if len(args) >= 2 and args[1].endswith("/actions/workflows"):
+            return {"success": True, "output":
+                "1\t.github/workflows/test-matrix.yml\tactive\n"
+                "7\tdynamic/copilot-swe-agent/copilot\tactive"}
+        if len(args) >= 2 and "/disable" in args[1]:
+            return {"success": False, "error": "HTTP 422", "output": ""}
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    with pytest.raises(RuntimeError, match="failed to disable .* inherited workflow"):
+        fork_and_scrub_brief(
+            "microsoft/markitdown", 183, "brief", "b", ev, run_gh=fake_gh,
+        )
+
+
+def test_fork_raises_if_verification_finds_non_keep_still_active(ev):
+    """Even if every disable call returned 200, the verification pass
+    re-lists workflows and aborts if any non-keep is still active.
+    Catches the GitHub-eventual-consistency case where disable succeeds
+    but state hasn't propagated, or a workflow re-enables itself."""
+    from temporal.activities.fork import fork_and_scrub_brief
+
+    def fake_gh(args, stdin_data=None):
+        if args[:3] == ["api", "repos/WolffM/markitdown", "--silent"]:
+            return {"success": True, "output": ""}
+        if args[:2] == ["repo", "fork"]:
+            return {"success": True, "output": ""}
+        if (len(args) >= 4 and args[1] == "repos/WolffM/markitdown" and "PATCH" in args):
+            return {"success": True, "output": ""}
+        if len(args) >= 4 and args[1].endswith("/actions/permissions"):
+            return {"success": True, "output": ""}
+        # List: always returns the same workflows as active (disable
+        # claimed success but didn't propagate, or a workflow auto-re-enabled).
+        if len(args) >= 2 and args[1].endswith("/actions/workflows"):
+            return {"success": True, "output":
+                "1\t.github/workflows/test-matrix.yml\tactive\n"
+                "7\tdynamic/copilot-swe-agent/copilot\tactive"}
+        if len(args) >= 2 and "/disable" in args[1]:
+            return {"success": True, "output": ""}  # claims success — lie
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    with pytest.raises(RuntimeError, match="verification failed:.*still active"):
+        fork_and_scrub_brief(
+            "microsoft/markitdown", 183, "brief", "b", ev, run_gh=fake_gh,
+        )
 
 
 # ── environment activity ──────────────────────────────────────────────────
