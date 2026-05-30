@@ -1,5 +1,5 @@
 import { createRoot, type Root } from 'react-dom/client'
-import { logger } from '@wolffm/task-ui-components'
+import { logger } from '@wolffm/logger/client'
 import App from './App'
 // Parent app must provide @wolffm/themes/style.css (loaded via global.css in hadoku_site)
 // Parent app must provide @wolffm/task-ui-components/theme-picker.css
