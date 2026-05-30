@@ -43,8 +43,8 @@ importers:
         specifier: ^5.1.0
         version: 5.1.2(vite@7.3.1(@types/node@22.19.6))
       '@wolffm/logger':
-        specifier: ^1.0.0
-        version: 1.0.0
+        specifier: ^1.1.0
+        version: 1.1.0
       '@wolffm/task-ui-components':
         specifier: ^2.0.1
         version: 2.0.1(react@19.2.3)
@@ -704,8 +704,8 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
-  '@wolffm/logger@1.0.0':
-    resolution: {integrity: sha512-QEKMVTGuXSXRjZaiMpKn9eu87gDZz5Ehp3JsEelE8nQzbNaoQgCpEiQZtIZ765Xi4rZEqfFKTPA9zJ7w2BbE3g==, tarball: https://npm.pkg.github.com/download/@wolffm/logger/1.0.0/6a7cbe55734a89d39859027932d5a1e50188cf9c}
+  '@wolffm/logger@1.1.0':
+    resolution: {integrity: sha512-GU9gEvpWjV6l2bEIwM1YUa8BiGtf0BpOiUX5ab0x2h2GX/sAz/cjSl5YdAPmtJkCip8lUqIrkR4PwLM+RvOe5Q==, tarball: https://npm.pkg.github.com/download/@wolffm/logger/1.1.0/840a3412fc301295186d226b24dae56fdee8b414}
     engines: {node: '>=18'}
 
   '@wolffm/task-ui-components@2.0.1':
@@ -2578,7 +2578,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@wolffm/logger@1.0.0': {}
+  '@wolffm/logger@1.1.0': {}
 
   '@wolffm/task-ui-components@2.0.1(react@19.2.3)':
     dependencies:
