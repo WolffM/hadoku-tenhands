@@ -8,12 +8,10 @@ Extracted from oss_fork.py for clarity.
 import logging
 import os
 import subprocess
-import sys
 
 logger = logging.getLogger(__name__)
 
-# Suppress console windows on Windows when spawning subprocesses
-_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+_SUBPROCESS_FLAGS = 0
 
 try:
     from .github_api import run_gh_command

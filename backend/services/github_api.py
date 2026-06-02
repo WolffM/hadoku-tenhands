@@ -11,14 +11,12 @@ import subprocess
 import json
 import logging
 import time
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 from .cache import get_cached_vibecheck_status, set_cached_vibecheck_status
 
-# On Windows, prevent subprocess from opening console windows
-_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+_SUBPROCESS_FLAGS = 0
 
 # Orgs that require SAML-authorized tokens.
 # Maps org name → env var holding the SAML-authorized PAT.
