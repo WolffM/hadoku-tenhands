@@ -44,52 +44,16 @@ def _port_in_use(port: int) -> bool:
 
 
 def _kill_port(port: int) -> None:
-    """Kill any process currently listening on the given port (Windows + Unix).
+    """Kill any process currently listening on the given port (Unix).
 
     Uses os.kill() first (works for same-user processes without elevation),
-    then falls back to taskkill/kill -9.  Retries up to 3 times.
+    then falls back to kill -9.  Retries up to 3 times.
     Raises SystemExit if the port cannot be freed.
     """
     if not _port_in_use(port):
         return  # port is free
 
     logger.info("Port %d is in use — killing existing process...", port)
-
-    def _kill_once_win() -> int:
-        killed = set()
-        try:
-            out = subprocess.check_output(
-                ["netstat", "-ano"], text=True, stderr=subprocess.DEVNULL,
-            )
-            for line in out.splitlines():
-                if f":{port} " in line and "LISTENING" in line.upper():
-                    parts = line.split()
-                    pid_str = parts[-1] if parts else ""
-                    if not pid_str or not pid_str.isdigit() or pid_str in killed:
-                        continue
-                    pid_num = int(pid_str)
-                    # Try os.kill first (same-user, no elevation needed)
-                    try:
-                        os.kill(pid_num, signal.SIGTERM)
-                        logger.debug("Killed PID %s via SIGTERM", pid_str)
-                        killed.add(pid_str)
-                        continue
-                    except (PermissionError, OSError):
-                        pass
-                    # Fall back to taskkill
-                    try:
-                        subprocess.run(
-                            ["taskkill", "/F", "/PID", pid_str],
-                            capture_output=True, text=True, check=True,
-                        )
-                        logger.debug("Killed PID %s via taskkill", pid_str)
-                        killed.add(pid_str)
-                    except (subprocess.CalledProcessError, OSError) as e:
-                        stderr = getattr(e, "stderr", "") or ""
-                        logger.warning("Failed to kill PID %s: %s", pid_str, stderr.strip())
-        except subprocess.CalledProcessError:
-            pass
-        return len(killed)
 
     def _kill_once_unix() -> int:
         count = 0
@@ -111,7 +75,7 @@ def _kill_port(port: int) -> None:
             pass
         return count
 
-    kill_fn = _kill_once_win if sys.platform == "win32" else _kill_once_unix
+    kill_fn = _kill_once_unix
 
     for attempt in range(3):
         kill_fn()
@@ -123,7 +87,7 @@ def _kill_port(port: int) -> None:
         logger.info("Port %d still busy, retrying (%d/3)...", port, attempt + 1)
 
     # All attempts failed
-    fix_cmd = "taskkill /F /PID <pid>  (as Administrator)" if sys.platform == "win32" else "sudo kill -9 <pid>"
+    fix_cmd = "sudo kill -9 <pid>"
     logger.error(
         "Port %d is STILL in use after 3 kill attempts. "
         "Another process owns it and cannot be killed (access denied?). "

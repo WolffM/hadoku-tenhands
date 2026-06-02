@@ -15,7 +15,6 @@ import os
 import re
 import json
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -23,8 +22,7 @@ import base64
 
 logger = logging.getLogger(__name__)
 
-# Suppress console windows on Windows when spawning subprocesses
-_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+_SUBPROCESS_FLAGS = 0
 
 try:
     from ..config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
