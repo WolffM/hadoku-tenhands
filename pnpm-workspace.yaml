@@ -1,0 +1,3 @@
+# Dependency build-script approvals (pnpm 11.5+ allowBuilds map).
+allowBuilds:
+  esbuild: true
