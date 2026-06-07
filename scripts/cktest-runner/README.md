@@ -2,7 +2,7 @@
 
 Sandbox HTTP service that runs verification tests for the crimson-kitty
 pipeline. Lives on `claw-3` (claw fleet, Debian Trixie) as a systemd
-service. The vibedispatch worker (running on the Windows main host)
+service. The vibedispatch worker (running on the Linux host)
 reaches it over Tailscale at `http://claw-3:5500` from the
 `run_test_command` activity (see `backend/temporal/activities/test_runner.py`).
 
@@ -56,13 +56,13 @@ The bring-up flow is **rsync the repo → run `provision.sh` → start the
 unit**. There's no per-host config drift — every claw-resident artifact
 is in this directory + `/etc/cktest-runner/service.key`.
 
-### One-time, from the Windows main host
+### One-time, from the main host
 
-```powershell
+```bash
 # 1. Push the repo to claw-3 (Tailscale-reachable as `claw-3`)
 ssh claw3-admin 'sudo install -d -o $USER -g $USER /srv/vibedispatch'
 rsync -avz --delete --exclude='.git' --exclude='node_modules' \
-  C:/Users/Hadoku/Documents/repos/vibedispatch/ \
+  ~/repos/vibedispatch/ \
   claw3-admin:/srv/vibedispatch/
 
 # OR — if the repo's already cloned on claw-3, just:
@@ -116,7 +116,7 @@ manual ssh — see migration brief.)
 These come from `hadoku_site/docs/planning/claw-fleet-migration.md`:
 
 - **0.1** — `curl -H "Authorization: Bearer $K" http://claw-3:5500/health` from
-  the Windows host returns `{"ok":true,"service":"cktest-runner"}`.
+  the main host returns `{"ok":true,"service":"cktest-runner"}`.
 - **0.2** — issue 2 concurrent `POST /run` calls; the second returns
   `503` with `Retry-After: 60`.
 - **0.3** — first crimson-kitty batch end-to-end with
@@ -124,10 +124,10 @@ These come from `hadoku_site/docs/planning/claw-fleet-migration.md`:
   `run_test_command` activities completing with captured stdout/stderr.
 - **0.4** — `ssh root@claw3 'free -h'` shows >2 GB free during the
   batch's heaviest verify (big-monorepo case).
-- **0.5** — one full week of green batches; `wsl --unregister
-  debian-cktest` on the main Windows host.
+- **0.5** — one full week of green batches; decommission the legacy
+  local cktest sandbox on the main host.
 
-## Local testing (laptop / WSL, no auth)
+## Local testing (laptop, no auth)
 
 For local sanity checks of the server logic without a real vault, set the
 bearer manually:

@@ -5,7 +5,7 @@ specific runs parked in the inbox.
 Run this command and present the output as a clean status report:
 
 ```bash
-python3 /mnt/c/Users/Hadoku/Documents/repos/vibedispatch/scripts/temporal_snapshot.py active
+python3 scripts/temporal_snapshot.py active
 ```
 
 The script fetches the vibedispatch admin key from the vault broker and

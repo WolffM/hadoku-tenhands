@@ -11,7 +11,7 @@ Operational runbook for dispatching issues to Copilot agents.
 The default `gh` CLI OAuth token does NOT have SAML authorization for the Microsoft org (returns 403). Use the `MSFT_SSO` token from `.env`:
 
 ```bash
-MSFT_TOKEN=$(grep "MSFT_SSO" /mnt/c/Users/Hadoku/Documents/repos/vibedispatch/.env | cut -d'=' -f2 | tr -d '\r\n')
+MSFT_TOKEN=$(grep "MSFT_SSO" .env | cut -d'=' -f2 | tr -d '\r\n')
 curl -s -H "Authorization: token $MSFT_TOKEN" -H "Accept: application/vnd.github+json" \
   "https://api.github.com/repos/microsoft/{repo}/pulls/{number}"
 ```

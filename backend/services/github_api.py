@@ -16,8 +16,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 logger = logging.getLogger(__name__)
 from .cache import get_cached_vibecheck_status, set_cached_vibecheck_status
 
-_SUBPROCESS_FLAGS = 0
-
 # Orgs that require SAML-authorized tokens.
 # Maps org name → env var holding the SAML-authorized PAT.
 _SAML_ORG_TOKENS = {
@@ -138,7 +136,6 @@ def run_gh_command(args, capture_output=True, timeout=30, stdin_data=None):
             text=True,
             encoding='utf-8',
             errors='replace',
-            creationflags=_SUBPROCESS_FLAGS,
             timeout=timeout,
             env=env,
         )

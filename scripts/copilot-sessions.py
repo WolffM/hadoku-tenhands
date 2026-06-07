@@ -25,16 +25,10 @@ Usage:
 """
 
 import argparse
-import io
 import json
 import re
 import subprocess
 import sys
-
-# Fix Windows console encoding
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 
 def run_gh(args, timeout=30):

@@ -91,7 +91,7 @@ Create a pull request from the fork to the upstream repository and track its sta
 
 ```bash
 python -m venv .venv                                # repo root — matches the deploy
-.venv/bin/pip install -r backend/requirements.txt   # .venv\Scripts\ on Windows
+.venv/bin/pip install -r backend/requirements.txt   # repo-root .venv (.venv/bin)
 cp .env.example .env   # configure environment variables
 .venv/bin/python -m backend.app
 ```

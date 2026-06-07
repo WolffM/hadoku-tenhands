@@ -10,7 +10,7 @@ The argument format is `owner/repo#N` where N is the **issue number** (not the P
 Run the following command, substituting the user's argument for the `--pr` flag:
 
 ```bash
-python3 /mnt/c/Users/Hadoku/Documents/repos/vibedispatch/scripts/retro_report.py --pr $ARGS
+python3 scripts/retro_report.py --pr $ARGS
 ```
 
 Where `$ARGS` is everything the user passed after `/retro-pr`. If the user passed `--full`, include it. If the user passed `--batch BATCH`, include it.
