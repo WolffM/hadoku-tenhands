@@ -11,8 +11,6 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-_SUBPROCESS_FLAGS = 0
-
 try:
     from .github_api import run_gh_command
 except ImportError:
@@ -87,11 +85,10 @@ class OSSRunnerSetupMixin:
 
             # Copy the runner (can't symlink — each needs its own config)
             logger.info("Setting up runner for %s/%s from %s", my_user, repo, template_dir)
-            _flags = _SUBPROCESS_FLAGS
             try:
                 subprocess.run(
                     ["cp", "-r", template_dir, runner_dir],
-                    capture_output=True, timeout=30, creationflags=_flags
+                    capture_output=True, timeout=30
                 )
                 # Clean old config if copied from another repo's runner
                 for stale in [".runner", ".runner_migrated", ".credentials",
@@ -105,7 +102,6 @@ class OSSRunnerSetupMixin:
 
         # Configure the runner
         logger.info("Configuring runner for %s/%s", my_user, repo)
-        _flags = _SUBPROCESS_FLAGS
         try:
             config_proc = subprocess.run(
                 [os.path.join(runner_dir, "config.sh"),
@@ -115,7 +111,7 @@ class OSSRunnerSetupMixin:
                  "--labels", "self-hosted,Linux,X64",
                  "--unattended", "--replace"],
                 capture_output=True, text=True, timeout=30,
-                cwd=runner_dir, creationflags=_flags
+                cwd=runner_dir
             )
             if config_proc.returncode != 0:
                 logger.warning("Runner config failed for %s/%s: %s",

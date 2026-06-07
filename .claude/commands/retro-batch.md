@@ -10,7 +10,7 @@ If no batch name is given, run without `--batch` to get usage help.
 Run the following command, substituting the user's argument for the `--batch` flag:
 
 ```bash
-python3 /mnt/c/Users/Hadoku/Documents/repos/vibedispatch/scripts/retro_report.py --batch $BATCH_NAME $EXTRA_FLAGS
+python3 scripts/retro_report.py --batch $BATCH_NAME $EXTRA_FLAGS
 ```
 
 Where `$BATCH_NAME` is the first argument the user passed (e.g. `jade-hare`) and `$EXTRA_FLAGS` is anything else (e.g. `--full`).

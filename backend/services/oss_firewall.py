@@ -3,7 +3,7 @@ OSSFirewallMixin — Copilot coding agent firewall management.
 
 Handles disabling the Copilot firewall via REST API or patchright browser
 automation as a fallback. The _PATCHRIGHT_LOCK semaphore limits concurrent
-Chromium launches to prevent WSL OOM crashes.
+Chromium launches to prevent OOM crashes on resource-constrained hosts.
 
 Extracted from oss_fork.py for clarity.
 """
@@ -16,10 +16,9 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-_SUBPROCESS_FLAGS = 0
-
 # Global semaphore: patchright launches a headless Chromium (~300MB each).
-# Multiple concurrent dispatches can crash WSL via OOM. Limit to 1 at a time.
+# Multiple concurrent dispatches can crash via OOM on resource-constrained
+# hosts. Limit to 1 at a time.
 _PATCHRIGHT_LOCK = threading.Semaphore(1)
 
 try:
@@ -79,7 +78,6 @@ class OSSFirewallMixin:
             return
 
         logger.info("Disabling Copilot firewall via patchright on %s/%s", my_user, repo)
-        _flags = _SUBPROCESS_FLAGS
         # acquire(timeout=300): wait up to 5 min for another patchright to finish
         if not _PATCHRIGHT_LOCK.acquire(timeout=300):
             logger.warning(
@@ -91,7 +89,6 @@ class OSSFirewallMixin:
             proc = subprocess.run(
                 [sys.executable, script_path, f"{my_user}/{repo}"],
                 capture_output=True, text=True, timeout=60,
-                creationflags=_flags,
             )
             if proc.returncode == 0:
                 logger.info("Copilot firewall disabled on %s/%s via patchright", my_user, repo)

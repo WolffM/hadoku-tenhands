@@ -4,7 +4,7 @@ awaiting an approve / abort / retry decision.
 Run this command and present the output as a clean status report:
 
 ```bash
-python3 /mnt/c/Users/Hadoku/Documents/repos/vibedispatch/scripts/temporal_snapshot.py inbox
+python3 scripts/temporal_snapshot.py inbox
 ```
 
 The script fetches the vibedispatch admin key from the vault broker and

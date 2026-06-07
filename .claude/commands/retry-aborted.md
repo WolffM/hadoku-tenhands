@@ -12,7 +12,7 @@ Usage:
 Run this command, substituting the batch id the user passed:
 
 ```bash
-python3 /mnt/c/Users/Hadoku/Documents/repos/vibedispatch/scripts/retry_aborted.py $BATCH_ID $EXTRA_FLAGS
+python3 scripts/retry_aborted.py $BATCH_ID $EXTRA_FLAGS
 ```
 
 The script is dry-run by default — it lists what would be retried vs

@@ -146,7 +146,7 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
             svc.trigger_compute(hyphenated_slug)
             t.detail = "compute triggered (both dossier and brief missing)"
 
-    # Preflight: repo size gate (large repos stress WSL memory during sync/configure)
+    # Preflight: repo size gate (large repos stress memory on resource-constrained hosts during sync/configure)
     # Threshold: 500MB compressed (GitHub reports size in KB) — override via MAX_REPO_SIZE_KB env var
     if not is_self_owned:
         size_result = run_gh_command([

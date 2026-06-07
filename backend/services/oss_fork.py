@@ -22,8 +22,6 @@ import base64
 
 logger = logging.getLogger(__name__)
 
-_SUBPROCESS_FLAGS = 0
-
 try:
     from ..config import COPILOT_REVIEWER, GITHUB_NOREPLY_EMAIL_TEMPLATE
 except ImportError:
@@ -600,7 +598,6 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
 
         # Create new tree — uses subprocess directly because gh api --input
         # doesn't handle nested JSON tree entries correctly via -f flags
-        _flags = _SUBPROCESS_FLAGS
         tree_body = json.dumps({"base_tree": base_tree, "tree": tree_entries})
         try:
             proc = subprocess.run(
@@ -608,7 +605,7 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
                  "-X", "POST", "--input", "-"],
                 input=tree_body, capture_output=True, text=True,
                 encoding="utf-8", errors="replace",
-                creationflags=_flags, timeout=30
+                timeout=30
             )
             if proc.returncode != 0:
                 logger.warning("Failed to create tree: %s", proc.stderr[:200])
@@ -630,7 +627,7 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
                  "-X", "POST", "--input", "-"],
                 input=commit_body, capture_output=True, text=True,
                 encoding="utf-8", errors="replace",
-                creationflags=_flags, timeout=30
+                timeout=30
             )
             if proc.returncode != 0:
                 logger.warning("Failed to create commit: %s", proc.stderr[:200])
