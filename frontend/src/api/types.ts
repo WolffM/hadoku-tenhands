@@ -1,5 +1,5 @@
 /**
- * API Types for VibeDispatch
+ * API Types for TenHands
  *
  * These types mirror the JSON responses from the Flask backend.
  */

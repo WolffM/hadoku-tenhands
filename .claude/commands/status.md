@@ -1,4 +1,4 @@
-Generate a pipeline status report for the vibedispatch project by running the following command and presenting the output as a formatted markdown report:
+Generate a pipeline status report for the tenhands project by running the following command and presenting the output as a formatted markdown report:
 
 ```bash
 python3 scripts/pipeline_status.py

@@ -1,4 +1,4 @@
-# VibeDispatch Retrospective v2.0
+# TenHands Retrospective v2.0
 
 ## Guiding Principles
 

@@ -173,7 +173,7 @@ Three lines of code for the inbox model. No polling, no DB scanning, no
 "awaiting_review" flag table.
 
 **Operational cost:** one Docker Compose file (PostgreSQL + 4 Temporal
-services + UI). ~2GB RAM. Runs alongside vibedispatch on the same pm2 host.
+services + UI). ~2GB RAM. Runs alongside tenhands on the same pm2 host.
 Self-hosted; no Temporal Cloud bill.
 
 ## High-level diagram
@@ -188,11 +188,11 @@ Self-hosted; no Temporal Cloud bill.
                                          │ HTTP
                                          ▼
 ┌──────────────────┐    ┌───────────────────────────────────────┐
-│  Operator UI     │    │           vibedispatch backend         │
+│  Operator UI     │    │           tenhands backend         │
 │ (Pipeline Inbox) │◄──►│                                        │
 │                  │    │  ┌────────────────────────────────┐   │
 │                  │    │  │  Temporal worker process       │   │
-│                  │    │  │  (pm2: vibedispatch-temporal)  │   │
+│                  │    │  │  (pm2: tenhands-temporal)  │   │
 │                  │    │  │                                │   │
 │                  │    │  │  Workflows:                    │   │
 │                  │    │  │   - IssueWorkflow              │   │
@@ -246,7 +246,7 @@ Self-hosted; no Temporal Cloud bill.
 | **Activities** | Side effects. Talk to GitHub, the aggregator, the file system, Discord. Wrap reusable utilities from `helpers/` and `services/`. | `fetch_dossier`, `assign_copilot`, `run_gate` |
 | **Gates** | Pure functions over evidence. Decide pass/fail/defer. | `diff_non_empty`, `no_upstream_refs`, `pr_template_compliance` |
 
-Activities are the thin layer where we wrap existing vibedispatch utilities.
+Activities are the thin layer where we wrap existing tenhands utilities.
 They give us reuse without paying the cost of refactoring the utilities
 themselves. `services/oss_firewall.py` becomes a one-line import inside an
 activity.

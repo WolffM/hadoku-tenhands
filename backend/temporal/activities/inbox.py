@@ -20,7 +20,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default points at the production mount of vibedispatch under hadoku_site's
+# Default points at the production mount of tenhands under hadoku_site's
 # edge-router. Override via INBOX_UI_BASE_URL for staging/local testing.
 _DEFAULT_UI_BASE = "https://hadoku.me/dispatch/"
 

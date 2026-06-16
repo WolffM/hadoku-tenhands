@@ -1,5 +1,5 @@
 """
-VibeDispatch Caching Service
+TenHands Caching Service
 
 File-based caching for API responses to speed up local development and testing.
 Caches are stored in .cache/ directory and persist between server restarts.

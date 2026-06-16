@@ -1,7 +1,7 @@
 """
-VibeDispatch - API Backend for GitHub Repository Management
+TenHands - API Backend for GitHub Repository Management
 
-This Flask app serves as the API backend for the VibeDispatch React frontend.
+This Flask app serves as the API backend for the TenHands React frontend.
 All page rendering has been moved to the React microfrontend.
 """
 
@@ -135,7 +135,7 @@ def add_cors_headers(response):
 @app.route('/')
 def api_root():
     """API info endpoint."""
-    return jsonify({"message": "VibeDispatch API", "docs": "/api/"})
+    return jsonify({"message": "TenHands API", "docs": "/api/"})
 
 
 # Register blueprint with URL prefix

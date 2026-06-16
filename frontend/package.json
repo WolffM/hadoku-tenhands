@@ -1,11 +1,11 @@
 {
-  "name": "@wolffm/vibedispatch",
+  "name": "@wolffm/tenhands",
   "version": "1.14.5",
-  "description": "VibeDispatch UI - Task dispatch and management interface",
+  "description": "TenHands UI - Task dispatch and management interface",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/WolffM/vibedispatch.git"
+    "url": "git+https://github.com/WolffM/tenhands.git"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"

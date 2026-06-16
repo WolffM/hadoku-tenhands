@@ -16,7 +16,7 @@ test.describe('Pipeline Selection View', () => {
   test('loads with pipeline selection as default view', async ({ page }) => {
     await page.goto('/?key=test-key')
 
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+    await expect(page.locator('text=TenHands')).toBeVisible()
     await expect(page.locator('text=Select a Pipeline')).toBeVisible()
   })
 

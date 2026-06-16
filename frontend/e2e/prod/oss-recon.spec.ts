@@ -27,7 +27,7 @@ const ACTION_TIMEOUT = 15_000
  */
 async function navigateToOSSTab(page: Page, tabLabel: string): Promise<void> {
   await page.goto('/')
-  await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+  await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
 
   // Click the OSS pipeline card or nav tab
   const ossCard = page
@@ -134,7 +134,7 @@ test.describe('Prod: Backend Health', () => {
 test.describe('Prod: OSS Navigation', () => {
   test('landing page loads with pipeline selection', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
     await expect(page.locator('text=Select a Pipeline')).toBeVisible()
     await expect(
       page.locator('.pipeline-select-card').filter({ hasText: 'OSS Contribution Pipeline' })
@@ -143,7 +143,7 @@ test.describe('Prod: OSS Navigation', () => {
 
   test('can navigate to OSS pipeline and see all 4 tabs', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
 
     await page
       .locator('.pipeline-select-card')
@@ -201,7 +201,7 @@ test.describe('Prod: OSS Navigation', () => {
 
   test('Vibecheck Pipeline card navigates to vibecheck view', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
 
     const vibecheckCard = page
       .locator('.pipeline-select-card')
@@ -1147,7 +1147,7 @@ test.describe('Prod: Progress Log', () => {
 test.describe('Prod: Health View', () => {
   test('Health view loads with stats cards', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
 
     // Navigate to OSS first to get nav tabs, then click Health
     await page
@@ -1174,7 +1174,7 @@ test.describe('Prod: Health View', () => {
 
   test('Health view Refresh button works', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
     await page
       .locator('.pipeline-select-card')
       .filter({ hasText: 'OSS Contribution Pipeline' })
@@ -1206,7 +1206,7 @@ test.describe('Prod: Health View', () => {
 
   test('Health view filter dropdowns work', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
     await page
       .locator('.pipeline-select-card')
       .filter({ hasText: 'OSS Contribution Pipeline' })
@@ -1239,7 +1239,7 @@ test.describe('Prod: Health View', () => {
 
   test('Health view Show Failed quick filter button works', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
     await page
       .locator('.pipeline-select-card')
       .filter({ hasText: 'OSS Contribution Pipeline' })
@@ -1266,7 +1266,7 @@ test.describe('Prod: Health View', () => {
 
   test('Health view workflow table links have valid href', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible({ timeout: LOAD_TIMEOUT })
+    await expect(page.locator('text=TenHands')).toBeVisible({ timeout: LOAD_TIMEOUT })
     await page
       .locator('.pipeline-select-card')
       .filter({ hasText: 'OSS Contribution Pipeline' })

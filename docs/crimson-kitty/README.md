@@ -1,6 +1,6 @@
 # crimson-kitty — design index
 
-The third-generation contribution pipeline for vibedispatch. Coexists with
+The third-generation contribution pipeline for tenhands. Coexists with
 `vibecheck` and `oss-contribution` as a separate pipeline configuration in the
 UI; does **not** replace them during the build phase.
 
@@ -21,7 +21,7 @@ callouts, 49% never reached upstream).
 | 3 | Agent for v1: **Copilot SWE** via a modular `Agent` adapter (cost optimization) | 2026-04-13 |
 | 4 | Operator UX: **inbox model** — easy issues flow through, blocked issues queue | 2026-04-13 |
 | 5 | Coexistence: **new pipeline tab** in the UI alongside vibecheck and oss-contribution; old pipelines stay forever (archival, no cutover required) | 2026-04-13 |
-| 6 | Reuse philosophy: **prefer existing utilities** from vibedispatch helpers + hadoku-aggregator API; only rewrite the orchestration layer | 2026-04-13 |
+| 6 | Reuse philosophy: **prefer existing utilities** from tenhands helpers + hadoku-aggregator API; only rewrite the orchestration layer | 2026-04-13 |
 | 7 | Evidence-first: **every state transition requires an artifact**, not just a timestamp | 2026-04-13 |
 | 8 | Untrust the agent: **all Copilot output passes through sanitization and gates** before touching anything GitHub indexes | 2026-04-13 |
 | 9 | Temporal hosting: **same Linux host, Docker Compose, pm2-managed via mgmt-api** (no unmanaged daemons) | 2026-04-13 |
@@ -43,7 +43,7 @@ callouts, 49% never reached upstream).
 | [state-machine.md](state-machine.md) | Issue states, transitions, evidence requirements per state |
 | [gates.md](gates.md) | Gate registry; each jade-hare bug class mapped to its killing gate |
 | [cross-ref-isolation.md](cross-ref-isolation.md) | Input-context scrubbing model, output sanitizer, leak vector mapping |
-| [components.md](components.md) | Reuse map across vibedispatch, hadoku-aggregator, hadoku-scrape, hadoku-site |
+| [components.md](components.md) | Reuse map across tenhands, hadoku-aggregator, hadoku-scrape, hadoku-site |
 | [pipeline-config.md](pipeline-config.md) | How crimson-kitty plugs into the existing pipeline-select UI |
 
 ### Forward plan

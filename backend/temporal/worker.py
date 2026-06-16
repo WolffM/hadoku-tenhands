@@ -20,7 +20,7 @@ the deferred child isn't running any Copilot activity, so it holds
 nothing.
 
 Run as `python -m temporal.worker` from the backend directory. Pm2
-manages this as `vibedispatch-temporal` on prod.
+manages this as `tenhands-temporal` on prod.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Pm2 entrypoint for the crimson-kitty Temporal worker.
 
 Thin shim: pm2 invokes this directly with `python backend/run_worker.py`
-from the vibedispatch repo root. Python's sys.path[0] is resolved to
+from the tenhands repo root. Python's sys.path[0] is resolved to
 this script's directory (`backend/`), so `from temporal.worker import
 main` finds the in-repo `backend/temporal/` package rather than the
 installed `temporalio` SDK (different top-level names, no conflict).

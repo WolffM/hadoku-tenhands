@@ -7,7 +7,7 @@ Run this command and present the output as a clean status report:
 python3 scripts/temporal_snapshot.py inbox
 ```
 
-The script fetches the vibedispatch admin key from the vault broker and
+The script fetches the tenhands admin key from the vault broker and
 calls the production dispatch API (`/dispatch/api/temporal/inbox`). Each
 entry shows the issue, gate, judge score, batch, reason, and workflow id.
 

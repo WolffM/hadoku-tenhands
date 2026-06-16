@@ -1,5 +1,5 @@
 /**
- * API Endpoints for VibeDispatch
+ * API Endpoints for TenHands
  *
  * All API calls to the Flask backend.
  */

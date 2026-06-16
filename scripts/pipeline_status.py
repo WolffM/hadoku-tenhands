@@ -1,5 +1,5 @@
 """
-Pipeline status report for vibedispatch.
+Pipeline status report for tenhands.
 Reads local JSON state files and prints a formatted status summary.
 """
 

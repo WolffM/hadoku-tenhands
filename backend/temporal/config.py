@@ -1,7 +1,7 @@
 """Temporal client configuration.
 
 Reads from environment variables. Defaults assume a self-hosted Temporal
-Cluster running on the same host as vibedispatch (Docker Compose unit, see
+Cluster running on the same host as tenhands (Docker Compose unit, see
 docs/crimson-kitty/architecture.md and the Phase 1A.2 step in
 docs/crimson-kitty/phase-1-plan.md).
 

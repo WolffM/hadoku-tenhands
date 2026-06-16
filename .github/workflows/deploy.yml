@@ -18,10 +18,10 @@ jobs:
         env:
           HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
         run: |
-          # vibedispatch is two pm2 services on the prod host: the Flask
-          # backend (`vibedispatch`) and the Temporal worker
-          # (`vibedispatch-temporal`). Both run from the same repo
-          # checkout via services/pm2/vibedispatch-wrapper.mjs with
+          # tenhands is two pm2 services on the prod host: the Flask
+          # backend (`tenhands`) and the Temporal worker
+          # (`tenhands-temporal`). Both run from the same repo
+          # checkout via services/pm2/tenhands-wrapper.mjs with
           # different script args. We need to redeploy BOTH on every
           # push — until 2026-05-09 only the Flask app was redeployed,
           # which silently left the worker on stale code (the
@@ -71,6 +71,6 @@ jobs:
           # vice versa), still surface what landed instead of leaving
           # the user guessing which half deployed.
           rc=0
-          dispatch_one "vibedispatch"          || rc=1
-          dispatch_one "vibedispatch-temporal" || rc=1
+          dispatch_one "tenhands"          || rc=1
+          dispatch_one "tenhands-temporal" || rc=1
           exit $rc

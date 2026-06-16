@@ -1,11 +1,11 @@
-# VibeDispatch — Claude Code Instructions
+# TenHands — Claude Code Instructions
 
 ## Architecture: Three-Repo System
 
-vibedispatch is the **orchestration layer** in a three-repo pipeline:
+tenhands is the **orchestration layer** in a three-repo pipeline:
 - **hadoku-scrape** — daily cron, indexes repo info → Cloudflare KV
 - **hadoku-aggregator** — reads KV, computes CVS scores, builds dossiers → serves API at `/recon/...`
-- **vibedispatch** (this repo) — calls aggregator API, orchestrates: forking, context issues, Copilot assignment, PR review, upstream submission
+- **tenhands** (this repo) — calls aggregator API, orchestrates: forking, context issues, Copilot assignment, PR review, upstream submission
 
 ## Ownership Boundaries
 
@@ -48,14 +48,14 @@ This has leaked in 3 consecutive runs. If cross-references reach upstream, the s
 
 ## Development
 
-- **Python env:** both pm2 services (`vibedispatch`, `vibedispatch-temporal`) run from a per-repo `.venv` (not the system Python). hadoku_site's deploy creates `.venv` and installs `backend/requirements.txt` into it; the PM2 wrapper launches the venv interpreter. Local: `python -m venv .venv` at the repo root, then `.venv/bin/pip install -r backend/requirements.txt`.
+- **Python env:** both pm2 services (`tenhands`, `tenhands-temporal`) run from a per-repo `.venv` (not the system Python). hadoku_site's deploy creates `.venv` and installs `backend/requirements.txt` into it; the PM2 wrapper launches the venv interpreter. Local: `python -m venv .venv` at the repo root, then `.venv/bin/pip install -r backend/requirements.txt`.
 - **Production:** pm2 service managed by hadoku_site. Deploy by pushing to `main` (triggers deploy.yml → hadoku_site dispatch). Never start manually in prod.
 - **Local:** backend `python3 app.py` (port 5024, `/dispatch`); frontend `pnpm dev` (port 5184, proxies to backend)
 - **Tests:** `cd backend && python3 -m pytest tests/ -v`. Discord: `DISCORD_WEBHOOK_URL` (prod), `DISCORD_TEST_WEBHOOK_URL` (test). Tests auto-route to test channel.
 
 ## hadoku-site Contract
 
-- Publishes `@wolffm/vibedispatch` to GitHub Packages (publish.yml)
+- Publishes `@wolffm/tenhands` to GitHub Packages (publish.yml)
 - Exports: `mount(el, props)`, `unmount(el)` from `frontend/src/entry.tsx`
 - Triggers `packages_updated` dispatch to hadoku_site on publish
 - Backend: Flask on port 5024 behind `/dispatch` prefix, deployed via `redeploy_service` dispatch

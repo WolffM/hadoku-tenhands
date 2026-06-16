@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Retrospective report for vibedispatch pipeline.
+"""Retrospective report for tenhands pipeline.
 
 Reads from the same API endpoints as the UI:
   GET /dispatch/api/oss/retro/batches
@@ -13,7 +13,7 @@ Options:
   --pr owner/repo#N    Single issue report (find across batches)
   --batch BATCH        Batch report, or scope --pr lookup to a specific batch
   --full               Show full context brief and upstream PR body (default: truncated)
-  --port PORT          Backend port (default: 5024, or VIBEDISPATCH_PORT env var)
+  --port PORT          Backend port (default: 5024, or TENHANDS_PORT env var)
 """
 
 import argparse
@@ -28,7 +28,7 @@ import requests
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DEFAULT_PORT = os.environ.get("VIBEDISPATCH_PORT", "5024")
+DEFAULT_PORT = os.environ.get("TENHANDS_PORT", "5024")
 URL_PREFIX = "/dispatch"
 
 # Import bot filter from backend helpers
@@ -624,7 +624,7 @@ def find_issue(base_url: str, origin_slug: str, issue_number: int, batch_hint: s
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Retrospective report for vibedispatch pipeline.",
+        description="Retrospective report for tenhands pipeline.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

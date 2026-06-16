@@ -6,10 +6,10 @@
 #
 # Source of truth for the runner's required toolchains. New language /
 # new test command first-token = PR to this script + re-run on claw-3:
-#   ssh claw3-admin 'sudo bash /srv/vibedispatch/scripts/cktest-runner/provision.sh'
+#   ssh claw3-admin 'sudo bash /srv/tenhands/scripts/cktest-runner/provision.sh'
 #
 # Layout:
-#   /srv/vibedispatch              — git clone, owned by cktest:cktest
+#   /srv/tenhands              — git clone, owned by cktest:cktest
 #   /etc/cktest-runner/service.key — vault service key, mode 0600
 #   /run/cktest-runner/env         — populated by fetch-bearer.sh at start
 #   /etc/systemd/system/cktest-runner.service  — unit symlinked from repo
@@ -21,7 +21,7 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-REPO_DIR="${REPO_DIR:-/srv/vibedispatch}"
+REPO_DIR="${REPO_DIR:-/srv/tenhands}"
 RUNNER_DIR="${REPO_DIR}/scripts/cktest-runner"
 SERVICE_USER="${SERVICE_USER:-cktest}"
 SERVICE_GROUP="${SERVICE_GROUP:-cktest}"
@@ -119,10 +119,10 @@ fi
 
 # ── 5. Repo clone (idempotent — only clones if not present)
 if [[ ! -d "${REPO_DIR}/.git" ]]; then
-  echo "==> cloning vibedispatch into ${REPO_DIR}"
+  echo "==> cloning tenhands into ${REPO_DIR}"
   install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${REPO_DIR}"
   sudo -u "${SERVICE_USER}" git clone --depth 50 \
-    https://github.com/WolffM/vibedispatch.git "${REPO_DIR}"
+    https://github.com/WolffM/tenhands.git "${REPO_DIR}"
 else
   echo "==> ${REPO_DIR} already a git checkout, skipping clone"
 fi

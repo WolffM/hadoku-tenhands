@@ -3,7 +3,7 @@
 Powers the /inbox and /active skills so the operator doesn't have to
 copy-paste API output. Talks to production through the edge-router:
 
-  vault broker  → hadoku.me/mgmt/api/secrets/get/VIBEDISPATCH_ADMIN_KEY
+  vault broker  → hadoku.me/mgmt/api/secrets/get/TENHANDS_ADMIN_KEY
   dispatch API  → hadoku.me/dispatch/api/temporal/{inbox,batches,batch/<id>}
 
 stdlib only (urllib) so it runs under the system python with no deps.
@@ -21,7 +21,7 @@ import urllib.error
 from collections import Counter
 from pathlib import Path
 
-VAULT_KEY_URL = "https://hadoku.me/mgmt/api/secrets/get/VIBEDISPATCH_ADMIN_KEY"
+VAULT_KEY_URL = "https://hadoku.me/mgmt/api/secrets/get/TENHANDS_ADMIN_KEY"
 DISPATCH_BASE = "https://hadoku.me/dispatch/api/temporal"
 DEVVAULT_LOCAL = Path(__file__).parent.parent / ".devvault.local.json"
 
@@ -37,7 +37,7 @@ def _get(url: str, headers: dict, timeout: int = 20):
 
 
 def _admin_key() -> str:
-    """Fetch the vibedispatch admin key from the vault broker."""
+    """Fetch the tenhands admin key from the vault broker."""
     try:
         vkey = json.loads(DEVVAULT_LOCAL.read_text())["key"]
     except (OSError, ValueError, KeyError) as e:

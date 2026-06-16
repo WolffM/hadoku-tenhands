@@ -1,30 +1,30 @@
 /* ============ Theme System ============ */
 
 /* Light themes - explicit color scheme */
-.vibedispatch-container[data-theme='light'],
-.vibedispatch-container[data-theme='coffee-light'],
-.vibedispatch-container[data-theme='nature-light'],
-.vibedispatch-container[data-theme='lavender-light'],
-.vibedispatch-container[data-theme='strawberry-light'],
-.vibedispatch-container[data-theme='ocean-light'],
-.vibedispatch-container[data-theme='cyberpunk-light'],
-.vibedispatch-container[data-theme='pink-light'] {
+.tenhands-container[data-theme='light'],
+.tenhands-container[data-theme='coffee-light'],
+.tenhands-container[data-theme='nature-light'],
+.tenhands-container[data-theme='lavender-light'],
+.tenhands-container[data-theme='strawberry-light'],
+.tenhands-container[data-theme='ocean-light'],
+.tenhands-container[data-theme='cyberpunk-light'],
+.tenhands-container[data-theme='pink-light'] {
   color-scheme: light;
 }
 
 /* Dark themes - explicit color scheme, tells Dark Reader not to invert */
-.vibedispatch-container[data-theme='dark'],
-.vibedispatch-container[data-theme='coffee-dark'],
-.vibedispatch-container[data-theme='nature-dark'],
-.vibedispatch-container[data-theme='lavender-dark'],
-.vibedispatch-container[data-theme='strawberry-dark'],
-.vibedispatch-container[data-theme='ocean-dark'],
-.vibedispatch-container[data-theme='cyberpunk-dark'],
-.vibedispatch-container[data-theme='pink-dark'] {
+.tenhands-container[data-theme='dark'],
+.tenhands-container[data-theme='coffee-dark'],
+.tenhands-container[data-theme='nature-dark'],
+.tenhands-container[data-theme='lavender-dark'],
+.tenhands-container[data-theme='strawberry-dark'],
+.tenhands-container[data-theme='ocean-dark'],
+.tenhands-container[data-theme='cyberpunk-dark'],
+.tenhands-container[data-theme='pink-dark'] {
   color-scheme: dark only;
 }
 
 /* Dark Reader detection helper */
-.vibedispatch-container[data-dark-theme='true'] {
+.tenhands-container[data-dark-theme='true'] {
   --is-dark-theme: 1;
 }

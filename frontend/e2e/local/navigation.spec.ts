@@ -1,7 +1,7 @@
 /**
  * Navigation Tests
  *
- * Tests for navigating between views in VibeDispatch.
+ * Tests for navigating between views in TenHands.
  */
 
 import { test, expect } from '../fixtures/base'
@@ -17,7 +17,7 @@ test.describe('Navigation', () => {
     await page.goto('/?key=test-key')
 
     // App should render - look for the title
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+    await expect(page.locator('text=TenHands')).toBeVisible()
 
     // Pipeline selection should be visible
     await expect(page.locator('text=Select a Pipeline')).toBeVisible()
@@ -38,7 +38,7 @@ test.describe('Navigation', () => {
 
   test('can navigate to Health view', async ({ page }) => {
     await page.goto('/?key=test-key')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+    await expect(page.locator('text=TenHands')).toBeVisible()
 
     // Click Health nav tab (use specific selector to avoid matching OSS "Repo Health" card)
     await page
@@ -96,7 +96,7 @@ test.describe('Auth Key Handling', () => {
     await page.goto('/?key=my-secret-key')
 
     // Wait for app to load
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+    await expect(page.locator('text=TenHands')).toBeVisible()
 
     // Check sessionStorage
     const storedKey = await page.evaluate(() => sessionStorage.getItem('dispatch_key'))
@@ -106,11 +106,11 @@ test.describe('Auth Key Handling', () => {
   test('uses auth key from sessionStorage on subsequent loads', async ({ page }) => {
     // First visit with key
     await page.goto('/?key=my-secret-key')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+    await expect(page.locator('text=TenHands')).toBeVisible()
 
     // Navigate to same page without key
     await page.goto('/')
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+    await expect(page.locator('text=TenHands')).toBeVisible()
 
     // Should still have the key
     const storedKey = await page.evaluate(() => sessionStorage.getItem('dispatch_key'))
