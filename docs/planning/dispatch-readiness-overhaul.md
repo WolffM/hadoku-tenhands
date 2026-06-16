@@ -2,7 +2,7 @@
 
 **Status:** Planning — not started
 **Owner:** WolffM (drafted 2026-05-24, revised after consultant review)
-**Scope:** spans `hadoku-scrape` → `hadoku-aggregator` → `vibedispatch`
+**Scope:** spans `hadoku-scrape` → `hadoku-aggregator` → `tenhands`
 
 ## Why
 
@@ -63,7 +63,7 @@ gate-effectiveness claim later.
 ## High-level architecture
 
 ```
-hadoku-scrape  →  KV  →  hadoku-aggregator  →  vibedispatch
+hadoku-scrape  →  KV  →  hadoku-aggregator  →  tenhands
    (Phase 1)            (Phase 2)              (Phase 3)
                                                ↑
                                   Phase 0 (telemetry, ships in parallel)
@@ -97,7 +97,7 @@ is unanswerable.
 
 **(a) Upstream PR outcome tracking — historical + ongoing.**
 
-vibedispatch already polls dispatched PR state via `watch_upstream_pr_state`
+tenhands already polls dispatched PR state via `watch_upstream_pr_state`
 (test coverage in `backend/tests/temporal/test_activities.py`:
 open / merged / closed-unmerged / blocking-review / review-dedupe). The
 extension: a **standalone cron-driven activity** that crawls every recorded
@@ -212,7 +212,7 @@ implementation):
 
 ### Tier design — relationship to eligibility
 
-**Important:** the existing vibedispatch eligibility gate
+**Important:** the existing tenhands eligibility gate
 (`backend/temporal/gates/eligibility.py:43–49`) already checks
 `issue.assignee` and `state == open`. Tier 0 below is NOT new filtering —
 it's a scraper-side mirror of the consumer-side checks, applied earlier so
@@ -319,10 +319,10 @@ Downstream gates have better evidence to work with.
 ## Phase 2: Aggregator scoring + brief enrichment
 
 **Goal:** expose the richer Tier-3 fields downstream, and add a
-deterministic *cost-control circuit-breaker* score so vibedispatch can
+deterministic *cost-control circuit-breaker* score so tenhands can
 make obvious rejects without an LLM round-trip. The aggregator's score is
 **not** a competing intelligence layer — its job is cheap, conservative,
-low-false-negative on obvious bads. LLM judgment lives in vibedispatch.
+low-false-negative on obvious bads. LLM judgment lives in tenhands.
 
 ### CVS vs readiness — explicit boundary
 
@@ -333,7 +333,7 @@ don't dedupe.
 | Signal | Question it answers | Time horizon | Consumer |
 |---|---|---|---|
 | **CVS** (Contribution Viability Score) | Should we ever look at this issue? | Slow — backlog filter | Aggregator's scored-issues sort |
-| **Readiness** (dispatchReadinessScore) | Can we dispatch on it *right now*? | Fast — volatile | Vibedispatch's pre-dispatch gate |
+| **Readiness** (dispatchReadinessScore) | Can we dispatch on it *right now*? | Fast — volatile | Tenhands's pre-dispatch gate |
 
 The competition axis (no linked PR, not assigned) is in both deliberately:
 it gates backlog inclusion (don't show in scored-issues if someone else has
@@ -342,7 +342,7 @@ different decision points.
 
 ### Current state
 
-From `hadoku-aggregator` (per the API contract in `vibedispatch/CLAUDE.md`):
+From `hadoku-aggregator` (per the API contract in `tenhands/CLAUDE.md`):
 
 - `/recon/{slug}/issue-brief/{id}` — issue + repoHealth + brief
 - `/recon/{slug}/scored-issues` — ScoredIssue[] with CVS
@@ -366,7 +366,7 @@ commenterMix: { count: int, distinct: int, maintainers: int }
 
 **Penalty-only formula** — score reflects "how bad is the evidence." This
 is a cost-control circuit-breaker, not a full assessment; positive signals
-(reward) belong to the LLM tier in vibedispatch.
+(reward) belong to the LLM tier in tenhands.
 
 ```
 score = 1.0
@@ -417,7 +417,7 @@ Computed on read (cheap), not baked into KV.
 
 ---
 
-## Phase 3: vibedispatch actionability gate
+## Phase 3: tenhands actionability gate
 
 **Goal:** insert an `actionability` gate after eligibility, before fork.
 Two-tier: deterministic circuit-break from aggregator signals, LLM judge
@@ -709,7 +709,7 @@ retrospective is the honest test.
 |---|---|---|
 | 2026-05-24 | Three-phase split (scraper → aggregator → dispatch) + Phase 0 parallel | Each phase shippable independently; Phase 0 makes the whole thing measurable |
 | 2026-05-24 | Lazy at dispatch, eager at scrape (raw data only) | Bounded per-dispatch cost; staleness penalty acceptable for raw data; intelligence happens lazily |
-| 2026-05-24 | Aggregator score is a hint, not a verdict | Preserves "aggregator computes evidence, vibedispatch decides" boundary |
+| 2026-05-24 | Aggregator score is a hint, not a verdict | Preserves "aggregator computes evidence, tenhands decides" boundary |
 | 2026-05-24 | Backfill rubric on historical passes BEFORE any gate code | Cheapest sanity check; if no signal in retrospective, plumbing won't save it |
 | 2026-05-24 | Polling > webhooks for upstream outcome tracking | `watch_upstream_pr_state` already exists; volume doesn't need webhook infra; backfill works without setup |
 | 2026-05-24 | Don't model actionability calibration on submission_judge | submission_judge thresholds (0.55/0.75) unchanged since `2ffa3cd` — never tuned. Build override + outcome telemetry from day one |
@@ -717,7 +717,7 @@ retrospective is the honest test.
 | 2026-05-24 | Tier 0 and eligibility-gate rules share a canonical source | Both layers exist deliberately (scraper budget vs consumer check); must stay in sync |
 | 2026-05-24 | CVS and readiness are orthogonal-but-overlap on the competition axis | Same signal serves different decision points; document the duplication rather than dedupe |
 | 2026-05-24 | Brief is frozen at write; gate must actively re-fetch volatile fields | `activities/eligibility.py:125` snapshot is the post-eligibility source of truth; volatile state needs fresh fetch |
-| 2026-05-24 | Aggregator computes deterministic signals + cost-control score; vibedispatch judge owns LLM intelligence | Clean boundary: aggregator does cheap math, vibedispatch does nuanced judgment |
+| 2026-05-24 | Aggregator computes deterministic signals + cost-control score; tenhands judge owns LLM intelligence | Clean boundary: aggregator does cheap math, tenhands does nuanced judgment |
 | 2026-05-24 | Judge output is structured evidence with severity tiers | Dual-purpose: gate decision + downstream SWE agent briefing |
 | 2026-05-24 | Critical-flag list is short and binary | `active_open_pr`, `explicit_maintainer_block`, `maintainer_punted_to_future_milestone` only — everything else is graded |
 | 2026-05-24 | Reframe judge prompt around upstream receptiveness, not internal solvability | Solvability is necessary but not sufficient; the actual question is merge-ability |

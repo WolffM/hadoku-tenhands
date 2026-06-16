@@ -12,7 +12,7 @@ Endpoints checked (per components.md):
   GET /recon/{slug}/labels?prefix=ai   → eligibility (ai-policy labels)
 
 Repos checked:
-  WolffM-vibedispatch        — own repo, smallest blast radius
+  WolffM-tenhands        — own repo, smallest blast radius
   microsoft-markitdown       — SAML org, jade-hare target
   mermaid-js-mermaid         — large OSS project, jade-hare target
 
@@ -64,7 +64,7 @@ def _load_env_file() -> None:
 _load_env_file()
 
 DEFAULT_REPOS = [
-    "WolffM-vibedispatch",
+    "WolffM-tenhands",
     "microsoft-markitdown",
     "mermaid-js-mermaid",
 ]

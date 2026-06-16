@@ -1,10 +1,10 @@
-# VibeDispatch
+# TenHands
 
-An orchestration layer for automated open-source contributions. VibeDispatch identifies high-value issues across repositories, scores them using a Contribution Viability Score (CVS) engine, and orchestrates an agent pipeline: fork, assign agent, review, and submit upstream.
+An orchestration layer for automated open-source contributions. TenHands identifies high-value issues across repositories, scores them using a Contribution Viability Score (CVS) engine, and orchestrates an agent pipeline: fork, assign agent, review, and submit upstream.
 
 ## Architecture
 
-VibeDispatch is the orchestration layer in a three-repo pipeline:
+TenHands is the orchestration layer in a three-repo pipeline:
 
 ```
 scraper (daily cron)
@@ -14,12 +14,12 @@ aggregator (scoring + analysis)
   -> reads KV, computes CVS scores, builds dossiers and issue briefs
   -> serves scoring API
 
-vibedispatch (this repo -- orchestration + UI)
+tenhands (this repo -- orchestration + UI)
   -> calls aggregator API for scored data
   -> orchestrates: forking, agent context, agent assignment, PR review, upstream submission
 ```
 
-The scraper and aggregator are separate repositories. VibeDispatch consumes the aggregator API and includes fallback heuristics for graceful degradation when the aggregator is unreachable.
+The scraper and aggregator are separate repositories. TenHands consumes the aggregator API and includes fallback heuristics for graceful degradation when the aggregator is unreachable.
 
 ### Responsibility Boundaries
 
@@ -30,12 +30,12 @@ The scraper and aggregator are separate repositories. VibeDispatch consumes the 
 | Reaction and sentiment analysis | aggregator |
 | Dossier and issue brief generation | aggregator |
 | Repo health scores | aggregator |
-| Fork management | vibedispatch |
-| Agent context building | vibedispatch |
-| Agent assignment | vibedispatch |
-| PR review orchestration | vibedispatch |
-| Upstream PR submission | vibedispatch |
-| Pipeline UI | vibedispatch |
+| Fork management | tenhands |
+| Agent context building | tenhands |
+| Agent assignment | tenhands |
+| PR review orchestration | tenhands |
+| Upstream PR submission | tenhands |
+| Pipeline UI | tenhands |
 
 ## Pipeline Stages
 
@@ -45,7 +45,7 @@ Repo health overview. Target repos are derived from aggregator scored issues, en
 
 ### Stage 2: Scored Issues
 
-CVS-scored issues with tier classification. Issues are ranked into tiers -- GO, LIKELY, MAYBE, RISKY, SKIP -- based on contribution viability factors (maintainer responsiveness, issue clarity, codebase complexity, community health). The aggregator computes all scores; vibedispatch only displays and filters them.
+CVS-scored issues with tier classification. Issues are ranked into tiers -- GO, LIKELY, MAYBE, RISKY, SKIP -- based on contribution viability factors (maintainer responsiveness, issue clarity, codebase complexity, community health). The aggregator computes all scores; tenhands only displays and filters them.
 
 ### Stage 3: Fork and Assign
 

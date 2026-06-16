@@ -1,5 +1,5 @@
 """
-VibeDispatch Configuration Constants
+TenHands Configuration Constants
 """
 
 import os

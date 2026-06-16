@@ -1,6 +1,6 @@
 /* ============ Base Layout ============ */
 
-.vibedispatch-container {
+.tenhands-container {
   min-height: 100vh;
   background-color: var(--color-bg);
   color: var(--color-text);
@@ -9,13 +9,13 @@
     color 0.3s ease;
 }
 
-.vibedispatch {
+.tenhands {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
 }
 
-.vibedispatch__header {
+.tenhands__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -26,20 +26,20 @@
   gap: 1rem;
 }
 
-.vibedispatch__title {
+.tenhands__title {
   margin: 0;
   color: var(--color-primary);
   font-size: var(--hdk-text-lg);
   font-weight: var(--font-weight-bold);
 }
 
-.vibedispatch__actions {
+.tenhands__actions {
   display: flex;
   align-items: center;
   gap: 1rem;
 }
 
-.vibedispatch__content {
+.tenhands__content {
   background-color: var(--color-bg-card);
   border-radius: var(--hdk-radius);
   box-shadow: var(--hdk-shadow-sm);
@@ -102,11 +102,11 @@
 /* ============ Responsive ============ */
 
 @media (max-width: 768px) {
-  .vibedispatch {
+  .tenhands {
     padding: 1rem;
   }
 
-  .vibedispatch__header {
+  .tenhands__header {
     flex-direction: column;
     align-items: flex-start;
   }

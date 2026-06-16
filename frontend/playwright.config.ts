@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Playwright configuration for VibeDispatch E2E tests.
+ * Playwright configuration for TenHands E2E tests.
  * https://playwright.dev/docs/test-configuration
  *
  * Directory structure:

@@ -1,5 +1,5 @@
 /**
- * API Client for VibeDispatch
+ * API Client for TenHands
  *
  * Handles all HTTP communication with the Flask backend.
  */

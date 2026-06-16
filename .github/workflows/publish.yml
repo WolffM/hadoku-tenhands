@@ -134,7 +134,7 @@ jobs:
             {
               "event_type": "packages_updated",
               "client_payload": {
-                "packages": ["${{ vars.NPM_SCOPE || '@wolffm' }}/vibedispatch"],
+                "packages": ["${{ vars.NPM_SCOPE || '@wolffm' }}/tenhands"],
                 "sha": "${{ github.sha }}",
                 "ref": "${{ github.ref }}"
               }

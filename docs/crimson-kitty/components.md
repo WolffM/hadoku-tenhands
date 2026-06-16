@@ -3,7 +3,7 @@
 What we keep, what we replace, what we add — across all four repos in the
 contribution stack.
 
-## vibedispatch (this repo)
+## tenhands (this repo)
 
 ### Backend — keep as-is (utilities)
 
@@ -149,7 +149,7 @@ These would let crimson-kitty avoid reimplementing scraping logic.
 | `GET /recon/{slug}/labels?prefix=ai` | Detect `ai-policy`, `no-ai`, `automated` labels | `activities/eligibility.py` |
 
 These should be additive to the aggregator. Crimson-kitty can ship without
-them by implementing fallback inline in vibedispatch, but the cleaner home
+them by implementing fallback inline in tenhands, but the cleaner home
 is the aggregator. **This is one of the open questions for the second sync.**
 
 ## hadoku-scrape
@@ -165,20 +165,20 @@ write new fields to KV. That's a coordinated change documented in
 
 The deployment story stays the same:
 
-- vibedispatch is published as `@wolffm/vibedispatch` to GitHub Packages
+- tenhands is published as `@wolffm/tenhands` to GitHub Packages
 - `mount(el, props)` / `unmount(el)` from `frontend/src/entry.tsx`
-- pm2 service `vibedispatch` for the Flask backend (existing)
-- **NEW pm2 service `vibedispatch-temporal`** for the Temporal worker
+- pm2 service `tenhands` for the Flask backend (existing)
+- **NEW pm2 service `tenhands-temporal`** for the Temporal worker
   process (runs the workflows + activities)
 - **NEW pm2 service `temporal-cluster`** OR a Docker Compose unit for the
   Temporal Cluster itself
 
-The deploy.yml in vibedispatch needs to dispatch to hadoku_site to redeploy
-**both** `vibedispatch` and `vibedispatch-temporal`. The mgmt-api in
-hadoku_site needs an entry for `vibedispatch-temporal` in
+The deploy.yml in tenhands needs to dispatch to hadoku_site to redeploy
+**both** `tenhands` and `tenhands-temporal`. The mgmt-api in
+hadoku_site needs an entry for `tenhands-temporal` in
 `deploy-config.json`.
 
-This is a hadoku_site change, not a vibedispatch change. **Tracked as an
+This is a hadoku_site change, not a tenhands change. **Tracked as an
 open question.**
 
 ## Coexistence with old pipelines

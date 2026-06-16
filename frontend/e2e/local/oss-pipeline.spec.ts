@@ -21,7 +21,7 @@ import {
 
 /** Navigate to a specific OSS pipeline stage tab */
 async function navigateToOSSStage(page: Page, stageLabel: string): Promise<void> {
-  await expect(page.locator('text=VibeDispatch')).toBeVisible()
+  await expect(page.locator('text=TenHands')).toBeVisible()
 
   const ossCard = page
     .locator('.pipeline-select-card')
@@ -572,7 +572,7 @@ test.describe('OSS Pipeline - Navigation', () => {
     await expect(refreshBtn).toBeVisible()
     await refreshBtn.click()
     // Should not crash
-    await expect(page.locator('text=VibeDispatch')).toBeVisible()
+    await expect(page.locator('text=TenHands')).toBeVisible()
   })
 })
 

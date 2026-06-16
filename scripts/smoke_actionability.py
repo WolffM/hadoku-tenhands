@@ -31,11 +31,11 @@ from temporal.judge import score, JudgeUnreachable, JudgeParseError  # noqa: E40
 # SAML token for Microsoft org — fetched via vault since smoke test runs
 # from the operator workstation, not the prod pm2 env.
 def _fetch_msft_sso() -> str | None:
-    """Fetch SAML_ORG_TOKEN from the vault using vibedispatch's service-tier key."""
+    """Fetch SAML_ORG_TOKEN from the vault using tenhands's service-tier key."""
     try:
         vkey = json.loads((REPO_ROOT / ".devvault.local.json").read_text())["key"]
         req = urllib.request.Request(
-            "https://hadoku.me/mgmt/api/secrets/get/VIBEDISPATCH_SAML_ORG_TOKEN",
+            "https://hadoku.me/mgmt/api/secrets/get/SAML_ORG_TOKEN",
             headers={"X-User-Key": vkey, "User-Agent": "curl/8.5.0"},
         )
         body = json.loads(urllib.request.urlopen(req, timeout=15).read())
@@ -93,7 +93,7 @@ def _gh(args: list[str], saml_org: bool = False) -> dict | list | None:
     """Run gh api and parse JSON. Returns None on failure.
 
     When `saml_org=True`, injects GH_TOKEN=SAML_ORG_TOKEN so SAML-required orgs
-    (Microsoft) work. This mirrors vibedispatch's prod routing in
+    (Microsoft) work. This mirrors tenhands's prod routing in
     services/github_api.py."""
     env = os.environ.copy()
     if saml_org:

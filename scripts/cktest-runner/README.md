@@ -2,7 +2,7 @@
 
 Sandbox HTTP service that runs verification tests for the crimson-kitty
 pipeline. Lives on `claw-3` (claw fleet, Debian Trixie) as a systemd
-service. The vibedispatch worker (running on the Linux host)
+service. The tenhands worker (running on the Linux host)
 reaches it over Tailscale at `http://claw-3:5500` from the
 `run_test_command` activity (see `backend/temporal/activities/test_runner.py`).
 
@@ -60,26 +60,26 @@ is in this directory + `/etc/cktest-runner/service.key`.
 
 ```bash
 # 1. Push the repo to claw-3 (Tailscale-reachable as `claw-3`)
-ssh claw3-admin 'sudo install -d -o $USER -g $USER /srv/vibedispatch'
+ssh claw3-admin 'sudo install -d -o $USER -g $USER /srv/tenhands'
 rsync -avz --delete --exclude='.git' --exclude='node_modules' \
-  ~/repos/vibedispatch/ \
-  claw3-admin:/srv/vibedispatch/
+  ~/repos/tenhands/ \
+  claw3-admin:/srv/tenhands/
 
 # OR — if the repo's already cloned on claw-3, just:
-ssh claw3-admin 'cd /srv/vibedispatch && git pull'
+ssh claw3-admin 'cd /srv/tenhands && git pull'
 ```
 
 ### One-time, on claw-3 (as admin user)
 
 ```bash
 # 2. Bake toolchains, create service user, install systemd unit (idempotent)
-sudo bash /srv/vibedispatch/scripts/cktest-runner/provision.sh
+sudo bash /srv/tenhands/scripts/cktest-runner/provision.sh
 
 # 3. (Operator) drop the per-host vault service key.
 #    Generated on the main host with:
 #      python hadoku_site/scripts/administration.py key-generate \
 #        --tier service --name claws-cktest-fetcher \
-#        --repo ../vibedispatch
+#        --repo ../tenhands
 #    ACL-scoped (broker side) to just CKTEST_RUNNER_BEARER.
 sudo install -m 0600 -o cktest -g cktest \
   /tmp/claws-cktest-fetcher.uuid /etc/cktest-runner/service.key
@@ -97,13 +97,13 @@ sudo journalctl -u cktest-runner -f --since '1 min ago'
 After committing changes to `scripts/cktest-runner/` and pushing to main:
 
 ```bash
-ssh claw3-admin 'cd /srv/vibedispatch && git pull && sudo systemctl restart cktest-runner'
+ssh claw3-admin 'cd /srv/tenhands && git pull && sudo systemctl restart cktest-runner'
 ```
 
 If the change touches `cktest-runner.service` itself:
 
 ```bash
-ssh claw3-admin 'cd /srv/vibedispatch && git pull && \
+ssh claw3-admin 'cd /srv/tenhands && git pull && \
   sudo systemctl daemon-reload && sudo systemctl restart cktest-runner'
 ```
 

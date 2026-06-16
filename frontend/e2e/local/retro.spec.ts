@@ -37,7 +37,7 @@ test.describe.configure({ mode: 'serial' })
  */
 async function navigateToRetro(page: Page): Promise<void> {
   await page.goto('/?key=test-key')
-  await expect(page.locator('text=VibeDispatch')).toBeVisible()
+  await expect(page.locator('text=TenHands')).toBeVisible()
   await page
     .locator('.pipeline-select-card')
     .filter({ hasText: 'OSS Contribution Pipeline' })

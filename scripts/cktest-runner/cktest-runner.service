@@ -1,13 +1,13 @@
 [Unit]
 # cktest-runner — Phase 0 of the claw fleet migration. Sandbox HTTP service
-# that the vibedispatch worker (running on the Windows main host) calls
+# that the tenhands worker (running on the Windows main host) calls
 # over Tailscale to execute crimson-kitty verify-phase test commands.
 #
-# Bring-up: see /srv/vibedispatch/scripts/cktest-runner/README.md.
+# Bring-up: see /srv/tenhands/scripts/cktest-runner/README.md.
 # Wired into the per-host service-key + per-key ACL pattern documented in
 # hadoku_site/docs/operations/SECRETS.md.
 Description=cktest-runner — crimson-kitty verify sandbox
-Documentation=file:///srv/vibedispatch/scripts/cktest-runner/README.md
+Documentation=file:///srv/tenhands/scripts/cktest-runner/README.md
 Documentation=https://github.com/WolffM/hadoku_site/blob/main/docs/operations/cktest-runner-migration.md
 After=network-online.target
 Wants=network-online.target
@@ -23,10 +23,10 @@ Type=simple
 User=cktest
 Group=cktest
 
-# Repo lives at /srv/vibedispatch (a clone of WolffM/vibedispatch), updated
+# Repo lives at /srv/tenhands (a clone of WolffM/tenhands), updated
 # via `git pull` on each redeploy. The service runs from inside the cloned
 # tree so a code change is just `git pull && systemctl restart cktest-runner`.
-WorkingDirectory=/srv/vibedispatch/scripts/cktest-runner
+WorkingDirectory=/srv/tenhands/scripts/cktest-runner
 
 # ── Bearer fetch (fail-closed)
 # fetch-bearer.sh curls the vault broker with the per-host service key
@@ -37,7 +37,7 @@ WorkingDirectory=/srv/vibedispatch/scripts/cktest-runner
 # over with a stale local file.
 RuntimeDirectory=cktest-runner
 RuntimeDirectoryMode=0750
-ExecStartPre=/srv/vibedispatch/scripts/cktest-runner/fetch-bearer.sh
+ExecStartPre=/srv/tenhands/scripts/cktest-runner/fetch-bearer.sh
 # Leading dash: file is created BY fetch-bearer.sh during ExecStartPre.
 # Without `-`, systemd hard-fails the unit before ExecStartPre can run
 # (env files are evaluated up-front; missing file = fatal load error).

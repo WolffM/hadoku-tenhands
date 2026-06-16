@@ -15,9 +15,9 @@ import {
   RetroView,
   TemporalPipelineView
 } from './views'
-import type { VibeDispatchProps } from './entry'
+import type { TenHandsProps } from './entry'
 
-export default function App(props: VibeDispatchProps = {}) {
+export default function App(props: TenHandsProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Get active view and owner from store
@@ -118,15 +118,15 @@ export default function App(props: VibeDispatchProps = {}) {
   return (
     <div
       ref={containerRef}
-      className="vibedispatch-container"
+      className="tenhands-container"
       data-theme={theme}
       data-dark-theme={isDarkTheme ? 'true' : 'false'}
     >
-      <div className="vibedispatch">
-        <header className="vibedispatch__header">
-          <h1 className="vibedispatch__title">VibeDispatch</h1>
+      <div className="tenhands">
+        <header className="tenhands__header">
+          <h1 className="tenhands__title">TenHands</h1>
           <Navigation />
-          <div className="vibedispatch__actions">
+          <div className="tenhands__actions">
             <ConnectedThemePicker
               themeFamilies={THEME_FAMILIES}
               currentTheme={theme}
@@ -139,7 +139,7 @@ export default function App(props: VibeDispatchProps = {}) {
           </div>
         </header>
 
-        <main className="vibedispatch__content">{renderView()}</main>
+        <main className="tenhands__content">{renderView()}</main>
       </div>
     </div>
   )

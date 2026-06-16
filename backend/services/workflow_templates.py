@@ -304,7 +304,7 @@ def render_static_analysis_workflow(jobs):
     """Render jobs into a complete GitHub Actions workflow YAML string.
 
     The workflow uses workflow_dispatch with an inputs.ref parameter
-    so vibedispatch controls exactly when analysis runs.
+    so tenhands controls exactly when analysis runs.
 
     Args:
         jobs: Dict of job_name -> job_dict (from build_jobs_from_toolchain).
