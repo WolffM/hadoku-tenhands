@@ -103,9 +103,9 @@ try:
 except ImportError:
     from routes import bp
 
-# URL prefix for deployment behind edge-router (e.g. /dispatch/*)
+# URL prefix for deployment behind edge-router (e.g. /tenhands/*)
 # Set URL_PREFIX="" for local development without prefix
-URL_PREFIX = os.environ.get("URL_PREFIX", "/dispatch")
+URL_PREFIX = os.environ.get("URL_PREFIX", "/tenhands")
 
 app = Flask(__name__)
 

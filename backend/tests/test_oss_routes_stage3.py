@@ -46,7 +46,7 @@ def _fork_assign_gh_mock(
     return side_effect
 
 
-PREFIX = "/dispatch"
+PREFIX = "/tenhands"
 
 
 # ============ Stage 3: Fork & Assign ============

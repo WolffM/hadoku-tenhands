@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     port: 5184,
     proxy: {
-      '/dispatch': {
+      '/tenhands': {
         target: `http://localhost:${backendPort}`,
         changeOrigin: true
       }

@@ -215,9 +215,9 @@ Self-hosted; no Temporal Cloud bill.
 │                  │    │  └────────────────────────────────┘   │
 │                  │    │                                        │
 │                  │    │  Flask API (existing):                 │
-│                  │    │   /dispatch/api/temporal/* (new)       │
-│                  │    │   /dispatch/api/oss/* (legacy, stays)  │
-│                  │    │   /dispatch/api/vibecheck/* (stays)    │
+│                  │    │   /tenhands/api/temporal/* (new)       │
+│                  │    │   /tenhands/api/oss/* (legacy, stays)  │
+│                  │    │   /tenhands/api/vibecheck/* (stays)    │
 │                  │    └───────────────────┬────────────────────┘
 │                  │                        │
 │                  │                        │ Temporal gRPC

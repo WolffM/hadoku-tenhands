@@ -87,7 +87,7 @@ test.describe('OSS Pipeline - Tab 1: Repo Health', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/oss/refresh-target') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/oss/refresh-target') && req.method() === 'POST'
       ),
       page
         .getByRole('button', { name: /Re-scrape/i })
@@ -104,7 +104,7 @@ test.describe('OSS Pipeline - Tab 1: Repo Health', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/oss/compute-target') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/oss/compute-target') && req.method() === 'POST'
       ),
       page
         .getByRole('button', { name: /Re-compute/i })
@@ -117,7 +117,7 @@ test.describe('OSS Pipeline - Tab 1: Repo Health', () => {
   })
 
   test('empty state when no targets', async ({ page }) => {
-    await page.route('**/dispatch/api/oss/stage1-targets', async route => {
+    await page.route('**/tenhands/api/oss/stage1-targets', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -186,7 +186,7 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/oss/fork-and-assign') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/oss/fork-and-assign') && req.method() === 'POST'
       ),
       page.getByRole('button', { name: /Assign Selected/i }).click()
     ])
@@ -213,7 +213,7 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/oss/select-issue') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/oss/select-issue') && req.method() === 'POST'
       ),
       page.getByRole('button', { name: /Assign Selected/i }).click()
     ])
@@ -250,7 +250,7 @@ test.describe('OSS Pipeline - Tab 2: Fork & Assign', () => {
   })
 
   test('empty state when no scored issues', async ({ page }) => {
-    await page.route('**/dispatch/api/oss/stage2-issues', async route => {
+    await page.route('**/tenhands/api/oss/stage2-issues', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -325,14 +325,14 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
     // Iframe src should point to the issue report endpoint
     const iframe = page.locator('.report-modal__iframe')
     const src = await iframe.getAttribute('src')
-    expect(src).toContain('/dispatch/api/oss/issue-report/')
+    expect(src).toContain('/tenhands/api/oss/issue-report/')
 
     // Wait for the iframe frame to load and verify no JS errors
     const iframeFrame = page.frameLocator('.report-modal__iframe')
 
     // Listen for errors on the iframe's frame
     const frames = page.frames()
-    const reportFrame = frames.find(f => f.url().includes('/dispatch/api/oss/issue-report/'))
+    const reportFrame = frames.find(f => f.url().includes('/tenhands/api/oss/issue-report/'))
     if (reportFrame) {
       ;(
         reportFrame as unknown as {
@@ -369,7 +369,7 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
     // Advance button should only show for non-complete assignments
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/oss/advance-pipeline') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/oss/advance-pipeline') && req.method() === 'POST'
       ),
       page
         .getByRole('button', { name: /^Advance$/i })
@@ -385,7 +385,7 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
   test('Signoff button triggers signoff API for completed assignment', async ({ page }) => {
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/oss/signoff') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/oss/signoff') && req.method() === 'POST'
       ),
       page
         .getByRole('button', { name: /^Signoff$/i })
@@ -401,7 +401,7 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
 
   test('Signoff button shows loading state', async ({ page }) => {
     // Delay the signoff response
-    await page.route('**/dispatch/api/oss/signoff', async route => {
+    await page.route('**/tenhands/api/oss/signoff', async route => {
       await new Promise(resolve => setTimeout(resolve, 2000))
       await route.fulfill({
         status: 200,
@@ -420,7 +420,7 @@ test.describe('OSS Pipeline - Tab 3: Pipeline Runs', () => {
   })
 
   test('empty state when no assignments', async ({ page }) => {
-    await page.route('**/dispatch/api/oss/pipeline-status', async route => {
+    await page.route('**/tenhands/api/oss/pipeline-status', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -485,7 +485,7 @@ test.describe('OSS Pipeline - Tab 4: Review', () => {
   test('Refresh Status button triggers poll API', async ({ page }) => {
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/oss/poll-submitted-prs') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/oss/poll-submitted-prs') && req.method() === 'POST'
       ),
       page.getByRole('button', { name: /Refresh Status/i }).click()
     ])
@@ -494,7 +494,7 @@ test.describe('OSS Pipeline - Tab 4: Review', () => {
   })
 
   test('empty state when no submitted PRs', async ({ page }) => {
-    await page.route('**/dispatch/api/oss/poll-submitted-prs', async route => {
+    await page.route('**/tenhands/api/oss/poll-submitted-prs', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -685,7 +685,7 @@ test.describe('OSS Pipeline - Global Repo Filter', () => {
 test.describe('OSS Pipeline - Full Walkthrough', () => {
   test('walks through all 4 tabs with stateful mocks', async ({ page }) => {
     // Set up base mocks
-    await page.route('**/dispatch/api/owner', async route => {
+    await page.route('**/tenhands/api/owner', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -694,7 +694,7 @@ test.describe('OSS Pipeline - Full Walkthrough', () => {
     })
 
     // OSS stage mocks
-    await page.route('**/dispatch/api/oss/stage1-targets', async route => {
+    await page.route('**/tenhands/api/oss/stage1-targets', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -702,7 +702,7 @@ test.describe('OSS Pipeline - Full Walkthrough', () => {
       })
     })
 
-    await page.route('**/dispatch/api/oss/stage2-issues', async route => {
+    await page.route('**/tenhands/api/oss/stage2-issues', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -710,7 +710,7 @@ test.describe('OSS Pipeline - Full Walkthrough', () => {
       })
     })
 
-    await page.route('**/dispatch/api/oss/pipeline-status', async route => {
+    await page.route('**/tenhands/api/oss/pipeline-status', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -718,7 +718,7 @@ test.describe('OSS Pipeline - Full Walkthrough', () => {
       })
     })
 
-    await page.route('**/dispatch/api/oss/retrospective-logs', async route => {
+    await page.route('**/tenhands/api/oss/retrospective-logs', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -726,7 +726,7 @@ test.describe('OSS Pipeline - Full Walkthrough', () => {
       })
     })
 
-    await page.route('**/dispatch/api/oss/poll-submitted-prs', async route => {
+    await page.route('**/tenhands/api/oss/poll-submitted-prs', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -734,7 +734,7 @@ test.describe('OSS Pipeline - Full Walkthrough', () => {
       })
     })
 
-    await page.route('**/dispatch/api/oss/issue-report/**', async route => {
+    await page.route('**/tenhands/api/oss/issue-report/**', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'text/html',
@@ -756,7 +756,7 @@ renderContent();
       })
     })
 
-    await page.route('**/dispatch/api/oss/dossier/**', async route => {
+    await page.route('**/tenhands/api/oss/dossier/**', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -777,7 +777,7 @@ renderContent();
 
     // Action mocks with tracking
     let refreshTargetCalled = false
-    await page.route('**/dispatch/api/oss/refresh-target', async route => {
+    await page.route('**/tenhands/api/oss/refresh-target', async route => {
       refreshTargetCalled = true
       await route.fulfill({
         status: 200,
@@ -787,7 +787,7 @@ renderContent();
     })
 
     let computeTargetCalled = false
-    await page.route('**/dispatch/api/oss/compute-target', async route => {
+    await page.route('**/tenhands/api/oss/compute-target', async route => {
       computeTargetCalled = true
       await route.fulfill({
         status: 200,
@@ -797,7 +797,7 @@ renderContent();
     })
 
     let selectIssueCalled = false
-    await page.route('**/dispatch/api/oss/select-issue', async route => {
+    await page.route('**/tenhands/api/oss/select-issue', async route => {
       selectIssueCalled = true
       await route.fulfill({
         status: 200,
@@ -807,7 +807,7 @@ renderContent();
     })
 
     let _forkAndAssignCalled = false
-    await page.route('**/dispatch/api/oss/fork-and-assign', async route => {
+    await page.route('**/tenhands/api/oss/fork-and-assign', async route => {
       _forkAndAssignCalled = true
       await route.fulfill({
         status: 200,
@@ -822,7 +822,7 @@ renderContent();
     })
 
     let signoffCalled = false
-    await page.route('**/dispatch/api/oss/signoff', async route => {
+    await page.route('**/tenhands/api/oss/signoff', async route => {
       signoffCalled = true
       await route.fulfill({
         status: 200,
@@ -836,7 +836,7 @@ renderContent();
     })
 
     let advanceCalled = false
-    await page.route('**/dispatch/api/oss/advance-pipeline', async route => {
+    await page.route('**/tenhands/api/oss/advance-pipeline', async route => {
       advanceCalled = true
       await route.fulfill({
         status: 200,
@@ -846,7 +846,7 @@ renderContent();
     })
 
     // Also mock vibecheck endpoints (loaded in background)
-    await page.route('**/dispatch/api/stage1-repos', async route => {
+    await page.route('**/tenhands/api/stage1-repos', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -854,7 +854,7 @@ renderContent();
       })
     })
 
-    await page.route('**/dispatch/api/stage4-prs', async route => {
+    await page.route('**/tenhands/api/stage4-prs', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -862,7 +862,7 @@ renderContent();
       })
     })
 
-    await page.route('**/dispatch/api/stage3-issues', async route => {
+    await page.route('**/tenhands/api/stage3-issues', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

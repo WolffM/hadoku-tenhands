@@ -653,7 +653,7 @@ export async function mockAllAPIs(page: Page, options?: { retro?: boolean }): Pr
  * Mock the owner endpoint
  */
 export async function mockOwnerAPI(page: Page): Promise<void> {
-  await page.route('**/dispatch/api/owner', async route => {
+  await page.route('**/tenhands/api/owner', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -666,7 +666,7 @@ export async function mockOwnerAPI(page: Page): Promise<void> {
  * Mock all stage data endpoints
  */
 export async function mockStageAPIs(page: Page): Promise<void> {
-  await page.route('**/dispatch/api/stage1-repos', async route => {
+  await page.route('**/tenhands/api/stage1-repos', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -678,7 +678,7 @@ export async function mockStageAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/stage2-repos', async route => {
+  await page.route('**/tenhands/api/stage2-repos', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -690,7 +690,7 @@ export async function mockStageAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/stage3-issues', async route => {
+  await page.route('**/tenhands/api/stage3-issues', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -710,7 +710,7 @@ export async function mockStageAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/stage4-prs', async route => {
+  await page.route('**/tenhands/api/stage4-prs', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -722,7 +722,7 @@ export async function mockStageAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/pr-details', async route => {
+  await page.route('**/tenhands/api/pr-details', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -738,7 +738,7 @@ export async function mockStageAPIs(page: Page): Promise<void> {
  * Mock health check endpoints
  */
 export async function mockHealthAPIs(page: Page): Promise<void> {
-  await page.route('**/dispatch/api/healthcheck', async route => {
+  await page.route('**/tenhands/api/healthcheck', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -751,7 +751,7 @@ export async function mockHealthAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/global-workflow-runs', async route => {
+  await page.route('**/tenhands/api/global-workflow-runs', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -768,7 +768,7 @@ export async function mockHealthAPIs(page: Page): Promise<void> {
  * Mock action endpoints (install, run, assign, approve, merge)
  */
 export async function mockActionAPIs(page: Page): Promise<void> {
-  await page.route('**/dispatch/api/install-vibecheck', async route => {
+  await page.route('**/tenhands/api/install-vibecheck', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -779,7 +779,7 @@ export async function mockActionAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/run-vibecheck', async route => {
+  await page.route('**/tenhands/api/run-vibecheck', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -790,7 +790,7 @@ export async function mockActionAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/assign-copilot', async route => {
+  await page.route('**/tenhands/api/assign-copilot', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -801,7 +801,7 @@ export async function mockActionAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/approve-pr', async route => {
+  await page.route('**/tenhands/api/approve-pr', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -812,7 +812,7 @@ export async function mockActionAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/mark-pr-ready', async route => {
+  await page.route('**/tenhands/api/mark-pr-ready', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -823,7 +823,7 @@ export async function mockActionAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/merge-pr', async route => {
+  await page.route('**/tenhands/api/merge-pr', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -843,7 +843,7 @@ export async function mockActionAPIs(page: Page): Promise<void> {
  */
 export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Promise<void> {
   // Stage endpoints
-  await page.route('**/dispatch/api/oss/stage1-targets', async route => {
+  await page.route('**/tenhands/api/oss/stage1-targets', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -851,7 +851,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/stage2-issues', async route => {
+  await page.route('**/tenhands/api/oss/stage2-issues', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -859,7 +859,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/stage3-assigned', async route => {
+  await page.route('**/tenhands/api/oss/stage3-assigned', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -867,7 +867,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/stage4-fork-prs', async route => {
+  await page.route('**/tenhands/api/oss/stage4-fork-prs', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -875,7 +875,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/stage5-submit', async route => {
+  await page.route('**/tenhands/api/oss/stage5-submit', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -883,7 +883,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/stage5-tracking', async route => {
+  await page.route('**/tenhands/api/oss/stage5-tracking', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -892,7 +892,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
   })
 
   // Detail endpoints
-  await page.route('**/dispatch/api/oss/issue-brief/**', async route => {
+  await page.route('**/tenhands/api/oss/issue-brief/**', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -900,7 +900,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/fork-pr-details', async route => {
+  await page.route('**/tenhands/api/oss/fork-pr-details', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -908,7 +908,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/dossier/**', async route => {
+  await page.route('**/tenhands/api/oss/dossier/**', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -931,7 +931,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/poll-submitted-prs', async route => {
+  await page.route('**/tenhands/api/oss/poll-submitted-prs', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -940,7 +940,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
   })
 
   // Pipeline Runs (redesigned Tab 3)
-  await page.route('**/dispatch/api/oss/pipeline-status', async route => {
+  await page.route('**/tenhands/api/oss/pipeline-status', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -948,7 +948,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/retrospective-logs', async route => {
+  await page.route('**/tenhands/api/oss/retrospective-logs', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -956,7 +956,7 @@ export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Pr
     })
   })
 
-  await page.route('**/dispatch/api/oss/issue-report/**', async route => {
+  await page.route('**/tenhands/api/oss/issue-report/**', async route => {
     // Realistic mock: self-contained HTML report with JS that mirrors the real template.
     // Tests that the report handles empty runs gracefully (no JS errors).
     await route.fulfill({
@@ -1004,7 +1004,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/signoff', async route => {
+  await page.route('**/tenhands/api/oss/signoff', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1017,7 +1017,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/compute-target', async route => {
+  await page.route('**/tenhands/api/oss/compute-target', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1026,7 +1026,7 @@ renderContent();
   })
 
   if (options?.retro !== false) {
-    await page.route('**/dispatch/api/oss/retro/batches', async route => {
+    await page.route('**/tenhands/api/oss/retro/batches', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1034,7 +1034,7 @@ renderContent();
       })
     })
 
-    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
+    await page.route('**/tenhands/api/oss/retro/batch/**', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1046,7 +1046,7 @@ renderContent();
   // Always mock pr-commits — this hits a subprocess (gh api) in the backend which
   // would block Flask (single-threaded) during card-expand, starving subsequent
   // requests.  Real commit data is tested via the retro_report.py CLI script.
-  await page.route('**/dispatch/api/oss/retro/pr-commits/**', async route => {
+  await page.route('**/tenhands/api/oss/retro/pr-commits/**', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1054,7 +1054,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/advance-pipeline', async route => {
+  await page.route('**/tenhands/api/oss/advance-pipeline', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1062,7 +1062,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/refresh-target', async route => {
+  await page.route('**/tenhands/api/oss/refresh-target', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1070,7 +1070,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/select-issue', async route => {
+  await page.route('**/tenhands/api/oss/select-issue', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1078,7 +1078,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/fork-and-assign', async route => {
+  await page.route('**/tenhands/api/oss/fork-and-assign', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1091,7 +1091,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/approve-fork-pr', async route => {
+  await page.route('**/tenhands/api/oss/approve-fork-pr', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1099,7 +1099,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/merge-fork-pr', async route => {
+  await page.route('**/tenhands/api/oss/merge-fork-pr', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1107,7 +1107,7 @@ renderContent();
     })
   })
 
-  await page.route('**/dispatch/api/oss/submit-to-origin', async route => {
+  await page.route('**/tenhands/api/oss/submit-to-origin', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

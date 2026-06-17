@@ -49,12 +49,12 @@ def _get(url: str, headers: dict, timeout: int = 30) -> dict:
 def fetch_candidates(admin_key: str) -> list[dict]:
     """Pull all aggregator-scored issues + dispatched-repos exclusion."""
     print("  fetching stage2-issues from aggregator...")
-    d = _get("https://hadoku.me/dispatch/api/oss/stage2-issues", {"X-User-Key": admin_key}, timeout=60)
+    d = _get("https://hadoku.me/tenhands/api/oss/stage2-issues", {"X-User-Key": admin_key}, timeout=60)
     issues = d.get("issues", []) or []
     print(f"    {len(issues)} issues fetched")
 
     print("  fetching dispatched-repos exclusion list...")
-    d2 = _get("https://hadoku.me/dispatch/api/oss/dispatched-repos", {"X-User-Key": admin_key}, timeout=30)
+    d2 = _get("https://hadoku.me/tenhands/api/oss/dispatched-repos", {"X-User-Key": admin_key}, timeout=30)
     dispatched = d2.get("dispatched_repos", []) or []
     dispatched_slugs = {d.get("aggregator_slug") for d in dispatched if d.get("aggregator_slug")}
     print(f"    {len(dispatched_slugs)} repos already dispatched")

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Default points at the production mount of tenhands under hadoku_site's
 # edge-router. Override via INBOX_UI_BASE_URL for staging/local testing.
-_DEFAULT_UI_BASE = "https://hadoku.me/dispatch/"
+_DEFAULT_UI_BASE = "https://hadoku.me/tenhands/"
 
 
 def _default_notify(message: str, url: str | None = None, pr_url: str | None = None) -> None:

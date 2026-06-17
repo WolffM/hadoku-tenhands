@@ -25,7 +25,7 @@ def disable_cache(monkeypatch):
     monkeypatch.setenv("CACHE_DISABLED", "1")
 
 
-PREFIX = "/dispatch"
+PREFIX = "/tenhands"
 
 
 # ============ Poll Submitted PRs ============

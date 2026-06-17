@@ -4,7 +4,7 @@ Powers the /inbox and /active skills so the operator doesn't have to
 copy-paste API output. Talks to production through the edge-router:
 
   vault broker  → hadoku.me/mgmt/api/secrets/get/TENHANDS_ADMIN_KEY
-  dispatch API  → hadoku.me/dispatch/api/temporal/{inbox,batches,batch/<id>}
+  dispatch API  → hadoku.me/tenhands/api/temporal/{inbox,batches,batch/<id>}
 
 stdlib only (urllib) so it runs under the system python with no deps.
 
@@ -22,7 +22,7 @@ from collections import Counter
 from pathlib import Path
 
 VAULT_KEY_URL = "https://hadoku.me/mgmt/api/secrets/get/TENHANDS_ADMIN_KEY"
-DISPATCH_BASE = "https://hadoku.me/dispatch/api/temporal"
+DISPATCH_BASE = "https://hadoku.me/tenhands/api/temporal"
 DEVVAULT_LOCAL = Path(__file__).parent.parent / ".devvault.local.json"
 
 

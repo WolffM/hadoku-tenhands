@@ -103,9 +103,9 @@ function getAuthKey(): string | null {
 
 // Determine base URL based on environment
 function getBaseUrl(): string {
-  // Vite proxy handles /dispatch/* routes in dev
-  // In production, same origin with /dispatch prefix
-  return '/dispatch'
+  // Vite proxy handles /tenhands/* routes in dev
+  // In production, same origin with /tenhands prefix
+  return '/tenhands'
 }
 
 /**

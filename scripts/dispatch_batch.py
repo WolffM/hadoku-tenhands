@@ -114,7 +114,7 @@ def main() -> int:
     print("== POSTing to /api/temporal/dispatch ==")
     started = datetime.now(timezone.utc).isoformat()
     t0 = time.time()
-    result = _post("https://hadoku.me/dispatch/api/temporal/dispatch", payload, admin, timeout=120)
+    result = _post("https://hadoku.me/tenhands/api/temporal/dispatch", payload, admin, timeout=120)
     dt = time.time() - t0
     print(f"   {dt:.0f}s  ok={result.get('ok')}  status={result.get('status')}")
     if not result.get("ok"):
@@ -138,7 +138,7 @@ def main() -> int:
     print("\n== verifying batch is registered in temporal ==")
     time.sleep(3)
     try:
-        b = _get("https://hadoku.me/dispatch/api/temporal/batches", admin, timeout=15)
+        b = _get("https://hadoku.me/tenhands/api/temporal/batches", admin, timeout=15)
         batches = (b.get("data") or {}).get("batches") or []
         match = [x for x in batches if x.get("batch_id") == batch_id]
         if match:
@@ -150,8 +150,8 @@ def main() -> int:
     except Exception as e:
         print(f"  could not verify: {e}")
 
-    print(f"\n  watch progress: GET /dispatch/api/temporal/batch/{batch_id}")
-    print(f"  inbox:          GET /dispatch/api/temporal/inbox")
+    print(f"\n  watch progress: GET /tenhands/api/temporal/batch/{batch_id}")
+    print(f"  inbox:          GET /tenhands/api/temporal/inbox")
     return 0
 
 

@@ -14,7 +14,7 @@ Each pipeline has:
 - A view (`VibecheckView.tsx`, `OSSView.tsx`)
 - A store slice (`vibeCheckStore.ts`, `ossStore.ts`)
 - A set of components (`components/vibecheck/`, `components/oss/`)
-- A backend route group (`/dispatch/api/oss/...`)
+- A backend route group (`/tenhands/api/oss/...`)
 
 ## crimson-kitty as a third tile
 
@@ -62,18 +62,18 @@ called "temporal" internally.
 
 | URL | Module | Purpose |
 |---|---|---|
-| `/dispatch/api/temporal/batches` | `routes/temporal_routes.py` | List crimson-kitty batches |
-| `/dispatch/api/temporal/batch/:id` | `routes/temporal_routes.py` | Batch detail |
-| `/dispatch/api/temporal/inbox` | `routes/temporal_routes.py` | Operator inbox: issues awaiting human gates |
-| `/dispatch/api/temporal/issue/:slug/:number` | `routes/temporal_routes.py` | Issue detail with timeline + evidence |
-| `/dispatch/api/temporal/issue/:slug/:number/signal` | `routes/temporal_routes.py` | POST a Temporal signal: approve/abort/retry. Drives both judge-defer recovery and the `awaiting_signoff` operator-go/no-go (see [state-machine.md#awaiting_signoff](state-machine.md)). |
-| `/dispatch/api/temporal/dispatch` | `routes/temporal_routes.py` | Start a new batch |
-| `/dispatch/api/temporal/health` | `routes/temporal_routes.py` | Temporal cluster + worker health |
-| `/dispatch/api/temporal/evidence/:batch_id/:issue_id` | `routes/temporal_routes.py` | List evidence stages and files for an issue |
-| `/dispatch/api/temporal/evidence/:batch_id/:issue_id/:filepath` | `routes/temporal_routes.py` | Raw file content from the evidence store |
-| `/dispatch/api/temporal/judge/canary` | `routes/temporal_routes.py` | POST — invoke the judge canary and return `{reachable, claude_bin, oauth_token_set}`. Diagnostic for verifying the claude CLI is wired up without running a full workflow |
+| `/tenhands/api/temporal/batches` | `routes/temporal_routes.py` | List crimson-kitty batches |
+| `/tenhands/api/temporal/batch/:id` | `routes/temporal_routes.py` | Batch detail |
+| `/tenhands/api/temporal/inbox` | `routes/temporal_routes.py` | Operator inbox: issues awaiting human gates |
+| `/tenhands/api/temporal/issue/:slug/:number` | `routes/temporal_routes.py` | Issue detail with timeline + evidence |
+| `/tenhands/api/temporal/issue/:slug/:number/signal` | `routes/temporal_routes.py` | POST a Temporal signal: approve/abort/retry. Drives both judge-defer recovery and the `awaiting_signoff` operator-go/no-go (see [state-machine.md#awaiting_signoff](state-machine.md)). |
+| `/tenhands/api/temporal/dispatch` | `routes/temporal_routes.py` | Start a new batch |
+| `/tenhands/api/temporal/health` | `routes/temporal_routes.py` | Temporal cluster + worker health |
+| `/tenhands/api/temporal/evidence/:batch_id/:issue_id` | `routes/temporal_routes.py` | List evidence stages and files for an issue |
+| `/tenhands/api/temporal/evidence/:batch_id/:issue_id/:filepath` | `routes/temporal_routes.py` | Raw file content from the evidence store |
+| `/tenhands/api/temporal/judge/canary` | `routes/temporal_routes.py` | POST — invoke the judge canary and return `{reachable, claude_bin, oauth_token_set}`. Diagnostic for verifying the claude CLI is wired up without running a full workflow |
 
-The existing `/dispatch/api/oss/*` routes stay untouched.
+The existing `/tenhands/api/oss/*` routes stay untouched.
 
 ## Store slice
 

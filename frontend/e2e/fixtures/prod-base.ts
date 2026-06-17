@@ -2,7 +2,7 @@
  * Production E2E test fixture with full audit trail.
  *
  * Captures ALL console logs (not just errors) and ALL network requests
- * to /dispatch/api/** as test attachments for post-mortem analysis.
+ * to /tenhands/api/** as test attachments for post-mortem analysis.
  *
  * Usage: import { test, expect } from '../fixtures/prod-base'
  */
@@ -93,8 +93,8 @@ export const test = base.extend<{
         const request = response.request()
         const url = request.url()
         const method = request.method()
-        const isAPI = url.includes('/dispatch/api/')
-        const isOSSAPI = url.includes('/dispatch/api/oss/')
+        const isAPI = url.includes('/tenhands/api/')
+        const isOSSAPI = url.includes('/tenhands/api/oss/')
 
         // Only log API calls, not static assets
         if (!isAPI) return

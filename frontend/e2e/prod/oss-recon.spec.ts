@@ -95,7 +95,7 @@ test.describe('Prod: Backend Health', () => {
   test.describe.configure({ mode: 'serial' })
 
   test('backend healthcheck returns OK', async ({ request }) => {
-    const response = await request.get('/dispatch/api/healthcheck')
+    const response = await request.get('/tenhands/api/healthcheck')
     expect(response.ok()).toBeTruthy()
     const data = (await response.json()) as { success: boolean; owner: string }
     expect(data.success).toBe(true)
@@ -103,7 +103,7 @@ test.describe('Prod: Backend Health', () => {
   })
 
   test('gh CLI is authenticated', async ({ request }) => {
-    const response = await request.get('/dispatch/api/oss/debug/gh-health')
+    const response = await request.get('/tenhands/api/oss/debug/gh-health')
     expect(response.ok()).toBeTruthy()
     const data = (await response.json()) as {
       success: boolean
@@ -116,7 +116,7 @@ test.describe('Prod: Backend Health', () => {
   })
 
   test('aggregator connectivity is known', async ({ request }) => {
-    const response = await request.get('/dispatch/api/oss/debug/aggregator-health')
+    const response = await request.get('/tenhands/api/oss/debug/aggregator-health')
     expect(response.ok()).toBeTruthy()
     const data = (await response.json()) as {
       success: boolean
@@ -316,7 +316,7 @@ test.describe('Prod: Tab 1 — Repo Health', () => {
     await expect(rescrapeBtn).toBeVisible()
 
     const requestPromise = page.waitForRequest(
-      req => req.url().includes('/dispatch/api/oss/refresh-target') && req.method() === 'POST',
+      req => req.url().includes('/tenhands/api/oss/refresh-target') && req.method() === 'POST',
       { timeout: ACTION_TIMEOUT }
     )
     await rescrapeBtn.click()
@@ -339,7 +339,7 @@ test.describe('Prod: Tab 1 — Repo Health', () => {
     await expect(recomputeBtn).toBeVisible()
 
     const requestPromise = page.waitForRequest(
-      req => req.url().includes('/dispatch/api/oss/compute-target') && req.method() === 'POST',
+      req => req.url().includes('/tenhands/api/oss/compute-target') && req.method() === 'POST',
       { timeout: ACTION_TIMEOUT }
     )
     await recomputeBtn.click()
@@ -751,7 +751,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
     await expect(page.locator('.report-modal__iframe')).toBeVisible()
 
     const src = await page.locator('.report-modal__iframe').getAttribute('src')
-    expect(src).toContain('/dispatch/api/oss/issue-report/')
+    expect(src).toContain('/tenhands/api/oss/issue-report/')
 
     // Close the modal
     await page.locator('.report-modal__header').getByRole('button', { name: /Close/i }).click()
@@ -816,7 +816,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
     if (!(await advanceBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
 
     const requestPromise = page.waitForRequest(
-      req => req.url().includes('/dispatch/api/oss/advance-pipeline') && req.method() === 'POST',
+      req => req.url().includes('/tenhands/api/oss/advance-pipeline') && req.method() === 'POST',
       { timeout: ACTION_TIMEOUT }
     )
     await advanceBtn.click()
@@ -839,7 +839,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
     if (!(await signoffBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
 
     const requestPromise = page.waitForRequest(
-      req => req.url().includes('/dispatch/api/oss/signoff') && req.method() === 'POST',
+      req => req.url().includes('/tenhands/api/oss/signoff') && req.method() === 'POST',
       { timeout: ACTION_TIMEOUT }
     )
     await signoffBtn.click()
@@ -955,7 +955,7 @@ test.describe('Prod: Tab 4 — Review', () => {
     if (!(await refreshBtn.isVisible({ timeout: 5000 }).catch(() => false))) return
 
     const requestPromise = page.waitForRequest(
-      req => req.url().includes('/dispatch/api/oss/poll-submitted-prs') && req.method() === 'POST',
+      req => req.url().includes('/tenhands/api/oss/poll-submitted-prs') && req.method() === 'POST',
       { timeout: ACTION_TIMEOUT }
     )
     await refreshBtn.click()
