@@ -27,7 +27,7 @@ def disable_cache_and_admin_key(monkeypatch):
     monkeypatch.delenv("ADMIN_KEY", raising=False)
 
 
-PREFIX = "/dispatch"
+PREFIX = "/tenhands"
 
 # Module paths for patching (names live in their sub-module now)
 _health = "routes.debug.health_routes"

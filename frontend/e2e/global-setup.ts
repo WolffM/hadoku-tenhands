@@ -27,7 +27,7 @@ export default async function globalSetup(): Promise<void> {
 
   // 1. Backend response content (webServer only checks HTTP status, not body)
   try {
-    const res = await fetchWithTimeout(`${BACKEND_URL}/dispatch/api/healthcheck`)
+    const res = await fetchWithTimeout(`${BACKEND_URL}/tenhands/api/healthcheck`)
     if (!res.ok) {
       errors.push(`Backend returned HTTP ${res.status} — expected 200`)
     } else {
@@ -50,7 +50,7 @@ export default async function globalSetup(): Promise<void> {
 
   // 2. gh CLI auth — non-fatal warning so tests that depend on it fail with clear names
   try {
-    const res = await fetchWithTimeout(`${BACKEND_URL}/dispatch/api/oss/debug/gh-health`)
+    const res = await fetchWithTimeout(`${BACKEND_URL}/tenhands/api/oss/debug/gh-health`)
     if (res.ok) {
       const body = (await res.json()) as { authenticated?: boolean; api_working?: boolean }
       if (!body.authenticated || !body.api_working) {

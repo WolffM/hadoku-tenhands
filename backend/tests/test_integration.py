@@ -33,7 +33,7 @@ def disable_cache(monkeypatch):
 
 
 
-PREFIX = "/dispatch"
+PREFIX = "/tenhands"
 
 
 class TestPollSubmittedPRsIntegration:

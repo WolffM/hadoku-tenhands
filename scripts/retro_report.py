@@ -2,8 +2,8 @@
 """Retrospective report for tenhands pipeline.
 
 Reads from the same API endpoints as the UI:
-  GET /dispatch/api/oss/retro/batches
-  GET /dispatch/api/oss/retro/batch/<batch_id>
+  GET /tenhands/api/oss/retro/batches
+  GET /tenhands/api/oss/retro/batch/<batch_id>
 
 Usage:
   python3 scripts/retro_report.py --pr owner/repo#N [--batch BATCH] [--full]
@@ -29,7 +29,7 @@ import requests
 # ── Config ────────────────────────────────────────────────────────────────────
 
 DEFAULT_PORT = os.environ.get("TENHANDS_PORT", "5024")
-URL_PREFIX = "/dispatch"
+URL_PREFIX = "/tenhands"
 
 # Import bot filter from backend helpers
 _BACKEND_DIR = os.path.join(os.path.dirname(__file__), "..", "backend")

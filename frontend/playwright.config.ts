@@ -57,7 +57,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'PORT=5001 python3 -m backend.app',
-      url: 'http://localhost:5001/dispatch/api/healthcheck',
+      url: 'http://localhost:5001/tenhands/api/healthcheck',
       reuseExistingServer: !process.env.CI,
       cwd: '..',
       timeout: 60_000

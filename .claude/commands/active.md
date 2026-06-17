@@ -9,7 +9,7 @@ python3 scripts/temporal_snapshot.py active
 ```
 
 The script fetches the tenhands admin key from the vault broker and
-calls the production dispatch API (`/dispatch/api/temporal/batches` plus
+calls the production dispatch API (`/tenhands/api/temporal/batches` plus
 per-batch detail). Archived batches (no deferred work) are counted but not
 expanded.
 

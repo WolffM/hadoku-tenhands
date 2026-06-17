@@ -139,7 +139,7 @@ test.describe('Health View Loading States', () => {
     // with a delayed response so we can observe the loading state.
     // Playwright uses last-registered-wins, so this override takes precedence.
     await mockAllAPIs(page)
-    await page.route('**/dispatch/api/global-workflow-runs', async route => {
+    await page.route('**/tenhands/api/global-workflow-runs', async route => {
       await new Promise(resolve => setTimeout(resolve, 2000))
       await route.fulfill({
         status: 200,

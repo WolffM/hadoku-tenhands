@@ -40,7 +40,7 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
     // Click Install Selected and verify API call
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/install-vibecheck') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/install-vibecheck') && req.method() === 'POST'
       ),
       page.getByRole('button', { name: /Install Selected/i }).click()
     ])
@@ -60,7 +60,7 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
     // Click the per-row run button
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/run-vibecheck') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/run-vibecheck') && req.method() === 'POST'
       ),
       // The run button uses a play emoji — find it via the button class
       page.locator('.btn--ghost').filter({ hasText: /▶/ }).first().click()
@@ -83,7 +83,7 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/assign-copilot') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/assign-copilot') && req.method() === 'POST'
       ),
       page
         .getByRole('button', { name: /Assign Selected|Assign Recommended/i })
@@ -117,7 +117,7 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/approve-pr') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/approve-pr') && req.method() === 'POST'
       ),
       approveBtn.click()
     ])
@@ -147,7 +147,7 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/merge-pr') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/merge-pr') && req.method() === 'POST'
       ),
       mergeBtn.click()
     ])
@@ -164,7 +164,7 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/approve-pr') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/approve-pr') && req.method() === 'POST'
       ),
       page.locator('.btn--ghost').filter({ hasText: /✅/ }).first().click()
     ])
@@ -178,7 +178,7 @@ test.describe('Vibecheck Pipeline — Button Interactions', () => {
 
     const [request] = await Promise.all([
       page.waitForRequest(
-        req => req.url().includes('/dispatch/api/merge-pr') && req.method() === 'POST'
+        req => req.url().includes('/tenhands/api/merge-pr') && req.method() === 'POST'
       ),
       page.locator('.btn--ghost').filter({ hasText: /🔀/ }).first().click()
     ])

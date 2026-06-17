@@ -23,7 +23,7 @@ Or: `GH_TOKEN=$MSFT_TOKEN gh api repos/microsoft/{repo}/issues/{number}`
 ## Dispatching via API
 
 ```bash
-curl -s -X POST http://localhost:5024/dispatch/api/oss/fork-and-assign \
+curl -s -X POST http://localhost:5024/tenhands/api/oss/fork-and-assign \
   -H 'Content-Type: application/json' \
   -d '{
     "origin_owner": "owner",

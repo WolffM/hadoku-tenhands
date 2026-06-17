@@ -174,7 +174,7 @@ function envelope<T>(data: T) {
 }
 
 export async function mockTemporalAPIs(page: Page): Promise<void> {
-  await page.route('**/dispatch/api/temporal/health', async route => {
+  await page.route('**/tenhands/api/temporal/health', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -187,7 +187,7 @@ export async function mockTemporalAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/temporal/batches', async route => {
+  await page.route('**/tenhands/api/temporal/batches', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -195,7 +195,7 @@ export async function mockTemporalAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/temporal/batch/**', async route => {
+  await page.route('**/tenhands/api/temporal/batch/**', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -203,7 +203,7 @@ export async function mockTemporalAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/temporal/issue/*/*', async route => {
+  await page.route('**/tenhands/api/temporal/issue/*/*', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -211,7 +211,7 @@ export async function mockTemporalAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/temporal/inbox', async route => {
+  await page.route('**/tenhands/api/temporal/inbox', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -224,7 +224,7 @@ export async function mockTemporalAPIs(page: Page): Promise<void> {
 
   // Signal endpoint: record the call on `window.__temporalSignals` and return OK.
   const signalPattern = /\/issue\/([^/]+)\/signal/
-  await page.route('**/dispatch/api/temporal/issue/*/signal', async route => {
+  await page.route('**/tenhands/api/temporal/issue/*/signal', async route => {
     const req = route.request()
     const body = (req.postDataJSON() ?? {}) as { decision?: string }
     const url = req.url()
@@ -247,7 +247,7 @@ export async function mockTemporalAPIs(page: Page): Promise<void> {
     })
   })
 
-  await page.route('**/dispatch/api/temporal/dispatch', async route => {
+  await page.route('**/tenhands/api/temporal/dispatch', async route => {
     await route.fulfill({
       status: 202,
       contentType: 'application/json',

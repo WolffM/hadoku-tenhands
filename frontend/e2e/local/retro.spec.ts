@@ -141,7 +141,7 @@ test.describe('RetroView — Batch Tabs', () => {
 
   test('empty batch shows no-issues message (mocked override)', async ({ page }) => {
     // Use a mocked override so this test is not fragile to new dispatches
-    await page.route('**/dispatch/api/oss/retro/batch/dusty-lizard', async route => {
+    await page.route('**/tenhands/api/oss/retro/batch/dusty-lizard', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -194,14 +194,14 @@ test.describe('RetroView — Batch Tabs', () => {
       upstream_open: 0,
       has_fork_pr: 0
     }))
-    await page.route('**/dispatch/api/oss/retro/batches', async route => {
+    await page.route('**/tenhands/api/oss/retro/batches', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ success: true, batches: manyBatches, owner: 'test-user' })
       })
     })
-    await page.route('**/dispatch/api/oss/retro/batch/**', async route => {
+    await page.route('**/tenhands/api/oss/retro/batch/**', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

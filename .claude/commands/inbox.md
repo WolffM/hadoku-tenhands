@@ -8,7 +8,7 @@ python3 scripts/temporal_snapshot.py inbox
 ```
 
 The script fetches the tenhands admin key from the vault broker and
-calls the production dispatch API (`/dispatch/api/temporal/inbox`). Each
+calls the production dispatch API (`/tenhands/api/temporal/inbox`). Each
 entry shows the issue, gate, judge score, batch, reason, and workflow id.
 
 If it fails because the vault broker returns an error, mgmt-api is likely

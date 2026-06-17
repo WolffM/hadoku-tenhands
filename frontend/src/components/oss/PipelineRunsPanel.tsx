@@ -99,7 +99,7 @@ export function PipelineRunsPanel() {
   const handleOpenReport = (a: PipelineAssignment) => {
     // Build URL for the backend-generated HTML report
     const baseUrl = window.location.origin
-    const url = `${baseUrl}/dispatch/api/oss/issue-report/${a.repo}/${a.issueNumber}`
+    const url = `${baseUrl}/tenhands/api/oss/issue-report/${a.repo}/${a.issueNumber}`
     setReportUrl(url)
   }
 
