@@ -721,16 +721,16 @@ packages:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
   '@wolffm/logger@1.2.2':
-    resolution: {integrity: sha512-J03bC4YwzQhasl69s8QZTEgDK6Ac8sqczmWG1g4hiw1d0bwebzT6hhN25WnnObf0qcBYasO4hoUesbtzdIMTCQ==}
+    resolution: {integrity: sha512-J03bC4YwzQhasl69s8QZTEgDK6Ac8sqczmWG1g4hiw1d0bwebzT6hhN25WnnObf0qcBYasO4hoUesbtzdIMTCQ==, tarball: https://npm.pkg.github.com/download/@wolffm/logger/1.2.2/4a825558de7e025630477699ba2bd74f7b44b651}
     engines: {node: '>=18'}
 
   '@wolffm/task-ui-components@2.0.1':
-    resolution: {integrity: sha512-grhGP1fg5qv3Tg2N3UkWe+3pIzvZbDGJYVsxkR67n4zEe6NBmJywMWzAsszReBFlZYnxxncRP6kPR8YI38R9qQ==}
+    resolution: {integrity: sha512-grhGP1fg5qv3Tg2N3UkWe+3pIzvZbDGJYVsxkR67n4zEe6NBmJywMWzAsszReBFlZYnxxncRP6kPR8YI38R9qQ==, tarball: https://npm.pkg.github.com/download/@wolffm/task-ui-components/2.0.1/6e44f28433392fa8e9de94f11dc95e0f868b2974}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
 
   '@wolffm/themes@2.0.16':
-    resolution: {integrity: sha512-xyAnKE0VolXzMojZ8Fi55sCqrOorLv2DUUAbqTecDs+/OiaXW4bzwbWXfCIoIIw8mEIwii8q95uUFoBNwsZtiQ==}
+    resolution: {integrity: sha512-xyAnKE0VolXzMojZ8Fi55sCqrOorLv2DUUAbqTecDs+/OiaXW4bzwbWXfCIoIIw8mEIwii8q95uUFoBNwsZtiQ==, tarball: https://npm.pkg.github.com/download/@wolffm/themes/2.0.16/dd1d8edd5e208f79aa99b946d1ce05fd92e2d54e}
     peerDependencies:
       '@wolffm/task-ui-components': '*'
       react: ^18.0.0 || ^19.0.0
