@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 DISCORD_TEST_WEBHOOK_URL = os.environ.get("DISCORD_TEST_WEBHOOK_URL", "")
 
+# Monitoring-api event ledger (service_events). Both must be set for the mirror
+# to activate; unset = Discord-only, exactly like DISCORD_WEBHOOK_URL. Provision
+# HADOKU_SERVICE_KEY (a monitoring service-tier key) to turn this on.
+MONITORING_TELEMETRY_URL = os.environ.get(
+    "HADOKU_MONITORING_TELEMETRY_URL", "https://hadoku.me/health/api/telemetry"
+)
+HADOKU_SERVICE_KEY = os.environ.get("HADOKU_SERVICE_KEY", "")
+
 # Colors for Discord embeds
 COLOR_SUCCESS = 0x2ECC71  # Green
 COLOR_INFO = 0x3498DB     # Blue
@@ -36,6 +44,39 @@ def _field(name, value, inline=False):
     return {"name": name, "value": str(value), "inline": inline}
 
 
+def _mirror_to_ledger(title, description, color):
+    """Mirror a Discord notification into monitoring-api's event ledger
+    (service_events) so tenhands' notifications are visible in the unified
+    sitrep alongside every other service, not only in the Discord channel.
+
+    Best-effort, fire-and-forget: no-op unless HADOKU_SERVICE_KEY is set. A
+    problem-colored notification (WARNING/ERROR) is tagged `alert.tenhands.*`
+    so it lands in the sitrep alerts domain; other lifecycle events are tagged
+    `tenhands.*` (visible in the events feed, not counted as alerts).
+    """
+    if not HADOKU_SERVICE_KEY:
+        return
+    is_problem = color in (COLOR_WARNING, COLOR_ERROR)
+    level = "error" if color == COLOR_ERROR else "warn" if color == COLOR_WARNING else "info"
+    name = "alert.tenhands.notification" if is_problem else "tenhands.notification"
+    body = {
+        "source": "service",
+        "level": level,
+        "type": "log",
+        "message": f"event={name} {title}"[:1000],
+        "context": {"service": "tenhands", "channel": "discord", "detail": (description or "")[:300]},
+    }
+    try:
+        requests.post(
+            MONITORING_TELEMETRY_URL,
+            json=body,
+            headers={"X-User-Key": HADOKU_SERVICE_KEY, "Content-Type": "application/json"},
+            timeout=5,
+        )
+    except Exception as e:
+        logger.debug("Ledger mirror failed: %s", e)
+
+
 def send_discord_notification(title, description, color=None, fields=None, components=None):
     """Send a Discord webhook notification with an embed.
 
@@ -43,6 +84,9 @@ def send_discord_notification(title, description, color=None, fields=None, compo
     Discord silently ignores `components` on non-application webhooks,
     so it's safe to always pass when present — embed always renders.
     """
+    # Mirror to the ledger independently of the Discord webhook being set.
+    _mirror_to_ledger(title, description, color)
+
     if not DISCORD_WEBHOOK_URL:
         return
 
