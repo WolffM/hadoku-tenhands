@@ -32,6 +32,21 @@ def clean_data_dir(tmp_path, monkeypatch):
     yield tmp_path
 
 
+@pytest.fixture(autouse=True)
+def admit_authed_by_default(monkeypatch):
+    """Neutralize the global tier gate (``app._enforce_tier``) for the route
+    suite.
+
+    The gate treats keyless requests as ``public`` → 401/403. The
+    route-behavior tests predate it and send no ``X-User-Key``, so patch the
+    resolver to admit by default here. ``test_auth_gate.py`` overrides this
+    fixture with a no-op to exercise the real gate.
+    """
+    import app as _app
+
+    monkeypatch.setattr(_app, "resolve_tier_from_key", lambda _key: "admin")
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers for pipeline orchestrator tests
 # ---------------------------------------------------------------------------
