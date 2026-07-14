@@ -47,6 +47,7 @@ from .issue_workflow_types import (
     _LONG_ACTIVITY_TIMEOUT,
     _MAX_REMEDIATION_CYCLES,
     _OperatorAborted,
+    _OPERATOR_SIGNOFF_TIMEOUT,
     _POLL_CADENCE_AFTER_ACTIVITY,
     _POLL_CADENCE_DEFAULT,
     _POST_SUBMISSION_STALE_DAYS,
@@ -396,7 +397,7 @@ async def do_remediation_cycle(
 
         await workflow.wait_condition(
             lambda: wf.human_decision is not None,
-            timeout=timedelta(days=14),
+            timeout=_OPERATOR_SIGNOFF_TIMEOUT,
         )
         decision = wf.human_decision
         wf.human_decision = None

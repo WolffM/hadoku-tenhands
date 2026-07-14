@@ -268,6 +268,10 @@ class TestSubmitToOrigin:
                 "repo": "widget-api",
                 "branch": "fix-docs",
                 "title": "Fix docs",
+                # base_branch passed explicitly so the route skips the live
+                # _resolve_default_branch gh call (this test exercises the
+                # default-body branch, not base-branch resolution).
+                "base_branch": "main",
             },
             content_type="application/json",
         )
