@@ -1,0 +1,7 @@
+# Test-only dependencies — NOT installed in production.
+# The pm2 venv (created by hadoku_site deploy) installs requirements.txt only.
+# To run the suite locally:
+#   python -m venv .venv && .venv/bin/python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+#   cd backend && python3 -m pytest tests/ -v
+pytest>=8,<10
+pytest-asyncio>=0.24,<2

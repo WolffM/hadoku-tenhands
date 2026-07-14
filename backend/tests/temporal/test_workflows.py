@@ -720,19 +720,12 @@ async def test_post_submission_closed_unmerged_transitions_to_closed_by_upstream
 
 @pytest.mark.asyncio
 async def test_post_submission_blocking_review_runs_remediation_then_re_signoff(
-    issue_input, monkeypatch,
+    issue_input,
 ):
     """Acceptance: blocking review → remediation → updated preview PR →
     re-enter awaiting_signoff. Operator approves the remediated content;
     on the next poll the upstream PR merges and the workflow ends."""
     _set_all_gates_pass()
-
-    # The workflow has TWO awaiting_signoff waits in this scenario (initial
-    # submission + post-remediation). Under time-skipping the 14-day
-    # wait_condition timeout fires near-instantly between signals — shorten
-    # it so the test's signal arrival window is wide enough.
-    import temporal.workflows.issue_workflow as ifw
-    monkeypatch.setattr(ifw, "_OPERATOR_SIGNOFF_TIMEOUT", timedelta(seconds=30))
 
     # First poll surfaces a blocking review; after remediation cycle
     # finishes (request_remediation + replicate + new awaiting_signoff +
@@ -777,18 +770,6 @@ async def test_post_submission_blocking_review_runs_remediation_then_re_signoff(
                   }]
     activities += [tracking_remediation, tracking_replicate, tracking_submit]
 
-    async def signal_approver(handle):
-        """Continuously signal `approve` so each awaiting_signoff wait
-        completes as soon as the workflow reaches it. Each signal triggers
-        a workflow activation which pauses time-skipping; this keeps the
-        14-day wait_condition timeout from firing between waits."""
-        while True:
-            try:
-                await handle.signal("submit_human_decision", "approve")
-            except Exception:
-                return
-            await asyncio.sleep(0.05)
-
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -802,12 +783,37 @@ async def test_post_submission_blocking_review_runs_remediation_then_re_signoff(
                 id=f"issue-{issue_input.issue_number}-blocked",
                 task_queue="test-tq",
             )
-            sig_task = asyncio.create_task(signal_approver(handle))
-            try:
-                result = await handle.result()
-            finally:
-                sig_task.cancel()
 
+            # This scenario has TWO awaiting_signoff waits (initial submission
+            # + post-remediation). A background signaller races time-skipping:
+            # the fake activities finish faster than any real-time signal
+            # cadence, so between the two signoffs no signal lands and
+            # time-skipping jumps straight to the wait_condition timeout. Drive
+            # it deterministically instead — advance time in fixed increments
+            # (well under the 14-day signoff timeout, but enough to clear the
+            # 30-min / 5-min poll cadences), poll the workflow's state query,
+            # and approve each awaiting_signoff entry exactly once.
+            approvals = 0
+            was_awaiting = False
+            for _ in range(200):
+                try:
+                    state = await handle.query(IssueWorkflow.current_state)
+                except Exception:
+                    state = None
+                if state in ("merged", "aborted", "closed_by_upstream"):
+                    break
+                if state == "awaiting_signoff":
+                    if not was_awaiting:
+                        await handle.signal("submit_human_decision", "approve")
+                        approvals += 1
+                        was_awaiting = True
+                else:
+                    was_awaiting = False
+                await env.sleep(60)
+
+            result = await handle.result()
+
+    assert approvals == 2, f"expected to approve two signoffs, approved {approvals}"
     assert result.final_state == "merged"
     # Remediation activity ran exactly once
     assert len(remediation_calls) == 1
