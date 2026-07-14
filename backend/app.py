@@ -138,6 +138,41 @@ def api_root():
     return jsonify({"message": "TenHands API", "docs": "/api/"})
 
 
+# ============ Tier gate (whoami-delegation) ============
+# The tunnel origin (dispatch.hadoku.me) is publicly routable, so perimeter
+# gating at edge-router is not enough — every non-public route must gate
+# itself. TenHands holds no key arrays; it delegates tier resolution to the
+# platform's /session/whoami, exactly like the other tunnel backends (scrape,
+# dataplatform, watchpart2). Anything but public is admitted; the debug routes
+# keep their own stricter admin gate on top.
+try:
+    from .middleware.whoami import resolve_tier_from_key
+except ImportError:
+    from middleware.whoami import resolve_tier_from_key
+
+# Unauthenticated by design: the API-info root and the health endpoint are hit
+# directly by the monitoring probe (dispatch.hadoku.me/ and /tenhands/api/
+# healthcheck) and must stay reachable with no key, or the watchdog flaps.
+_PUBLIC_PATHS = frozenset({"/", f"{URL_PREFIX}/api/healthcheck"})
+
+
+@app.before_request
+def _enforce_tier():
+    # CORS preflight carries no credentials; add_cors_headers answers it.
+    if request.method == "OPTIONS":
+        return None
+    if request.path in _PUBLIC_PATHS:
+        return None
+    key = (request.headers.get("X-User-Key") or "").strip() or None
+    if resolve_tier_from_key(key) != "public":
+        return None
+    # No key → 401 (you're signed out); recognised-but-unprivileged or bad key
+    # → 403. Mirrors edge-router's authGate status shaping.
+    if not key:
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"error": "forbidden"}), 403
+
+
 # Register blueprint with URL prefix
 app.register_blueprint(bp, url_prefix=URL_PREFIX)
 

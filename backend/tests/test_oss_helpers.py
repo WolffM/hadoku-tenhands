@@ -1,7 +1,25 @@
 """Tests for oss_helpers — heuristic scoring fallback and PR template formatting."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from helpers.oss_helpers import score_issue_fallback, format_upstream_pr_body
+
+
+def _days_ago(n):
+    """ISO8601-Z timestamp n days before now.
+
+    Freshness-based fixtures must be relative, not hardcoded, or they rot:
+    the scorer penalizes issues updated >90d ago (-30) and 0-comment issues
+    created >14d ago (-10), both measured against the wall clock.
+    """
+    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Recent enough to dodge both penalties on its own (<90d updated, <14d old).
+_RECENT = _days_ago(3)
+# Old enough to trip the no-triage penalty (>14d) but not the stale one (<90d).
+_AGED_NOT_STALE = _days_ago(30)
 
 
 class TestScoreIssueFallback:
@@ -37,8 +55,8 @@ class TestScoreIssueFallback:
         result = score_issue_fallback({
             "assignees": [],
             "labels": [],
-            "createdAt": "2026-02-18T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
+            "createdAt": _RECENT,
+            "updatedAt": _RECENT,
             "comments": 1,
         })
         assert result["cvs"] > 0
@@ -49,8 +67,8 @@ class TestScoreIssueFallback:
         result = score_issue_fallback({
             "assignees": [],
             "labels": [],
-            "createdAt": "2026-02-18T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
+            "createdAt": _RECENT,
+            "updatedAt": _RECENT,
             "comments": 1,
         })
         assert result["cvs"] == 50
@@ -61,8 +79,8 @@ class TestScoreIssueFallback:
         result = score_issue_fallback({
             "assignees": [],
             "labels": [{"name": "good first issue", "color": "7057ff"}],
-            "createdAt": "2026-02-18T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
+            "createdAt": _RECENT,
+            "updatedAt": _RECENT,
             "comments": 1,
         })
         assert result["cvs"] == 70
@@ -73,8 +91,8 @@ class TestScoreIssueFallback:
         result = score_issue_fallback({
             "assignees": [],
             "labels": ["good first issue", "bug"],
-            "createdAt": "2026-02-18T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
+            "createdAt": _RECENT,
+            "updatedAt": _RECENT,
             "comments": 1,
         })
         assert result["cvs"] == 70
@@ -85,8 +103,8 @@ class TestScoreIssueFallback:
         result = score_issue_fallback({
             "assignees": [],
             "labels": [{"name": "Good First Issue"}],
-            "createdAt": "2026-02-18T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
+            "createdAt": _RECENT,
+            "updatedAt": _RECENT,
             "comments": 1,
         })
         assert result["cvs"] == 70
@@ -109,8 +127,8 @@ class TestScoreIssueFallback:
         result = score_issue_fallback({
             "assignees": [],
             "labels": [],
-            "createdAt": "2026-01-01T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
+            "createdAt": _AGED_NOT_STALE,
+            "updatedAt": _RECENT,
             "comments": 0,
         })
         # 50 - 10 (no comments, > 14 days old) = 40
@@ -135,8 +153,8 @@ class TestScoreIssueFallback:
         result = score_issue_fallback({
             "assignees": [],
             "labels": [],
-            "createdAt": "2026-01-01T00:00:00Z",
-            "updatedAt": "2026-02-18T00:00:00Z",
+            "createdAt": _RECENT,
+            "updatedAt": _RECENT,
             "comments": [{"body": "hello"}, {"body": "world"}],
         })
         # comments=2 (from list length), so no zero-comment penalty
@@ -159,14 +177,14 @@ class TestScoreIssueFallback:
         # likely: 70 (base + gfi)
         likely = score_issue_fallback({
             "assignees": [], "labels": ["good first issue"],
-            "createdAt": "2026-02-18T00:00:00Z", "updatedAt": "2026-02-18T00:00:00Z", "comments": 1,
+            "createdAt": _RECENT, "updatedAt": _RECENT, "comments": 1,
         })
         assert likely["cvsTier"] == "likely"
 
         # maybe: 50 (base only)
         maybe = score_issue_fallback({
             "assignees": [], "labels": [],
-            "createdAt": "2026-02-18T00:00:00Z", "updatedAt": "2026-02-18T00:00:00Z", "comments": 1,
+            "createdAt": _RECENT, "updatedAt": _RECENT, "comments": 1,
         })
         assert maybe["cvsTier"] == "maybe"
 
@@ -195,7 +213,7 @@ class TestScoreIssueFallback:
         """Fallback scorer always returns dataCompleteness=partial."""
         result = score_issue_fallback({
             "assignees": [], "labels": ["good first issue"],
-            "createdAt": "2026-02-18T00:00:00Z", "updatedAt": "2026-02-18T00:00:00Z", "comments": 5,
+            "createdAt": _RECENT, "updatedAt": _RECENT, "comments": 5,
         })
         assert result["dataCompleteness"] == "partial"
 
