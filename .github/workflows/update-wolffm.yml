@@ -46,7 +46,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
         run: |
-          pnpm update "@wolffm/*" --latest
+          pnpm --config.store-dir=${{ runner.tool_cache }}/pnpm-store update "@wolffm/*" --latest
 
       - name: Commit and push if changed
         working-directory: ${{ github.workspace }}

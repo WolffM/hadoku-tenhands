@@ -35,7 +35,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        run: pnpm --config.store-dir=${{ runner.tool_cache }}/pnpm-store install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
 
@@ -103,7 +103,7 @@ jobs:
             node -e "const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = process.argv[1]; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');" "$check_version"
             
             # Update lock file
-            pnpm install --lockfile-only
+            pnpm --config.store-dir=${{ runner.tool_cache }}/pnpm-store install --lockfile-only
           else
             echo "✓ Version $current_version is not published yet, ready to publish"
           fi
