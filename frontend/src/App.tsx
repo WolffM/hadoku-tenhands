@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import { ConnectedThemePicker, LoadingSkeleton } from '@wolffm/task-ui-components'
+import { AppHeader, ConnectedThemePicker, LoadingSkeleton } from '@wolffm/task-ui-components'
 import { THEME_ICON_MAP } from '@wolffm/themes'
 import { useTheme } from './hooks/useTheme'
 import { usePipelineStore, type ViewType } from './store'
@@ -123,10 +123,9 @@ export default function App(props: TenHandsProps = {}) {
       data-dark-theme={isDarkTheme ? 'true' : 'false'}
     >
       <div className="tenhands">
-        <header className="tenhands__header">
-          <h1 className="tenhands__title">TenHands</h1>
-          <Navigation />
-          <div className="tenhands__actions">
+        <AppHeader
+          title="TenHands"
+          themePicker={
             <ConnectedThemePicker
               themeFamilies={THEME_FAMILIES}
               currentTheme={theme}
@@ -136,8 +135,10 @@ export default function App(props: TenHandsProps = {}) {
                 return Icon ? <Icon /> : null
               }}
             />
-          </div>
-        </header>
+          }
+        />
+
+        <Navigation />
 
         <main className="tenhands__content">{renderView()}</main>
       </div>
