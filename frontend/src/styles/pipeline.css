@@ -160,7 +160,7 @@
 .progress-bar {
   position: relative;
   height: 0.5rem;
-  background-color: var(--color-neutral-light);
+  background-color: var(--color-neutral-bg);
   border-radius: 9999px;
   overflow: hidden;
 }
@@ -213,7 +213,7 @@
 }
 
 .status-badge--pending {
-  background-color: var(--color-neutral-light);
+  background-color: var(--color-neutral-bg);
   color: var(--color-text-secondary);
 }
 
@@ -223,7 +223,7 @@
 
 .status-badge--processing {
   background-color: var(--color-primary-bg);
-  color: var(--color-primary);
+  color: var(--color-on-primary-bg);
 }
 
 .status-badge--processing .status-badge__dot {
@@ -233,7 +233,7 @@
 
 .status-badge--waiting_for_review {
   background-color: var(--color-warning-bg);
-  color: var(--color-warning);
+  color: var(--color-on-warning-bg);
 }
 
 .status-badge--waiting_for_review .status-badge__dot {
@@ -242,7 +242,7 @@
 
 .status-badge--ready {
   background-color: var(--color-success-bg);
-  color: var(--color-success);
+  color: var(--color-on-success-bg);
 }
 
 .status-badge--ready .status-badge__dot {
@@ -251,7 +251,7 @@
 
 .status-badge--completed {
   background-color: var(--color-success-bg);
-  color: var(--color-success);
+  color: var(--color-on-success-bg);
 }
 
 .status-badge--completed .status-badge__dot {
@@ -259,8 +259,8 @@
 }
 
 .status-badge--failed {
-  background-color: var(--color-danger-light);
-  color: var(--color-danger);
+  background-color: var(--color-danger-bg);
+  color: var(--color-on-danger-bg);
 }
 
 .status-badge--failed .status-badge__dot {

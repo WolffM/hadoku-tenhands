@@ -177,7 +177,7 @@
   font-size: var(--hdk-text-xs);
   color: var(--color-text-secondary);
   padding: 0.125rem 0.5rem;
-  background-color: var(--color-neutral-light);
+  background-color: var(--color-neutral-bg);
   border-radius: 9999px;
 }
 

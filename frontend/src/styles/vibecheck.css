@@ -62,7 +62,7 @@
   padding: 0 0.375rem;
   font-size: var(--hdk-text-xs);
   font-weight: var(--font-weight-semibold);
-  background-color: var(--color-neutral-light);
+  background-color: var(--color-neutral-bg);
   color: var(--color-text-secondary);
   border-radius: 9999px;
 }
@@ -244,11 +244,11 @@
 }
 
 .table-row--danger {
-  background-color: var(--color-danger-light) !important;
+  background-color: var(--color-danger-bg) !important;
 }
 
 .table-row--danger:hover td {
-  background-color: var(--color-danger-light) !important;
+  background-color: var(--color-danger-bg) !important;
 }
 
 /* Checkbox */
@@ -307,7 +307,7 @@
   display: inline-block;
   font-size: var(--hdk-text-xs);
   padding: 0.125rem 0.375rem;
-  background-color: var(--color-neutral-light);
+  background-color: var(--color-neutral-bg);
   border-radius: var(--hdk-radius-sm);
   color: var(--color-text-secondary);
 }
@@ -342,7 +342,7 @@ td .pr-link {
 }
 
 .badge--secondary {
-  background-color: var(--color-neutral-light);
+  background-color: var(--color-neutral-bg);
   color: var(--color-text-secondary);
 }
 
