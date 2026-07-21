@@ -396,7 +396,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.625rem 1rem;
-  background-color: var(--color-neutral-light);
+  background-color: var(--color-neutral-bg);
   border-bottom: 1px solid var(--color-border);
   font-family: 'SF Mono', Consolas, monospace;
   font-size: var(--hdk-text-xs);
@@ -447,7 +447,7 @@
 
 .diff-line-hunk {
   background-color: var(--color-primary-bg);
-  color: var(--color-primary);
+  color: var(--color-on-primary-bg);
 }
 
 .diff-line-addition {
@@ -455,7 +455,7 @@
 }
 
 .diff-line-deletion {
-  background-color: var(--color-danger-light);
+  background-color: var(--color-danger-bg);
 }
 
 .diff-line-context {
@@ -474,21 +474,21 @@
 }
 
 .diff-line-num-old {
-  background-color: var(--color-muted-bg);
+  background-color: var(--color-neutral-bg);
 }
 
 .diff-line-num-new {
-  background-color: var(--color-muted-bg);
+  background-color: var(--color-neutral-bg);
 }
 
 .diff-line-addition .diff-line-num-new {
   background-color: var(--color-success-bg);
-  color: var(--color-success);
+  color: var(--color-on-success-bg);
 }
 
 .diff-line-deletion .diff-line-num-old {
-  background-color: var(--color-danger-light);
-  color: var(--color-danger);
+  background-color: var(--color-danger-bg);
+  color: var(--color-on-danger-bg);
 }
 
 .diff-line-content {

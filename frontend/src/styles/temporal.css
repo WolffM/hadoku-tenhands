@@ -176,10 +176,10 @@
 .temporal-inbox__error {
   margin-bottom: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background-color: var(--color-danger-light);
+  background-color: var(--color-danger-bg);
   border: 1px solid var(--color-danger);
   border-radius: var(--hdk-radius-sm);
-  color: var(--color-danger);
+  color: var(--color-on-danger-bg);
   font-size: var(--hdk-text-sm);
 }
 

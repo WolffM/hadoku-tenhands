@@ -62,7 +62,7 @@
 
 .retro-tab__badge {
   background: var(--color-success-bg);
-  color: var(--color-success);
+  color: var(--color-on-success-bg);
   border-radius: 999px;
   padding: 1px 7px;
   font-size: 11px;
@@ -193,7 +193,7 @@
 }
 
 .batch-summary__outcome--closed {
-  border-color: var(--color-danger-light);
+  border-color: var(--color-danger-bg);
 }
 
 .batch-summary__outcome--open {
@@ -295,14 +295,14 @@
 
 .retro-badge--success {
   background: var(--color-success-bg);
-  color: var(--color-success);
+  color: var(--color-on-success-bg);
   border-color: var(--color-success);
 }
 
 .retro-badge--closed {
-  background: var(--color-danger-light);
-  color: var(--color-danger);
-  border-color: var(--color-danger-light);
+  background: var(--color-danger-bg);
+  color: var(--color-on-danger-bg);
+  border-color: var(--color-danger-bg);
 }
 
 .retro-badge--open {
@@ -317,7 +317,7 @@
 
 .retro-badge--comments {
   background: var(--color-warning-bg);
-  color: var(--color-warning);
+  color: var(--color-on-warning-bg);
   border-color: var(--color-warning);
   font-weight: var(--font-weight-semibold);
 }
@@ -528,14 +528,14 @@
 
 .workflow-chip--yes {
   background: var(--color-success-bg);
-  color: var(--color-success);
+  color: var(--color-on-success-bg);
   border-color: var(--color-success);
 }
 
 .workflow-chip--no {
-  background: var(--color-danger-light);
-  color: var(--color-danger);
-  border-color: var(--color-danger-light);
+  background: var(--color-danger-bg);
+  color: var(--color-on-danger-bg);
+  border-color: var(--color-danger-bg);
 }
 
 .workflow-metrics__meta {
@@ -624,7 +624,7 @@
 .crossref-leak {
   font-size: var(--hdk-text-sm);
   padding: var(--hdk-space-sm) var(--hdk-space-md);
-  background: var(--color-danger-light);
+  background: var(--color-danger-bg);
   border-left: 3px solid var(--color-danger);
   border-radius: 0 4px 4px 0;
 }
