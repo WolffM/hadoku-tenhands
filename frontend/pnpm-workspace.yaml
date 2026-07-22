@@ -7,3 +7,4 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - '@wolffm/themes@3.0.2'
+  - '@wolffm/task-ui-components@2.1.0'
