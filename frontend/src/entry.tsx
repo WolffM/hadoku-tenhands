@@ -1,9 +1,13 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { logger } from '@wolffm/logger/client'
 import App from './App'
-// Parent app must provide @wolffm/themes/style.css (loaded via global.css in hadoku_site)
-// Parent app must provide @wolffm/task-ui-components/theme-picker.css
-// Parent app must provide @wolffm/task-ui-components/app-header.css
+// @wolffm/themes/style.css tokens are provided globally by the parent
+// (hadoku_site global.css). The task-ui-components component CSS is NOT global,
+// so bundle it here — otherwise the unified header + theme picker render
+// unstyled wherever this app is mounted. (These previously lived in index.html,
+// which only applies to the dev server, never the published library bundle.)
+import '@wolffm/task-ui-components/theme-picker.css'
+import '@wolffm/task-ui-components/app-header.css'
 import './styles/index.css'
 
 // Props interface for configuration from parent app
