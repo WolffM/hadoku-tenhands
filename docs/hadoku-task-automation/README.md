@@ -27,35 +27,103 @@ reversible (§4).
 
 ## 1. The loop
 
+**The human gate is before the work, not after it.** You converse about the plan — which is a good
+thing to do on a phone — and once you approve it, nothing else is asked of you. Reviewing a diff on
+a phone is miserable; reading a plan and answering three questions is not.
+
 ```
-  phone                     board                    tenhands
-  ─────                     ─────                    ────────
-  type one line  ──────▶  todo (user)
-                            │
-                            │  claim
-                            ▼
-                          scoping (agent)   ──────▶  resolve the sentence into a plan
-                            │                        write plan into notes
-              ┌─────────────┼─────────────┐
-              ▼                           ▼
-      needs-info (user)              working (agent)  ─────▶  repro → fix → verify
-      "which repo? which run?"           │
-              │                          ▼
-              │                    landing (agent)   ─────▶  merge → deploy → watch prod
-   answer in notes,                      │
-   drag back to todo         ┌───────────┴───────────┐
-              │              ▼                       ▼
-              └────────  landed (user)          stalled (user)
-                         merged + prod green    gate failed, or reverted
+  phone                       board                         tenhands
+  ─────                       ─────                         ────────
+  spitball a thought ──▶  Inbox (untagged)
+                              │  claim
+                              ▼
+                     ┌──▶ planning (agent) ────────▶ interpret intent, design a plan,
+                     │        │                      write plan + questions to notes
+                     │        ▼
+                     │   plan-review (user)  ──────▶ you answer / disagree
+                     │      │        │
+     answer, hand back│      │        │ happy
+                     └── replan      ▼
+                       (user)    approved (user) ───▶ ── nothing more is asked of you ──
+                                     │  claim
+                                     ▼
+                                 working (agent) ───▶ repro → fix → verify → gates
+                                     │                 └─ remediation loop, capped
+                                     ▼
+                                 landing (agent) ───▶ merge → deploy → watch prod
+                                     │                            │ red
+                     ┌───────────────┴───────┐                    ▼
+                     ▼                       ▼               auto-revert
+                landed (user)          stalled (user) ◀───────────┘
+                merged + prod green    needs a laptop
 ```
 
-Seven lanes, three of them `agent`. The board is [hadoku-task](https://hadoku.me/task); the
+Eight lanes, three of them `agent`. The board is [hadoku-task](https://hadoku.me/task); the
 contract is [board-contract.md](board-contract.md); the activation payload is
-[schemas/autoland-v1.json](schemas/autoland-v1.json).
+[schemas/autoland-v1.json](schemas/autoland-v1.json). The planning loop is §3.
 
 **One board per repo.** Board identity is repo identity — the board carries `repo` in its
 activation payload, so a runner maps board → checkout without parsing display names, and the
 repo (the one piece of context you always know) is never inferred.
+
+### 1.1 The planning conversation
+
+The plan lives in `notes`, and the loop runs until neither side has an open question.
+
+**The lane model already solves the concurrent-write problem, for free.** The agent can only write
+`notes` while holding a claim, and it only holds one while the task is in `planning`. You only edit
+while it's in `plan-review`, where no claim is live. The handoff is a drag, so there is never a
+moment where both sides are writing. That's worth noticing — it's the kind of thing that would
+otherwise need a lock we'd have had to invent.
+
+**Each pass rewrites `notes`, it does not append.** Three rounds of plan-then-answer would otherwise
+grow into something you can't read on a phone, and would eventually trip `NOTES_TOO_LARGE`. The
+planning agent re-emits one canonical document each time:
+
+```markdown
+## What I think you want
+<one paragraph, in your terms>
+
+## Plan
+1. …
+
+## Questions          ← the only part that needs you
+1. …
+
+## Settled            ← so you can see your earlier answers were heard
+- <question> → <your answer>
+
+## Blast radius
+- path/to/file
+
+— pass 2 · confidence 0.8
+```
+
+Full history stays in the evidence store and the board's claim log; `notes` stays legible.
+
+**You answer however you like.** Inline under Questions, or a sentence dumped at the top — the
+planning agent reads the whole field and works out what changed. Requiring a format from someone
+typing on a bus would defeat the point.
+
+**Two ways out of `plan-review`, both a single drag:**
+
+- → `replan` — "I answered, or I disagree." Another planning pass.
+- → `approved` — "Go." From here nothing else is asked of you.
+
+Approving with questions still open is an **override, not an error**. You've decided they don't
+matter; the pipeline records that in the evidence and proceeds. The alternative — bouncing your
+approval back — would mean the pipeline second-guessing an explicit human decision, which is
+exactly the wrong instinct in a system built to run without you.
+
+**The loop is capped** (3 passes by default). Hitting the cap means the task isn't converging in
+this medium, and the honest move is `stalled` — "this needs a laptop" — rather than a fourth round
+of questions.
+
+**Pickup from the Inbox is automatic, after a settle delay.** Untagged capture is the raw queue, and
+the pipeline claims from it once a task has been untouched for a few minutes, so a half-typed
+thought doesn't immediately get planned at. This is the one place we're guessing at your habits;
+if it turns out you want an explicit "go" tap instead, that's one extra `user` lane and no other
+change.
 
 ---
 

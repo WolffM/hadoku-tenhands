@@ -222,6 +222,37 @@ Two honest limits:
 
 ---
 
+## Remediation yes, review agent no
+
+Two things get conflated here, and they deserve opposite answers.
+
+**A capped remediation loop: yes, and it's load-bearing.** When a gate fails there are only two
+options — stall and wait for a human, or let the agent try again with the gate's complaint as
+input. Since the entire premise is "land it without me," remediation is the thing that keeps the
+stall rate low enough for the pipeline to be worth having. Without it, every flaky test and every
+lint nit becomes a task waiting on your laptop.
+
+So: gate fails → feed the failure back to the agent → re-run the gates → repeat, capped at 3 → and
+if it's still failing, `stalled` with the full history. That's `gates/remediation.py` and
+crimson-kitty's `_MAX_LOCAL_REMEDIATION_ITERATIONS`, reused as-is.
+
+**A separate review agent: no.** On someone else's repo, a review pass substitutes for the
+maintainer's judgement about house style and hidden constraints. On your own repo with a green
+suite, it mostly generates opinions — and every one it raises has to be adjudicated by something,
+which in an unattended pipeline means either auto-accepting its advice (letting an LLM's taste
+rewrite working code) or stalling on it (defeating the point).
+
+The gates already *are* the review, and they're better than an LLM review for this job because they
+fail on facts: the repro is green, the suite passes on the merge result, the diff stayed inside the
+declared blast radius. The one genuinely judgement-shaped question — *did this do what was asked* —
+is G10, and it's one call, not a loop.
+
+**Trigger remediation on evidence, not on plan size.** The instinct to add review "for bigger
+plans" is measuring the wrong thing: a large mechanical rename is safer than a three-line change to
+auth. A gate that actually failed is a fact; "this plan looked big" is a guess. If it turns out that
+large diffs stall more often, that's a reason to tighten G5's caps at planning time — a smaller
+blast radius per task — rather than to add a reviewer at the end.
+
 ## Tuning
 
 Every threshold on this page is per-repo config, not a constant: G1's confidence bar, G5's file and
