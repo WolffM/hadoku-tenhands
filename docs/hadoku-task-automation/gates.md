@@ -14,7 +14,7 @@ Gate vocabulary, verdicts, and the evidence-store discipline are inherited from
   laptop. This pipeline's whole premise is that no such human is available, so a deferred judge
   verdict routes the task to `stalled` with its reasoning in `notes`. Pass/fail only, in effect.
 - **`fail` has two destinations.** Before any code is written, a failure means *"I don't understand
-  the request"* → `needs-info`, which is a question for you. After code exists, a failure means
+  the request"* → `plan-review`, which is a question for you. After code exists, a failure means
   *"the work isn't safe to land"* → `stalled`. Same verdict, different lane, very different meaning
   to someone reading the board on a phone.
 
@@ -29,16 +29,17 @@ filed the issue, so crimson-kitty's gate set transfers; only the gates that are 
 | # | Failure | Gate | Provenance |
 |---|---|---|---|
 | 1 | Agent misread the sentence and fixed the wrong thing | `target_resolved` (G1) | **reuse** `gates/actionability.py`, new rubric |
-| 2 | "Tests pass" proves nothing because nothing was ever red | `repro_possible` (G2) | **reuse** `gates/actionability.py` |
+| 2 | "Tests pass" proves nothing — nothing was ever red, or nothing was ever asserted | `verification_possible` (G2) | **reuse** `gates/actionability.py` |
 | 2 | ″ | `repro_is_red` (G3) | **reuse** `gates/repro.py` |
 | 3 | Empty or no-op change | `diff_non_empty` (G4) | **reuse** `gates/fix.py` unchanged |
 | 4 | Agent helpfully refactored 40 unrelated files | `blast_radius_respected` (G5) | **extend** `gates/fix.py` relevance check |
 | 5 | Agent edited CI, secrets, migrations, or its own gates | `protected_paths_untouched` (G6) | **new** |
 | 6 | Credential committed | `no_secrets_in_diff` (G7) | **new** |
-| 7 | Fix doesn't actually fix it | `repro_now_green` (G8) | **reuse** `gates/verify.py` |
+| 7 | Fix doesn't actually fix it | `acceptance_met` (G8) | **reuse** `gates/verify.py` |
 | 8 | Fix breaks something else, or `main` moved underneath | `suite_green_on_merge_result` (G9) | **extend** `activities/test_runner.py` |
 | 9 | Diff is plausible but answers a different question | `fix_addresses_task` (G10) | **reuse** relevance judge, new rubric |
 | 10 | It all passed and prod fell over anyway | G11–13 → **auto-revert** | **new**, polling shape from `issue_workflow_post.py` |
+| 11 | Item was already done, or isn't a bug — and got "fixed" anyway | intake dismissal rule (§1.1) | **new**, no gate: routes to `plan-review` |
 
 **Seven of thirteen are existing modules**, three more are extensions, and the four genuinely new
 ones (G6, G7, G11–13) all exist for the same reason: crimson-kitty never merged anything. It opened
@@ -53,10 +54,10 @@ it against a sentence you typed on a bus.
 
 ## Phase A — before any code is written
 
-The cheapest place to stop a task, and the one that makes the phone loop work. Both gates run after
-`scoped`, before a single agent token is spent on implementation.
+The cheapest place to stop a task, and the one that makes the phone loop work. Both gates run in
+`planning`, before a single agent token is spent on implementation.
 
-The scoping agent's sole output is `scope/plan.json`:
+The planning agent's output, per item, is `scope/plan.json`:
 
 ```jsonc
 {
@@ -76,7 +77,7 @@ The scoping agent's sole output is `scope/plan.json`:
 ### G1 · `target_resolved` — judge
 
 Passes when `evidence` is non-empty, `questions` is empty, and `confidence` clears the per-repo
-threshold. Otherwise **fail → `needs-info`**, with `understanding` and `questions` written into
+threshold. Otherwise **fail → `plan-review`**, with `understanding` and `questions` written into
 `notes`.
 
 This is the gate that reads "fix the production CI workflow bug" and decides whether it found a
@@ -87,19 +88,29 @@ every other gate on this page.
 Bias it toward asking. A question on your phone costs you fifteen seconds; a confidently wrong
 autonomous merge costs an evening.
 
-### G2 · `repro_possible` — mechanical
+### G2 · `verification_possible` — mechanical
 
-Passes when `repro_method != "none"`.
+**This is what makes "on green" mean anything.** If nothing distinguishes the before state from the
+after state, a green suite afterwards is evidence of nothing at all — it was green before. But what
+counts as verifiable depends on which kind of item this is, and the task text already tells us
+(§1.1):
 
-**This is what makes "on green" mean anything.** If nothing demonstrates the bug exists before the
-fix, then a green suite afterwards is evidence of nothing at all — it was green before. A task with
-no reproduction path routes to `needs-info` asking how you'd check it yourself.
+| Item | Passes when | Verified later by |
+|---|---|---|
+| **`bug-` prefixed** — a claim something is broken | `repro_method != "none"` | G3 red → G8 green, the same artifact |
+| **unprefixed** — a change request | the plan declares an **acceptance check**: the observable end state, as a test, a screenshot, or a grep | G8, restated as "the declared end state is now true" |
 
-Categories that legitimately can't be reproduced — a refactor, a docs change, a version bump — are
-not auto-landable under this design. They aren't unsafe, they're just *unverifiable*, and this
-pipeline's premise is that verification substitutes for your review. Route them to `stalled` for a
-laptop, or mark the task `no-repro-ok` to accept a weaker bar (G8 becomes "no new failures" instead
-of "the red thing is now green").
+An earlier draft of this page demanded a reproduction from *everything*, which would have stalled
+`make coffee theme default` forever — there is no bug there to reproduce, and demanding one is a
+category error. A change request's equivalent of a repro is an acceptance check, and asking for that
+is reasonable: *"coffee is the default theme"* is a one-line assertion.
+
+What still fails this gate is an item where neither exists — nothing to reproduce **and** no
+statable end condition. `too much wooshing` is the honest example: there's no assertion that makes
+it true or false. Those route to `plan-review`, where the question is precisely *"how would you
+tell me this was fixed?"*, and your answer becomes the acceptance check. That's not the pipeline
+being obtuse — it's the same question you'd have to answer before you could review the diff
+yourself.
 
 ---
 
@@ -165,9 +176,10 @@ Secret scan over the diff. Hard fail, never overridable, no `allow-` escape hatc
 credential is the one failure on this page that a revert does not undo — the value is burned the
 moment it's pushed, and the remedy is rotation, not git.
 
-### G8 · `repro_now_green` — mechanical
+### G8 · `acceptance_met` — mechanical
 
-The exact artifact that was red in G3 is now green. Same command, same runner, same assertion.
+For a `bug-` item: the exact artifact that was red in G3 is now green — same command, same runner,
+same assertion. For a change request: the acceptance check declared at G2 now holds.
 
 G3 and G8 are one gate split across time, and they're the core of the whole design: *this specific
 thing was broken, and now this specific thing is fixed.* Every other gate on this page is a
