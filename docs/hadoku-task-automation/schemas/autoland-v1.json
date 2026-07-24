@@ -1,0 +1,58 @@
+{
+  "schemaId": "autoland",
+  "schemaVersion": 1,
+  "label": "Autoland",
+  "description": "TenHands' hadoku-task-automation pipeline. One board per repo. A human files a one-line task into `todo`; the pipeline scopes it, implements it, and merges to main on green, then watches production and reverts itself if the deploy or health check goes red. There is no human PR-review gate by design — `landed` is a notification, not an approval queue. `needs-info` is the only lane that asks the human for anything: the scoping agent parks a task there with a question in `notes` when it cannot resolve the sentence into a concrete target.",
+  "repo": "WolffM/<repo>",
+  "lanes": [
+    {
+      "tag": "todo",
+      "label": "To Do",
+      "order": 0,
+      "editableBy": "user",
+      "description": "Filed and ready. The pipeline claims from here."
+    },
+    {
+      "tag": "scoping",
+      "label": "Scoping",
+      "order": 1,
+      "editableBy": "agent",
+      "description": "Resolving the task sentence into a concrete repo target, evidence, and blast radius. Writes the plan into notes."
+    },
+    {
+      "tag": "needs-info",
+      "label": "Needs Info",
+      "order": 2,
+      "editableBy": "user",
+      "description": "Could not disambiguate. The question is in notes — answer it and drag back to To Do."
+    },
+    {
+      "tag": "working",
+      "label": "Working",
+      "order": 3,
+      "editableBy": "agent",
+      "description": "Reproduce, fix, verify. Runs in a git worktree on the tenhands host."
+    },
+    {
+      "tag": "landing",
+      "label": "Landing",
+      "order": 4,
+      "editableBy": "agent",
+      "description": "Gates green. Merging to main, then watching the deploy and health signal before letting go."
+    },
+    {
+      "tag": "landed",
+      "label": "Landed",
+      "order": 5,
+      "editableBy": "user",
+      "description": "Merged and production verified. Nothing is asked of you — this is a notification."
+    },
+    {
+      "tag": "stalled",
+      "label": "Stalled",
+      "order": 6,
+      "editableBy": "user",
+      "description": "A gate failed, or the change landed and was auto-reverted. Reason and evidence are in notes."
+    }
+  ]
+}
