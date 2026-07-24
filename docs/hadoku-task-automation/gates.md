@@ -160,15 +160,31 @@ squarely in `.github/workflows/**`. That's not an accident of the list — CI is
 you least want an unreviewed agent rewriting, because a broken deploy workflow can break the very
 mechanism that would ship the revert.
 
-The escape hatch is a per-task authorisation, not a global exemption: a task whose `notes` contain
+The escape hatch is a per-task authorisation, not a global exemption: a task carrying
 
 ```
 allow-protected: .github/workflows/deploy.yml
 ```
 
-lets the agent touch exactly that path. You wrote it, so a human authorised that specific blast
-radius — which is the property the deny-list exists to preserve. Auto-merge stays the default;
-the dangerous class stays opt-in per task.
+lets the agent touch exactly that path, because a human authorised that specific blast radius.
+
+**But the obvious way to build this is a privilege escalation, and it took a second pass to see it.**
+If the gate reads `allow-protected:` out of `notes`, then the *planning agent* — which rewrites
+`notes` on every pass — can grant itself permission to edit CI, the vault manifest, or its own
+gates. The deny-list would be enforcing nothing. An agent that can write its own authorisation is
+not authorised, it is unsupervised.
+
+Two mechanical fixes, and we want both:
+
+1. **Snapshot `notes` at claim time.** Only directives present in the pre-claim snapshot count. The
+   agent can write whatever it likes into `notes` afterwards; the gate reads the frozen copy, and
+   the human's version is the only one with authority.
+2. **Accept the directive in the task *title* too**, which the agent never rewrites. Belt and
+   braces, and it's the more natural place to type it on a phone anyway.
+
+The general rule this is an instance of: **no gate may read its own authorisation from a field the
+agent can write.** Worth checking every future gate against, because this one looked completely
+reasonable until it didn't.
 
 ### G7 · `no_secrets_in_diff` — mechanical
 

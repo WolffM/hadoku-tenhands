@@ -195,8 +195,10 @@ Explicitly, so you don't build it:
 - **No change feed / webhooks for v1.** Polling one board per repo is cheap. See §4.3.
 - **No `/eligible` endpoint.** Agreed with your reasoning — eligibility is pipeline knowledge.
 - **No task splitting or child-task creation.** Tasks arrive atomic; §3.
-- **No board provisioning by us.** A human creating and activating a board per repo is fine, and
-  owner-only activation is worth more than the convenience.
+- **No board *creation* by us.** A human creating a board per repo is fine. We do want an
+  owner-credentialled **activation** endpoint alongside the Edit-Boards UI, so config rollout across
+  a dozen boards isn't a manual chore — see [integration-blockers.md](integration-blockers.md) §2.
+  That is not a request to weaken owner-only activation.
 - **Nothing that a lane extra or `Task.metadata` can't carry** — beyond §4.4's write question, the
   four-field lane is sufficient.
 

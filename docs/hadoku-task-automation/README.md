@@ -345,9 +345,21 @@ those five should never be autonomous whether or not a PPE exists, and everythin
 in minutes. A standing duplicate would cost weeks up front and then drift — and a PPE that has
 drifted is worse than none, because a green run there buys false confidence.
 
-What replaces it is **one e2e test per product, running on a daily schedule**, as a fire alarm for
-breakage that slips past both the gates and the watch window. That's also where G12's health signal
-comes from, so it isn't a parallel concern — it's the same mechanism.
+What replaces it is **one e2e test per product**, used at two different cadences. These are the same
+artifact and it's worth being precise that they are not the same mechanism, because an earlier draft
+of this section ran them together:
+
+| | Trigger | Answers | Latency that matters |
+|---|---|---|---|
+| **Post-merge health check** (G12) | on demand, right after a merge deploys | "did *this* change break it?" | minutes — it gates the auto-revert |
+| **Daily canary** | cron | "did anything break without us noticing?" | a day — it's a fire alarm |
+
+A daily schedule can't drive auto-revert; by the time it fires, the revert window is long gone and
+several other changes have landed. So G12 runs the spec **on demand** against the freshly deployed
+service, and the cron run is the independent backstop for slow-burn breakage — including breakage
+from things this pipeline never touched.
+
+Building the spec once buys both.
 
 Current state in `hadoku_site`, which is worse than it looks:
 
@@ -369,6 +381,47 @@ specs that nothing runs are already a liability, independent of this pipeline.
 
 A repo has no business auto-landing until its product has a canary. That's the eligibility bar
 above, made concrete.
+
+### 4.2 The repo lock has to span the watch window, and that costs throughput
+
+Auto-revert only works if a prod failure can be **attributed to a specific merge**. If task B lands
+while task A is still inside its watch window and health goes red, we don't know which one did it —
+and reverting the wrong commit is worse than not reverting.
+
+So the per-repo lock from §1.1 can't be released at merge; it has to be held until the watch window
+closes. The honest consequence: **one task per repo per cycle**, where a cycle is suite + merge +
+deploy + watch — realistically 30–60 minutes. Seven tasks on one repo is most of a day.
+
+That's acceptable here — the work arrives at human-typing rates, and tasks on *different* repos run
+concurrently — but it is a real ceiling and it's the price of sound attribution. The tempting
+optimisation (release the lock at merge, watch asynchronously) quietly breaks auto-revert, so it
+isn't available.
+
+### 4.3 The unmitigated risk is where the agent runs, not what it merges
+
+Everything above is about the change. The bigger exposure is the **process**: `ClaudeCodeAgent` runs
+headless `claude -p` on the production host, which is the same box as the vault key, the `gh` token,
+the pm2 services, and every other repo's checkout. That is arbitrary code execution next to the
+credentials, and no gate on this page constrains it — gates inspect the *diff*, and by then the
+process has already run.
+
+crimson-kitty never had this problem: its agent was Copilot, executing on GitHub's infrastructure.
+Moving to a local agent is a genuine escalation that the swap to "same engine, different ends"
+otherwise disguises, because the *pipeline* looks unchanged.
+
+This is unresolved and it should be resolved before the agent runs unattended. The options, roughly
+in order of cost:
+
+- **Scope the credentials.** A dedicated GitHub token limited to the repos with auto-land boards,
+  not the ambient user token. Cheap and worth doing regardless.
+- **Deny the agent the vault.** It has no legitimate need for `.devvault.local.json`; the worktree
+  should not be able to read it.
+- **Containerise the agent** — its own filesystem namespace with just the worktree mounted.
+- **Move it off the prod host** to a disposable runner, which also neatly solves the ephemeral
+  per-task environment from §4.1.
+
+The last two overlap heavily with work we want anyway, which is an argument for doing them properly
+rather than bolting on a restriction.
 
 ---
 
