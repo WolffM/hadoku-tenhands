@@ -3,242 +3,207 @@
 **Re:** `docs/planning/tenhands-board-schema.md` @ `5989a0d`, §9.
 **From:** TenHands. **Date:** 2026-07-24.
 
-Short version: **the mechanism works, we'll take it as designed, and we have one blocking gap** —
-there is no way for a human to cancel work that's already in flight (§3.1). For a pipeline that
-merges to `main` without review, that's the difference between "I changed my mind" costing a tap
-and costing a revert.
+We read your code before writing this, not just the doc — findings in §1, and several of the
+questions we were going to ask turned out to be already answered there. Two asks are blocking (§4.1,
+§4.2); everything else is confirmation or a nice-to-have.
 
 Our pipeline is [hadoku-task-automation](README.md). It runs the **same engine** as crimson-kitty —
 the OSS-contribution pipeline your doc inferred lane names from — with two ends swapped: the board
 replaces the aggregator as the source of work, and "merge to our own `main`, then watch production"
-replaces "open an upstream PR, then watch the maintainer." crimson-kitty itself is not moving to
-boards; it keeps its existing input.
+replaces "open an upstream PR, then watch the maintainer." crimson-kitty is not moving to boards.
 
-Worth stating plainly, because it shapes what we need from you: **the board is a state projection,
-not our database.** Temporal and our evidence store stay the source of truth for pipeline state.
-The board is where that state becomes visible and steerable from a phone, and the claim is the lock
-that keeps two of our runners off one task. That's why §3.1 below is the blocking item — a
-projection you can watch but not interrupt is only half the value.
-
-That difference explains why our lane set looks nothing like your `tenhands-v1.json` draft: no
-`plan-review`, no `pr-review`, no `submit`/`submitted`. Those are human approval gates, and the
-entire point of this pipeline is that no human is available to staff them.
+**The board is a state projection, not our database.** Temporal and our evidence store stay the
+source of truth for pipeline state. The board is where that state becomes visible and steerable from
+a phone, and the claim is the lock that keeps two of our runners off one task.
 
 ---
 
-## 1. Confirming the mechanism
+## 1. What we found in your code
+
+Ground truth as of `origin/main`, so we're designing against what exists rather than the doc:
+
+| Thing | Reality |
+|---|---|
+| `notes` | **Live**, cap is `MAX_NOTES_BYTES = 64 KiB` (`src/domain/types.ts:204`), 413 `NOTES_TOO_LARGE` enforced at `handlers.ts:43` |
+| `metadata` | **Live**, arbitrary JSON (`z.record(z.string(), z.unknown())`) |
+| Task creation | **Live**, and `title` + `notes` + `tag` + `metadata` all land in **one write** — both HTTP and the MCP `create_task` tool |
+| Tags | A **space-separated string** in a single `tag` column, not an array. So a "lane" is a token in that string — which is what makes your `LANE_INVALID` (zero or two lane tags) a real failure mode rather than a theoretical one |
+| `boards.repo` | Column **exists** (migration `0002`, line 28) and is even `SELECT`ed in `d1-storage.ts:166` — but `rowToBoard()` never maps it, no write path sets it, and it's absent from both the `Board` type and `BoardSchema`. Present but dead |
+| `GET /boards/{handle}` | **Does not exist.** `boards.ts` has list / create / delete / rename / pin only. Your doc calls this our read primitive and tells us never to call `GET /boards`; right now `GET /boards` is the only board read there is |
+| Claim state on a task | **Absent** from the task shape. `task_claims` / `task_claim_log` tables are pre-provisioned in migration `0002` and commented "empty until T7" |
+| Automation surface | **Entirely absent.** No `activate-automation`, no `agent/*` routes, no lane enforcement, no lease logic, no sharing. Commit history shows T1–T4 landed, nothing for T5–T8 |
+| Error codes | Real in code: `TASK_NOT_FOUND`, `VERSION_CONFLICT`, `NOTES_TOO_LARGE`. Doc-only: `CLAIM_HELD`, `LEASE_LOST`, `LANE_NOT_EDITABLE`, `LANE_UNKNOWN`, `LANE_INVALID` |
+| Rate limiting | **Live and stricter than we assumed** — 300/min admin, 120/min friend, 60/min public per session, auto-blacklist after 3 violations (`throttle.ts:41`). But the 429 body is `{error, retryAfter}` with **no machine-readable `code`**; `RATE_LIMITED` exists only as a human-facing string in `constants.ts:127` |
+
+None of that is a complaint — your doc is honest that §6–§8 is the next build. It does mean the
+contract below is a design review, and the two items in §4 are worth settling *before* T5 rather
+than after.
+
+---
+
+## 2. Confirming the mechanism
 
 | Thing | Verdict |
 |---|---|
-| Activation payload shape (`schemaId` / `schemaVersion` / `lanes`) | Works. Ours is [`schemas/autoland-v1.json`](schemas/autoland-v1.json) |
-| `dryRun` → digest → commit | Good. We'd have shipped this wrong; the echo-back digest is the right call |
+| Activation payload shape | Works. Ours is [`schemas/autoland-v1.json`](schemas/autoland-v1.json) |
+| `dryRun` → digest → commit | Good, and the echo-back digest is the right call — we'd have shipped this wrong |
 | claim → heartbeat → set-lane → release | Works. `job_id` = claim token maps cleanly onto our dispatcher interface |
-| Atomic claim, server-clamped lease | This is the part we didn't want to build. Thank you |
-| Error codes | Adopted as distinct branches, one note below |
-| `notes` as markdown | Right primitive. Our scoping plan and every stall reason live here |
-| Owner-only activation | Agreed, and correct. We'll hand you payloads |
-| Poll, no change feed, for v1 | Fine — **don't build webhooks for us.** Board-per-repo means we poll one small board |
+| Atomic claim, server-clamped lease | The part we didn't want to build ourselves. Thank you |
+| `notes` as markdown, 64 KiB | Right primitive, and the cap is generous — see §3 |
+| Owner-only activation | Agreed and correct. We'll hand you payloads |
+| Poll, no change feed, for v1 | Fine — **don't build webhooks for us**, but see §4.3 on poll budget |
 
-Two notes on the error table:
-
-- **`LEASE_LOST` is our cancel signal**, if you take §3.1 — see below. Today we'd treat it as an
-  abort-and-write-nothing, which is already the right behaviour; we'd just also want it to be
-  *reachable on purpose*.
-- **`LANE_UNKNOWN` on release after re-activation** is exactly the behaviour we want. Aborting into
-  a `422` beats writing into a phantom lane. Confirmed as suitable (your §6, last bullet).
-
-`editableBy` genuinely is enough permission model. We spent a while looking for the case that needs
-more and didn't find one — the "human can drag out of an agent lane once no claim is live" rule
-does the work an `onFailure` would have, without us having to teach you a routing policy.
+`editableBy` genuinely is enough permission model. We went looking for the case that needs more and
+didn't find one — "a human can drag out of an agent lane once no claim is live" does the work an
+`onFailure` would have, without us teaching you a routing policy.
 
 ---
 
-## 2. Our configuration
+## 3. Our configuration
 
 One named config, `autoland` v1 — full payload in
 [`schemas/autoland-v1.json`](schemas/autoland-v1.json). Eight lanes, three `agent`:
 
 | `tag` | `editableBy` | What it means |
 |---|---|---|
-| _(Inbox)_ | — | Raw spitball capture. **We claim straight from untagged**, after a settle delay |
-| `planning` | **agent** | Interpreting the thought into a plan + clarifying questions → `notes` |
+| _(Inbox)_ | — | Untagged capture. **We claim straight from untagged**, after a settle delay |
+| `planning` | **agent** | Interpreting the task into a plan + clarifying questions → `notes` |
 | `plan-review` | user | The plan and its questions. Answer, then drag to `replan` or `approved` |
 | `replan` | user | "I answered / I disagree." Hand back for another pass. We claim from here |
 | `approved` | user | Signed off. **From here nothing is asked of the human.** We claim from here |
-| `working` | **agent** | Implementing end to end in a worktree; capped remediation on gate failure |
+| `working` | **agent** | Implementing end to end; capped remediation on gate failure |
 | `landing` | **agent** | Merging to `main`, then watching the deploy + health signal |
 | `landed` | user | Merged and production verified. **A notification, not a queue** |
 | `stalled` | user | Gate failed after remediation, planning hit its cap, or it was auto-reverted |
 
-**The planning loop is the heart of this, and your primitives cover it exactly** — including one
-thing we'd otherwise have had to build. The plan lives in `notes` and iterates: we write a plan and
+**The planning loop is the heart of it, and your primitives cover it exactly** — including one thing
+we'd otherwise have had to build. The plan lives in `notes` and iterates: we write a plan and
 questions, the human answers, we re-plan, until nobody has an open question. Because we can only
-write `notes` while holding a claim, and we only hold one while the task sits in `planning`, there
-is never a moment when both sides are writing the same field. The lane model gives us
-mutual exclusion on the shared document for free. We didn't expect that and it's the reason this
-design works at all.
+write `notes` while holding a claim, and only hold one while the task is in `planning`, there is
+never a moment when both sides write the same field. **The lane model gives us mutual exclusion on
+a shared document for free.** We didn't expect that, and it's the reason this design works.
 
-Two consequences worth flagging for your side:
+`notes` is rewritten each pass rather than appended, so it stays phone-legible — and at 64 KiB the
+cap is a non-issue. History lives in our evidence store and your claim log.
 
-- **We claim from the Inbox (untagged), not just from lanes.** Your §2 describes the Inbox as raw
-  pre-triage capture, which is exactly the intake we want — the human shouldn't have to tag a
-  thought before it gets planned. Confirm a claim can name an untagged task and move it into a lane
-  in the same write; if the Inbox is structurally not claimable, we'll add a `queued` user lane
-  instead and it costs us one extra tap, not a redesign.
-- **`notes` is rewritten each pass, never appended**, so it stays phone-legible and well under any
-  size ceiling. History lives in our evidence store and your claim log. This is why §3.5's `notes`
-  budget matters less than we first thought — but we'd still like the number.
-
-**One board per repo**, per your §2. We carry `repo` as a top-level extra on the activation payload
-(§3.3).
-
-We don't need a second named config yet. If a repo turns out to want a human PR gate, that's an
-`autoland-gated` variant with two extra `user` lanes and no change on your side — which is the
-property you built this for.
+Tasks arrive already atomic, one per line, filed by hand. **We don't split them and we don't create
+child tasks** — an earlier draft of this reply asked you for that, and it was us solving a problem
+you don't have. A task that needs several changes stays one task; our plan enumerates the
+sub-changes and landing is all-or-nothing per task.
 
 ---
 
-## 3. What we need from you
+## 4. What we need from you
 
-### 3.1 A cancel path — **blocking**
+### 4.1 A cancel path — **blocking**
 
-**There is no way to stop in-flight work.** Once we hold a claim, the task sits in an `agent` lane
-that the owner cannot drag out of while the claim is live (§3, your table). That rule is correct —
-it's what stops a human yanking live work — but it leaves the human with no way to say *"stop, I
-changed my mind"* to a running job.
+**There is no way to stop in-flight work**, and — we checked — your design doc doesn't describe one
+either. The only documented ways a claim ends are a voluntary `release` or lease expiry. Once we
+hold a claim the task sits in an `agent` lane a human can't drag out of, which is the correct rule
+and exactly what stops a human yanking live work.
 
-For a pipeline that merges to `main` unreviewed, that's a real gap. The realistic scenario isn't
-exotic: you file a task on a bus, realise two minutes later it's wrong or already fixed, and the
-only thing you can do is watch it land and get reverted.
+For a pipeline that merges to `main` unreviewed, that gap is real. The scenario isn't exotic: you
+file a task on a bus, realise two minutes later it's wrong or already fixed, and can do nothing but
+watch it land and get reverted.
 
-**What we'd like, and we think you already have the machinery:** let the **owner force-drop a live
-claim.** Then our next `heartbeat` returns `409 LEASE_LOST`, and we abort and write nothing —
-which is behaviour you've already specified and we've already got to implement. The task falls back
-to being an ordinary claimed-by-nobody task in an `agent` lane, which your §3 says a human can then
-drag out.
+**What we'd like, using machinery you already have:** let the **owner force-drop a live claim**. Our
+next `heartbeat` then returns `409 LEASE_LOST`, and we abort writing nothing — behaviour you've
+already specified and we've already got to implement. The task becomes an ordinary unclaimed task in
+an `agent` lane, which your §3 says a human can then drag out.
 
-No new error code, no new state, no new concept for us to learn. In the UI it's "release this task"
-on an owner's own board. If you'd rather express it as a `cancelRequested` flag surfaced in the
-heartbeat response, that also works — we'd honour it identically. The force-drop is simply cheaper
-for both of us.
+No new error code, no new state. In the UI it's "release this task" on your own board. A
+`cancelRequested` flag surfaced in the heartbeat response would work identically; force-drop is just
+cheaper for both of us.
 
-### 3.2 Can a claim holder write `Task.metadata`?
+### 4.2 `GET /boards/{handle}` — **blocking**, and it's already promised
 
-We need to persist a **Temporal workflow ID** on the task, so that after a tenhands restart we can
-re-correlate a claimed task to its in-flight workflow rather than starting a duplicate.
+Your doc names this our read primitive and explicitly says never to call `GET /boards`. It isn't
+built — `GET /boards` is currently the only board read, and it returns no hydrated tasks. We're
+happy to wait for it, we just can't build the runner's read loop against anything else.
 
-`release` takes `{token, lane, notes?}` — no metadata. And `update_task` is refused into `agent`
-lanes with `403 LANE_NOT_EDITABLE`. So it's ambiguous whether we can write `metadata` on a task
-that is *sitting in* an `agent` lane while we *hold its claim*.
+Two things we need in the response when it lands:
 
-Our read of the intent is that the claim is exactly the thing that authorises writes there, so it
-should be allowed — but the spec describes the refusal in terms of the lane, not the claim. **Please
-make it explicit either way.** If the answer is no, `set-lane` or `release` growing an optional
-`metadata` merge would cover us.
+- **`boards.repo`**, which is our board → checkout mapping. The column already exists and is already
+  selected; it just needs mapping in `rowToBoard()` and adding to `BoardSchema`. If you'd rather we
+  hang `repo` off the activation payload as an unknown-key extra, that works too — we only need it
+  readable without parsing a display name.
+- **Per-task claim state**, even just a boolean. We serialise ourselves to one task in flight per
+  repo, because several tasks on one board often touch the same files and concurrent diffs collide.
+  Without a claim flag we'd be inferring "someone is working" from lane membership, which is wrong in
+  exactly the case that matters — a task in an `agent` lane whose claim already expired.
+
+### 4.3 Poll budget, given real rate limits
+
+Your throttle is 120/min for a friend-tier session and auto-blacklists after 3 violations. That's
+plenty for one runner polling one board, but we'd rather agree a number than discover the ceiling in
+production. **Is a poll every 30 s per board acceptable?** With one board per repo and a handful of
+automated repos, that's well under 120/min in aggregate — but the blacklist behaviour makes a
+mistake expensive, so we'd like it in writing.
+
+Also: the 429 body has no machine-readable `code`. We'll branch on HTTP 429 + `retryAfter` rather
+than a code string. Flag it if you plan to add one, so we don't hardcode the shape.
+
+### 4.4 Can a claim holder write `Task.metadata`?
+
+We need to persist a **Temporal workflow ID** on the task, so a tenhands restart re-correlates a
+claimed task to its in-flight workflow instead of starting a duplicate.
+
+`release` takes `{token, lane, notes?}` — no metadata. And `update_task` into an `agent` lane is
+refused. So it's ambiguous whether we can write `metadata` on a task *sitting in* an `agent` lane
+while *holding its claim*. Our read is that the claim is precisely what authorises writes there, but
+the spec describes the refusal in terms of the lane. **Please make it explicit either way** — if the
+answer is no, an optional `metadata` merge on `set-lane` or `release` covers us.
 
 (We're not asking to write metadata without a claim. That should stay refused.)
 
-### 3.3 Does `repo` round-trip on the activation payload?
+### 4.5 Machine-readable contract, so this stays api-to-api
 
-Your §2 says "the board records which repo it drives," but the JSON Schema has no `repo` field —
-just `additionalProperties: true`. We're hanging it off the top level of the payload:
+The strong preference on our side is that tenhands and hadoku-task talk **API to API**, with as
+little hand-maintained translation as possible. You already have zod schemas as the source of truth;
+the missing step is emitting them.
 
-```jsonc
-{ "schemaId": "autoland", "schemaVersion": 1, "repo": "WolffM/tenhands", "lanes": [ … ] }
-```
+**If you publish an OpenAPI document generated from those zod schemas** (`zod-to-openapi` or
+equivalent, versioned alongside `@wolffm/task`), we generate our client from it and the contract
+becomes machine-checked. That matters more than usual here because our side is **Python**, so we
+can't import your TypeScript types the way another TS consumer would — without a spec we're
+hand-transcribing your schemas into Python and finding drift at runtime.
 
-Confirm that comes back verbatim on `GET /task/api/boards/{handle}` and we're done — that's our
-board → checkout mapping. If you'd rather it were a first-class board field, we'd take that too;
-we just need it readable without parsing a display name.
+This is the highest-leverage non-blocking thing on the list. It turns every future change to the
+task shape into a regenerate-and-typecheck instead of a doc read.
 
-### 3.4 `landed` accumulates, and we can't clear it
+### 4.6 `landed` accumulates and we can't clear it
 
-Your §7 is clear that `complete_task` / `delete_task` are human actions and the automation flow only
-changes lanes. We understand the reasoning and we're not asking you to relax it lightly.
+Your §7 is clear that `complete_task` / `delete_task` are human actions. Understood, and we're not
+asking you to relax it lightly — but `landed` is a **notification lane, not an approval queue**, and
+under this design most tasks end there. Over months it becomes a list archived by hand, on a phone,
+which is the chore the pipeline exists to remove.
 
-But: `landed` is a **notification lane, not an approval queue** — nothing is asked of the human, and
-under this design most tasks end there. Over a few months it becomes an unbounded list that has to
-be archived by hand, on a phone, which is precisely the chore the pipeline exists to eliminate.
+Options in our order of preference, **none blocking**:
 
-Options, in our order of preference — **your call, none of these are blocking**:
-
-1. Let a claim holder pass `complete: true` on `release`. Narrow, still requires a live claim,
-   still auditable via the claim log.
-2. A board setting: auto-archive tasks that have sat in a nominated lane for N days. Purely a
-   hadoku-task feature; we'd never call it.
-3. Nothing — we accept the manual sweep, and drop `landed` in favour of releasing to a lane you
-   periodically clear yourself.
-
-### 3.5 Two sizing questions
-
-- **What's the `notes` ceiling** that trips `NOTES_TOO_LARGE`? Our scoping plan is a few KB of
-  markdown — understanding, evidence links, blast radius. We'll link out to the evidence store for
-  diffs and logs rather than inlining them; we just want to know the budget before we design the
-  truncation.
-- **What's the maximum lease** after clamping? Our agent runs are 30–180 minutes. We'll heartbeat
-  rather than requesting one enormous lease, but we'd like to know the ceiling so we can set the
-  heartbeat interval with real headroom rather than guessing.
-
-### 3.6 We need to create tasks — one capture is usually several
-
-This is new since our first draft, and it comes from looking at real captures. A single note is
-typically a *list*:
-
-```
-reorganize categories, interesting stuff front and center
-too much wooshing
-bug-wooshing starts before music starts
-category headers look like buttons
-make coffee theme default
-```
-
-Five items of wildly different size in one task. Everything downstream — blast radius, gates,
-claim-per-unit-of-work — only makes sense on single items, so our first step is to **split one
-capture into one task per item**.
-
-Your §9 table says `contributor` can create tasks, so we think this is already allowed. Three things
-to confirm:
-
-- **Can we set `lane` and `metadata` at creation time**, in one write? We want each child task to
-  land in a specific lane carrying `metadata.parentTaskId`. If creation is always into the Inbox and
-  needs a follow-up write, that's fine, just noisier.
-- **Is there a rate limit we'll trip** creating ~7 tasks in a burst? Your `RATE_LIMITED` is a
-  documented code; we just want to know whether normal intake will hit it.
-- **Does the parent stay?** We'd keep the original capture as an inert parent so the board still
-  shows what you actually typed. That's our choice, not a request — flag it if it's a bad idea for
-  your UI.
-
-### 3.7 Does a board read tell us which tasks have live claims?
-
-We serialise ourselves to **one task in flight per repo** — several items in one capture often touch
-the same files, and concurrent diffs would collide. Your claim gives us per-*task* mutual exclusion;
-per-*board* serialisation we have to enforce ourselves.
-
-To do that we need to know, from a board read, whether any task currently has a live claim. If
-`GET /task/api/boards/{handle}` already returns claim state per task, we're done. If it doesn't,
-we'd be inferring "someone is working" from lane membership alone, which is wrong in exactly the
-case that matters — a task sitting in an `agent` lane whose claim already expired.
-
-A boolean per task is plenty; we don't need the holder or the expiry.
+1. Let a claim holder pass `complete: true` on `release`. Narrow, still needs a live claim, still
+   auditable in the claim log.
+2. A board setting that auto-archives tasks resting in a nominated lane for N days. Purely yours;
+   we'd never call it.
+3. Nothing — we accept the manual sweep.
 
 ---
 
-## 4. What we don't need
+## 5. What we don't need
 
 Explicitly, so you don't build it:
 
-- **No change feed / webhooks for v1.** Polling one board per repo is cheap and we're fine with it.
+- **No change feed / webhooks for v1.** Polling one board per repo is cheap. See §4.3.
 - **No `/eligible` endpoint.** Agreed with your reasoning — eligibility is pipeline knowledge.
-- **No board provisioning by us** (your old §6.3). A human creating and activating a board per repo
-  is fine; that's a rare, deliberate act, and owner-only activation is worth more than the
-  convenience.
-- **Nothing that a lane extra or `Task.metadata` can't carry** — beyond §3.2's write question, the
-  four-field lane is sufficient. We checked for the case that needs more and didn't find one.
+- **No task splitting or child-task creation.** Tasks arrive atomic; §3.
+- **No board provisioning by us.** A human creating and activating a board per repo is fine, and
+  owner-only activation is worth more than the convenience.
+- **Nothing that a lane extra or `Task.metadata` can't carry** — beyond §4.4's write question, the
+  four-field lane is sufficient.
 
 ---
 
-## 5. What we're building against this
+## 6. What we're building against this
 
-Design is in [README.md](README.md); the gate set that has to be right before anything auto-merges
-is in [gates.md](gates.md). Nothing is built on our side either — we're sequencing our build behind
-your automation surface, so §3.1 is worth resolving before you start the claim/lease tranche.
+Design in [README.md](README.md); the gates that must be right before anything auto-merges in
+[gates.md](gates.md). Nothing is built on our side either — we're sequencing behind your automation
+surface, so §4.1 and §4.2 are worth resolving before the T5–T7 tranches start.

@@ -71,27 +71,31 @@ contract is [board-contract.md](board-contract.md); the activation payload is
 activation payload, so a runner maps board → checkout without parsing display names, and the
 repo (the one piece of context you always know) is never inferred.
 
-### 1.1 Intake: one capture is usually several tasks
+### 1.1 Intake: what a task actually looks like
 
-Real captures look like this (a single note on the hadoku-site board):
+Tasks arrive already atomic — one per line, filed by hand on the repo's board:
 
 ```
-reorganize categories, interesting stuff front and center
-too much wooshing
-bug-wooshing starts before music starts
-bug-animations get stuck and lag
-category headers look like buttons
-stars that are not clickable shouldn't be there
 make coffee theme default
+bug-wooshing starts before music starts
+category headers look like buttons
+needs starter prompt instead of "the stage is yours. make your move."
 ```
 
-Seven items, wildly different sizes, one capture. Three things follow.
+**The task is the unit of work and the unit of landing.** No splitting, no parent/child — the human
+already decided where the boundaries are, and second-guessing that would create board cruft for no
+gain.
 
-**Split before planning.** The first thing the pipeline does is not plan — it's split one capture
-into one task per item. hadoku-task's `contributor` level lets us create tasks, so each item becomes
-its own board task with `metadata.parentTaskId` pointing back at the capture. Everything downstream
-then operates on single items, which is the only way the blast-radius and gate machinery makes
-sense.
+Some tasks are a single line and one change. Others are multi-line and need several changes to be
+done — `reorganize categories, interesting stuff front and center` is one goal that touches a
+handful of files. Those stay **one task**: the plan enumerates the sub-changes, each gets its own
+acceptance check (§ [gates.md](gates.md) G2), and the gates run over the combined diff against the
+union of the declared blast radii.
+
+**Landing is all-or-nothing per task.** If a three-change task verifies two and fails one, the
+whole thing routes to `plan-review` — *"these two work, this one doesn't, here's why: want me to
+land the two and hand the third back?"* Partial silent landing would leave the board saying `landed`
+about a task that isn't, and "is this done" is the one question the board has to answer honestly.
 
 **`bug-` is your own convention and we use it verbatim.** You already distinguish
 `bug-wooshing starts before music starts` from `make coffee theme default`, and that distinction is
@@ -332,6 +336,39 @@ Without both, "on green" asserts nothing and revert has no trigger. Repos that d
 don't get an auto-land board — they stay manual, or run the gated lane set noted in
 [board-contract.md](board-contract.md). Rollout is therefore **per repo, starting with the ones
 that already have CI**, not a flag day.
+
+### 4.1 The daily canary is the prerequisite, and it doesn't exist yet
+
+We decided against duplicating the ecosystem into a pre-prod environment: the catastrophic-failure
+set is small and specific (edge-router, session/auth, vault broker, mgmt-api, cloudflared tunnel),
+those five should never be autonomous whether or not a PPE exists, and everything else is revertible
+in minutes. A standing duplicate would cost weeks up front and then drift — and a PPE that has
+drifted is worse than none, because a green run there buys false confidence.
+
+What replaces it is **one e2e test per product, running on a daily schedule**, as a fire alarm for
+breakage that slips past both the gates and the watch window. That's also where G12's health signal
+comes from, so it isn't a parallel concern — it's the same mechanism.
+
+Current state in `hadoku_site`, which is worse than it looks:
+
+- **16 Playwright specs exist** (`e2e/`), covering roughly half the surface: contact-api,
+  monitoring-api, printtool-api, resume-api, task-api, tunnel-routes, hydration, the vault tiers,
+  pm2 controls, deployment flow.
+- **`test.yml` does not run them.** It runs workers-vitest and the hydration/scaffolding validators
+  only. The Playwright suite executes when a human runs it by hand on the dev box — which is
+  precisely the rot `test.yml`'s own header comment was written to stop, recurring one layer up.
+- **The only scheduled workflow in the repo is `runner-diag.yml`** (daily 08:15), a runner
+  diagnostic, not a product check.
+- **No canary at all** for tenhands, watchparty, conjure, pygmalion, promptsmith, games-host,
+  dataplatform, jobplatform-api, prompt-api, oss-issues-api, prefs-api, game-api, or
+  watchparty-stats-api — about fourteen products.
+
+So the work is two-part, and the first part is nearly free: **schedule what already exists**, then
+fill the gaps one product at a time. Scheduling first is worth doing on its own merits — sixteen
+specs that nothing runs are already a liability, independent of this pipeline.
+
+A repo has no business auto-landing until its product has a canary. That's the eligibility bar
+above, made concrete.
 
 ---
 
