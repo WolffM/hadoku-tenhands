@@ -56,27 +56,38 @@ does the work an `onFailure` would have, without us having to teach you a routin
 ## 2. Our configuration
 
 One named config, `autoland` v1 — full payload in
-[`schemas/autoland-v1.json`](schemas/autoland-v1.json). Seven lanes, three `agent`:
+[`schemas/autoland-v1.json`](schemas/autoland-v1.json). Eight lanes, three `agent`:
 
 | `tag` | `editableBy` | What it means |
 |---|---|---|
-| `todo` | user | Filed from a phone. We claim from here |
-| `scoping` | **agent** | Turning one sentence into a concrete target + plan → `notes` |
-| `needs-info` | user | We couldn't disambiguate. Question in `notes`; answer and drag back |
-| `working` | **agent** | Reproduce → fix → verify, in a worktree |
+| _(Inbox)_ | — | Raw spitball capture. **We claim straight from untagged**, after a settle delay |
+| `planning` | **agent** | Interpreting the thought into a plan + clarifying questions → `notes` |
+| `plan-review` | user | The plan and its questions. Answer, then drag to `replan` or `approved` |
+| `replan` | user | "I answered / I disagree." Hand back for another pass. We claim from here |
+| `approved` | user | Signed off. **From here nothing is asked of the human.** We claim from here |
+| `working` | **agent** | Implementing end to end in a worktree; capped remediation on gate failure |
 | `landing` | **agent** | Merging to `main`, then watching the deploy + health signal |
 | `landed` | user | Merged and production verified. **A notification, not a queue** |
-| `stalled` | user | A gate failed, or it landed and was auto-reverted. Evidence in `notes` |
+| `stalled` | user | Gate failed after remediation, planning hit its cap, or it was auto-reverted |
 
-`order` interleaves the two tracks so the left/right pairing in your §2 diagram reads as the actual
-flow: `todo → scoping`, `needs-info ← scoping`, `working`, `landing → landed`, `stalled` catching
-failures from anywhere.
+**The planning loop is the heart of this, and your primitives cover it exactly** — including one
+thing we'd otherwise have had to build. The plan lives in `notes` and iterates: we write a plan and
+questions, the human answers, we re-plan, until nobody has an open question. Because we can only
+write `notes` while holding a claim, and we only hold one while the task sits in `planning`, there
+is never a moment when both sides are writing the same field. The lane model gives us
+mutual exclusion on the shared document for free. We didn't expect that and it's the reason this
+design works at all.
 
-**`needs-info` is the lane that makes this work on a phone.** A one-line task is often ambiguous —
-*"fix the production CI workflow bug"* names neither a run nor a file. The scoping agent's cheapest
-correct move is to ask, and `notes` plus a drag back to `todo` is a complete round trip on a
-phone-sized screen. It's the single most-used human interaction in the design, and your existing
-primitives cover it exactly.
+Two consequences worth flagging for your side:
+
+- **We claim from the Inbox (untagged), not just from lanes.** Your §2 describes the Inbox as raw
+  pre-triage capture, which is exactly the intake we want — the human shouldn't have to tag a
+  thought before it gets planned. Confirm a claim can name an untagged task and move it into a lane
+  in the same write; if the Inbox is structurally not claimable, we'll add a `queued` user lane
+  instead and it costs us one extra tap, not a redesign.
+- **`notes` is rewritten each pass, never appended**, so it stays phone-legible and well under any
+  size ceiling. History lives in our evidence store and your claim log. This is why §3.5's `notes`
+  budget matters less than we first thought — but we'd still like the number.
 
 **One board per repo**, per your §2. We carry `repo` as a top-level extra on the activation payload
 (§3.3).

@@ -2,36 +2,43 @@
   "schemaId": "autoland",
   "schemaVersion": 1,
   "label": "Autoland",
-  "description": "TenHands' hadoku-task-automation pipeline. One board per repo. A human files a one-line task into `todo`; the pipeline scopes it, implements it, and merges to main on green, then watches production and reverts itself if the deploy or health check goes red. There is no human PR-review gate by design — `landed` is a notification, not an approval queue. `needs-info` is the only lane that asks the human for anything: the scoping agent parks a task there with a question in `notes` when it cannot resolve the sentence into a concrete target.",
+  "description": "TenHands' hadoku-task-automation pipeline. One board per repo. Spitball thoughts land untagged in the Inbox; the pipeline claims them into `planning`, interprets them, and writes a plan plus clarifying questions into `notes`. The human answers in `plan-review` and either sends it back for another planning pass or drags it to `approved`. From `approved` onward nothing is asked of the human: the working agent implements end to end, gates run, and the change merges to main and deploys on green — with an automatic revert if production goes red. The human gate is deliberately before the work, not after it.",
   "repo": "WolffM/<repo>",
   "lanes": [
     {
-      "tag": "todo",
-      "label": "To Do",
+      "tag": "planning",
+      "label": "Planning",
+      "order": 0,
+      "editableBy": "agent",
+      "description": "Reading the raw thought, interpreting intent, designing a plan, and writing it plus any clarifying questions into notes."
+    },
+    {
+      "tag": "plan-review",
+      "label": "Plan Review",
       "order": 0,
       "editableBy": "user",
-      "description": "Filed and ready. The pipeline claims from here."
+      "description": "The plan and its open questions are in notes. Answer them or disagree, then drag back to Re-plan for another pass — or to Approved if you're happy. This is the only lane that asks anything of you."
     },
     {
-      "tag": "scoping",
-      "label": "Scoping",
+      "tag": "replan",
+      "label": "Re-plan",
       "order": 1,
-      "editableBy": "agent",
-      "description": "Resolving the task sentence into a concrete repo target, evidence, and blast radius. Writes the plan into notes."
+      "editableBy": "user",
+      "description": "You answered or objected. Hand it back for another planning pass. The pipeline claims from here."
     },
     {
-      "tag": "needs-info",
-      "label": "Needs Info",
+      "tag": "approved",
+      "label": "Approved",
       "order": 2,
       "editableBy": "user",
-      "description": "Could not disambiguate. The question is in notes — answer it and drag back to To Do."
+      "description": "Plan signed off. From here it lands without you. The pipeline claims from here."
     },
     {
       "tag": "working",
       "label": "Working",
       "order": 3,
       "editableBy": "agent",
-      "description": "Reproduce, fix, verify. Runs in a git worktree on the tenhands host."
+      "description": "Implementing the approved plan end to end in a git worktree: reproduce, fix, verify, gates, and a capped remediation loop if a gate fails."
     },
     {
       "tag": "landing",
@@ -52,7 +59,7 @@
       "label": "Stalled",
       "order": 6,
       "editableBy": "user",
-      "description": "A gate failed, or the change landed and was auto-reverted. Reason and evidence are in notes."
+      "description": "A gate failed after remediation, the planning loop hit its iteration cap, or the change landed and was auto-reverted. Reason and evidence are in notes."
     }
   ]
 }
