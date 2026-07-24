@@ -17,7 +17,7 @@ Two consequences drive everything below.
 **The input got thin.** crimson-kitty's risk is "is this issue worth doing," answered from a rich
 brief. This pipeline starts from eight words — *"fix the production CI workflow bug"* — so its risk
 is **"do I even know what you're talking about."** That's why scoping is a first-class stage with
-its own gates and its own way of asking you a question (§1, `needs-info`).
+its own gates and its own way of asking you a question (§1.1–1.2).
 
 **The human left the loop.** crimson-kitty ends at a PR someone reviews. Here the work merges
 unreviewed, so safety can't rest on a reviewer — it rests on landing being automatically
@@ -32,41 +32,111 @@ thing to do on a phone — and once you approve it, nothing else is asked of you
 a phone is miserable; reading a plan and answering three questions is not.
 
 ```
-  phone                       board                         tenhands
-  ─────                       ─────                         ────────
-  spitball a thought ──▶  Inbox (untagged)
-                              │  claim
-                              ▼
-                     ┌──▶ planning (agent) ────────▶ interpret intent, design a plan,
-                     │        │                      write plan + questions to notes
-                     │        ▼
-                     │   plan-review (user)  ──────▶ you answer / disagree
-                     │      │        │
-     answer, hand back│      │        │ happy
-                     └── replan      ▼
-                       (user)    approved (user) ───▶ ── nothing more is asked of you ──
-                                     │  claim
-                                     ▼
-                                 working (agent) ───▶ repro → fix → verify → gates
-                                     │                 └─ remediation loop, capped
-                                     ▼
-                                 landing (agent) ───▶ merge → deploy → watch prod
-                                     │                            │ red
-                     ┌───────────────┴───────┐                    ▼
-                     ▼                       ▼               auto-revert
-                landed (user)          stalled (user) ◀───────────┘
-                merged + prod green    needs a laptop
+  phone                     board                          tenhands
+  ─────                     ─────                          ────────
+  dump 7 thoughts ───▶  Inbox (untagged)
+                            │  claim
+                            ▼
+                       planning (agent) ──────▶ SPLIT one capture into one task per item
+                            │                   then, per item: triage + plan
+              ┌─────────────┴──────────────┐
+      trivial │                            │ vague · big · subjective · "already done?"
+              │                      plan-review (user) ─────▶ you answer / disagree
+              │                            │        │
+              │                     happy  │        │  answered
+              │                            │        ▼
+              │                            │     replan (user) ──┐
+              │                            ▼                     │
+              └──────────────────▶   approved (user) ◀───────────┘
+                                          │
+                                          │  ── nothing more is asked of you ──
+                                          ▼
+                                     working (agent) ──▶ repro → fix → verify → gates
+                                          │               └─ remediation, capped at 3
+                                          ▼
+                                     landing (agent) ──▶ merge → deploy → watch prod
+                                          │                          │ red
+                       ┌──────────────────┴────────┐                 ▼
+                       ▼                           ▼            auto-revert
+                  landed (user)              stalled (user) ◀────────┘
+                  merged + prod green        needs a laptop
+                  or "no change required"
 ```
 
 Eight lanes, three of them `agent`. The board is [hadoku-task](https://hadoku.me/task); the
 contract is [board-contract.md](board-contract.md); the activation payload is
-[schemas/autoland-v1.json](schemas/autoland-v1.json). The planning loop is §3.
+[schemas/autoland-v1.json](schemas/autoland-v1.json). Intake is §1.1, the planning loop §1.2.
 
 **One board per repo.** Board identity is repo identity — the board carries `repo` in its
 activation payload, so a runner maps board → checkout without parsing display names, and the
 repo (the one piece of context you always know) is never inferred.
 
-### 1.1 The planning conversation
+### 1.1 Intake: one capture is usually several tasks
+
+Real captures look like this (a single note on the hadoku-site board):
+
+```
+reorganize categories, interesting stuff front and center
+too much wooshing
+bug-wooshing starts before music starts
+bug-animations get stuck and lag
+category headers look like buttons
+stars that are not clickable shouldn't be there
+make coffee theme default
+```
+
+Seven items, wildly different sizes, one capture. Three things follow.
+
+**Split before planning.** The first thing the pipeline does is not plan — it's split one capture
+into one task per item. hadoku-task's `contributor` level lets us create tasks, so each item becomes
+its own board task with `metadata.parentTaskId` pointing back at the capture. Everything downstream
+then operates on single items, which is the only way the blast-radius and gate machinery makes
+sense.
+
+**`bug-` is your own convention and we use it verbatim.** You already distinguish
+`bug-wooshing starts before music starts` from `make coffee theme default`, and that distinction is
+exactly the one the gates need:
+
+- **`bug-` prefixed** → a claim that something is broken. Repro-first: demonstrate it red, fix it,
+  demonstrate it green (gates G2/G3/G8).
+- **unprefixed** → a change request. There's nothing to reproduce, because nothing is claimed to be
+  broken. Verification is "the described end state is now true," not a red→green transition.
+
+This resolves a tension in the first draft of the gates, which demanded a reproduction from
+everything and would have stalled `make coffee theme default` forever for lack of a bug to
+reproduce.
+
+**Triage decides whether the planning conversation happens at all.** Forcing
+`hide 'generating with GLM-5'` through a plan-review round trip is pure friction — there is nothing
+to ask. So intake sorts each item onto one of two paths:
+
+| | Fast path — straight to `working` | Conversation path — via `plan-review` |
+|---|---|---|
+| Looks like | names its own target, one obvious change, small blast radius, no taste involved | vague, subjective, large, or several plausible readings |
+| From your examples | `make coffee theme default`, `hide 'generating with GLM-5'`, `needs starter prompt instead of "the stage is yours. make your move."` (quotes the exact current string — greppable) | `too much wooshing`, `redo the profile feature so it actually works`, `reorganize categories, interesting stuff front and center` |
+
+A fast-path task that fails its gates falls back to the conversation path rather than straight to
+`stalled` — the pipeline's confidence that something was trivial is itself a guess worth revisiting.
+
+**Never dismiss a task unilaterally.** You flagged the real tension: trust the board as real work,
+but don't build cruft. Some items will be already done (`make coffee theme default` — is it
+already?), some aren't bugs, and `pygmalion missing theme?` is a *question*, not a task at all.
+
+The rule is: **the pipeline may never conclude a task is garbage.** It can only report *"I checked,
+and here's what I found"* — with evidence — and route to `plan-review`, which is already the lane
+that means "I need something from you." You either approve the finding, and it moves to `landed`
+with `no change required` in the notes, or you say "no, it really is broken, here's how to see it,"
+and the existing loop takes it from there.
+
+Every dismissal is therefore human-confirmed, and it costs no new lane. The failure mode this
+avoids is the bad one: a pipeline that quietly decides your bug report was mistaken.
+
+**One task in flight per repo.** Several of the hadoku-site items touch the same UI, and independent
+concurrent diffs against overlapping files would collide. Claims give us per-task locking; per-repo
+serialisation we enforce ourselves by declining to claim while another task on that board sits in an
+`agent` lane. At the volumes here that costs nothing and removes a whole class of merge conflicts.
+
+### 1.2 The planning conversation
 
 The plan lives in `notes`, and the loop runs until neither side has an open question.
 
@@ -318,7 +388,8 @@ adapters around the existing one:
 3. **`ProgressSink` seam** — mirror each recorded transition onto a board lane. Additive to
    `_transition`; crimson-kitty gets a no-op sink and is otherwise untouched.
 4. **`TaskRef` + `ClaudeCodeAgent`** against the existing `Agent` protocol (§3).
-5. **Scoping stage** — `actionability.py` with a new rubric, plus `repro_possible`. The cheapest
+5. **Intake + planning** — split, triage, `actionability.py` with a new rubric, plus
+   `verification_possible`. The cheapest
    place to stop a task, and the one that makes the phone loop work.
 6. **Middle: reuse as-is** — environment → repro → fix → verify. This is the step that should be
    mostly configuration, and if it isn't, the seams in §2 are in the wrong place.

@@ -179,6 +179,48 @@ Options, in our order of preference — **your call, none of these are blocking*
   rather than requesting one enormous lease, but we'd like to know the ceiling so we can set the
   heartbeat interval with real headroom rather than guessing.
 
+### 3.6 We need to create tasks — one capture is usually several
+
+This is new since our first draft, and it comes from looking at real captures. A single note is
+typically a *list*:
+
+```
+reorganize categories, interesting stuff front and center
+too much wooshing
+bug-wooshing starts before music starts
+category headers look like buttons
+make coffee theme default
+```
+
+Five items of wildly different size in one task. Everything downstream — blast radius, gates,
+claim-per-unit-of-work — only makes sense on single items, so our first step is to **split one
+capture into one task per item**.
+
+Your §9 table says `contributor` can create tasks, so we think this is already allowed. Three things
+to confirm:
+
+- **Can we set `lane` and `metadata` at creation time**, in one write? We want each child task to
+  land in a specific lane carrying `metadata.parentTaskId`. If creation is always into the Inbox and
+  needs a follow-up write, that's fine, just noisier.
+- **Is there a rate limit we'll trip** creating ~7 tasks in a burst? Your `RATE_LIMITED` is a
+  documented code; we just want to know whether normal intake will hit it.
+- **Does the parent stay?** We'd keep the original capture as an inert parent so the board still
+  shows what you actually typed. That's our choice, not a request — flag it if it's a bad idea for
+  your UI.
+
+### 3.7 Does a board read tell us which tasks have live claims?
+
+We serialise ourselves to **one task in flight per repo** — several items in one capture often touch
+the same files, and concurrent diffs would collide. Your claim gives us per-*task* mutual exclusion;
+per-*board* serialisation we have to enforce ourselves.
+
+To do that we need to know, from a board read, whether any task currently has a live claim. If
+`GET /task/api/boards/{handle}` already returns claim state per task, we're done. If it doesn't,
+we'd be inferring "someone is working" from lane membership alone, which is wrong in exactly the
+case that matters — a task sitting in an `agent` lane whose claim already expired.
+
+A boolean per task is plenty; we don't need the holder or the expiry.
+
 ---
 
 ## 4. What we don't need
