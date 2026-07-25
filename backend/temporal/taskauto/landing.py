@@ -115,7 +115,7 @@ class Lander:
     def land(self, checkout: Path, task: TaskRef, *, branch: str,
              message: str, changed_files: Sequence[str],
              base: str = "main", test_command: Optional[Sequence[str]] = None,
-             policy: Optional[RepoPolicy] = None,
+             policy: Optional[RepoPolicy] = None, test_cwd: str = ".",
              test_timeout: int = 1800) -> LandResult:
         policy = policy or task.policy
         checks = self.preflight(task, changed_files, policy)
@@ -147,7 +147,7 @@ class Lander:
 
         test_output = ""
         if test_command:
-            res = self.run(list(test_command), checkout, test_timeout)
+            res = self.run(list(test_command), checkout / test_cwd, test_timeout)
             test_output = res.text[-8000:]
             if not res.ok:
                 raise LandingRefused(
