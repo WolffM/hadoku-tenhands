@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 from services.task_board import (
+    RELEASE_ABORTED,
     BoardSnapshot,
     ClaimHeld,
     LeaseLost,
@@ -123,8 +124,12 @@ class Runner:
 
         try:
             sink.finish(lane, notes=notes, outcome=outcome)
-        except LeaseLost:
-            return TurnResult(False, "lease lost before release",
+        except RELEASE_ABORTED as e:
+            # LEASE_LOST: someone else owns the task now. LANE_CHANGED: a
+            # human retagged it mid-claim and the release wrote nothing.
+            # Different causes, identical consequence — the task is no longer
+            # ours and anything further would trample whoever it belongs to.
+            return TurnResult(False, f"release aborted ({e.code}); wrote nothing",
                               task_id=pickup.task.id, job=pickup.job)
         except TaskBoardError as e:
             # The work happened; only the handback failed. Say so loudly —

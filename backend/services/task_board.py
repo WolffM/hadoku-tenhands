@@ -196,14 +196,78 @@ class RateLimited(TaskBoardDomainError):
             return 60
 
 
+class NameNotFound(TaskBoardDomainError):
+    """404 — no registered key carries that display name.
+
+    Note the status: 404, not 409. Shares are granted by display name, and
+    an unregistered name is a missing thing rather than a conflicting one.
+    """
+
+    code = "NAME_NOT_FOUND"
+
+
+class NoUserId(TaskBoardDomainError):
+    """409 — the grantee key exists but has never signed in, so it has no id.
+
+    Fixed by calling `POST /session/create` once with that key; it lazily
+    mints the userId that sharing resolves against.
+    """
+
+    code = "NO_USER_ID"
+
+
+class BoardSchemaLocked(TaskBoardDomainError):
+    """409 — tag mutation attempted on a locked automation board."""
+
+    code = "BOARD_SCHEMA_LOCKED"
+
+
+class DigestMismatch(TaskBoardDomainError):
+    """409 — the activation digest is stale; re-run the dry run.
+
+    Carries `currentDigest`, so a caller can retry without a second preview.
+    """
+
+    code = "DIGEST_MISMATCH"
+
+    @property
+    def current_digest(self) -> str:
+        return self.body.get("currentDigest", "")
+
+
+class LaneSetInvalid(TaskBoardDomainError):
+    """422 — the activation payload's lane set is structurally invalid."""
+
+    code = "LANE_SET_INVALID"
+
+
+class BadRequest(TaskBoardDomainError):
+    """400 — malformed request. Deterministic; never worth retrying."""
+
+    code = "BAD_REQUEST"
+
+
 _ERRORS_BY_CODE: dict[str, type[TaskBoardDomainError]] = {
     cls.code: cls
     for cls in (
         ClaimHeld, LeaseLost, LaneUnknown, LaneNotEditable, LaneInvalid,
         LaneChanged, TaskNotFound, BoardNotFound, VersionConflict,
         NotesTooLarge, Forbidden, RateLimited,
+        NameNotFound, NoUserId, BoardSchemaLocked, DigestMismatch,
+        LaneSetInvalid, BadRequest,
     )
 }
+
+#: Every code the board can emit, mirrored from its OpenAPI document.
+#: hadoku-task's `openapi-verify` harness fails their build in both
+#: directions — a code they emit that isn't enumerated, or an enumerated
+#: value nothing emits — so this list is theirs to grow, not ours to guess.
+KNOWN_CODES = frozenset(_ERRORS_BY_CODE)
+
+#: Release wrote nothing and the claim is no longer ours to use. LEASE_LOST
+#: means someone else owns the task; LANE_CHANGED means a human retagged it
+#: mid-claim. Different causes, identical consequence: abort, write nothing.
+RELEASE_ABORTED = (LeaseLost, LaneChanged)
 
 
 # ── Board shapes ──────────────────────────────────────────────────────────
@@ -602,6 +666,14 @@ class TaskBoardClient:
 
         `if_current_lane` guards against a human retagging mid-claim; a
         mismatch raises LaneChanged and writes nothing.
+
+        **`NOTES_TOO_LARGE` is not raised here.** hadoku-task enforces the
+        64 KiB cap on the human PATCH path only, not on release — verified
+        2026-07-25 — so an agent can currently write unbounded notes through
+        this call. Do not code a truncate-and-retry for it: the error will
+        never arrive, and the retry would be dead code hiding the fact that
+        nothing is bounding us. We keep notes small by rewriting rather than
+        appending (see plan_notes), which is the real control.
         """
         body: dict = {"board": board, "taskId": task_id, "token": token}
         if lane is not None:
