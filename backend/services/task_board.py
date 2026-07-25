@@ -586,6 +586,42 @@ class TaskBoardClient:
             version=int(body.get("version") or 1),
         )
 
+    def automation_boards(self) -> list[BoardSnapshot]:
+        """Every automation board this key can drive, discovered not configured.
+
+        A board is ours to work if it is shared with us (or owned by us),
+        has been activated with a lane set, and records the repo it drives.
+        Nothing else needs saying: granting the key `contributor` on an
+        automation board IS the act of enrolling it.
+
+        That is deliberately not a config list. A configured list has to be
+        kept in step with reality by hand, and the failure when it drifts is
+        silent — a board nobody notices is unwatched, or a stale handle the
+        runner quietly idles against. Discovery cannot drift.
+        """
+        body = self._call("GET", "/boards")
+        out: list[BoardSnapshot] = []
+        for raw in (body.get("boards") or []):
+            lanes = [_lane_from(d) for d in (raw.get("lanes") or [])]
+            if not lanes or not (raw.get("repo") or "").strip():
+                continue
+            if raw.get("access") not in ("owner", "contributor"):
+                continue
+            out.append(BoardSnapshot(
+                id=raw.get("id", ""),
+                name=raw.get("name", ""),
+                handle=raw.get("handle", "") or raw.get("id", ""),
+                repo=raw.get("repo") or "",
+                mode=raw.get("mode", ""),
+                lanes=sorted(lanes, key=lambda ln: ln.order),
+                tasks=[_task_from(d) for d in (raw.get("tasks") or [])],
+                schema_id=raw.get("schemaId") or "",
+                schema_version=int(raw.get("schemaVersion") or 0),
+                access=raw.get("access", ""),
+                version=int(raw.get("version") or 1),
+            ))
+        return out
+
     def history(self, board: str, task_id: str) -> list[dict]:
         """Claim history for one task — who held it, when, and each outcome."""
         body = self._call("GET", "/agent/history",
