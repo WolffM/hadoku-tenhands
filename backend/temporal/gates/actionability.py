@@ -32,7 +32,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from . import Defer, Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Defer, Fail, GateResult, IssueRef, Pass, gate
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +313,7 @@ _PASS_THRESHOLD = 0.80
 _FAIL_THRESHOLD = 0.40
 
 
-@gate(after="eligible", kind="judge")
+@gate(pipeline=CRIMSON_KITTY, after="eligible", kind="judge")
 def actionability(
     issue: IssueRef,
     evidence,

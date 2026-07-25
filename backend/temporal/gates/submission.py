@@ -25,7 +25,7 @@ from ..judge import (
     score as judge_score,
 )
 from ..sanitizer import SanitizerError, scan_outputs
-from . import Defer, Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Defer, Fail, GateResult, IssueRef, Pass, gate
 
 MIN_SUBMISSION_SCORE_PASS = 0.75
 MIN_SUBMISSION_SCORE_DEFER = 0.55
@@ -63,7 +63,7 @@ _URL_RE = re.compile(r"https?://\S+")
 # ── no_upstream_refs ──────────────────────────────────────────────────────
 
 
-@gate(after="submittable", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="submittable", kind="mechanical")
 def no_upstream_refs(issue: IssueRef, evidence) -> GateResult:
     """Output sanitizer wrapped as a gate.
 
@@ -118,7 +118,7 @@ def no_upstream_refs(issue: IssueRef, evidence) -> GateResult:
 # ── pr_template_compliance ────────────────────────────────────────────────
 
 
-@gate(after="submittable", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="submittable", kind="mechanical")
 def pr_template_compliance(issue: IssueRef, evidence) -> GateResult:
     """Verify the rendered PR body has every required section from the
     upstream PR template (fetched from the aggregator at activity time)."""
@@ -169,7 +169,7 @@ def pr_template_compliance(issue: IssueRef, evidence) -> GateResult:
 _MD_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
 
 
-@gate(after="submittable", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="submittable", kind="mechanical")
 def body_lint(issue: IssueRef, evidence) -> GateResult:
     """Reject mechanically-malformed PR bodies before the judge sees them.
 
@@ -238,7 +238,7 @@ def body_lint(issue: IssueRef, evidence) -> GateResult:
 # ── no_source_touched (mechanical) ────────────────────────────────────────
 
 
-@gate(after="submittable", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="submittable", kind="mechanical")
 def no_source_touched(issue: IssueRef, evidence) -> GateResult:
     """Fail when the agent only touched tests / scratch files / nothing.
 
@@ -274,7 +274,7 @@ def no_source_touched(issue: IssueRef, evidence) -> GateResult:
 # ── verification_health (mechanical) ──────────────────────────────────────
 
 
-@gate(after="submittable", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="submittable", kind="mechanical")
 def verification_health(issue: IssueRef, evidence) -> GateResult:
     """Block when the captured test output advertises a tool failure as
     verification evidence.
@@ -310,7 +310,7 @@ def verification_health(issue: IssueRef, evidence) -> GateResult:
 # ── body_diff_coherence (mechanical) ──────────────────────────────────────
 
 
-@gate(after="submittable", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="submittable", kind="mechanical")
 def body_diff_coherence(issue: IssueRef, evidence) -> GateResult:
     """Block when the PR body's prose claims to fix files the diff didn't touch.
 
@@ -410,7 +410,7 @@ def body_diff_coherence(issue: IssueRef, evidence) -> GateResult:
 # ── submission_judge ──────────────────────────────────────────────────────
 
 
-@gate(after="submittable", kind="judge")
+@gate(pipeline=CRIMSON_KITTY, after="submittable", kind="judge")
 def submission_judge(issue: IssueRef, evidence) -> GateResult:
     """Final human-defensibility check via the submission_v1.md rubric."""
     if not evidence.exists("09-submittable/pr_title.txt"):

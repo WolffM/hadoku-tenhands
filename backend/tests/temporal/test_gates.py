@@ -715,6 +715,148 @@ def test_submission_judge_payload_strips_notes_md(monkeypatch, issue, ev):
     assert "notes.md" not in payload
 
 
+# ── Pipeline namespacing ──────────────────────────────────────────────────
+
+
+class TestPipelineNamespacing:
+    """Two pipelines share one process and one registry, and their state
+    names collide (`fixed` exists in both). Without a namespace,
+    crimson-kitty's submission gates would run against a hadoku-task
+    task that has no upstream at all. These tests are the guard."""
+
+    def test_run_gates_ignores_gates_from_another_pipeline(self, issue, ev):
+        """The core cross-fire case: same state name, different pipeline."""
+        from temporal.gates import (
+            CRIMSON_KITTY, TASK_AUTOMATION, isolated_registry,
+            gate, Pass, run_gates,
+        )
+
+        with isolated_registry():
+            fired = []
+
+            @gate(pipeline=CRIMSON_KITTY, after="fixed", kind="mechanical")
+            def crimson_only(issue, evidence):
+                fired.append("crimson")
+                return Pass()
+
+            @gate(pipeline=TASK_AUTOMATION, after="fixed", kind="mechanical")
+            def taskauto_only(issue, evidence):
+                fired.append("taskauto")
+                return Pass()
+
+            results = run_gates("fixed", issue, ev, pipeline=CRIMSON_KITTY)
+            assert fired == ["crimson"]
+            assert [r.name for r in results] == ["crimson_only"]
+
+            fired.clear()
+            results = run_gates("fixed", issue, ev, pipeline=TASK_AUTOMATION)
+            assert fired == ["taskauto"]
+            assert [r.name for r in results] == ["taskauto_only"]
+
+    def test_unknown_pipeline_runs_nothing(self, issue, ev):
+        """A typo in a pipeline name must be inert, never a silent
+        fall-through to somebody else's gates."""
+        from temporal.gates import (
+            CRIMSON_KITTY, isolated_registry, gate, Pass, run_gates,
+        )
+
+        with isolated_registry():
+            @gate(pipeline=CRIMSON_KITTY, after="fixed", kind="mechanical")
+            def crimson_only(issue, evidence):
+                return Pass()
+
+            assert run_gates("fixed", issue, ev, pipeline="crimson-kitteh") == []
+
+    def test_pipeline_is_required_on_gate(self):
+        """No default: a new gate that forgets the argument must fail loudly
+        at import time rather than register into the wrong pipeline."""
+        from temporal.gates import gate
+
+        with pytest.raises(TypeError):
+            gate(after="fixed", kind="mechanical")
+
+    def test_pipeline_is_required_on_run_gates(self, issue, ev):
+        from temporal.gates import run_gates
+
+        with pytest.raises(TypeError):
+            run_gates("fixed", issue, ev)
+
+    def test_registry_snapshot_filters_and_reports_pipeline(self, issue, ev):
+        from temporal.gates import (
+            CRIMSON_KITTY, TASK_AUTOMATION, isolated_registry,
+            gate, Pass, registry_snapshot,
+        )
+
+        with isolated_registry():
+            @gate(pipeline=CRIMSON_KITTY, after="fixed", kind="mechanical")
+            def a(issue, evidence):
+                return Pass()
+
+            @gate(pipeline=TASK_AUTOMATION, after="fixed", kind="judge")
+            def b(issue, evidence):
+                return Pass()
+
+            assert registry_snapshot() == [
+                (CRIMSON_KITTY, "fixed", "mechanical", "a"),
+                (TASK_AUTOMATION, "fixed", "judge", "b"),
+            ]
+            assert registry_snapshot(CRIMSON_KITTY) == [
+                (CRIMSON_KITTY, "fixed", "mechanical", "a"),
+            ]
+
+    def test_every_real_gate_declares_a_known_pipeline(self):
+        """Guards against a typo'd pipeline string in a real gate module,
+        which would make that gate silently never run."""
+        from temporal.gates import (
+            CRIMSON_KITTY, TASK_AUTOMATION, registry_snapshot,
+        )
+        from temporal.gates import (  # noqa: F401  — populates the registry
+            actionability, eligibility, environment, fix,
+            input_context_clean, remediation, repro, submission, verify,
+        )
+
+        known = {CRIMSON_KITTY, TASK_AUTOMATION}
+        snap = registry_snapshot()
+        assert snap, "registry is empty — gate modules failed to import"
+        unknown = {p for p, _, _, _ in snap} - known
+        assert not unknown, f"gates registered under unknown pipeline(s): {unknown}"
+
+    def test_crimson_kitty_registry_is_unchanged_by_namespacing(self):
+        """The namespacing change is meant to be mechanical. Every gate that
+        existed before it must still be registered, under crimson-kitty,
+        after the same state."""
+        from temporal.gates import CRIMSON_KITTY, registry_snapshot
+        from temporal.gates import (  # noqa: F401
+            actionability, eligibility, environment, fix,
+            input_context_clean, remediation, repro, submission, verify,
+        )
+
+        got = {(after, name) for p, after, _, name in registry_snapshot(CRIMSON_KITTY)}
+        expected = {
+            ("eligible", "actionability"),
+            ("eligible", "eligibility"),
+            ("environment_ready", "environment_works"),
+            ("fixed", "diff_non_empty"),
+            ("fixed", "relevance"),
+            ("forked", "input_context_clean"),
+            ("remediated", "remediation_complete"),
+            ("reproduced", "repro_evidence_present"),
+            ("reproduced", "repro_actually_reproduced"),
+            ("reproduced", "repro_scope_match"),
+            ("submittable", "no_upstream_refs"),
+            ("submittable", "pr_template_compliance"),
+            ("submittable", "body_lint"),
+            ("submittable", "no_source_touched"),
+            ("submittable", "verification_health"),
+            ("submittable", "body_diff_coherence"),
+            ("submittable", "submission_judge"),
+            ("verified", "verified_evidence_present"),
+        }
+        assert got == expected, (
+            f"registry drift — lost: {expected - got}, gained: {got - expected}"
+        )
+
+
 # ── M0(c): uniform gate-decision telemetry ────────────────────────────────
 
 
@@ -725,20 +867,19 @@ class TestUniformGateDecisionTelemetry:
 
     def test_run_gates_writes_decision_per_gate(self, issue, ev):
         from temporal.gates import (
-            _clear_registry_for_tests, gate, Pass, Fail, run_gates,
+            CRIMSON_KITTY, isolated_registry, gate, Pass, Fail, run_gates,
         )
 
-        _clear_registry_for_tests()
-        try:
-            @gate(after="x", kind="mechanical")
+        with isolated_registry():
+            @gate(pipeline=CRIMSON_KITTY, after="x", kind="mechanical")
             def passes(issue, evidence):
                 return Pass("looks good")
 
-            @gate(after="x", kind="mechanical")
+            @gate(pipeline=CRIMSON_KITTY, after="x", kind="mechanical")
             def fails(issue, evidence):
                 return Fail("nope", score=0.1)
 
-            results = run_gates("x", issue, ev)
+            results = run_gates("x", issue, ev, pipeline=CRIMSON_KITTY)
             assert {r.verdict for r in results} == {"pass", "fail"}
 
             pass_record = ev.read_json("gate_decisions/passes.json")
@@ -750,24 +891,21 @@ class TestUniformGateDecisionTelemetry:
             fail_record = ev.read_json("gate_decisions/fails.json")
             assert fail_record["verdict"] == "fail"
             assert fail_record["score"] == 0.1
-        finally:
-            _clear_registry_for_tests()
 
     def test_run_gates_writes_decision_for_crashed_gate(self, issue, ev):
         """A gate that raises an exception still gets a decision file
         with the system:gate_crashed reason so the funnel attribution
         is preserved."""
         from temporal.gates import (
-            _clear_registry_for_tests, gate, run_gates,
+            CRIMSON_KITTY, isolated_registry, gate, run_gates,
         )
 
-        _clear_registry_for_tests()
-        try:
-            @gate(after="y", kind="mechanical")
+        with isolated_registry():
+            @gate(pipeline=CRIMSON_KITTY, after="y", kind="mechanical")
             def explodes(issue, evidence):
                 raise RuntimeError("boom")
 
-            results = run_gates("y", issue, ev)
+            results = run_gates("y", issue, ev, pipeline=CRIMSON_KITTY)
             assert len(results) == 1
             assert results[0].verdict == "defer"
 
@@ -775,57 +913,49 @@ class TestUniformGateDecisionTelemetry:
             assert record["verdict"] == "defer"
             assert "system:gate_crashed" in record["reason"]
             assert "RuntimeError" in record["reason"]
-        finally:
-            _clear_registry_for_tests()
 
     def test_run_gates_does_not_block_on_disk_failure(self, issue):
         """If evidence.write_json raises (e.g. disk full, permission),
         the gate result must still propagate via the return list.
         Telemetry is observation, not enforcement."""
         from temporal.gates import (
-            _clear_registry_for_tests, gate, Pass, run_gates,
+            CRIMSON_KITTY, isolated_registry, gate, Pass, run_gates,
         )
 
         class FlakyEvidence:
             def write_json(self, path, payload):
                 raise OSError("disk full")
 
-        _clear_registry_for_tests()
-        try:
-            @gate(after="z", kind="mechanical")
+        with isolated_registry():
+            @gate(pipeline=CRIMSON_KITTY, after="z", kind="mechanical")
             def passes(issue, evidence):
                 return Pass("still works")
 
-            results = run_gates("z", issue, FlakyEvidence())
+            results = run_gates("z", issue, FlakyEvidence(), pipeline=CRIMSON_KITTY)
             assert len(results) == 1
             assert results[0].verdict == "pass"
-        finally:
-            _clear_registry_for_tests()
 
     def test_run_gates_overwrites_prior_decision(self, issue, ev):
         """Re-running a gate after a remediation cycle must overwrite the
         prior decision file rather than append. The decision file holds
         the LATEST verdict; the historical trail lives in gates.jsonl."""
         from temporal.gates import (
-            _clear_registry_for_tests, gate, Pass, Fail, run_gates,
+            CRIMSON_KITTY, isolated_registry, gate, Pass, Fail, run_gates,
         )
 
         verdict_seq = ["fail", "pass"]
 
-        _clear_registry_for_tests()
-        try:
-            @gate(after="rerun", kind="mechanical")
+        with isolated_registry():
+            @gate(pipeline=CRIMSON_KITTY, after="rerun", kind="mechanical")
             def cycles(issue, evidence):
                 v = verdict_seq.pop(0)
                 return Fail("first try") if v == "fail" else Pass("retry ok")
 
-            run_gates("rerun", issue, ev)
+            run_gates("rerun", issue, ev, pipeline=CRIMSON_KITTY)
             first = ev.read_json("gate_decisions/cycles.json")
             assert first["verdict"] == "fail"
 
-            run_gates("rerun", issue, ev)
+            run_gates("rerun", issue, ev, pipeline=CRIMSON_KITTY)
             second = ev.read_json("gate_decisions/cycles.json")
             assert second["verdict"] == "pass"
             assert second["reason"] == "retry ok"
-        finally:
-            _clear_registry_for_tests()

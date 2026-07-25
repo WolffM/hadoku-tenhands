@@ -19,12 +19,12 @@ See docs/crimson-kitty/gates.md.
 
 from __future__ import annotations
 
-from . import Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Fail, GateResult, IssueRef, Pass, gate
 
 MIN_VISUAL_DIFF_SCORE = 0.05  # at least 5% pixels different
 
 
-@gate(after="verified", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="verified", kind="mechanical")
 def verified_evidence_present(issue: IssueRef, evidence) -> GateResult:
     verify_dir = evidence.path("06-verified")
     if not verify_dir.exists():

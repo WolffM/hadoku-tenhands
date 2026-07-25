@@ -9,10 +9,10 @@ See docs/crimson-kitty/gates.md `eligibility` section.
 
 from __future__ import annotations
 
-from . import Defer, Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Defer, Fail, GateResult, IssueRef, Pass, gate
 
 
-@gate(after="eligible", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="eligible", kind="mechanical")
 def eligibility(issue: IssueRef, evidence) -> GateResult:
     if not evidence.exists("01-eligible/dossier.json"):
         return Fail("01-eligible/dossier.json missing")
