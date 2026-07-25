@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from services.task_board import (  # noqa: E402
     TaskBoardClient,
+    _ambient_key,
     TaskBoardDomainError,
     TaskBoardError,
     TaskBoardUnavailable,
@@ -146,9 +147,13 @@ def main() -> int:
                     help="also exercise the write path on this task")
     args = ap.parse_args()
 
-    if not os.environ.get("HADOKU_TASK_KEY"):
-        print("HADOKU_TASK_KEY is unset — run this through dev-vault.mjs.",
-              file=sys.stderr)
+    # Ask the client how it resolves a credential rather than re-checking one
+    # source. The env var is only the first of two — falling back to the repo
+    # key file is what makes local runs work — and a guard stricter than the
+    # thing it guards just refuses runs that would have worked.
+    if not _ambient_key():
+        print("No board credential: set HADOKU_TASK_KEY or ensure "
+              ".devvault.local.json exists.", file=sys.stderr)
         return 2
 
     client = TaskBoardClient()

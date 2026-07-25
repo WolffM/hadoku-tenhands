@@ -231,6 +231,36 @@ Explicitly, so you don't build it:
 
 ---
 
+## 5b. Activation runbook — verified end to end 2026-07-24
+
+Dry-run against our own service account's `main` board, then torn back down. Every check passed:
+board resolves, `repo` set, 8 lanes matching `autoland-v1`, claim → heartbeat → set-lane → release,
+and a second claim correctly refused with `CLAIM_HELD`.
+
+Four things that cost us a round trip each. None are bugs; all are worth knowing before doing this
+on a real board:
+
+1. **The dry-run digest is nested.** It comes back at `preview.digest`, not top level. Echo *that*
+   on the committing call.
+2. **`POST /task/api` creates a task; `POST /task/api/` 404s.** The trailing slash matters, and the
+   failure is a generic "endpoint does not exist" rather than anything pointing at the slash.
+3. **`id` is required on task create** (`CreateTaskInputSchema`), not server-generated. Callers mint
+   the ULID.
+4. **`deactivate-automation` does not clear `repo`.** After teardown the board is back to
+   `mode: standard` with zero lanes, but still carries the `repo` it was activated with. Harmless
+   for us — we only read `repo` on automation boards — but it means `repo` outlives the config that
+   set it, which may not be what you intended.
+
+For the record, the sequence that worked:
+
+```
+POST /task/api/boards/:ref/activate-automation  { schemaId, schemaVersion, lanes, repo, dryRun: true }
+POST /task/api/boards/:ref/activate-automation  { schemaId, schemaVersion, lanes, repo, digest }
+POST /task/api/boards/:ref/shares               { name: "tenhands-service", level: "contributor" }
+```
+
+---
+
 ## 6. What we're building against this
 
 Design in [README.md](README.md); the gates that must be right before anything auto-merges in
