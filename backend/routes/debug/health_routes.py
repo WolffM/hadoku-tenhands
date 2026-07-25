@@ -6,7 +6,7 @@ import json
 import os
 import time
 
-from flask import request, jsonify
+from flask import jsonify
 
 try:
     from .. import bp
