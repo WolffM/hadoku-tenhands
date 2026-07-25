@@ -388,6 +388,39 @@ specs that nothing runs are already a liability, independent of this pipeline.
 A repo has no business auto-landing until its product has a canary. That's the eligibility bar
 above, made concrete.
 
+### 4.1b Mapping the board's `repo` to a checkout we own
+
+The board carries a *remote* ref (`WolffM/tenhands`). The pipeline maps it
+mechanically to `~/.taskauto/repos/<owner>/<name>` — outside `~/repos`, so it never
+appears in a repo listing or gets mistaken for a working checkout.
+
+**A dedicated clone, not the human's.** The pipeline needs `reset --hard`,
+`clean -fdx` and force-checkout to guarantee a clean tree, and in a shared checkout
+those destroy uncommitted work with nobody present to stop them. It also makes G9
+meaningful: `suite_green_on_merge_result` proves nothing in a tree that also contains
+somebody's half-finished work, and a red result would blame the wrong change. And
+recovery from a wedged pipeline clone is `rm -rf` plus a re-clone rather than an
+evening.
+
+**The disk objection doesn't survive measurement.** `.git` is tiny everywhere; the
+bulk of a working directory is untracked build output, which a clone doesn't get.
+Measured 2026-07-25: hadoku_site is 7.4 GB on disk but an 80 MB clone (the rest is
+`.claude`, `actions-runner`, `node_modules`, `pocs`); hadoku-conjure is 181 GB on
+disk but ~880 MB of history. The real recurring cost is a second `node_modules` /
+`.venv` per repo — which is *correct*, since testing against possibly-stale deps
+would be a false signal.
+
+**We still borrow from a local copy when there is one.** `git clone
+--reference-if-able <local> --dissociate <remote>` uses the local object store for
+speed, then copies what it used and drops the link. No lasting coupling: if the
+local repo later prunes, moves, or is deleted, our clone doesn't care.
+
+The whole thing is built so **"no local copy" is the ordinary path**, not an error —
+any newly automated repo starts there. We decline a local reference when it isn't
+the same project (checked via `origin`), when it's shallow, or when it simply isn't
+a git repo; and if a reference clone fails anyway, we retry without it rather than
+lose the task.
+
 ### 4.2 The repo lock has to span the watch window, and that costs throughput
 
 Auto-revert only works if a prod failure can be **attributed to a specific merge**. If task B lands
