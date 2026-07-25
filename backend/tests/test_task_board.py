@@ -525,3 +525,32 @@ def test_name_not_found_is_a_404_not_a_409():
     with pytest.raises(NameNotFound) as ei:
         c.get_board("h1")
     assert ei.value.status == 404
+
+
+def test_discovery_returns_no_tasks_because_it_cannot_know_claim_state():
+    """`GET /boards` does not populate `claimed` — only the hydrated
+    `GET /boards/:ref` does. A snapshot that looked hydrated but reported
+    every task as unclaimed is exactly what produces a double-claim."""
+    payload = {"boards": [{
+        "id": "b", "handle": "H", "name": "n", "repo": "WolffM/tenhands",
+        "mode": "automation", "access": "contributor",
+        "lanes": [{"tag": "working", "label": "W", "order": 0,
+                   "editableBy": "agent"}],
+        "tasks": [{"id": "t1", "title": "x", "tag": "working"}],
+    }]}
+    boards = client(FakeResponse(200, payload)).automation_boards()
+    assert len(boards) == 1
+    assert boards[0].tasks == [], "must not fabricate task state"
+    assert boards[0].repo == "WolffM/tenhands"
+
+
+def test_discovery_skips_boards_that_are_not_drivable():
+    payload = {"boards": [
+        {"id": "a", "handle": "A", "repo": "o/r", "access": "contributor",
+         "lanes": []},                                    # not activated
+        {"id": "b", "handle": "B", "repo": "", "access": "owner",
+         "lanes": [{"tag": "x", "label": "X", "order": 0, "editableBy": "user"}]},
+        {"id": "c", "handle": "C", "repo": "o/r", "access": "readonly",
+         "lanes": [{"tag": "x", "label": "X", "order": 0, "editableBy": "user"}]},
+    ]}
+    assert client(FakeResponse(200, payload)).automation_boards() == []
