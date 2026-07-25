@@ -33,7 +33,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import Defer, Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Defer, Fail, GateResult, IssueRef, Pass, gate
 
 REQUIRED_LABELS = ("Steps to reproduce", "Observed", "Expected")
 MIN_NOTES_WORDS = 50
@@ -64,7 +64,7 @@ def _find_missing_sections(notes: str) -> list[str]:
     return [label for label in REQUIRED_LABELS if label not in present]
 
 
-@gate(after="reproduced", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="reproduced", kind="mechanical")
 def repro_evidence_present(issue: IssueRef, evidence) -> GateResult:
     repro_dir = evidence.path("04-reproduced")
     if not repro_dir.exists():
@@ -134,7 +134,7 @@ _NO_REPRO_PATTERNS = re.compile(
 )
 
 
-@gate(after="reproduced", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="reproduced", kind="mechanical")
 def repro_actually_reproduced(issue: IssueRef, evidence) -> GateResult:
     """Defer when notes.md explicitly says the bug didn't reproduce.
 
@@ -230,7 +230,7 @@ def _build_scope_payload(issue_body: str, issue_title: str, notes: str, files: l
     return "\n".join(parts)
 
 
-@gate(after="reproduced", kind="judge")
+@gate(pipeline=CRIMSON_KITTY, after="reproduced", kind="judge")
 def repro_scope_match(
     issue: IssueRef,
     evidence,

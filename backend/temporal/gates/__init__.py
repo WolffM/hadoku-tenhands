@@ -15,6 +15,8 @@ bug→gate mapping from the jade-hare retro.
 
 from __future__ import annotations
 
+import contextlib
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal
@@ -72,30 +74,54 @@ def Defer(reason: str, **kwargs: Any) -> GateResult:
     return GateResult(name="", verdict="defer", reason=reason, **kwargs)
 
 
+# ── Pipelines ─────────────────────────────────────────────────────────────
+
+# Gate modules for BOTH pipelines are imported into the same worker process,
+# so the registry is shared. State names collide across pipelines — `fixed`
+# exists in each — and without a namespace crimson-kitty's submission gates
+# would run against a task that has no upstream at all. Every registration
+# and every lookup therefore names its pipeline explicitly.
+#
+# `pipeline` is a REQUIRED keyword on both `gate()` and `run_gates()`. A
+# default would be the whole bug in miniature: a new gate that forgets the
+# argument would silently register into the other pipeline and run against
+# work it was never written for.
+
+CRIMSON_KITTY = "crimson-kitty"
+TASK_AUTOMATION = "hadoku-task-automation"
+
+
 # ── Registry ──────────────────────────────────────────────────────────────
 
-_registry: list[tuple[str, GateKind, str, Callable[..., GateResult]]] = []
+_registry: list[tuple[str, str, GateKind, str, Callable[..., GateResult]]] = []
 
 
-def gate(after: str, kind: GateKind = "mechanical"):
-    """Decorator: register a gate function to run after a given state.
+def gate(*, pipeline: str, after: str, kind: GateKind = "mechanical"):
+    """Decorator: register a gate to run after a given state of a pipeline.
 
-    The decorated function should accept `(issue, evidence)` and return a
+    The decorated function should accept `(subject, evidence)` and return a
     `GateResult`. The function name becomes the gate name in the result.
+
+    `pipeline` is required — see the note above on why there's no default.
+    Gate names need only be unique within a pipeline; the same name may
+    legitimately exist in both with different rubrics.
     """
     def decorator(fn: Callable[..., GateResult]) -> Callable[..., GateResult]:
         name = fn.__name__
-        _registry.append((after, kind, name, fn))
+        _registry.append((pipeline, after, kind, name, fn))
         return fn
     return decorator
 
 
-def run_gates(state: str, issue: IssueRef, evidence: Any) -> list[GateResult]:
-    """Run every gate registered for `state` in declaration order.
+def run_gates(
+    state: str, issue: Any, evidence: Any, *, pipeline: str
+) -> list[GateResult]:
+    """Run every gate registered for `(pipeline, state)` in declaration order.
 
-    Each gate is called with `(issue, evidence)`. The gate's return value
-    has its `name` and `kind` filled in from the registry before returning,
-    and is appended to the result list.
+    Each gate is called with `(subject, evidence)` — an `IssueRef` for
+    crimson-kitty, a `TaskRef` for hadoku-task-automation. The gate's return
+    value has its `name` and `kind` filled in from the registry before
+    returning, and is appended to the result list.
 
     The orchestrator interprets the results: any `fail` aborts the
     workflow, any `defer` queues for the operator inbox.
@@ -109,8 +135,8 @@ def run_gates(state: str, issue: IssueRef, evidence: Any) -> list[GateResult]:
     persist alongside — this one is the uniform-shape index.
     """
     results: list[GateResult] = []
-    for after, kind, name, fn in _registry:
-        if after != state:
+    for reg_pipeline, after, kind, name, fn in _registry:
+        if reg_pipeline != pipeline or after != state:
             continue
         try:
             res = fn(issue, evidence)
@@ -164,11 +190,48 @@ def _write_gate_decision(evidence: Any, result: GateResult) -> None:
         pass
 
 
-def registry_snapshot() -> list[tuple[str, GateKind, str]]:
-    """Read-only view of every registered gate, for tests + retro reports."""
-    return [(after, kind, name) for after, kind, name, _ in _registry]
+def registry_snapshot(
+    pipeline: str | None = None,
+) -> list[tuple[str, str, GateKind, str]]:
+    """Read-only view of registered gates, for tests + retro reports.
+
+    Returns `(pipeline, after, kind, name)` tuples. Pass `pipeline` to
+    narrow to one pipeline's gates; omit it to see every registration,
+    which is what the cross-fire regression test asserts on.
+    """
+    return [
+        (reg_pipeline, after, kind, name)
+        for reg_pipeline, after, kind, name, _ in _registry
+        if pipeline is None or reg_pipeline == pipeline
+    ]
 
 
 def _clear_registry_for_tests() -> None:
-    """Tests that import gate modules dynamically may need to reset state."""
+    """Empty the registry.
+
+    DANGER: this is destructive and NOT reversible by re-importing. The
+    `@gate` decorators run at module import, and Python caches modules — so
+    once a gate module has been imported, clearing the registry means those
+    registrations are gone for the rest of the process. A test that clears
+    without restoring leaves every later test looking at an empty registry.
+
+    Prefer `isolated_registry()`, which saves and restores.
+    """
     _registry.clear()
+
+
+@contextlib.contextmanager
+def isolated_registry():
+    """Run a block against an empty registry, then restore what was there.
+
+    The safe way for a test to register throwaway gates: real registrations
+    survive, so test order stops mattering. See `_clear_registry_for_tests`
+    for why the naive clear-and-forget approach silently breaks later tests.
+    """
+    saved = list(_registry)
+    _registry.clear()
+    try:
+        yield
+    finally:
+        _registry.clear()
+        _registry.extend(saved)

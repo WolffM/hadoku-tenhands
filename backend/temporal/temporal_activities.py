@@ -30,6 +30,9 @@ from .agents import IssueRef
 from .agents.copilot import CopilotAgent
 from .agents.noop import NoopAgent
 from .evidence.store import EvidenceStore
+# Constant only — importing `.gates` does NOT register anything; the @gate
+# decorators live in the sibling modules, which act_run_gates imports lazily.
+from .gates import CRIMSON_KITTY
 
 _hb_logger = logging.getLogger("crimson-kitty.heartbeat")
 _activity_logger = logging.getLogger("crimson-kitty.activity")
@@ -427,6 +430,14 @@ class GateInput:
     fork_slug: str
     issue_number: int
     state_root: str
+    # Which pipeline's gates to run. Unlike `gate()` and `run_gates()` —
+    # where the argument is required so a new gate can't silently register
+    # into the wrong pipeline — this one carries a default ON PURPOSE:
+    # GateInput crosses the Temporal serialization boundary, and a required
+    # field would fail to deserialize for workflows already in flight across
+    # a deploy. crimson-kitty is the only pipeline with in-flight work today,
+    # so it is the safe value for a payload written before this field existed.
+    pipeline: str = CRIMSON_KITTY
 
 
 @dataclass
@@ -467,7 +478,7 @@ async def act_run_gates(inp: GateInput) -> list[dict]:
         upstream_slug=inp.upstream_slug,
         upstream_number=inp.issue_number,
     )
-    results = run_gates(inp.state, issue, ev)
+    results = run_gates(inp.state, issue, ev, pipeline=inp.pipeline)
     # Persist every result to gates.jsonl as the audit trail
     for r in results:
         ev.record_gate(
