@@ -22,7 +22,7 @@ try:
     from ..helpers.oss_helpers import format_upstream_pr_body
     from ..helpers.bot_filter import filter_human_comments
     from ..helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted, notify_upstream_comment
-    from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
+    from ..helpers.validation import validate_slug, validate_repo_name, validate_required_fields, error_response
     from ..extensions import limiter
 except ImportError:
     from services import run_gh_command, get_authenticated_user, OSSService
@@ -31,7 +31,7 @@ except ImportError:
     from helpers.oss_helpers import format_upstream_pr_body
     from helpers.bot_filter import filter_human_comments
     from helpers.notifications import notify_upstream_merged, notify_upstream_feedback, notify_upstream_closed, notify_upstream_submitted, notify_upstream_comment
-    from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, safe_error_message, error_response
+    from helpers.validation import validate_slug, validate_repo_name, validate_required_fields, error_response
     from extensions import limiter
 
 
