@@ -314,7 +314,7 @@ async def real_run_gates(inp: GateInput) -> list[dict]:
             upstream_slug=inp.upstream_slug,
             upstream_number=inp.issue_number,
         )
-        results = run_gates_fn(inp.state, issue, ev)
+        results = run_gates_fn(inp.state, issue, ev, pipeline=inp.pipeline)
         for r in results:
             ev.record_gate(
                 gate_name=r.name,

@@ -21,14 +21,14 @@ from ..judge import (
     JudgeUnreachable,
     score as judge_score,
 )
-from . import Defer, Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Defer, Fail, GateResult, IssueRef, Pass, gate
 
 MIN_DIFF_BYTES = 50
 MIN_RELEVANCE_SCORE_PASS = 0.70
 MIN_RELEVANCE_SCORE_DEFER = 0.45
 
 
-@gate(after="fixed", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="fixed", kind="mechanical")
 def diff_non_empty(issue: IssueRef, evidence) -> GateResult:
     if not evidence.exists("05-fixed/diff.patch"):
         return Fail("05-fixed/diff.patch missing")
@@ -51,7 +51,7 @@ def diff_non_empty(issue: IssueRef, evidence) -> GateResult:
     return Pass(evidence_data={"diff_bytes": len(diff), "commit_count": len(shas)})
 
 
-@gate(after="fixed", kind="judge")
+@gate(pipeline=CRIMSON_KITTY, after="fixed", kind="judge")
 def relevance(issue: IssueRef, evidence) -> GateResult:
     """Calls the local claude CLI with the relevance_v1.md rubric.
 
