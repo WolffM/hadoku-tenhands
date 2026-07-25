@@ -8,6 +8,7 @@ bp = Blueprint('dispatch', __name__)
 
 # Import route modules AFTER bp is created to register their @bp.route decorators
 from . import health_routes    # noqa: E402, F401
+from . import automation_routes  # noqa: E402, F401
 from . import action_routes    # noqa: E402, F401
 from . import workflow_routes  # noqa: E402, F401
 from . import pipeline_routes  # noqa: E402, F401
