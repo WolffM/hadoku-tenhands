@@ -18,7 +18,7 @@ try:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from ..config import get_vibecheck_workflow, VIBECHECK_REPO, VIBECHECK_WORKFLOW_FILE, VIBECHECK_WORKFLOW_NAME
+    from ..config import get_vibecheck_workflow, VIBECHECK_REPO, VIBECHECK_WORKFLOW_FILE
 except ImportError:
     from services import (
         run_gh_command,
@@ -26,7 +26,7 @@ except ImportError:
         clear_vibecheck_cache,
         cached_endpoint,
     )
-    from config import get_vibecheck_workflow, VIBECHECK_REPO, VIBECHECK_WORKFLOW_FILE, VIBECHECK_WORKFLOW_NAME
+    from config import get_vibecheck_workflow, VIBECHECK_REPO, VIBECHECK_WORKFLOW_FILE
 
 
 @bp.route("/api/install-vibecheck", methods=["POST"])
