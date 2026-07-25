@@ -354,3 +354,55 @@ def test_a_dry_run_never_watches_or_reverts():
         watcher=w, reverter=rev, health_url="http://h")
     lane, _, outcome = job(approved(), board(), FakeSink())
     assert outcome == "dry-run" and w.calls == [] and rev.calls == []
+
+
+# ── recovery after a crash between push and release ───────────────────────
+
+
+class GitCheckouts(FakeCheckouts):
+    """A checkout manager whose `run` answers `git log --grep`."""
+
+    def __init__(self, landed_subject=None, sha="cafe1234"):
+        super().__init__()
+        self.landed_subject, self.sha = landed_subject, sha
+        self.log_calls = []
+
+    def run(self, args, timeout=60):
+        self.log_calls.append(args)
+
+        class R:
+            ok = True
+            out = (f"{self.sha}\x00{self.landed_subject}\n"
+                   if self.landed_subject else "")
+        return R()
+
+
+def test_a_task_already_on_main_is_recovered_not_rebuilt():
+    """Observed for real: the runner was killed mid-watch, the commit was
+    already on main, and the task sat in `landing`. A naive re-run would
+    rebuild shipped work and then stall on 'no changes'."""
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
+    co = GitCheckouts(landed_subject="make coffee theme default")
+    lane, notes, outcome = make_implement_job(agent, co, FakeLander())(
+        approved(), board(), FakeSink())
+    assert lane == selection.LANE_LANDED
+    assert outcome == "recovered:cafe1234"
+    assert agent.worked == [], "must not run the agent again"
+
+
+def test_a_task_not_on_main_proceeds_normally():
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
+    co = GitCheckouts(landed_subject=None)
+    lane, _, outcome = make_implement_job(agent, co, FakeLander())(
+        approved(), board(), FakeSink())
+    assert outcome.startswith("landed:") and agent.worked
+
+
+def test_a_merely_similar_commit_does_not_count_as_landed():
+    """Subject must match exactly — a task title appearing inside some other
+    commit's message must not read as already shipped."""
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
+    co = GitCheckouts(landed_subject="revert: make coffee theme default")
+    _, _, outcome = make_implement_job(agent, co, FakeLander())(
+        approved(), board(), FakeSink())
+    assert outcome.startswith("landed:"), "should have proceeded, not recovered"
