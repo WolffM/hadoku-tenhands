@@ -14,7 +14,7 @@ try:
     from ..services.github_api import set_saml_token_override, is_saml_org
     from ..services.oss_fork import get_fork_lock
     from ..services.oss_state import save_session_artifact
-    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message, error_response
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_request_or_error, to_aggregator_slug, error_response
     from ..extensions import limiter
     from ..services.pipeline_logger import logger as plog, log_event, StepTimer
 except ImportError:
@@ -23,7 +23,7 @@ except ImportError:
     from services.github_api import set_saml_token_override, is_saml_org
     from services.oss_fork import get_fork_lock
     from services.oss_state import save_session_artifact
-    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_required_fields, validate_request_or_error, to_aggregator_slug, safe_error_message, error_response
+    from helpers.validation import validate_owner, validate_repo_name, validate_issue_number, validate_request_or_error, to_aggregator_slug, error_response
     from extensions import limiter
     from services.pipeline_logger import logger as plog, log_event, StepTimer
 
