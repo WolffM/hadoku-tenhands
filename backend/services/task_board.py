@@ -361,10 +361,21 @@ def _task_from(d: dict) -> BoardTask:
 class TaskBoardClient:
     """Client for one hadoku-task deployment.
 
-    Auth is a service-tier key sent as `X-User-Key`. The key must be
-    registered as `tier: "service"` on the board side to get the 600/min
-    throttle; a mis-tiered key silently degrades to the 60/min public tier
-    and then gets blacklisted after three violations.
+    Auth is a service-tier key sent as `X-User-Key`.
+
+    **Where the tier actually comes from.** edge-router resolves the request
+    tier from membership of the `SERVICE_KEYS` secret array
+    (`authGate.ts::resolveCallerTier`) and stamps it as `X-Hadoku-Tier`;
+    task-api trusts that header and never consults a registry itself. So the
+    600/min service bucket follows from the key being a `SERVICE_KEYS`
+    member — which this repo's existing key already is — and *not* from the
+    `key:{rawKey}` registry row that `POST /session/admin/keys` writes.
+
+    That registry row is still needed, for a different reason: board sharing
+    resolves a grantee to a `userId`, and a machine key that never signs in
+    has none until an admin mints one. Without it the board cannot be shared
+    with us at all — which surfaces here as `BOARD_NOT_FOUND`, not as a
+    permissions error.
     """
 
     def __init__(
@@ -377,7 +388,16 @@ class TaskBoardClient:
     ) -> None:
         self.base_url = (base_url or os.environ.get(
             "HADOKU_TASK_API_URL", DEFAULT_BASE_URL)).rstrip("/")
-        self.user_key = user_key or os.environ.get("HADOKU_TASK_KEY", "")
+        # `is None` rather than `or`: an explicit `user_key=""` means "no
+        # credential" and must NOT fall through to the environment. With
+        # `or`, a caller that deliberately passed no key would silently
+        # authenticate as the real service account whenever the process
+        # happened to have HADOKU_TASK_KEY set — which is every vault-wrapped
+        # run, and is how a keyless test started making authenticated calls.
+        self.user_key = (
+            os.environ.get("HADOKU_TASK_KEY", "") if user_key is None
+            else user_key
+        )
         self.timeout = timeout
         self._transport = transport or requests.request
 
@@ -388,9 +408,9 @@ class TaskBoardClient:
               params: Optional[dict] = None) -> dict:
         if not self.user_key:
             raise TaskBoardError(
-                "HADOKU_TASK_KEY is not set. This is a service-tier key issued "
-                "by the hadoku-task operator and declared in .devvault.json; "
-                "fetch it via dev-vault.mjs rather than hardcoding it."
+                "HADOKU_TASK_KEY is not set. It is mapped in .devvault.json "
+                "onto this repo's existing service key; run the command "
+                "through dev-vault.mjs rather than hardcoding a value."
             )
         url = f"{self.base_url}{path}"
         try:

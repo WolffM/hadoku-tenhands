@@ -411,3 +411,24 @@ def test_archived_tasks_are_excluded_from_every_selector():
     assert [t.id for t in b.active_tasks] == ["t3"]
     assert b.tasks_in("approved") == []
     assert b.any_claim_live() is False, "the claimed task was deleted"
+
+
+def test_explicit_empty_key_does_not_fall_back_to_the_environment(monkeypatch):
+    """Regression, and it only reproduced under the vault wrapper. `or`
+    treats an explicit "" as absent, so a client constructed with no
+    credential silently authenticated as the real service account whenever
+    HADOKU_TASK_KEY happened to be set in the process."""
+    monkeypatch.setenv("HADOKU_TASK_KEY", "the-real-service-key")
+    c = TaskBoardClient(base_url="https://example.test", user_key="",
+                        transport=Recorder())
+    with pytest.raises(TaskBoardError, match="HADOKU_TASK_KEY"):
+        c.get_board("h")
+    assert c._transport.calls == []
+
+
+def test_key_omitted_entirely_does_read_the_environment(monkeypatch):
+    monkeypatch.setenv("HADOKU_TASK_KEY", "from-env")
+    c = TaskBoardClient(base_url="https://example.test",
+                        transport=Recorder(FakeResponse(200, BOARD_PAYLOAD)))
+    c.get_board("h1")
+    assert c._transport.calls[0]["headers"]["X-User-Key"] == "from-env"
