@@ -510,57 +510,45 @@ is the point: the status view is something you can read on a phone.
 
 ---
 
-## 7. Status
+## 7. Status — **live in production**
 
-**hadoku-task's side is live.** Activation, lane enforcement, the claim/lease runtime, sharing and
-an owner cancel path all shipped 2026-07-24. As-shipped call shapes are in
-[board-contract.md](board-contract.md) §1 — they differ from their design doc in two ways worth
-knowing: every agent endpoint takes `board` alongside `taskId`, and a change feed exists at
-`GET /changes` despite us saying not to build one.
-
-**Our side, against the build order below:**
+Shipped 2026-07-25. `31dde08` merged the pipeline; `6a67656` added the scheduler.
+Seven commits have reached `main` autonomously — see
+[run-report-2026-07-25.md](run-report-2026-07-25.md).
 
 | Step | State |
 |---|---|
-| 1. Namespace the gate registry | ✅ shipped (§5) |
-| 2. `TaskSource` + board client | ✅ `services/task_board.py` + `taskauto/selection.py`. Verified live against the real API |
-| 3. `ProgressSink` seam | ⬜ not started |
-| 4. `TaskRef` + `ClaudeCodeAgent` | 🟡 `TaskRef` done (`taskauto/refs.py`); the agent is not started |
-| 5. Intake + planning | 🟡 `plan_notes`, `task_text`, and gates G2/G6 done; the planning stage itself is not |
-| 6. Middle: reuse as-is | ⬜ not started |
-| 7. `Landing` seam | ⬜ not started |
+| 1. Namespace the gate registry | ✅ (§5) |
+| 2. `TaskSource` + board client | ✅ `services/task_board.py`, `taskauto/selection.py` |
+| 3. `ProgressSink` seam | ✅ `taskauto/progress.py` |
+| 4. `TaskRef` + `ClaudeCodeAgent` | ✅ `taskauto/refs.py`, `taskauto/agent.py` |
+| 5. Intake + planning | ✅ `taskauto/jobs.py`, gates G2/G6 |
+| 6. Middle: reuse as-is | ✅ — the agent works in a pipeline-owned checkout |
+| 7. `Landing` seam | ✅ `taskauto/landing.py` + `watch.py` (auto-revert) |
+| 8. Scheduler | ✅ `taskauto/scheduler.py`, pm2 `tenhands-taskauto` |
 
-So: **a task filed on a board will not move yet.** What exists is the read/claim path, the policy
-that decides what to pick up, the document the conversation runs in, and two gates.
+**How to run it.** Boards are discovered, not configured: share a board with the
+service key at `contributor`, activate it with
+[schemas/autoland-v1.json](schemas/autoland-v1.json), and it gets driven.
 
-**Credential:** no dedicated key was needed. This repo's existing service-tier key is registered as
-`tenhands-service` and reaches `GET /task/api/boards` — details and the two wrong turns getting
-there are in `services/task_board.py`'s module docstring.
+```
+node ../hadoku_site/scripts/secrets/dev-vault.mjs -- \
+    .venv/bin/python backend/run_taskauto.py          # dry run
+TASKAUTO_LIVE=1 …                                     # actually pushes
+```
 
-**Blocked on a human, not on code:** a board has to be created, activated with
-[schemas/autoland-v1.json](schemas/autoland-v1.json) (`dryRun` → echo the `digest`), and shared with
-`tenhands-service` at `contributor`. Sharing still requires pasting a raw key — see
-[ask-share-by-name.md](ask-share-by-name.md). Then `scripts/taskauto_smoke.py <handle>` validates the
-whole read path, and `--claim <task-id>` the write path.
+Under pm2 it is `tenhands-taskauto`, defaulting to `TASKAUTO_LIVE=0`.
 
-### Build order
+### What is deliberately not done yet
 
-Note how little is new pipeline and how much is adapters around the existing one:
-
-1. **Namespace the gate registry** (§5) — unblocks everything, touches crimson-kitty, do it first.
-2. **`TaskSource` seam + board client** — poll → claim → heartbeat → set-lane → release (§2).
-3. **`ProgressSink` seam** — mirror each recorded transition onto a board lane. Additive to
-   `_transition`; crimson-kitty gets a no-op sink and is otherwise untouched.
-4. **`TaskRef` + `ClaudeCodeAgent`** against the existing `Agent` protocol (§3).
-5. **Intake + planning** — triage, `actionability.py` with a new rubric, `verification_possible`.
-   The cheapest place to stop a task, and the one that makes the phone loop work.
-6. **Middle: reuse as-is** — environment → repro → fix → verify. This step should be mostly
-   configuration; if it isn't, the seams in §2 are in the wrong place.
-7. **`Landing` seam** — merge, prod watcher, auto-revert (§4). The new output end.
-
-Steps 3 and 7 are the substantial remaining work. Step 6 is the test of whether this framing was
-right.
-
-**Settle before step 4 ships:** §4.3 — headless Claude Code executes on the prod host beside the
-vault key and the `gh` token, and no gate constrains that, because gates inspect the diff after the
-process has already run.
+- **The fast path is disabled.** Every task goes through `plan-review`, even
+  trivial ones. §1.1 describes intake releasing straight to `approved`; the job
+  does not make that call unattended yet.
+- **No parallelism.** One task in flight per repo. Note a task parked in
+  `plan-review` does *not* block — only a live claim does. To parallelise: a
+  worktree per task, and serialise **only the landing**, because two commits
+  inside one prod-watch window cannot be attributed if health goes red (§4.2).
+- **§4.3 is open** — the agent runs on the prod host with a scrubbed environment
+  but no filesystem or network containment.
+- **A stuck claim on a shared board needs the owner.** `POST /agent/cancel` is
+  owner-only, so a crash mid-landing means waiting out the lease.
