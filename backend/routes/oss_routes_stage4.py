@@ -21,7 +21,7 @@ try:
     from ..services.oss_state import save_session_artifact, get_session_artifact
     from ..services.pipeline_retrospective import fetch_pr_comments
     from ..helpers.oss_helpers import format_upstream_pr_body
-    from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
+    from ..helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_request_or_error, safe_error_message, error_response
     from ..helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from ..extensions import limiter
     from ..config import CLEAN_BRANCH_PREFIX
@@ -31,7 +31,7 @@ except ImportError:
     from services.oss_state import save_session_artifact, get_session_artifact
     from services.pipeline_retrospective import fetch_pr_comments
     from helpers.oss_helpers import format_upstream_pr_body
-    from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_required_fields, validate_request_or_error, safe_error_message, error_response
+    from helpers.validation import normalize_repo_name as _normalize_repo_name, validate_repo_name, validate_slug, validate_request_or_error, safe_error_message, error_response
     from helpers.notifications import notify_fork_merged, notify_upstream_submitted
     from extensions import limiter
     from config import CLEAN_BRANCH_PREFIX
