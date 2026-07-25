@@ -31,6 +31,7 @@ from temporal.taskauto.jobs import make_implement_job, make_plan_job  # noqa: E4
 from temporal.taskauto.landing import Lander  # noqa: E402
 from temporal.taskauto.refs import RepoPolicy  # noqa: E402
 from temporal.taskauto.runner import Runner  # noqa: E402
+from temporal.taskauto.scheduler import Scheduler  # noqa: E402
 from temporal.taskauto.watch import ProdWatcher, Reverter  # noqa: E402
 
 #: Per-repo policy. A repo with no entry gets defaults — which means no test
@@ -68,6 +69,11 @@ def main() -> int:
     ap.add_argument("--live", action="store_true",
                     help="actually push to main (default: stop before the push)")
     ap.add_argument("--turns", type=int, default=1)
+    ap.add_argument("--serve", action="store_true",
+                    help="run the scheduler loop instead of a fixed number of "
+                         "turns (this is the unattended mode)")
+    ap.add_argument("--max-ticks", type=int, default=None,
+                    help="with --serve: stop after N polls (default: forever)")
     ap.add_argument("--settle-seconds", type=int, default=None,
                     help="override the Inbox settle delay")
     ap.add_argument("--watch-seconds", type=int, default=600,
@@ -136,6 +142,19 @@ def main() -> int:
     print(f"suite  : {' '.join(policy.test_command) or '(none configured)'}")
     print(f"health : {health_url or 'NONE — nothing will watch a landing'}")
     print()
+
+    if args.serve:
+        # Unattended. Polls the change feed for cheap hints and sweeps every
+        # board periodically regardless — the sweep is the only thing that
+        # recovers a crashed run or picks up a settled Inbox task, since
+        # neither produces a change-feed entry when it becomes actionable.
+        sched = Scheduler(client=client, boards=[args.handle],
+                          runner_for=lambda _h: runner)
+        print(f"serving: sweep every {sched.full_sweep_s:.0f}s, "
+              f"poll {sched.active_interval_s:.0f}-{sched.idle_interval_s:.0f}s")
+        sched.run(max_ticks=args.max_ticks,
+                  on_tick=lambda r: print(f"  {time.strftime('%H:%M:%S')}  {r}"))
+        return 0
 
     for i in range(args.turns):
         started = time.time()
