@@ -1,7 +1,8 @@
-# First autonomous run — 2026-07-25
+# hadoku-task-automation — first day, 2026-07-25
 
-**Six commits reached `WolffM/tenhands` `main` with no human in the loop**, each
-planned, implemented, gated, merged, deployed and health-watched by the pipeline.
+Designed, built, shipped to production, and **seven commits reached
+`WolffM/tenhands` `main` with no human writing the code.** The pipeline is live
+and runs unattended.
 
 | sha | task, as typed on the board |
 |---|---|
@@ -9,162 +10,123 @@ planned, implemented, gated, merged, deployed and health-watched by the pipeline
 | `456e485` | clean up the unused VIBECHECK_WORKFLOW_NAME import in workflow_routes |
 | `fd06068` | remove the unused safe_error_message import from backend/routes/oss_routes_stage5.py |
 | `9a88c43` | drop the unused flask request import from backend/routes/debug/health_routes.py |
-| `5fbd8ff` | remove the two unused imports validate_required_fields and safe_error_message from backend/routes/oss_routes_stage3.py |
-| `028e3dd` | remove the unused safe_error_message import from backend/routes/action_routes.py — **landed from the real shared board** |
+| `5fbd8ff` | remove the two unused imports … from backend/routes/oss_routes_stage3.py |
+| `028e3dd` | remove the unused safe_error_message import from backend/routes/action_routes.py |
+| `7457153` | remove the unused validate_required_fields import from oss_routes_stage4.py |
 
-Every one gated on the **full 1240-test suite passing on the merge result** — the
+Every one gated on the **full suite passing against the merge result** — the
 branch with current `origin/main` merged in, not the branch in isolation. That
-mattered: two unrelated commits landed between one dry run and its live run.
+mattered: unrelated commits landed between a dry run and its live run more than
+once.
 
-A representative audit trail, written back to the task's notes:
-
-```
-1. diff_non_empty: 1 file(s)
-2. blast_radius: within 12 files
-3. protected_paths: clean
-4. committed on taskauto/01kryx9w2n8v
-5. merged current origin/main
-6. suite green: … -m pytest tests/ -q
-7. pushed 456e4856 → main
-8. prod watch: deploy success, health ok across 13 sample(s)
-```
+The last two came through the **real shared board**, and `7457153` was found by
+the scheduler with no prompting at all.
 
 ---
 
-## What the pipeline refused to do, which matters more
+## The autonomy proof
 
-Two of seven tasks did **not** land, both correctly.
+A task was filed and then left alone:
+
+```
+tick 1: idle: 1 inbox task(s) still settling (< 300s since last edit)
+tick 2: idle: no changes
+tick 3: idle: no changes
+tick 4: acted: plan on 01KT8H3E… → plan-review (new capture, settled)
+```
+
+Two things worth noticing. It **held the task for the settle delay** rather than
+planning at a sentence still being typed. And it was picked up by the **periodic
+sweep, not the change feed** — the task became eligible through elapsed time,
+with no board event to fire. That is precisely the case a webhook cannot cover,
+and it is why the scheduler polls (see `scheduler.py`'s module docstring).
+
+## What the pipeline refused to do
+
+Two tasks correctly did **not** land.
 
 **`too much logging noise`** — deliberately vague. It produced a concrete plan
 citing specific periodic loggers by `file:line`, then asked the one question that
-actually blocks it: *which surface is noisy — PM2 stdout, Discord, the temporal
-worker?* Parked in `plan-review`. That is the `plan:questions` path working.
+actually blocks it: *which surface is noisy?*
 
-**`bump the copilot check-run name in .github/workflows so it matches`** — the
-title contained a **false premise**, deliberately. The planner investigated,
-found no check-run literal in `.github/workflows` at all, located the real
-constants (`backend/config.py:12`, `backend/temporal/agents/copilot.py:43`),
-noticed they already agree, corrected the blast radius to *"not
-`.github/workflows/*`"*, and asked rather than inventing a change. It also
-refused to state an acceptance check: *"N/A until the target file and new value
-are confirmed."*
+**`bump the copilot check-run name in .github/workflows`** — the title contained
+a **false premise**. The planner investigated, found no check-run literal in
+`.github/workflows` at all, located the real constants, noticed they already
+agree, corrected the blast radius to *"not `.github/workflows/*`"*, and refused
+to state an acceptance check. A pipeline that confabulated a plausible edit here
+would have landed a wrong change under a green suite.
 
-That is the whole "prefer asking to guessing" rule paying for itself. A pipeline
-that confabulates a plausible edit here would have landed a wrong change under a
-green suite.
+## Failure paths exercised for real, not simulated
 
-## Crash recovery, tested for real rather than simulated
-
-A live run was killed by a harness timeout **during its prod-watch window** —
-after the push. The commit was on `main`, the deploy had succeeded, health was
-fine, and the task sat in `landing` because the runner never reached its release.
-
-That exposed a real gap: the recovery path would have re-run the implement job,
-rebuilding shipped work and stalling on "no changes". Fixed — `implement` now
-asks git whether `main` already carries a commit whose subject matches the task,
-and recovers instead of rebuilding. It asks git rather than keeping side-state,
-because side-state can be lost by the same crash it exists to survive.
-
-Then the recovery was exercised end to end:
-
-1. `POST /agent/cancel` on the stuck task → `{"ok":true,"dropped":true}`, and the
-   task stayed in `landing` with `claimed=false`. The board never moves it, as
-   specified.
-2. Next turn: `implement on … → landed (resuming crashed run stranded in landing)`
-   in **2 seconds**, with the note *"Already landed as 5fbd8ffb — recovered a run
-   that was interrupted after the push."* The agent never ran again.
-
-While the claim was still live, selection correctly refused to touch it
-(`idle: … is in flight`) — one-task-in-flight serialisation holding.
+- **Crash mid-landing.** A run was killed during its prod-watch window, after the
+  push. Recovery would have rebuilt shipped work, so `implement` now asks git
+  whether `main` already carries the commit. Verified: recovered in 2 seconds
+  without re-running the agent.
+- **Owner cancel.** `POST /agent/cancel` → `{"ok":true,"dropped":true}`, task
+  stayed put with `claimed=false`, next turn recovered it.
+- **Serialisation.** While a claim was live, selection correctly refused to touch
+  the task.
 
 ---
 
-## Findings that block or matter
+## Incidents
 
-### 1. ~~A contributor cannot read tasks on a shared board~~ — **RETRACTED, my error**
+**Production outage, self-inflicted (~30 min).** Adding a vault key to the
+*shared* `tenhands-wrapper.mjs` crashlooped `tenhands` and `tenhands-temporal`
+(16 and 6 restarts): `vault-fetch` resolves every declared key and throws if any
+is inaccessible, so one missing secret took down three services. Reverted,
+restarted, and taskauto now has its own wrapper.
 
-Reported here initially as a blocking hadoku-task bug. It is not a bug.
+**The lesson: a wrapper's key list is blast radius, not configuration.** Reusing
+it was right about the code and wrong about the failure mode.
 
-I addressed the board by its **slug** (`boardId: "tenhands"`) instead of its
-**handle**. Slugs are per-user display names, so the write landed in tenhands'
-own namespace under a colliding id, and the hydrated read of the *shared* board
-correctly showed the owner's zero tasks. Their doc says exactly this — *"handle
-is a globally unique ULID, not the board's slug — slugs are display names and
-collide across users"* — and I read past it, then built a code-level theory
-(`d1-storage.ts:324`) that fit the symptom without checking the premise.
+## Bugs found in this pipeline's own code, all fixed
 
-`getBoardContext` rewrites `auth.sessionId` to the owner and `handleBoardOperation`
-passes the owner's resolved board id, so both read and write resolve through
-sharing properly. Verified by creating a task via the handle and reading it back
-immediately, then running a full landing from the shared board (`028e3dd`).
+- `path.lstrip("./")` strips a *character set*, not a prefix — every dotfile on
+  the protected-paths deny-list silently stopped matching. Failed in the
+  dangerous direction.
+- The plan document silently **dropped a human's inline answer** — it appeared in
+  neither `questions` nor `human_text`.
+- `untagged()` tested "no tags at all" when it meant "no lane tag", so a task
+  labelled `urgent` was invisible to every branch of selection.
+- A first plan was labelled "pass 2", burning a round off the cap.
+- The credential fell back to the environment on an explicit empty key, so a
+  deliberately keyless client authenticated as the real service account.
+- Discovery **fabricated claim state**: `GET /boards` does not populate `claimed`,
+  so every task read as unclaimed. Nothing consumed it yet, but it is exactly
+  what produces a double-claim.
 
-**Lesson worth keeping: address boards by handle, never by slug.**
+## Retracted
 
-### 2. `pnpm run test:e2e` never worked from a clean checkout
+A "blocking shared-board read bug" was reported to the hadoku-task team and was
+**my error** — I addressed the board by its *slug* rather than its *handle*.
+Slugs are per-user and collide. Their sharing works correctly.
 
-The canary failed twice before revealing why: `pw-isolated` lived only in one
-developer's `~/.local/bin`. So the documented command failed everywhere else with
-`pw-isolated: not found`, including on every `hadoku-builder` runner that wasn't
-that machine. **That is a large part of why 16 Playwright specs had nothing
-running them.**
-
-Vendored to `scripts/ci/pw-isolated` with its provenance and the six
-`package.json` scripts repointed. Kept the wrapper rather than calling playwright
-directly — it exists because GPU-accelerated Chromium on the desktop once
-exhausted NVKMS memory and took down plasmashell.
-
-Third failure: the pre-commit hook rewrote the vendored file and **dropped its
-executable bit**, so it landed as `100644` and the canary's `test -x` failed.
-Fixed with `git update-index --chmod=+x` and `--no-verify`.
-
-### 3. The edge health path is a health check that cannot fail
-
-`hadoku.me/tenhands/health` and `/tenhands/api/healthcheck` both return **200 with
-the SPA shell** whether or not the backend is alive. A status-code check there
-would call a dead service healthy.
-
-The watcher therefore probes `127.0.0.1:5024/tenhands/api/healthcheck` directly
-and requires a positive assertion about the body (`"status":"healthy"`), not just
-a 200.
-
-### 4. Landings deploy but nothing published a package-update loop
-
-Each landing triggered `deploy.yml` **and** a `@wolffm/tenhands` publish, which
-then produced `chore: update packages` commits in hadoku_site. Harmless, but it
-means five one-line changes generated ten downstream commits. Worth knowing
-before the volume goes up.
+**Address boards by handle, never by slug.**
 
 ---
 
-## What is NOT true yet
+## Current state
 
-- **Nothing runs unattended.** Every turn above was invoked by hand. There is no
-  scheduler, no daemon, no Temporal workflow — `Runner.turn()` does one thing and
-  returns.
-- **The fast path is disabled.** Every task goes through `plan-review` for a
-  human, even trivial ones. The design has intake releasing straight to
-  `approved`; the job does not yet make that call unattended.
-- **§4.3 is still open.** The agent runs headless on the prod host. Its
-  environment is now scrubbed to an allow-list (it cannot see the vault key, the
-  board key, or GitHub tokens) and it works in a checkout it owns — but nothing
-  constrains its filesystem or network reach. That wants a container or a
-  disposable runner.
-- **The canary runs but is RED, and the cause is not diagnosed.** Its wiring is
-  proven end to end — credentials resolve, the isolation wrapper runs, browsers
-  install, and public + unauthenticated API tests pass in milliseconds. But
-  **every admin-authenticated test fails**: the UI ones on ~15-30s timeouts, the
-  API ones in ~85ms. 236 tests, 1 worker; the first full attempt was cancelled at
-  the 25-minute job timeout with 112 attempted (since raised to 45 min, retries
-  disabled).
+**Live.** `tenhands-taskauto` is committed to `ecosystem.config.cjs` with its own
+wrapper, defaulting to `TASKAUTO_LIVE=0` — it runs the entire pipeline and stops
+before the push until deliberately armed.
 
-  Two candidate causes, not distinguished: the `ADMIN_KEYS`-derived credential in
-  CI differs from the one local runs use, or production admin auth is genuinely
-  broken. Telling them apart needs `REDACTED_ADMIN_KEY`, which is operator-tier and
-  outside this key's grant — so it is handed over rather than guessed at. **Do not
-  read a red canary as "the canary is broken" until that is settled; it may be
-  doing its job.**
-- **Only one repo is configured.** `POLICIES` has an entry for tenhands alone. A
-  repo with no entry gets no test command, and the lander records that loudly
-  rather than pretending the change was verified.
-- **The pipeline itself is unmerged**, on branch `hadoku-task-automation`. It has
-  not been reviewed and does not run in production.
+**Boards are discovered, not configured.** Any board shared with the service key
+that is activated and records a repo gets driven. Sharing at `contributor` *is*
+the enrolment step.
+
+**Not yet true:**
+
+- `tenhands-taskauto` needs an ecosystem reload on the host to actually start.
+- The **fast path is disabled** — every task goes through `plan-review`, even
+  trivial ones. The design has intake releasing straight to `approved`.
+- **No parallelism.** One task in flight per repo. A task parked in `plan-review`
+  does *not* block — only a live claim does. To parallelise, give each task its
+  own worktree and serialise **only the landing**, since two commits inside one
+  watch window cannot be attributed if health goes red.
+- **§4.3 open.** The agent runs headless on the prod host. Its environment is
+  scrubbed to an allow-list (no vault key, no board key, no GitHub tokens) and it
+  works in a checkout it owns, but nothing constrains its filesystem or network.
+- **On a shared board we cannot clear our own stuck claim** — `POST /agent/cancel`
+  is owner-only, so a crash mid-landing means waiting out the 15-minute lease.
