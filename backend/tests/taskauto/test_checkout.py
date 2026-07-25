@@ -296,3 +296,87 @@ def test_a_bare_slug_normalises_to_itself(value):
 def test_a_slug_and_its_remote_url_agree():
     assert (_normalise_remote("WolffM/tenhands")
             == _normalise_remote("https://github.com/WolffM/tenhands.git"))
+
+
+# ── housekeeping: branches and worktrees must not accumulate ──────────────
+
+
+class PruneGit(FakeGit):
+    """Answers `branch --merged` and records deletions."""
+
+    def __init__(self, merged=(), current="main", **kw):
+        super().__init__(**kw)
+        self.merged, self.current = list(merged), current
+        self.deleted = []
+
+    def __call__(self, args, cwd=None, timeout=600):
+        self.calls.append(list(args))
+        joined = " ".join(args)
+        if "branch --merged" in joined:
+            return RunResult(True, "\n".join(self.merged) + "\n")
+        if "rev-parse --abbrev-ref HEAD" in joined:
+            return RunResult(True, self.current + "\n")
+        if "branch -D" in joined:
+            self.deleted.append(args[-1])
+            return RunResult(True, "")
+        return super().__call__(args, cwd, timeout)
+
+
+def pruned(tmp_path, merged, current="main"):
+    git = PruneGit(merged=merged, current=current)
+    m = mgr(tmp_path, git, local_search=[])
+    m.ensure("WolffM/tenhands")
+    return m, git, m.prune("WolffM/tenhands")
+
+
+def test_finished_pipeline_branches_are_deleted(tmp_path):
+    """One per landing, forever, and each pins its commits against gc."""
+    _, git, removed = pruned(tmp_path, ["taskauto/01aaa", "taskauto/01bbb"])
+    assert sorted(removed) == ["taskauto/01aaa", "taskauto/01bbb"]
+    assert sorted(git.deleted) == ["taskauto/01aaa", "taskauto/01bbb"]
+
+
+def test_human_branches_are_never_touched(tmp_path):
+    _, git, removed = pruned(tmp_path, ["main", "my-wip", "feature/x",
+                                        "taskauto/01aaa"])
+    assert removed == ["taskauto/01aaa"]
+    assert git.deleted == ["taskauto/01aaa"]
+
+
+def test_the_base_branch_is_never_deleted(tmp_path):
+    _, git, removed = pruned(tmp_path, ["main"])
+    assert removed == [] and git.deleted == []
+
+
+def test_the_checked_out_branch_is_skipped(tmp_path):
+    """Deleting the branch HEAD is on fails anyway; it gets collected next
+    run once HEAD has moved."""
+    _, git, removed = pruned(tmp_path, ["taskauto/01aaa", "taskauto/01bbb"],
+                             current="taskauto/01aaa")
+    assert removed == ["taskauto/01bbb"]
+
+
+def test_branches_can_be_explicitly_kept(tmp_path):
+    git = PruneGit(merged=["taskauto/01aaa", "taskauto/01bbb"])
+    m = mgr(tmp_path, git, local_search=[])
+    m.ensure("WolffM/tenhands")
+    assert m.prune("WolffM/tenhands", keep=["taskauto/01aaa"]) == ["taskauto/01bbb"]
+
+
+def test_unmerged_branches_survive(tmp_path):
+    """`branch --merged` only lists merged ones — an unmerged branch is the
+    last remaining copy of work that did not land."""
+    _, git, removed = pruned(tmp_path, [])
+    assert removed == []
+
+
+def test_stale_worktrees_are_pruned(tmp_path):
+    """The thing that actually costs disk."""
+    _, git, _ = pruned(tmp_path, ["taskauto/01aaa"])
+    assert any("worktree prune" in " ".join(c) for c in git.calls)
+
+
+def test_prune_on_a_missing_clone_is_a_no_op(tmp_path):
+    git = PruneGit()
+    m = CheckoutManager(root=tmp_path / "nope", local_search=(), run=git)
+    assert m.prune("WolffM/tenhands") == []
