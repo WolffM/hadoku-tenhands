@@ -26,6 +26,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
+    from ..gates import CRIMSON_KITTY
     from ..temporal_activities import (
         AgentPhaseInput,
         EligibilityInput,
@@ -665,6 +666,7 @@ class IssueWorkflow:
                 fork_slug=inp.fork_slug,
                 issue_number=inp.issue_number,
                 state_root=inp.state_root,
+                pipeline=CRIMSON_KITTY,
             ),
             start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(maximum_attempts=1),

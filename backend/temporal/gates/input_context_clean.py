@@ -15,10 +15,10 @@ from ..evidence.scanner import (
     scan_for_short_ref,
     scan_for_url,
 )
-from . import Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Fail, GateResult, IssueRef, Pass, gate
 
 
-@gate(after="forked", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="forked", kind="mechanical")
 def input_context_clean(issue: IssueRef, evidence) -> GateResult:
     if not evidence.exists("02-forked/scrubbed_brief.md"):
         return Fail("02-forked/scrubbed_brief.md missing")

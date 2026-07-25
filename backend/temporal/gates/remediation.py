@@ -10,10 +10,10 @@ See docs/crimson-kitty/gates.md.
 
 from __future__ import annotations
 
-from . import Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Fail, GateResult, IssueRef, Pass, gate
 
 
-@gate(after="remediated", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="remediated", kind="mechanical")
 def remediation_complete(issue: IssueRef, evidence) -> GateResult:
     if not evidence.exists("07-reviewed/comments.json"):
         return Fail("07-reviewed/comments.json missing")

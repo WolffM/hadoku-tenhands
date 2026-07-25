@@ -8,10 +8,10 @@ See docs/crimson-kitty/gates.md.
 
 from __future__ import annotations
 
-from . import Fail, GateResult, IssueRef, Pass, gate
+from . import CRIMSON_KITTY, Fail, GateResult, IssueRef, Pass, gate
 
 
-@gate(after="environment_ready", kind="mechanical")
+@gate(pipeline=CRIMSON_KITTY, after="environment_ready", kind="mechanical")
 def environment_works(issue: IssueRef, evidence) -> GateResult:
     if not evidence.exists("03-environment/health.json"):
         return Fail("03-environment/health.json missing")
