@@ -598,6 +598,15 @@ class TaskBoardClient:
         kept in step with reality by hand, and the failure when it drifts is
         silent — a board nobody notices is unwatched, or a stale handle the
         runner quietly idles against. Discovery cannot drift.
+
+        **The returned snapshots carry no tasks, on purpose.** `GET /boards`
+        does not populate the per-task `claimed` flag — only the hydrated
+        `GET /boards/:ref` does — so a task list built from this endpoint
+        would report every task as unclaimed whether or not one is live.
+        A snapshot that looked identical to a hydrated one but lied about
+        claim state is exactly the trap that produces a double-claim, so
+        this returns identity and config only. Call `get_board(handle)` for
+        anything that decides what to work on.
         """
         body = self._call("GET", "/boards")
         out: list[BoardSnapshot] = []
@@ -614,7 +623,7 @@ class TaskBoardClient:
                 repo=raw.get("repo") or "",
                 mode=raw.get("mode", ""),
                 lanes=sorted(lanes, key=lambda ln: ln.order),
-                tasks=[_task_from(d) for d in (raw.get("tasks") or [])],
+                tasks=[],  # see the docstring — this endpoint cannot say
                 schema_id=raw.get("schemaId") or "",
                 schema_version=int(raw.get("schemaVersion") or 0),
                 access=raw.get("access", ""),
