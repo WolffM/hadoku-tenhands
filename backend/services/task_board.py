@@ -227,18 +227,47 @@ class BoardTask:
     tag: str  # space-separated tag string; the lane is a token within it
     metadata: dict
     claimed: bool
+    # 'Active' | 'Completed' | 'Deleted'. Archived tasks still come back in the
+    # board read, so anything that picks up work must filter on this — see
+    # `BoardSnapshot.active_tasks`.
+    state: str = "Active"
+    created_at: str = ""
+    updated_at: str = ""
     raw: dict = field(repr=False, default_factory=dict)
 
-    def lane(self, lanes: list[Lane]) -> Optional[str]:
-        """The task's lane, or None if untagged (the Inbox).
+    @property
+    def is_active(self) -> bool:
+        return self.state == "Active"
 
-        Tags are a space-separated string, not an array, so a lane is a
-        token within it. A task carrying two lane tags is malformed — the
-        board raises LANE_INVALID on write — so we surface it as None here
-        rather than silently picking one.
+    @property
+    def last_touched(self) -> str:
+        """When the human last changed this task, as an ISO 8601 string.
+
+        `updatedAt` is only set on edit, so a freshly captured task has none —
+        fall back to `createdAt`. ISO 8601 UTC strings compare correctly
+        lexicographically, which is all the settle-delay check needs.
+        """
+        return self.updated_at or self.created_at
+
+    def lane_tags(self, lanes: list[Lane]) -> list[str]:
+        """Every lane tag this task carries — normally zero or one.
+
+        Tags are one space-separated string, not an array, and a user is
+        free to add their own (`urgent`, `someday`) alongside a lane tag.
+        So "has no lane" and "has no tags" are different questions, and
+        conflating them strands any task the human labelled by hand.
         """
         known = {ln.tag for ln in lanes}
-        found = [t for t in self.tag.split() if t in known]
+        return [t for t in self.tag.split() if t in known]
+
+    def lane(self, lanes: list[Lane]) -> Optional[str]:
+        """The task's lane, or None if it has zero or several.
+
+        A task carrying two lane tags is malformed — the board raises
+        LANE_INVALID on write — so we surface None rather than silently
+        picking one. Use `lane_tags()` to tell the two None cases apart.
+        """
+        found = self.lane_tags(lanes)
         return found[0] if len(found) == 1 else None
 
 
@@ -260,13 +289,35 @@ class BoardSnapshot:
     def is_automation(self) -> bool:
         return bool(self.lanes)
 
+    @property
+    def active_tasks(self) -> list[BoardTask]:
+        """Tasks that still exist as work.
+
+        Completed and Deleted tasks are archived, not removed, so they come
+        back in the board read. Everything that selects work must start here.
+        """
+        return [t for t in self.tasks if t.is_active]
+
     def tasks_in(self, lane_tag: str) -> list[BoardTask]:
-        return [t for t in self.tasks if t.lane(self.lanes) == lane_tag]
+        return [t for t in self.active_tasks if t.lane(self.lanes) == lane_tag]
 
     def untagged(self) -> list[BoardTask]:
-        """Inbox tasks — raw capture that hasn't entered a lane yet."""
-        return [t for t in self.tasks if t.lane(self.lanes) is None
-                and not any(t.tag.split())]
+        """Inbox tasks — capture that hasn't entered a lane yet.
+
+        "No LANE tag", not "no tags". A task the human labelled `urgent`
+        is still raw Inbox capture; treating it as tagged would make it
+        invisible to every branch of selection and strand it silently.
+        """
+        return [t for t in self.active_tasks if not t.lane_tags(self.lanes)]
+
+    def malformed(self) -> list[BoardTask]:
+        """Tasks carrying two or more lane tags.
+
+        A write would fail LANE_INVALID, so a human has to repair them.
+        Surfaced so a board that looks idle can say why it isn't.
+        """
+        return [t for t in self.active_tasks
+                if len(t.lane_tags(self.lanes)) > 1]
 
     def any_claim_live(self) -> bool:
         """True if any task on this board is claimed.
@@ -277,7 +328,7 @@ class BoardSnapshot:
         sit in an `agent` lane with an expired claim — which is exactly why
         the server hands us a per-task `claimed` flag.
         """
-        return any(t.claimed for t in self.tasks)
+        return any(t.claimed for t in self.active_tasks)
 
 
 def _lane_from(d: dict) -> Lane:
@@ -297,6 +348,9 @@ def _task_from(d: dict) -> BoardTask:
         tag=d.get("tag") or "",
         metadata=d.get("metadata") or {},
         claimed=bool(d.get("claimed")),
+        state=d.get("state") or "Active",
+        created_at=d.get("createdAt") or "",
+        updated_at=d.get("updatedAt") or "",
         raw=d,
     )
 

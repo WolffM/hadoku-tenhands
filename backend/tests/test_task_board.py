@@ -368,3 +368,46 @@ def test_unparseable_error_body_still_raises_by_status():
     c = client(FakeResponse(503, None, bad_json=True))
     with pytest.raises(TaskBoardUnavailable):
         c.get_board("h1")
+
+
+def test_untagged_means_no_lane_tag_not_no_tags():
+    """A task the human labelled `urgent` is still raw Inbox capture. An
+    earlier version tested "no tags at all", which stranded any hand-labelled
+    task: it had no lane, wasn't untagged, and so was invisible to every
+    branch of selection."""
+    payload = json.loads(json.dumps(BOARD_PAYLOAD))
+    payload["tasks"][2]["tag"] = "urgent someday"
+    c = client(FakeResponse(200, payload))
+    b = c.get_board("h1")
+    assert [t.id for t in b.untagged()] == ["t3"]
+    assert b.malformed() == []
+
+
+def test_malformed_is_two_lane_tags_only():
+    payload = json.loads(json.dumps(BOARD_PAYLOAD))
+    payload["tasks"][0]["tag"] = "approved working"
+    payload["tasks"][2]["tag"] = "urgent"
+    c = client(FakeResponse(200, payload))
+    b = c.get_board("h1")
+    assert [t.id for t in b.malformed()] == ["t1"]
+
+
+def test_lane_tags_exposes_the_ambiguity_lane_hides():
+    payload = json.loads(json.dumps(BOARD_PAYLOAD))
+    payload["tasks"][0]["tag"] = "approved working"
+    c = client(FakeResponse(200, payload))
+    b = c.get_board("h1")
+    t = b.tasks[0]
+    assert t.lane(b.lanes) is None
+    assert t.lane_tags(b.lanes) == ["approved", "working"]
+
+
+def test_archived_tasks_are_excluded_from_every_selector():
+    payload = json.loads(json.dumps(BOARD_PAYLOAD))
+    payload["tasks"][0]["state"] = "Completed"
+    payload["tasks"][1]["state"] = "Deleted"
+    c = client(FakeResponse(200, payload))
+    b = c.get_board("h1")
+    assert [t.id for t in b.active_tasks] == ["t3"]
+    assert b.tasks_in("approved") == []
+    assert b.any_claim_live() is False, "the claimed task was deleted"
