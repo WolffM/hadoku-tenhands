@@ -1,6 +1,6 @@
 # First autonomous run — 2026-07-25
 
-**Five commits reached `WolffM/tenhands` `main` with no human in the loop**, each
+**Six commits reached `WolffM/tenhands` `main` with no human in the loop**, each
 planned, implemented, gated, merged, deployed and health-watched by the pipeline.
 
 | sha | task, as typed on the board |
@@ -10,6 +10,7 @@ planned, implemented, gated, merged, deployed and health-watched by the pipeline
 | `fd06068` | remove the unused safe_error_message import from backend/routes/oss_routes_stage5.py |
 | `9a88c43` | drop the unused flask request import from backend/routes/debug/health_routes.py |
 | `5fbd8ff` | remove the two unused imports validate_required_fields and safe_error_message from backend/routes/oss_routes_stage3.py |
+| `028e3dd` | remove the unused safe_error_message import from backend/routes/action_routes.py — **landed from the real shared board** |
 
 Every one gated on the **full 1240-test suite passing on the merge result** — the
 branch with current `origin/main` merged in, not the branch in isolation. That
@@ -80,18 +81,24 @@ While the claim was still live, selection correctly refused to touch it
 
 ## Findings that block or matter
 
-### 1. A contributor cannot read tasks on a shared board — **blocking**
+### 1. ~~A contributor cannot read tasks on a shared board~~ — **RETRACTED, my error**
 
-`GET /boards/:ref` resolves the board config to `ctx.ownerId` but reads tasks
-with `getTasks(userType, ctx.auth.sessionId, boardId)`, which scopes on
-`user_id = sessionId` (`worker/src/routes/d1-storage.ts:324-340`).
+Reported here initially as a blocking hadoku-task bug. It is not a bug.
 
-So a contributor sees the **owner's lanes and its own task list**. On the real
-shared board (`MRZX1I6DO8SW07OOKKFAC9L103`) the runner reads zero tasks while
-`GET /boards` shows one. The pipeline can never see the work it is meant to do.
+I addressed the board by its **slug** (`boardId: "tenhands"`) instead of its
+**handle**. Slugs are per-user display names, so the write landed in tenhands'
+own namespace under a colliding id, and the hydrated read of the *shared* board
+correctly showed the owner's zero tasks. Their doc says exactly this — *"handle
+is a globally unique ULID, not the board's slug — slugs are display names and
+collide across users"* — and I read past it, then built a code-level theory
+(`d1-storage.ts:324`) that fit the symptom without checking the premise.
 
-Everything above ran on a board tenhands *owns*, where caller == owner and the
-bug doesn't bite. **This must be fixed before the shared board is usable.**
+`getBoardContext` rewrites `auth.sessionId` to the owner and `handleBoardOperation`
+passes the owner's resolved board id, so both read and write resolve through
+sharing properly. Verified by creating a task via the handle and reading it back
+immediately, then running a full landing from the shared board (`028e3dd`).
+
+**Lesson worth keeping: address boards by handle, never by slug.**
 
 ### 2. `pnpm run test:e2e` never worked from a clean checkout
 
