@@ -432,3 +432,47 @@ def test_key_omitted_entirely_does_read_the_environment(monkeypatch):
                         transport=Recorder(FakeResponse(200, BOARD_PAYLOAD)))
     c.get_board("h1")
     assert c._transport.calls[0]["headers"]["X-User-Key"] == "from-env"
+
+
+def test_ambient_key_prefers_the_environment(monkeypatch):
+    """Production supplies it via the pm2 wrapper's env; the repo key file is
+    the local-dev fallback, not the primary source."""
+    from services import task_board as tb
+    monkeypatch.setenv("HADOKU_TASK_KEY", "from-env")
+    assert tb._ambient_key() == "from-env"
+
+
+def test_ambient_key_falls_back_to_the_repo_key_file(monkeypatch, tmp_path):
+    from services import task_board as tb
+    monkeypatch.delenv("HADOKU_TASK_KEY", raising=False)
+    keyfile = tmp_path / ".devvault.local.json"
+    keyfile.write_text('{"key": "from-file"}')
+    assert tb._ambient_key(keyfile) == "from-file"
+
+
+def test_the_real_default_keyfile_points_at_the_repo_root(monkeypatch):
+    """Pins the parents[2] arithmetic — an off-by-one here would silently
+    fall back to no credential rather than fail loudly."""
+    from services import task_board as tb
+    assert tb._default_keyfile().name == ".devvault.local.json"
+    assert (tb._default_keyfile().parent / "backend").is_dir()
+
+
+@pytest.mark.parametrize("content", [
+    "not json at all", "{}", '{"key": ""}', '{"nope": "x"}', "[]",
+])
+def test_ambient_key_is_empty_on_unusable_keyfile(monkeypatch, tmp_path, content):
+    """Must return "" rather than raising, so the client produces its own
+    actionable message instead of a stray parse error from a file the caller
+    never knew it was reading."""
+    from services import task_board as tb
+    monkeypatch.delenv("HADOKU_TASK_KEY", raising=False)
+    keyfile = tmp_path / ".devvault.local.json"
+    keyfile.write_text(content)
+    assert tb._ambient_key(keyfile) == ""
+
+
+def test_ambient_key_is_empty_when_the_keyfile_is_missing(monkeypatch, tmp_path):
+    from services import task_board as tb
+    monkeypatch.delenv("HADOKU_TASK_KEY", raising=False)
+    assert tb._ambient_key(tmp_path / "nope.json") == ""

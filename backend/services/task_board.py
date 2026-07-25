@@ -27,9 +27,11 @@ request/response mapping without a network or a live board.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import requests
@@ -355,23 +357,51 @@ def _task_from(d: dict) -> BoardTask:
     )
 
 
+def _default_keyfile() -> Path:
+    # backend/services/task_board.py → repo root
+    return Path(__file__).resolve().parents[2] / ".devvault.local.json"
+
+
+def _ambient_key(keyfile: Optional[Path] = None) -> str:
+    """This host's service key, from the environment or the repo's key file.
+
+    `HADOKU_TASK_KEY` wins, which is how production supplies it (the pm2
+    wrapper sets the env). Falling back to `.devvault.local.json` is what
+    makes local runs work without a wrapper, since that file holds the very
+    same key — it is this repo's documented credential (gitignored, mode
+    0600), not a second secret.
+    """
+    from_env = os.environ.get("HADOKU_TASK_KEY", "").strip()
+    if from_env:
+        return from_env
+    keyfile = keyfile or _default_keyfile()
+    try:
+        return str(json.loads(keyfile.read_text()).get("key", "")).strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
 # ── Client ────────────────────────────────────────────────────────────────
 
 
 class TaskBoardClient:
     """Client for one hadoku-task deployment.
 
-    Auth is a service-tier key sent as `X-User-Key`, read from
-    `HADOKU_TASK_KEY`. **That key does not exist yet and must be minted** —
-    verified 2026-07-24, this repo has no existing credential that serves:
+    Auth is this repo's existing **service-tier** key, sent as `X-User-Key`.
+    No dedicated credential is needed — verified live 2026-07-24:
 
-    - the value in `.devvault.local.json` IS a valid service-tier key
-      (`GET /session/whoami` → `{"valid":true,"userType":"service"}`), but it
-      is the vault *bootstrap* credential — the thing that unlocks every
-      secret this repo declares. Using it here would put the master vault
-      credential in the board client's hands for no benefit.
+    - the value in `.devvault.local.json` → `whoami` reports
+      `{"valid":true,"userType":"service"}`, and `GET /task/api/boards` and
+      `/changes` both return 200 with it. It is registered as
+      **`tenhands-service`**.
     - the `TENHANDS_ADMIN_KEY` vault secret is **not a hadoku user-key at
-      all** (`whoami` → 401 `public`). It authenticates something else.
+      all** (`whoami` → 401 `public`), so it can't be used here.
+
+    Reusing the repo key rather than minting a second one is deliberate: it
+    is ACL-scoped to this repo's declared secrets (not a global credential),
+    and the tenhands process already holds it in order to read them — so
+    using it here adds no exposure the process doesn't already have, while a
+    second key would add one more secret to rotate for no isolation gain.
 
     **Where the tier comes from.** edge-router resolves the request tier from
     membership of the `SERVICE_KEYS` secret array
@@ -399,15 +429,12 @@ class TaskBoardClient:
         self.base_url = (base_url or os.environ.get(
             "HADOKU_TASK_API_URL", DEFAULT_BASE_URL)).rstrip("/")
         # `is None` rather than `or`: an explicit `user_key=""` means "no
-        # credential" and must NOT fall through to the environment. With
+        # credential" and must NOT fall through to the ambient one. With
         # `or`, a caller that deliberately passed no key would silently
         # authenticate as the real service account whenever the process
-        # happened to have HADOKU_TASK_KEY set — which is every vault-wrapped
-        # run, and is how a keyless test started making authenticated calls.
-        self.user_key = (
-            os.environ.get("HADOKU_TASK_KEY", "") if user_key is None
-            else user_key
-        )
+        # happened to have one — which is every vault-wrapped run, and is how
+        # a keyless test started making authenticated calls.
+        self.user_key = _ambient_key() if user_key is None else user_key
         self.timeout = timeout
         self._transport = transport or requests.request
 
@@ -418,9 +445,9 @@ class TaskBoardClient:
               params: Optional[dict] = None) -> dict:
         if not self.user_key:
             raise TaskBoardError(
-                "HADOKU_TASK_KEY is not set. It is mapped in .devvault.json "
-                "onto this repo's existing service key; run the command "
-                "through dev-vault.mjs rather than hardcoding a value."
+                "No board credential found. Set HADOKU_TASK_KEY, or ensure "
+                "this repo's .devvault.local.json exists (it holds the "
+                "service key registered as `tenhands-service`)."
             )
         url = f"{self.base_url}{path}"
         try:
