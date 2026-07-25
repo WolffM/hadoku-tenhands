@@ -361,21 +361,31 @@ def _task_from(d: dict) -> BoardTask:
 class TaskBoardClient:
     """Client for one hadoku-task deployment.
 
-    Auth is a service-tier key sent as `X-User-Key`.
+    Auth is a service-tier key sent as `X-User-Key`, read from
+    `HADOKU_TASK_KEY`. **That key does not exist yet and must be minted** —
+    verified 2026-07-24, this repo has no existing credential that serves:
 
-    **Where the tier actually comes from.** edge-router resolves the request
-    tier from membership of the `SERVICE_KEYS` secret array
-    (`authGate.ts::resolveCallerTier`) and stamps it as `X-Hadoku-Tier`;
-    task-api trusts that header and never consults a registry itself. So the
-    600/min service bucket follows from the key being a `SERVICE_KEYS`
-    member — which this repo's existing key already is — and *not* from the
-    `key:{rawKey}` registry row that `POST /session/admin/keys` writes.
+    - the value in `.devvault.local.json` IS a valid service-tier key
+      (`GET /session/whoami` → `{"valid":true,"userType":"service"}`), but it
+      is the vault *bootstrap* credential — the thing that unlocks every
+      secret this repo declares. Using it here would put the master vault
+      credential in the board client's hands for no benefit.
+    - the `TENHANDS_ADMIN_KEY` vault secret is **not a hadoku user-key at
+      all** (`whoami` → 401 `public`). It authenticates something else.
+
+    **Where the tier comes from.** edge-router resolves the request tier from
+    membership of the `SERVICE_KEYS` secret array
+    (`authGate.ts::resolveCallerTier`) and stamps `X-Hadoku-Tier`; task-api
+    trusts that header and never consults the key registry. So the 600/min
+    bucket follows from `SERVICE_KEYS` membership, *not* from the
+    `key:{rawKey}` registry row `POST /session/admin/keys` writes.
 
     That registry row is still needed, for a different reason: board sharing
-    resolves a grantee to a `userId`, and a machine key that never signs in
-    has none until an admin mints one. Without it the board cannot be shared
-    with us at all — which surfaces here as `BOARD_NOT_FOUND`, not as a
-    permissions error.
+    resolves a grantee to a `userId`, which is lazily minted on first sign-in
+    (`upsertKeyRecord`). A key that has never signed in has none, so a board
+    cannot be shared with it — surfacing here as `BOARD_NOT_FOUND`, not as a
+    permissions error. Calling `POST /session/create` with the key once both
+    mints that `userId` and sets the display name.
     """
 
     def __init__(
