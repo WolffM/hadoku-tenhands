@@ -10,11 +10,15 @@ suite — and stops before the push unless `TASKAUTO_LIVE=1`. Deploying an
 always-on process that merges to `main` should be a deliberate act, not a
 side effect of a deploy landing, so arming it is one explicit env var.
 
-Configuration (all via the pm2 wrapper's vault mapping):
+**Boards are discovered, not configured.** Any board shared with this key
+that has been activated with a lane set and records a repo is driven —
+granting the key `contributor` on an automation board IS the act of
+enrolling it. A configured list would have to be kept in step by hand, and
+its drift is silent: a new board nobody wired up sits unwatched, and a
+stale handle makes the service idle against nothing while looking healthy.
 
-    TASKAUTO_BOARDS   comma-separated board handles. Required; the service
-                      exits rather than guessing, because a wrong handle
-                      would silently watch nothing.
+Configuration:
+
     TASKAUTO_LIVE     "1" to actually push. Anything else is a dry run.
     HADOKU_TASK_KEY   service-tier key for the board API.
 """
@@ -76,13 +80,8 @@ def _git(argv):
     return CmdResult(p.returncode == 0, p.stdout, p.stderr)
 
 
-def build_runner(client: TaskBoardClient, handle: str, *, live: bool) -> Runner:
-    board = client.get_board(handle)
-    if not board.repo:
-        raise SystemExit(
-            f"board {handle} has no `repo` set — cannot map it to a checkout. "
-            f"Re-activate it with `repo` in the payload.")
-
+def build_runner(client: TaskBoardClient, board, *, live: bool) -> Runner:
+    handle = board.handle
     policy = POLICIES.get(board.repo, RepoPolicy())
     health_url, _ = HEALTH.get(board.repo, ("", ""))
     checkouts = CheckoutManager()
@@ -110,14 +109,6 @@ def main() -> int:
         level=os.environ.get("TASKAUTO_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
 
-    handles = [h.strip() for h in
-               os.environ.get("TASKAUTO_BOARDS", "").split(",") if h.strip()]
-    if not handles:
-        logger.error("TASKAUTO_BOARDS is empty — nothing to watch. Set it to a "
-                     "comma-separated list of board handles (the ULID, not the "
-                     "slug: slugs are per-user and collide).")
-        return 2
-
     if not _ambient_key():
         logger.error("No board credential. Set HADOKU_TASK_KEY.")
         return 2
@@ -128,20 +119,33 @@ def main() -> int:
                    "DRY RUN: will verify but not push (set TASKAUTO_LIVE=1 to arm)")
 
     client = TaskBoardClient()
+    boards = client.automation_boards()
+    if not boards:
+        logger.error("no automation boards are shared with this key. Share one "
+                     "at `contributor` and activate it; nothing else is needed.")
+        return 2
 
-    # One unusable board must not crashloop the service. pm2 restarts on
-    # exit, so an exception here becomes a restart loop that watches nothing
-    # — including the boards that were fine.
-    runners = {}
-    for handle in handles:
+    # Two boards driving one repo would land into the same checkout
+    # concurrently, and two commits inside one prod-watch window cannot be
+    # attributed if health goes red. Almost certainly a mistake, so say so
+    # loudly and drive the first rather than silently doing both.
+    runners, claimed_repos = {}, {}
+    for board in boards:
+        if board.repo in claimed_repos:
+            logger.error("board %s (%s) drives %s, already driven by %s — "
+                         "skipping it. One board per repo.",
+                         board.handle[:10], board.name, board.repo,
+                         claimed_repos[board.repo])
+            continue
         try:
-            runners[handle] = build_runner(client, handle, live=live)
+            runners[board.handle] = build_runner(client, board, live=live)
+            claimed_repos[board.repo] = board.name
         except Exception as e:
             logger.error("skipping board %s: %s: %s",
-                         handle, type(e).__name__, e)
+                         board.handle[:10], type(e).__name__, e)
+
     if not runners:
-        logger.error("no usable boards out of %d configured — exiting rather "
-                     "than idling forever against nothing", len(handles))
+        logger.error("no usable boards out of %d discovered", len(boards))
         return 2
 
     Scheduler(client=client, boards=list(runners),
