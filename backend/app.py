@@ -150,10 +150,19 @@ try:
 except ImportError:
     from middleware.whoami import resolve_tier_from_key
 
-# Unauthenticated by design: the API-info root and the health endpoint are hit
-# directly by the monitoring probe (dispatch.hadoku.me/ and /tenhands/api/
-# healthcheck) and must stay reachable with no key, or the watchdog flaps.
-_PUBLIC_PATHS = frozenset({"/", f"{URL_PREFIX}/api/healthcheck"})
+# Unauthenticated by design:
+#   - the API-info root and the health endpoint are hit directly by the
+#     monitoring probe (dispatch.hadoku.me/ and /tenhands/api/healthcheck) and
+#     must stay reachable with no key, or the watchdog flaps;
+#   - /automation/presets publishes our lane vocabulary to hadoku-task, which
+#     fetches it server-side with no credential. A lane set is public
+#     information — there is nothing in it to leak — and putting it behind a
+#     key would mean shipping them one. See routes/automation_routes.py.
+_PUBLIC_PATHS = frozenset({
+    "/",
+    f"{URL_PREFIX}/api/healthcheck",
+    f"{URL_PREFIX}/automation/presets",
+})
 
 
 @app.before_request

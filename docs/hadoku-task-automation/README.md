@@ -65,7 +65,9 @@ a phone is miserable; reading a plan and answering three questions is not.
 
 Eight lanes, three of them `agent`. The board is [hadoku-task](https://hadoku.me/task); the
 contract is [board-contract.md](board-contract.md); the activation payload is
-[schemas/autoland-v1.json](schemas/autoland-v1.json). Intake is §1.1, the planning loop §1.2.
+[schemas/autoland-v1.json](schemas/autoland-v1.json), which we also publish for hadoku-task to
+fetch ([preset-endpoint.md](preset-endpoint.md)) so nobody keeps a pasted copy of it.
+Intake is §1.1, the planning loop §1.2.
 
 **One board per repo.** Board identity is repo identity — the board carries `repo` in its
 activation payload, so a runner maps board → checkout without parsing display names, and the
@@ -529,7 +531,9 @@ Seven commits have reached `main` autonomously — see
 
 **How to run it.** Boards are discovered, not configured: share a board with the
 service key at `contributor`, activate it with
-[schemas/autoland-v1.json](schemas/autoland-v1.json), and it gets driven.
+[schemas/autoland-v1.json](schemas/autoland-v1.json) — or, once hadoku-task points at
+[our preset endpoint](preset-endpoint.md), pick *TenHands · Autoland* from their picker
+and skip the paste — and it gets driven.
 
 ```
 node ../hadoku_site/scripts/secrets/dev-vault.mjs -- \
