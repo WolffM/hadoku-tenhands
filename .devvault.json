@@ -5,5 +5,7 @@
   "TENHANDS_ADMIN_KEY": "TENHANDS_ADMIN_KEY",
   "SAML_ORG_TOKEN": "SAML_ORG_TOKEN",
   "HADOKU_SITE_TOKEN": "HADOKU_SITE_TOKEN",
-  "CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN"
+  "CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN",
+  "//hadoku-task": "Service-tier key for the hadoku-task board API, read by services/task_board.py. Must be registered on the board side as tier:'service' (POST /session/admin/keys) or it degrades to the 60/min public throttle and gets blacklisted after 3 violations.",
+  "HADOKU_TASK_KEY": "HADOKU_TASK_KEY"
 }
