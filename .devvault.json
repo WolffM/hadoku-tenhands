@@ -6,6 +6,6 @@
   "SAML_ORG_TOKEN": "SAML_ORG_TOKEN",
   "HADOKU_SITE_TOKEN": "HADOKU_SITE_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN",
-  "//hadoku-task": "Service-tier key for the hadoku-task board API, read by services/task_board.py. Must be registered on the board side as tier:'service' (POST /session/admin/keys) or it degrades to the 60/min public throttle and gets blacklisted after 3 violations.",
-  "HADOKU_TASK_KEY": "HADOKU_TASK_KEY"
+  "//hadoku-task": "Board API credential for services/task_board.py. Deliberately mapped to the EXISTING TENHANDS_ADMIN_KEY rather than a new secret: edge-router derives the request tier from SERVICE_KEYS array membership (authGate.ts resolveCallerTier -> X-Hadoku-Tier), and that key is already a SERVICE_KEYS member, so it already gets the 600/min service bucket. A second key would add a secret to rotate without narrowing blast radius — both would live in the same process on the same host.",
+  "HADOKU_TASK_KEY": "TENHANDS_ADMIN_KEY"
 }
