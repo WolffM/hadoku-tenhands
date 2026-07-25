@@ -13,10 +13,10 @@ from . import bp
 
 try:
     from ..services import run_gh_command, get_workflow_runs
-    from ..helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message, error_response
+    from ..helpers.validation import validate_owner, validate_repo_name, validate_required_fields, error_response
 except ImportError:
     from services import run_gh_command, get_workflow_runs
-    from helpers.validation import validate_owner, validate_repo_name, validate_required_fields, safe_error_message, error_response
+    from helpers.validation import validate_owner, validate_repo_name, validate_required_fields, error_response
 
 
 @bp.route("/api/assign-copilot", methods=["POST"])
