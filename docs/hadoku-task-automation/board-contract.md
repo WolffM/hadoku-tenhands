@@ -3,9 +3,15 @@
 **Re:** `docs/planning/tenhands-board-schema.md` @ `5989a0d`, §9.
 **From:** TenHands. **Date:** 2026-07-24.
 
+> **Superseded 2026-07-24 — everything in §4 shipped the same day.** Kept as the design review and
+> the record of what was asked. §1 has been updated with the as-shipped API and is the part still
+> worth reading; §4's asks are annotated with what landed. The one outstanding request has moved to
+> [ask-share-by-name.md](ask-share-by-name.md), and current build state is in
+> [README.md](README.md) §7.
+
 We read your code before writing this, not just the doc — findings in §1, and several of the
-questions we were going to ask turned out to be already answered there. Two asks are blocking (§4.1,
-§4.2); everything else is confirmation or a nice-to-have.
+questions we were going to ask turned out to be already answered there. Two asks were blocking
+(§4.1, §4.2); everything else was confirmation or a nice-to-have.
 
 Our pipeline is [hadoku-task-automation](README.md). It runs the **same engine** as crimson-kitty —
 the OSS-contribution pipeline your doc inferred lane names from — with two ends swapped: the board
@@ -114,7 +120,7 @@ sub-changes and landing is all-or-nothing per task.
 
 ## 4. What we need from you
 
-### 4.1 A cancel path — **blocking**
+### 4.1 A cancel path — ~~blocking~~ ✅ shipped as `POST /agent/cancel` (owner-only; we see it as `LEASE_LOST`)
 
 **There is no way to stop in-flight work**, and — we checked — your design doc doesn't describe one
 either. The only documented ways a claim ends are a voluntary `release` or lease expiry. Once we
@@ -134,7 +140,7 @@ No new error code, no new state. In the UI it's "release this task" on your own 
 `cancelRequested` flag surfaced in the heartbeat response would work identically; force-drop is just
 cheaper for both of us.
 
-### 4.2 `GET /boards/{handle}` — **blocking**, and it's already promised
+### 4.2 `GET /boards/{handle}` — ~~blocking~~ ✅ shipped as `GET /boards/:ref`, with `repo` and per-task `claimed`
 
 Your doc names this our read primitive and explicitly says never to call `GET /boards`. It isn't
 built — `GET /boards` is currently the only board read, and it returns no hydrated tasks. We're
@@ -151,7 +157,7 @@ Two things we need in the response when it lands:
   Without a claim flag we'd be inferring "someone is working" from lane membership, which is wrong in
   exactly the case that matters — a task in an `agent` lane whose claim already expired.
 
-### 4.3 Poll budget, given real rate limits
+### 4.3 Poll budget — ✅ service tier now 600/min, and the 429 carries `code`
 
 Your throttle is 120/min for a friend-tier session and auto-blacklists after 3 violations. That's
 plenty for one runner polling one board, but we'd rather agree a number than discover the ceiling in
@@ -162,7 +168,7 @@ mistake expensive, so we'd like it in writing.
 Also: the 429 body has no machine-readable `code`. We'll branch on HTTP 429 + `retryAfter` rather
 than a code string. Flag it if you plan to add one, so we don't hardcode the shape.
 
-### 4.4 Can a claim holder write `Task.metadata`?
+### 4.4 Can a claim holder write `Task.metadata`? — ✅ yes, `release` accepts `metadata`
 
 We need to persist a **Temporal workflow ID** on the task, so a tenhands restart re-correlates a
 claimed task to its in-flight workflow instead of starting a duplicate.
@@ -175,7 +181,7 @@ answer is no, an optional `metadata` merge on `set-lane` or `release` covers us.
 
 (We're not asking to write metadata without a claim. That should stay refused.)
 
-### 4.5 Machine-readable contract, so this stays api-to-api
+### 4.5 Machine-readable contract — ⬜ still open, still the highest-leverage item
 
 The strong preference on our side is that tenhands and hadoku-task talk **API to API**, with as
 little hand-maintained translation as possible. You already have zod schemas as the source of truth;
@@ -190,7 +196,7 @@ hand-transcribing your schemas into Python and finding drift at runtime.
 This is the highest-leverage non-blocking thing on the list. It turns every future change to the
 task shape into a regenerate-and-typecheck instead of a doc read.
 
-### 4.6 `landed` accumulates and we can't clear it
+### 4.6 `landed` accumulates — ✅ `release` accepts `complete: true`, which archives the task
 
 Your §7 is clear that `complete_task` / `delete_task` are human actions. Understood, and we're not
 asking you to relax it lightly — but `landed` is a **notification lane, not an approval queue**, and
@@ -211,7 +217,9 @@ Options in our order of preference, **none blocking**:
 
 Explicitly, so you don't build it:
 
-- **No change feed / webhooks for v1.** Polling one board per repo is cheap. See §4.3.
+- ~~**No change feed / webhooks for v1.**~~ You built one anyway (`GET /changes?since=`), and on
+  reflection we'll take it — polling one board per repo is cheap, but a cursor feed is cheaper once
+  more than a couple of repos are automated.
 - **No `/eligible` endpoint.** Agreed with your reasoning — eligibility is pipeline knowledge.
 - **No task splitting or child-task creation.** Tasks arrive atomic; §3.
 - **No board *creation* by us.** A human creating a board per repo is fine. We do want an

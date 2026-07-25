@@ -114,10 +114,14 @@ reproduce.
 `hide 'generating with GLM-5'` through a plan-review round trip is pure friction — there is nothing
 to ask. So intake sorts each item onto one of two paths:
 
-| | Fast path — straight to `working` | Conversation path — via `plan-review` |
+| | Fast path — released straight to `approved` | Conversation path — via `plan-review` |
 |---|---|---|
 | Looks like | names its own target, one obvious change, small blast radius, no taste involved | vague, subjective, large, or several plausible readings |
 | From your examples | `make coffee theme default`, `hide 'generating with GLM-5'`, `needs starter prompt instead of "the stage is yours. make your move."` (quotes the exact current string — greppable) | `too much wooshing`, `redo the profile feature so it actually works`, `reorganize categories, interesting stuff front and center` |
+
+The fast path releases to `approved` rather than jumping into `working` directly. `approved` is a
+`user` lane, so an auto-approval is *visible* on the board and the ordinary claim-from-approved path
+picks it up — one mechanism, no special case, and you can see what got waved through.
 
 A fast-path task that fails its gates falls back to the conversation path rather than straight to
 `stalled` — the pipeline's confidence that something was trivial is itself a guess worth revisiting.
@@ -427,26 +431,33 @@ rather than bolting on a restriction.
 
 ---
 
-## 5. Two pipelines, one gate registry
+## 5. Two pipelines, one gate registry — **shipped**
 
-`gates/__init__.py` holds `_registry` as a module-level list, and `run_gates(state, ...)` filters it
-by state name only. Two pipelines importing gate modules into one worker process would cross-fire:
-a state named `fixed` exists in both, and crimson-kitty's `submission` gates would run against a
+`gates/__init__.py` held `_registry` as a module-level list and `run_gates(state, …)` filtered it by
+state name only. Two pipelines importing gate modules into one worker process would cross-fire: a
+state named `fixed` exists in both, and crimson-kitty's `submission` gates would have run against a
 task that has no upstream.
 
-Before any gate code lands, `gate()` and `run_gates()` take a **pipeline namespace**:
+Every registration and lookup now names its pipeline:
 
 ```python
-@gate(pipeline="taskauto", after="fixed", kind="mechanical")
-def blast_radius_respected(task, evidence) -> GateResult: ...
+@gate(pipeline=TASK_AUTOMATION, after="fixed", kind="mechanical")
+def protected_paths_untouched(task, evidence) -> GateResult: ...
 ```
 
-Existing crimson-kitty gates default to `pipeline="crimson-kitty"`, so the change is mechanical and
-the current registry snapshot is unchanged. `registry_snapshot()` grows a pipeline column, which the
-retro tooling reads.
+**`pipeline` is a required keyword** on both `gate()` and `run_gates()`. The draft of this section
+proposed defaulting it to crimson-kitty so the change stayed mechanical; that was wrong, and it was
+the bug in miniature — a new gate that forgot the argument would have silently registered into the
+other pipeline and run against work it was never written for. All 18 crimson-kitty gates were
+updated explicitly instead, with a test pinning the exact `(state, name)` set so drift is caught.
 
-This is the one piece of shared code that must change before the new pipeline is safe to run in the
-same worker. It is not optional and it is not a later cleanup.
+`GateInput` *does* carry a default, deliberately: it crosses the Temporal serialization boundary, so
+a required field would fail to deserialize for workflows already in flight across a deploy.
+
+**One thing this turned up.** `_clear_registry_for_tests()` is destructive and *not* reversible by
+re-importing — `@gate` runs at module import and Python caches modules, so any test that cleared it
+left every later test looking at an empty registry. Latent until a test depended on real
+registrations. Replaced by `isolated_registry()`, which saves and restores.
 
 ---
 
@@ -468,23 +479,55 @@ is the point: the status view is something you can read on a phone.
 
 ## 7. Status
 
-Design. Nothing is built. hadoku-task's automation surface (activation, claim/lease runtime) is
-also not built — they are blocked on our answer, which is [board-contract.md](board-contract.md).
+**hadoku-task's side is live.** Activation, lane enforcement, the claim/lease runtime, sharing and
+an owner cancel path all shipped 2026-07-24. As-shipped call shapes are in
+[board-contract.md](board-contract.md) §1 — they differ from their design doc in two ways worth
+knowing: every agent endpoint takes `board` alongside `taskId`, and a change feed exists at
+`GET /changes` despite us saying not to build one.
 
-Build order, once the contract is agreed. Note how little of it is new pipeline and how much is
-adapters around the existing one:
+**Our side, against the build order below:**
+
+| Step | State |
+|---|---|
+| 1. Namespace the gate registry | ✅ shipped (§5) |
+| 2. `TaskSource` + board client | ✅ `services/task_board.py` + `taskauto/selection.py`. Verified live against the real API |
+| 3. `ProgressSink` seam | ⬜ not started |
+| 4. `TaskRef` + `ClaudeCodeAgent` | 🟡 `TaskRef` done (`taskauto/refs.py`); the agent is not started |
+| 5. Intake + planning | 🟡 `plan_notes`, `task_text`, and gates G2/G6 done; the planning stage itself is not |
+| 6. Middle: reuse as-is | ⬜ not started |
+| 7. `Landing` seam | ⬜ not started |
+
+So: **a task filed on a board will not move yet.** What exists is the read/claim path, the policy
+that decides what to pick up, the document the conversation runs in, and two gates.
+
+**Credential:** no dedicated key was needed. This repo's existing service-tier key is registered as
+`tenhands-service` and reaches `GET /task/api/boards` — details and the two wrong turns getting
+there are in `services/task_board.py`'s module docstring.
+
+**Blocked on a human, not on code:** a board has to be created, activated with
+[schemas/autoland-v1.json](schemas/autoland-v1.json) (`dryRun` → echo the `digest`), and shared with
+`tenhands-service` at `contributor`. Sharing still requires pasting a raw key — see
+[ask-share-by-name.md](ask-share-by-name.md). Then `scripts/taskauto_smoke.py <handle>` validates the
+whole read path, and `--claim <task-id>` the write path.
+
+### Build order
+
+Note how little is new pipeline and how much is adapters around the existing one:
 
 1. **Namespace the gate registry** (§5) — unblocks everything, touches crimson-kitty, do it first.
-2. **`TaskSource` seam + board client** — poll → claim → heartbeat → set-lane → release. The new
-   input end (§2).
+2. **`TaskSource` seam + board client** — poll → claim → heartbeat → set-lane → release (§2).
 3. **`ProgressSink` seam** — mirror each recorded transition onto a board lane. Additive to
    `_transition`; crimson-kitty gets a no-op sink and is otherwise untouched.
 4. **`TaskRef` + `ClaudeCodeAgent`** against the existing `Agent` protocol (§3).
-5. **Intake + planning** — split, triage, `actionability.py` with a new rubric, plus
-   `verification_possible`. The cheapest
-   place to stop a task, and the one that makes the phone loop work.
-6. **Middle: reuse as-is** — environment → repro → fix → verify. This is the step that should be
-   mostly configuration, and if it isn't, the seams in §2 are in the wrong place.
+5. **Intake + planning** — triage, `actionability.py` with a new rubric, `verification_possible`.
+   The cheapest place to stop a task, and the one that makes the phone loop work.
+6. **Middle: reuse as-is** — environment → repro → fix → verify. This step should be mostly
+   configuration; if it isn't, the seams in §2 are in the wrong place.
 7. **`Landing` seam** — merge, prod watcher, auto-revert (§4). The new output end.
 
-Steps 2, 3 and 7 are the actual new work. Step 6 is the test of whether this framing was right.
+Steps 3 and 7 are the substantial remaining work. Step 6 is the test of whether this framing was
+right.
+
+**Settle before step 4 ships:** §4.3 — headless Claude Code executes on the prod host beside the
+vault key and the `gh` token, and no gate constrains that, because gates inspect the diff after the
+process has already run.

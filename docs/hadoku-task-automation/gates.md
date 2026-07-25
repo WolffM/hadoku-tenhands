@@ -281,6 +281,33 @@ auth. A gate that actually failed is a fact; "this plan looked big" is a guess. 
 large diffs stall more often, that's a reason to tighten G5's caps at planning time — a smaller
 blast radius per task — rather than to add a reviewer at the end.
 
+## What's built
+
+| Gate | State |
+|---|---|
+| G2 `verification_possible` | ✅ `gates/taskauto/verification.py` |
+| G6 `protected_paths_untouched` | ✅ `gates/taskauto/protected_paths.py` |
+| G1, G3–G5, G7–G13 | ⬜ not started |
+
+Both landed gates registered under `TASK_AUTOMATION` in the namespaced registry
+([README.md](README.md) §5), with a test asserting crimson-kitty never runs them.
+
+Two things the implementation changed from what's described above, both because writing them out
+exposed a hole:
+
+- **`allow-protected` reads from two restricted sources, with different rules per source.** In
+  `notes` the directive must start a line, because notes run to kilobytes and may legitimately
+  discuss the deny-list. In a *title* it may appear anywhere — a title is one short human line with
+  no room for incidental prose, and a trailing directive is how it gets typed on a phone. Ignoring
+  it there would stall the task with no visible cause.
+- **G6 fails closed.** If `files_touched.txt` can't be read, "I don't know what changed" is a
+  failure. For a gate whose only job is bounding an unreviewed merge, an unknown is never a pass.
+
+And one bug worth remembering, because it failed in the dangerous direction: the path matcher used
+`path.lstrip("./")`, which strips a *character set* rather than a prefix — so
+`.github/workflows/deploy.yml` became `github/…` and `.devvault.json` became `devvault.json`. Every
+dotfile on the deny-list silently stopped matching. Regression tests now pin each one.
+
 ## Tuning
 
 Every threshold on this page is per-repo config, not a constant: G1's confidence bar, G5's file and
