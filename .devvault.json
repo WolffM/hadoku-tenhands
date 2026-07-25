@@ -6,6 +6,6 @@
   "TENHANDS_MSFT_SSO": "TENHANDS_MSFT_SSO",
   "HADOKU_SITE_TOKEN": "HADOKU_SITE_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN",
-  "//hadoku-task": "Board API credential for services/task_board.py. Deliberately mapped to the EXISTING TENHANDS_ADMIN_KEY rather than a new secret: edge-router derives the request tier from SERVICE_KEYS array membership (authGate.ts resolveCallerTier -> X-Hadoku-Tier), and that key is already a SERVICE_KEYS member, so it already gets the 600/min service bucket. A second key would add a secret to rotate without narrowing blast radius — both would live in the same process on the same host.",
-  "HADOKU_TASK_KEY": "TENHANDS_ADMIN_KEY"
+  "//hadoku-task": "services/task_board.py reads HADOKU_TASK_KEY. Intentionally NOT declared yet — the secret does not exist, and declaring an ungranted entry makes dev-vault refuse every command. Add the line below once the operator mints it. Verified 2026-07-24: TENHANDS_ADMIN_KEY is NOT a hadoku user-key (GET /session/whoami -> 401 public), so it cannot be reused for this.",
+  "//hadoku-task-todo": "\"HADOKU_TASK_KEY\": \"HADOKU_TASK_KEY\""
 }
