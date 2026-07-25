@@ -120,6 +120,27 @@ class ClaudeCodeAgent:
                            capture_output=True, text=True, check=False)
         return p.returncode == 0, p.stdout
 
+    def ask(self, checkout: Path, prompt: str, *,
+            timeout_s: Optional[int] = None) -> str:
+        """Run a read-only analysis pass and return what it said.
+
+        Planning reads a repo and writes a document; it has no business
+        editing files. Splitting this from `work` keeps the file-changing
+        capability out of the planning path entirely, rather than granting
+        it and hoping the prompt is obeyed.
+        """
+        args = [CLAUDE_BIN, "-p", "--model", self.model,
+                "--allowed-tools", "Read,Grep,Glob,Bash(git log:*),Bash(git show:*)"]
+        res = self.run(args, checkout, timeout_s or self.timeout_s,
+                       scrubbed_env(), stdin_text=prompt)
+        if res.timed_out:
+            raise AgentError(f"planning timed out after {timeout_s or self.timeout_s}s")
+        out = (res.stdout or "").strip()
+        if not out:
+            raise AgentError(
+                f"planning produced no output: {(res.stderr or '')[:300]}")
+        return out
+
     def work(self, checkout: Path, prompt: str) -> AgentOutcome:
         """Run the agent, then read the working tree to see what it did.
 

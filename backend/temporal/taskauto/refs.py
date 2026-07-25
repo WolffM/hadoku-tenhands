@@ -59,6 +59,16 @@ class RepoPolicy:
     max_files_changed: int = 20
     max_lines_changed: int = 600
 
+    #: The suite that must go green on the merge result before anything is
+    #: pushed. Empty means nothing verifies this repo's changes — allowed,
+    #: but the lander records it as a loud check rather than passing quietly.
+    test_command: tuple[str, ...] = ()
+
+    #: Where `test_command` runs, relative to the checkout root.
+    test_cwd: str = "."
+
+    base_branch: str = "main"
+
 
 @dataclass(frozen=True)
 class TaskRef:

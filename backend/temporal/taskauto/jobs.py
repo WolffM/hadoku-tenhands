@@ -1,0 +1,246 @@
+"""The two jobs a runner can dispatch: `plan` and `implement`.
+
+Each takes `(pickup, board, sink)` and returns `(destination_lane, notes,
+outcome)`. Raising is fine — the runner routes failures to `stalled` with the
+reason, so neither of these needs its own error handling for the unexpected.
+
+The split matters: **planning cannot edit files** (it uses the read-only
+agent call) and **implementing cannot decide whether the work was wanted**
+(that was settled when the human moved the task to `approved`). Keeping those
+capabilities apart is cheaper than granting both and relying on a prompt.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+from . import plan_notes, selection
+from .agent import ClaudeCodeAgent
+from .checkout import CheckoutManager
+from .landing import Lander, LandingRefused
+from .plan_notes import PlanDoc
+from .refs import RepoPolicy, TaskRef
+from .task_text import classify, strip_bug_prefix
+
+logger = logging.getLogger(__name__)
+
+PLAN_PROMPT = """\
+You are the planning step of an automated pipeline. A human typed one short
+task onto a board for the repo you are sitting in. Your job is to work out
+what they meant and write a plan — you must NOT edit any files.
+
+TASK TITLE: {title}
+KIND: {kind}
+{notes_block}
+Read enough of the repo to be concrete. Then reply with EXACTLY this markdown
+and nothing else:
+
+## What I think you want
+
+<one short paragraph, in their terms>
+
+## Plan
+
+1. <step>
+
+## Questions
+
+<numbered questions ONLY if you genuinely cannot proceed without an answer.
+If you have none, write exactly: _No open questions._>
+
+## How we'll know it worked
+
+- <an observable end state: a test that passes, a grep that matches, a
+  command whose output changes. {verify_hint}>
+
+## Blast radius
+
+- <each file you expect to touch, repo-relative>
+
+Rules:
+- Prefer asking to guessing. A wrong guess costs an unreviewed bad merge.
+- If the task appears ALREADY DONE, say so in "What I think you want" and put
+  the evidence in "How we'll know it worked", with no plan steps.
+- Keep the blast radius as small as honestly possible.
+"""
+
+IMPLEMENT_PROMPT = """\
+You are the implementation step of an automated pipeline, working in a
+checkout that is yours. Make the change described below. Nobody will review
+your diff before it merges, so correctness matters more than speed.
+
+TASK: {title}
+
+{plan}
+
+Rules:
+- Change ONLY what the plan's blast radius describes. Unrelated cleanup will
+  fail a gate and stall the task.
+- Do NOT commit, branch, push, or touch git at all — the pipeline commits.
+- Make the acceptance check under "How we'll know it worked" true.
+- If you conclude the change should not be made, make no edits and say why.
+"""
+
+
+def _task_ref(pickup, board, policy: Optional[RepoPolicy] = None) -> TaskRef:
+    return TaskRef(
+        repo_slug=board.repo,
+        board=board.handle or board.id,
+        task_id=pickup.task.id,
+        title=pickup.task.title,
+        # The claim-time snapshot: notes as they stood before we could write.
+        notes_at_claim=pickup.task.notes,
+        policy=policy or RepoPolicy(),
+    )
+
+
+def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
+                  *, base_branch: str = "main"):
+    """A `plan` job bound to a specific agent and checkout manager."""
+
+    def plan_job(pickup, board, sink):
+        checkout = checkouts.reset_to(board.repo, base_branch)
+        sink.heartbeat()
+
+        prior = plan_notes.parse(pickup.task.notes or "")
+        kind = classify(pickup.task.title)
+
+        if prior.pass_number >= plan_notes.MAX_PASSES:
+            # Converging is the point; a fourth round of questions is a sign
+            # the medium is wrong, not that one more question will help.
+            return (selection.LANE_STALLED,
+                    plan_notes.render(PlanDoc(
+                        understanding=prior.understanding,
+                        questions=prior.questions,
+                        plan=prior.plan,
+                        pass_number=prior.pass_number,
+                    )) + "\n_Planning hit its pass cap — this needs a laptop._\n",
+                    "plan:cap-reached")
+
+        notes_block = ""
+        if pickup.task.notes.strip():
+            notes_block = (
+                f"\nWHAT'S ALREADY IN THE TASK NOTES (including anything the "
+                f"human replied):\n---\n{pickup.task.notes.strip()}\n---\n")
+
+        raw = agent.ask(checkout, PLAN_PROMPT.format(
+            title=pickup.task.title,
+            kind="a bug report — it claims something is broken"
+                 if kind.is_bug else "a change request",
+            notes_block=notes_block,
+            verify_hint="For a bug, this is what shows it is broken TODAY."
+                        if kind.is_bug else
+                        "State it so it is unambiguously true or false.",
+        ))
+        sink.heartbeat()
+
+        doc = plan_notes.parse(raw)
+        doc.pass_number = prior.pass_number + 1
+        doc.settled = prior.settled
+
+        if not doc.plan and not doc.questions:
+            # Neither a plan nor a question. Usually "already done" — which we
+            # must never conclude unilaterally, so it goes to the human.
+            return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
+                    "plan:no-action-proposed")
+
+        if doc.has_open_questions:
+            return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
+                    "plan:questions")
+
+        if not doc.acceptance:
+            # G2: without an acceptance check there is nothing to verify, and
+            # "lands on green" would be an empty phrase.
+            doc.questions = ["How would you tell me this was fixed? I could "
+                             "not state an acceptance check for it."]
+            return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
+                    "plan:unverifiable")
+
+        # A plan with no questions and a real acceptance check. The human
+        # still sees it in plan-review before anything is built — the fast
+        # path in the design releases to `approved`, but that is a judgement
+        # this job is not yet trusted to make unattended.
+        return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
+                "plan:ready")
+
+    return plan_job
+
+
+def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
+                       lander: Lander, *, base_branch: str = "main",
+                       test_command=None, policy: Optional[RepoPolicy] = None,
+                       test_cwd: str = "."):
+    """An `implement` job. `lander.dry_run` decides whether it really pushes."""
+
+    def implement_job(pickup, board, sink):
+        task = _task_ref(pickup, board, policy)
+        checkout = checkouts.reset_to(board.repo, base_branch)
+        sink.heartbeat()
+
+        doc = plan_notes.parse(pickup.task.notes or "")
+        if not doc.plan:
+            return (selection.LANE_PLAN_REVIEW,
+                    plan_notes.render(PlanDoc(
+                        understanding="I was asked to implement this but the "
+                                      "notes carry no plan.",
+                        questions=["Should this go back through planning?"],
+                        pass_number=1)),
+                    "implement:no-plan")
+
+        outcome = agent.work(checkout, IMPLEMENT_PROMPT.format(
+            title=strip_bug_prefix(pickup.task.title),
+            plan=plan_notes.render(doc),
+        ))
+        sink.heartbeat()
+
+        if not outcome.made_changes:
+            return (selection.LANE_STALLED,
+                    plan_notes.render(PlanDoc(
+                        understanding="The agent made no changes.",
+                        questions=["It said:\n" + outcome.log[-1200:]],
+                        pass_number=1)),
+                    "implement:no-changes")
+
+        sink.lane(selection.LANE_LANDING)
+        try:
+            res = lander.land(
+                checkout, task,
+                branch=f"taskauto/{pickup.task.id[:12].lower()}",
+                message=_commit_message(pickup.task.title, doc),
+                changed_files=outcome.changed_files,
+                base=base_branch,
+                test_command=test_command,
+                test_cwd=test_cwd,
+            )
+        except LandingRefused as e:
+            return (selection.LANE_STALLED,
+                    plan_notes.render(PlanDoc(
+                        understanding="The change was built but refused at the "
+                                      "landing gate.",
+                        questions=[str(e)[:1500]],
+                        blast_radius=outcome.changed_files,
+                        pass_number=1)),
+                    "land:refused")
+
+        note = plan_notes.render(PlanDoc(
+            understanding=("Landed." if res.pushed else
+                           "Verified but NOT pushed (dry run)."),
+            plan=res.checks,
+            acceptance=doc.acceptance,
+            blast_radius=outcome.changed_files,
+            pass_number=1))
+        return ((selection.LANE_LANDED if res.pushed else selection.LANE_PLAN_REVIEW),
+                note,
+                f"landed:{res.commit_sha[:8]}" if res.pushed else "dry-run")
+
+    return implement_job
+
+
+def _commit_message(title: str, doc: PlanDoc) -> str:
+    subject = strip_bug_prefix(title).strip()
+    if len(subject) > 68:
+        subject = subject[:65].rstrip() + "…"
+    body = "\n".join(f"- {s}" for s in doc.plan[:8])
+    return f"{subject}\n\n{body}\n"
