@@ -4,6 +4,22 @@
 **Companion:** [`board-contract.md`](board-contract.md) is the full design review;
 [`schemas/autoland-v1.json`](schemas/autoland-v1.json) is the activation payload we want supported.
 
+> ## ✅ Resolved — 2026-07-24
+>
+> hadoku-task shipped all four blockers the same day. Kept as the record of
+> what was asked and why; **[`board-contract.md`](board-contract.md) §1 has the
+> as-shipped API**, which differs from what this doc assumed in two places
+> worth knowing:
+>
+> - **Every agent endpoint takes `board` alongside `taskId`** — not the
+>   `{taskId, lane?}` the design doc described.
+> - **A change feed shipped anyway** (`GET /changes?since=<updatedAt>,<id>`),
+>   despite §7 telling them not to build one. We'll use it once more than a
+>   couple of boards are automated.
+>
+> Still outstanding: the OpenAPI-from-zod ask (§5), which was never blocking,
+> and one operator action — registering our key as `tier: "service"`.
+
 We reviewed `docs/planning/tenhands-board-schema.md` @ `5989a0d` **and your code on `origin/main`**.
 The mechanism you designed works for us — activation payload, claim → heartbeat → set-lane →
 release, the error codes, `notes`. This doc is only the delta: things that must exist before we can

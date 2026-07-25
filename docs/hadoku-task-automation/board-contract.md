@@ -20,7 +20,26 @@ a phone, and the claim is the lock that keeps two of our runners off one task.
 
 ## 1. What we found in your code
 
-Ground truth as of `origin/main`, so we're designing against what exists rather than the doc:
+**Updated 2026-07-24, post-delivery.** The table below was written against
+`origin/main` *before* hadoku-task shipped the automation surface; it's kept
+because several rows are still the operative facts. Rows marked → NOW SHIPPED
+have since landed. The as-shipped shapes we build against:
+
+| Call | Shape |
+|---|---|
+| `GET /boards/:ref` | `{board:{id,name,handle,repo,mode,lanes,schemaId,schemaVersion,access,ownerUserId}, tasks:[…,claimed], version}` |
+| `POST /agent/claim` | `{board, taskId, lane?, leaseSeconds?, agentId?}` → `{token}` |
+| `POST /agent/heartbeat` | `{board, taskId, token, leaseSeconds?}` |
+| `POST /agent/set-lane` | `{board, taskId, token, lane}` |
+| `POST /agent/release` | `{board, taskId, token, lane?, notes?, outcome?, metadata?, complete?, ifCurrentLane?}` |
+| `GET /agent/history` | `?board=&task=` |
+| `GET /changes` | `?since=<updatedAt>,<id>&limit=` |
+| `POST /agent/cancel` | owner-only; we never call it, we observe it as `LEASE_LOST` |
+
+**Every agent endpoint requires `board`**, which the design doc's
+`{taskId, lane?}` did not. Leases: default 1800 s, max 3600 s, server-clamped.
+
+Original findings:
 
 | Thing | Reality |
 |---|---|
@@ -28,12 +47,12 @@ Ground truth as of `origin/main`, so we're designing against what exists rather 
 | `metadata` | **Live**, arbitrary JSON (`z.record(z.string(), z.unknown())`) |
 | Task creation | **Live**, and `title` + `notes` + `tag` + `metadata` all land in **one write** — both HTTP and the MCP `create_task` tool |
 | Tags | A **space-separated string** in a single `tag` column, not an array. So a "lane" is a token in that string — which is what makes your `LANE_INVALID` (zero or two lane tags) a real failure mode rather than a theoretical one |
-| `boards.repo` | Column **exists** (migration `0002`, line 28) and is even `SELECT`ed in `d1-storage.ts:166` — but `rowToBoard()` never maps it, no write path sets it, and it's absent from both the `Board` type and `BoardSchema`. Present but dead |
-| `GET /boards/{handle}` | **Does not exist.** `boards.ts` has list / create / delete / rename / pin only. Your doc calls this our read primitive and tells us never to call `GET /boards`; right now `GET /boards` is the only board read there is |
-| Claim state on a task | **Absent** from the task shape. `task_claims` / `task_claim_log` tables are pre-provisioned in migration `0002` and commented "empty until T7" |
-| Automation surface | **Entirely absent.** No `activate-automation`, no `agent/*` routes, no lane enforcement, no lease logic, no sharing. Commit history shows T1–T4 landed, nothing for T5–T8 |
+| `boards.repo` | **Was:** column existed in migration `0002` and was `SELECT`ed, but `rowToBoard()` never mapped it — present but dead. **Now:** returned by `GET /boards/:ref` |
+| `GET /boards/:ref` | **Was:** absent; `GET /boards` was the only board read and returned no hydrated tasks. **Now:** shipped, fully hydrated — config, lanes, tasks |
+| Claim state on a task | **Was:** absent; `task_claims` pre-provisioned but empty. **Now:** per-task `claimed` boolean on the board read — what per-repo serialisation needs |
+| Automation surface | **Was:** entirely absent, T1–T4 only. **Now:** T5–T8 shipped — activation, lane enforcement, claim/lease runtime, sharing, cancel |
 | Error codes | Real in code: `TASK_NOT_FOUND`, `VERSION_CONFLICT`, `NOTES_TOO_LARGE`. Doc-only: `CLAIM_HELD`, `LEASE_LOST`, `LANE_NOT_EDITABLE`, `LANE_UNKNOWN`, `LANE_INVALID` |
-| Rate limiting | **Live and stricter than we assumed** — 300/min admin, 120/min friend, 60/min public per session, auto-blacklist after 3 violations (`throttle.ts:41`). But the 429 body is `{error, retryAfter}` with **no machine-readable `code`**; `RATE_LIMITED` exists only as a human-facing string in `constants.ts:127` |
+| Rate limiting | **Was:** 300/120/60 per min by tier, auto-blacklist after 3 violations, and a 429 with no machine-readable code. **Now:** service tier at 600/min and the 429 carries `code: "RATE_LIMITED"` |
 
 None of that is a complaint — your doc is honest that §6–§8 is the next build. It does mean the
 contract below is a design review, and the two items in §4 are worth settling *before* T5 rather
