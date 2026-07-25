@@ -476,3 +476,52 @@ def test_ambient_key_is_empty_when_the_keyfile_is_missing(monkeypatch, tmp_path)
     from services import task_board as tb
     monkeypatch.delenv("HADOKU_TASK_KEY", raising=False)
     assert tb._ambient_key(tmp_path / "nope.json") == ""
+
+
+# ── the code set must track hadoku-task's OpenAPI enum ────────────────────
+
+
+def test_every_documented_code_has_a_typed_exception():
+    """hadoku-task's openapi-verify harness fails their build in both
+    directions — a code they emit that isn't enumerated, or an enumerated
+    value nothing emits. This is the mirror of that check on our side, so a
+    code they add doesn't quietly fall through to the generic branch."""
+    from services.task_board import KNOWN_CODES
+    documented = {
+        "CLAIM_HELD", "LEASE_LOST", "LANE_UNKNOWN", "LANE_NOT_EDITABLE",
+        "LANE_INVALID", "LANE_CHANGED", "TASK_NOT_FOUND", "BOARD_NOT_FOUND",
+        "VERSION_CONFLICT", "NOTES_TOO_LARGE", "RATE_LIMITED", "FORBIDDEN",
+        "NAME_NOT_FOUND", "BOARD_SCHEMA_LOCKED", "DIGEST_MISMATCH",
+        "LANE_SET_INVALID", "NO_USER_ID", "BAD_REQUEST",
+    }
+    assert KNOWN_CODES == documented, (
+        f"missing: {documented - KNOWN_CODES}, extra: {KNOWN_CODES - documented}")
+
+
+def test_an_unknown_future_code_still_raises_a_domain_error():
+    """Belt and braces: even with the enum mirrored, a code we have never
+    seen must not read as success or as a transport failure."""
+    c = client(FakeResponse(409, {"code": "SOMETHING_NEW", "error": "?"}))
+    with pytest.raises(TaskBoardDomainError) as ei:
+        c.claim("h1", "t1")
+    assert ei.value.code == "SOMETHING_NEW"
+    assert not isinstance(ei.value, TaskBoardUnavailable)
+
+
+def test_digest_mismatch_exposes_the_current_digest():
+    """The error carries it, so a caller can retry without a second dry run
+    — it was being dropped by their central handler until 2026-07-25."""
+    from services.task_board import DigestMismatch
+    c = client(FakeResponse(409, {"code": "DIGEST_MISMATCH", "error": "stale",
+                                  "currentDigest": "abc123"}))
+    with pytest.raises(DigestMismatch) as ei:
+        c.claim("h1", "t1")
+    assert ei.value.current_digest == "abc123"
+
+
+def test_name_not_found_is_a_404_not_a_409():
+    from services.task_board import NameNotFound
+    c = client(FakeResponse(404, {"code": "NAME_NOT_FOUND", "error": "no such"}))
+    with pytest.raises(NameNotFound) as ei:
+        c.get_board("h1")
+    assert ei.value.status == 404

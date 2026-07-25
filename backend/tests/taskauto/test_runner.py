@@ -215,7 +215,8 @@ def test_lease_lost_during_release_is_reported_not_swallowed():
             raise LeaseLost("gone", code="LEASE_LOST", status=409)
 
     r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
-    assert r.acted is False and "lease lost" in r.reason
+    assert r.acted is False
+    assert "LEASE_LOST" in r.reason and "wrote nothing" in r.reason
 
 
 def test_release_failure_is_surfaced_loudly():
@@ -237,3 +238,18 @@ def test_a_live_claim_elsewhere_blocks_this_turn():
     r = runner(c, {"implement": lambda *a: ("landed", None, "")}).turn()
     assert r.acted is False and "in flight" in r.reason
     assert c.named("claim") == []
+
+
+def test_a_lane_changed_release_aborts_like_a_lost_lease():
+    """A human retagged the task mid-claim, so the release wrote nothing.
+    Different cause from LEASE_LOST, identical consequence — the task is no
+    longer ours to write to."""
+    from services.task_board import LaneChanged
+
+    class C(FakeClient):
+        def release(self, *a, **k):
+            raise LaneChanged("retagged", code="LANE_CHANGED", status=409)
+
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
+    assert r.acted is False
+    assert "LANE_CHANGED" in r.reason and "wrote nothing" in r.reason
