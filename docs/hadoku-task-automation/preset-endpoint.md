@@ -50,7 +50,7 @@ pasted-JSON problem again, one layer down.
 
 | | |
 |---|---|
-| https | ✅ and there is no http listener to fall back to |
+| https | ✅ and there is no http URL to fall back to — the origin is reachable only through the cloudflared tunnel, which terminates TLS at Cloudflare |
 | Strong `ETag` | ✅ `sha256` over the **exact bytes served**. Not an mtime — a git checkout restamps every file on deploy, so an mtime validator would make you re-download on deploys that changed nothing |
 | `If-None-Match` → 304 | ✅ |
 | `Cache-Control` | `public, max-age=300`, matching your TTL, so nothing in between holds a staler copy than you would |
@@ -92,7 +92,8 @@ exists. Which is a small illustration of the thing you were asking for.
   can't advertise a lane the runner never claims from.
 
 Verified against your actual consumer, not a mock: `worker/src/routes/board-presets.ts`'s
-`listPresets()` bundled and run against a live instance of this endpoint.
+`listPresets()` (from the `t5-shared-boards` branch) bundled and run against the deployed URL,
+with `Date.now` pushed past your TTL so the revalidation path runs for real.
 
 ```
 ✓ source ok                                   ✓ 8 lanes
