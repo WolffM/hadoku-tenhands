@@ -142,9 +142,20 @@ before the volume goes up.
   board key, or GitHub tokens) and it works in a checkout it owns — but nothing
   constrains its filesystem or network reach. That wants a container or a
   disposable runner.
-- **The canary is armed but unproven.** It derives its credential from the
-  existing `ADMIN_KEYS` secret and is scheduled daily at 09:15 UTC; as of writing
-  its first green run has not been observed.
+- **The canary runs but is RED, and the cause is not diagnosed.** Its wiring is
+  proven end to end — credentials resolve, the isolation wrapper runs, browsers
+  install, and public + unauthenticated API tests pass in milliseconds. But
+  **every admin-authenticated test fails**: the UI ones on ~15-30s timeouts, the
+  API ones in ~85ms. 236 tests, 1 worker; the first full attempt was cancelled at
+  the 25-minute job timeout with 112 attempted (since raised to 45 min, retries
+  disabled).
+
+  Two candidate causes, not distinguished: the `ADMIN_KEYS`-derived credential in
+  CI differs from the one local runs use, or production admin auth is genuinely
+  broken. Telling them apart needs `HADOKU_ADMIN_KEY`, which is operator-tier and
+  outside this key's grant — so it is handed over rather than guessed at. **Do not
+  read a red canary as "the canary is broken" until that is settled; it may be
+  doing its job.**
 - **Only one repo is configured.** `POLICIES` has an entry for tenhands alone. A
   repo with no entry gets no test command, and the lander records that loudly
   rather than pretending the change was verified.
