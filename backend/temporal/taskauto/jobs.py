@@ -188,6 +188,24 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         checkout = checkouts.reset_to(board.repo, base_branch)
         sink.heartbeat()
 
+        # Recovery after a crash between push and release. Observed for real:
+        # the runner was killed mid-watch, the commit was already on main, and
+        # the task sat in `landing` — a naive re-run would rebuild a change
+        # that had already shipped and then stall on "no changes".
+        #
+        # The commit subject is deterministic from the title, so ask git
+        # rather than keeping side-state that can itself be lost.
+        already = _already_landed(checkouts, checkout, pickup.task.title,
+                                  base_branch)
+        if already:
+            return (selection.LANE_LANDED,
+                    plan_notes.render(PlanDoc(
+                        understanding=(
+                            f"Already landed as {already[:8]} — recovered a run "
+                            f"that was interrupted after the push."),
+                        pass_number=1)),
+                    f"recovered:{already[:8]}")
+
         doc = plan_notes.parse(pickup.task.notes or "")
         if not doc.plan:
             return (selection.LANE_PLAN_REVIEW,
@@ -288,9 +306,37 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
     return implement_job
 
 
-def _commit_message(title: str, doc: PlanDoc) -> str:
+def _already_landed(checkouts, checkout, title: str, base: str) -> str:
+    """The sha on `origin/base` whose subject matches this task, or "".
+
+    Matched on the exact subject line rather than a substring search, so a
+    task whose title merely appears inside another commit's body doesn't
+    read as landed.
+    """
+    subject = _subject(title)
+    runner = getattr(checkouts, "run", None)
+    if runner is None:
+        return ""
+    res = runner(["git", "-C", str(checkout), "log", f"origin/{base}",
+                  "--fixed-strings", f"--grep={subject}", "--format=%H%x00%s",
+                  "-20"], timeout=60)
+    if not getattr(res, "ok", False):
+        return ""
+    for line in (getattr(res, "out", "") or "").splitlines():
+        sha, _, subj = line.partition("\x00")
+        if subj.strip() == subject:
+            return sha.strip()
+    return ""
+
+
+def _subject(title: str) -> str:
     subject = strip_bug_prefix(title).strip()
     if len(subject) > 68:
-        subject = subject[:65].rstrip() + "…"
+        subject = subject[:65].rstrip() + "\u2026"
+    return subject
+
+
+def _commit_message(title: str, doc: PlanDoc) -> str:
+    subject = _subject(title)
     body = "\n".join(f"- {s}" for s in doc.plan[:8])
     return f"{subject}\n\n{body}\n"
