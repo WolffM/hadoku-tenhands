@@ -201,6 +201,58 @@ class CheckoutManager:
         return self.run(["git", "-C", str(dest), "rev-parse", "--git-dir"],
                         timeout=30).ok
 
+    # ── housekeeping ──────────────────────────────────────────────────────
+
+    #: Branches this pipeline creates, one per task. Left alone they
+    #: accumulate forever — one per landing — and each one pins its commits
+    #: against gc. Harmless as refs, expensive once each is a worktree.
+    BRANCH_PREFIX = "taskauto/"
+
+    def prune(self, repo_slug: str, *, keep: Sequence[str] = (),
+              base: str = "main") -> list[str]:
+        """Delete finished pipeline branches and any stale worktrees.
+
+        Only touches refs under `taskauto/` — never a human's branch, and
+        never `base`. A branch is finished when `base` already contains it;
+        an unmerged one is left, because it is the only remaining copy of
+        work that did not land.
+        """
+        dest = self.path_for(repo_slug)
+        if not self._is_healthy(dest):
+            return []
+
+        removed: list[str] = []
+
+        # Worktrees first: git refuses to delete a branch that one is on, and
+        # a stale worktree directory is the thing that actually costs disk.
+        self.run(["git", "-C", str(dest), "worktree", "prune"], timeout=60)
+
+        res = self.run(["git", "-C", str(dest), "branch", "--merged",
+                        f"origin/{base}", "--format=%(refname:short)"],
+                       timeout=60)
+        if not getattr(res, "ok", False):
+            return []
+
+        current = (self.run(["git", "-C", str(dest), "rev-parse",
+                             "--abbrev-ref", "HEAD"], timeout=30).out or "").strip()
+
+        for name in (getattr(res, "out", "") or "").splitlines():
+            name = name.strip()
+            if not name.startswith(self.BRANCH_PREFIX):
+                continue
+            if name in keep or name == current:
+                # Deleting the branch we are standing on fails anyway; it
+                # gets collected on the next run once HEAD has moved.
+                continue
+            if self.run(["git", "-C", str(dest), "branch", "-D", name],
+                        timeout=60).ok:
+                removed.append(name)
+
+        if removed:
+            logger.info("pruned %d finished branch(es) in %s",
+                        len(removed), dest)
+        return removed
+
     # ── getting to a known-clean state ────────────────────────────────────
 
     def reset_to(self, repo_slug: str, base_branch: str, *,

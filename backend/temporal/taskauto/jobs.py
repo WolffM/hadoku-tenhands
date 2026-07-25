@@ -186,6 +186,15 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
     def implement_job(pickup, board, sink):
         task = _task_ref(pickup, board, policy)
         checkout = checkouts.reset_to(board.repo, base_branch)
+        # Housekeeping before the work, not after: a run that crashes or is
+        # killed never reaches its own cleanup, so cleaning at the START is
+        # what actually keeps the clone from growing without bound. reset_to
+        # has just moved HEAD to the base branch, so last run's branch is now
+        # deletable.
+        try:
+            checkouts.prune(board.repo, base=base_branch)
+        except Exception as e:  # never fail a task over tidying
+            logger.warning("prune failed on %s: %s", board.repo, e)
         sink.heartbeat()
 
         # Recovery after a crash between push and release. Observed for real:
