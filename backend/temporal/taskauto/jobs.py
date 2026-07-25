@@ -23,6 +23,7 @@ from .landing import Lander, LandingRefused
 from .plan_notes import PlanDoc
 from .refs import RepoPolicy, TaskRef
 from .task_text import classify, strip_bug_prefix
+from .watch import ProdWatcher, Reverter
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,12 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         sink.heartbeat()
 
         doc = plan_notes.parse(raw)
-        doc.pass_number = prior.pass_number + 1
+        # A first plan is pass 1. `parse("")` reports 1 for raw capture, so
+        # incrementing unconditionally labelled the first plan "pass 2" and
+        # burned a round off the cap before the conversation had started.
+        doc.pass_number = (
+            1 if plan_notes.looks_unplanned(pickup.task.notes or "")
+            else prior.pass_number + 1)
         doc.settled = prior.settled
 
         if not doc.plan and not doc.questions:
@@ -171,7 +177,10 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
 def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                        lander: Lander, *, base_branch: str = "main",
                        test_command=None, policy: Optional[RepoPolicy] = None,
-                       test_cwd: str = "."):
+                       test_cwd: str = ".",
+                       watcher: Optional[ProdWatcher] = None,
+                       reverter: Optional[Reverter] = None,
+                       health_url: str = "", watch_window_s: int = 600):
     """An `implement` job. `lander.dry_run` decides whether it really pushes."""
 
     def implement_job(pickup, board, sink):
@@ -224,16 +233,57 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                         pass_number=1)),
                     "land:refused")
 
-        note = plan_notes.render(PlanDoc(
-            understanding=("Landed." if res.pushed else
-                           "Verified but NOT pushed (dry run)."),
-            plan=res.checks,
-            acceptance=doc.acceptance,
-            blast_radius=outcome.changed_files,
-            pass_number=1))
-        return ((selection.LANE_LANDED if res.pushed else selection.LANE_PLAN_REVIEW),
-                note,
-                f"landed:{res.commit_sha[:8]}" if res.pushed else "dry-run")
+        if not res.pushed:
+            return (selection.LANE_PLAN_REVIEW,
+                    plan_notes.render(PlanDoc(
+                        understanding="Verified but NOT pushed (dry run).",
+                        plan=res.checks, acceptance=doc.acceptance,
+                        blast_radius=outcome.changed_files, pass_number=1)),
+                    "dry-run")
+
+        # It's on main. From here the only thing that makes an unreviewed
+        # landing acceptable is being able to take it back, so watch and
+        # revert rather than declaring success on the strength of a push.
+        checks = list(res.checks)
+        if watcher and health_url:
+            sink.heartbeat()
+            verdict = watcher.watch(board.repo, res.commit_sha,
+                                    health_url=health_url,
+                                    window_s=watch_window_s)
+            checks.append(f"prod watch: {verdict.reason}")
+            if verdict.should_revert:
+                if reverter is None:
+                    checks.append("NO REVERTER CONFIGURED — prod is red and "
+                                  "this change was NOT taken back")
+                    return (selection.LANE_STALLED,
+                            plan_notes.render(PlanDoc(
+                                understanding="Landed, then production went "
+                                              "red — and could not be "
+                                              "reverted automatically.",
+                                plan=checks, pass_number=1)),
+                            "landed:unwatched-red")
+                rev = reverter.revert(checkout, res.commit_sha,
+                                      base=base_branch)
+                checks.append(f"REVERTED as {rev[:8]}")
+                return (selection.LANE_STALLED,
+                        plan_notes.render(PlanDoc(
+                            understanding=("Landed, production went red, and "
+                                           "the change was reverted."),
+                            plan=checks,
+                            questions=[verdict.reason],
+                            blast_radius=outcome.changed_files,
+                            pass_number=1)),
+                        f"reverted:{res.commit_sha[:8]}")
+        else:
+            checks.append("NO PROD WATCHER — nothing is watching this change")
+
+        return (selection.LANE_LANDED,
+                plan_notes.render(PlanDoc(
+                    understanding="Landed and production stayed healthy."
+                                  if watcher and health_url else "Landed.",
+                    plan=checks, acceptance=doc.acceptance,
+                    blast_radius=outcome.changed_files, pass_number=1)),
+                f"landed:{res.commit_sha[:8]}")
 
     return implement_job
 

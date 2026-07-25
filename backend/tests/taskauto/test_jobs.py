@@ -150,6 +150,15 @@ def test_the_pass_cap_stalls_rather_than_asking_again():
     assert "laptop" in notes
 
 
+def test_a_first_plan_is_pass_one():
+    """Raw capture parses to pass_number 1, so incrementing unconditionally
+    labelled the first plan 'pass 2' and burned a round off the cap before
+    the conversation had even started."""
+    _, notes, _ = make_plan_job(FakeAgent(answer=GOOD_PLAN), FakeCheckouts())(
+        pickup(notes=""), board(), FakeSink())
+    assert plan_notes.parse(notes).pass_number == 1
+
+
 def test_the_pass_number_increments_and_settled_answers_survive():
     prior = plan_notes.render(plan_notes.PlanDoc(
         plan=["x"], settled=[("Which repo?", "tenhands")], pass_number=1))
@@ -260,3 +269,88 @@ def test_heartbeats_happen_around_the_long_agent_call():
     make_implement_job(FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"])),
                        FakeCheckouts(), FakeLander())(approved(), board(), sink)
     assert sink.beats >= 2
+
+
+# ── the prod watcher, wired into landing ──────────────────────────────────
+
+
+class FakeWatcher:
+    def __init__(self, healthy=True, reason="ok"):
+        from temporal.taskauto.watch import WatchResult
+        self.result = WatchResult(healthy, reason)
+        self.calls = []
+
+    def watch(self, repo, sha, **kw):
+        self.calls.append((repo, sha, kw))
+        return self.result
+
+
+class FakeReverter:
+    def __init__(self, raises=None):
+        self.raises, self.calls = raises, []
+
+    def revert(self, checkout, sha, base="main"):
+        self.calls.append(sha)
+        if self.raises:
+            raise self.raises
+        return "revert99abc"
+
+
+def _implement(**kw):
+    return make_implement_job(
+        FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"])),
+        FakeCheckouts(), FakeLander(), health_url="http://h", **kw)
+
+
+def test_a_healthy_landing_reports_landed():
+    job = _implement(watcher=FakeWatcher(True, "deploy success, health ok"))
+    lane, notes, outcome = job(approved(), board(), FakeSink())
+    assert lane == selection.LANE_LANDED and outcome.startswith("landed:")
+    assert "stayed healthy" in notes
+
+
+def test_a_red_prod_is_reverted_and_stalled():
+    """The property that makes unreviewed landing acceptable at all."""
+    rev = FakeReverter()
+    job = _implement(watcher=FakeWatcher(False, "deploy concluded failure"),
+                     reverter=rev)
+    lane, notes, outcome = job(approved(), board(), FakeSink())
+    assert lane == selection.LANE_STALLED
+    assert outcome.startswith("reverted:")
+    assert rev.calls == ["abc12345"]
+    assert "REVERTED as revert99" in notes
+
+
+def test_the_revert_reason_is_carried_back_to_the_human():
+    job = _implement(watcher=FakeWatcher(False, "health check failed: HTTP 502"),
+                     reverter=FakeReverter())
+    _, notes, _ = job(approved(), board(), FakeSink())
+    assert "HTTP 502" in notes
+
+
+def test_red_prod_with_no_reverter_says_so_very_loudly():
+    """Silence here would report a landing as fine while prod is down."""
+    job = _implement(watcher=FakeWatcher(False, "deploy concluded failure"))
+    lane, notes, outcome = job(approved(), board(), FakeSink())
+    assert lane == selection.LANE_STALLED
+    assert outcome == "landed:unwatched-red"
+    assert "NOT taken back" in notes
+
+
+def test_landing_with_no_watcher_at_all_is_recorded():
+    lane, notes, outcome = make_implement_job(
+        FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"])),
+        FakeCheckouts(), FakeLander())(approved(), board(), FakeSink())
+    assert lane == selection.LANE_LANDED
+    assert "NO PROD WATCHER" in notes
+
+
+def test_a_dry_run_never_watches_or_reverts():
+    w, rev = FakeWatcher(False), FakeReverter()
+    job = make_implement_job(
+        FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"])),
+        FakeCheckouts(),
+        FakeLander(LandResult(False, "abc", "b", "dry run", ["ok"])),
+        watcher=w, reverter=rev, health_url="http://h")
+    lane, _, outcome = job(approved(), board(), FakeSink())
+    assert outcome == "dry-run" and w.calls == [] and rev.calls == []

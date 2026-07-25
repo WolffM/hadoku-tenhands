@@ -31,6 +31,7 @@ from temporal.taskauto.jobs import make_implement_job, make_plan_job  # noqa: E4
 from temporal.taskauto.landing import Lander  # noqa: E402
 from temporal.taskauto.refs import RepoPolicy  # noqa: E402
 from temporal.taskauto.runner import Runner  # noqa: E402
+from temporal.taskauto.watch import ProdWatcher, Reverter  # noqa: E402
 
 #: Per-repo policy. A repo with no entry gets defaults — which means no test
 #: command, and the lander records that loudly rather than pretending the
@@ -41,6 +42,16 @@ from temporal.taskauto.runner import Runner  # noqa: E402
 #: The code under test still comes from the pipeline checkout (cwd), so this
 #: borrows an interpreter, not a codebase. A pipeline-owned venv is the
 #: correct fix and is not built yet.
+#: Health signal per repo, probed on localhost because the watcher runs on
+#: the same host. Going through the edge is worse than useless here:
+#: hadoku.me/tenhands/health returns 200 with the SPA shell whether or not
+#: the backend is alive, so a status-code check would call a dead service
+#: healthy. `must_contain` is what makes the check mean something.
+HEALTH = {
+    "WolffM/tenhands": ("http://127.0.0.1:5024/tenhands/api/healthcheck",
+                        '"status":"healthy"'),
+}
+
 POLICIES = {
     "WolffM/tenhands": RepoPolicy(
         test_command=("/home/hadoku/repos/tenhands/.venv/bin/python",
@@ -59,6 +70,8 @@ def main() -> int:
     ap.add_argument("--turns", type=int, default=1)
     ap.add_argument("--settle-seconds", type=int, default=None,
                     help="override the Inbox settle delay")
+    ap.add_argument("--watch-seconds", type=int, default=600,
+                    help="how long to sample prod health after a landing")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -82,6 +95,26 @@ def main() -> int:
     agent = ClaudeCodeAgent()
     lander = Lander(dry_run=not args.live)
 
+    def _gh(argv):
+        import subprocess
+        p = subprocess.run(list(argv), capture_output=True, text=True, check=False)
+        return p.returncode == 0, p.stdout
+
+    def _http(url):
+        import requests
+        r = requests.get(url, timeout=15)
+        return r.status_code, r.text
+
+    def _git(argv):
+        import subprocess
+        from temporal.taskauto.landing import CmdResult
+        p = subprocess.run(list(argv), capture_output=True, text=True, check=False)
+        return CmdResult(p.returncode == 0, p.stdout, p.stderr)
+
+    health_url, must_contain = HEALTH.get(board.repo, ("", ""))
+    watcher = ProdWatcher(run=_gh, http=_http) if health_url else None
+    reverter = Reverter(run=_git)
+
     kw = {}
     if args.settle_seconds is not None:
         from datetime import timedelta
@@ -93,12 +126,15 @@ def main() -> int:
         "implement": make_implement_job(
             agent, checkouts, lander, base_branch=policy.base_branch,
             test_command=list(policy.test_command) or None,
-            test_cwd=policy.test_cwd, policy=policy),
+            test_cwd=policy.test_cwd, policy=policy,
+            watcher=watcher, reverter=reverter, health_url=health_url,
+            watch_window_s=args.watch_seconds),
     }, **kw)
 
     print(f"board  : {board.name} ({board.repo})")
     print(f"mode   : {'LIVE — will push to main' if args.live else 'dry run'}")
     print(f"suite  : {' '.join(policy.test_command) or '(none configured)'}")
+    print(f"health : {health_url or 'NONE — nothing will watch a landing'}")
     print()
 
     for i in range(args.turns):
