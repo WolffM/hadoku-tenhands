@@ -37,8 +37,8 @@ a phone is miserable; reading a plan and answering three questions is not.
   dump 7 thoughts ───▶  Inbox (untagged)
                             │  claim
                             ▼
-                       planning (agent) ──────▶ SPLIT one capture into one task per item
-                            │                   then, per item: triage + plan
+                       planning (agent) ──────▶ read it, work out the target,
+                            │                   triage: trivial or worth a conversation?
               ┌─────────────┴──────────────┐
       trivial │                            │ vague · big · subjective · "already done?"
               │                      plan-review (user) ─────▶ you answer / disagree
@@ -273,12 +273,14 @@ task requires and what an issue-assignment agent cannot do.
 
 Two protocol details need widening for a local agent, both additive:
 
-- `IssueRef` is fork/upstream-shaped (`fork_slug`, `upstream_slug`, `upstream_number`) — and it
-  appears in *two* places already (`agents/__init__.py` and `gates/__init__.py`), which is a
-  duplication we should fix rather than triple. **Generalise it to one `WorkRef`**: `repo_slug`
-  (where the work happens) plus an opaque `source_ref` (an upstream issue number, or a board task
-  id) plus the upstream fields as optionals. crimson-kitty maps its existing fields in unchanged;
-  the gates that actually need upstream identity are the ones being deleted anyway (§2).
+- ~~Generalise `IssueRef` into one `WorkRef`~~ — **tried and reversed during the build.** The idea
+  was to avoid a third copy of a ref type. But writing both field sets out, they overlap on almost
+  nothing: crimson-kitty needs `fork_slug` / `upstream_slug` / `upstream_number`, this pipeline
+  needs `repo_slug` / `board` / `task_id` / `notes_at_claim` / `policy`. The union would be a type
+  where half the fields are always `None` and every gate has to know which half applies to it.
+  Two small honest types beat one dishonest one, so `taskauto/refs.py` defines its own `TaskRef`
+  and `run_gates` takes the subject as an opaque value. The anti-duplication rule below is about
+  not forking shared *behaviour* — `fix.py`, `repro.py`, the judge — and that still holds.
 - `AgentResult.exit_reason` gains `needs_info`, so an agent can report "I don't know what this
   means" as a first-class outcome rather than as an error.
 
