@@ -118,7 +118,26 @@ the enrolment step.
 
 **Not yet true:**
 
-- `tenhands-taskauto` needs an ecosystem reload on the host to actually start.
+- `tenhands-taskauto` **is reloaded on the host but not running.** It needs a
+  vault credential that does not exist yet: `hadoku_site/services/pm2/
+  taskauto.vaultkey` (mode 0600, gitignored, host-local), granted
+  `TENHANDS_SERVICE_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and `HADOKU_SITE_TOKEN`.
+  Generating one is operator-tier. Until then the service is `stopped` —
+  deliberately, so it is not flapping.
+
+  Watch the name: vault-fetch derives the keyfile from the *wrapper* filename
+  (`taskauto-wrapper.mjs` → `taskauto.vaultkey`), **not** the pm2 service name
+  `tenhands-taskauto`. Without it no `X-User-Key` is sent, the loopback bypass
+  does not cover ACL-gated secrets, and it dies on `403` against
+  `TENHANDS_SERVICE_KEY` — which reads like a missing grant rather than a
+  missing key. `vault-fetch.mjs` now warns with the exact path it wanted
+  (hadoku_site `4ec59804`).
+
+  The tenhands key already holds all three grants, so symlinking it would start
+  the service immediately — but it carries 16 grants including
+  `TENHANDS_ADMIN_KEY` and `MSFT_SSO`, and handing the identity that supervises
+  an autonomous agent more reach than it declares is the wrong direction while
+  §4.3 is still open.
 - The **fast path is disabled** — every task goes through `plan-review`, even
   trivial ones. The design has intake releasing straight to `approved`.
 - **No parallelism.** One task in flight per repo. A task parked in `plan-review`
