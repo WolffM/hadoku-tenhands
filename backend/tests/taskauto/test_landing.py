@@ -199,3 +199,103 @@ def test_checks_read_as_an_audit_trail():
                      "committed", "merged current origin/main", "suite green",
                      "pushed"):
         assert expected in joined
+
+
+# ── pr mode ───────────────────────────────────────────────────────────────
+#
+# The mode that matters going forward: the agent opens a pull request and a
+# human merges it. Every test here is about the promise that `main` is not
+# touched, and that a branch which is already pushed never gets stranded.
+
+
+PR_OUT = dict(SHA, **{"pr create": "https://github.com/WolffM/tenhands/pull/99\n"})
+
+
+def pr_lander(shell):
+    return Lander(run=shell, dry_run=False, mode="pr")
+
+
+def test_pr_mode_never_pushes_to_base():
+    sh = FakeShell(outputs=PR_OUT)
+    res = pr_lander(sh).land(Path("/co"), ref(), branch="taskauto/t1",
+                             message="fix the thing", changed_files=["a.py"])
+    assert res.pushed is False, "pushed must stay False — nothing reached main"
+    assert sh.ran("HEAD:main") == [], "pr mode must never push to base"
+    assert sh.ran("HEAD:refs/heads/taskauto/t1"), "the branch should be pushed"
+
+
+def test_pr_mode_returns_the_pull_request_url():
+    res = pr_lander(FakeShell(outputs=PR_OUT)).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    assert res.pr_url == "https://github.com/WolffM/tenhands/pull/99"
+    assert "human merges it" in res.reason
+
+
+def test_pr_mode_does_not_run_the_suite():
+    # CI is the gate. Running it here too would burn the expensive half of
+    # the job twice on one runner to learn the same thing.
+    sh = FakeShell(outputs=PR_OUT)
+    res = pr_lander(sh).land(Path("/co"), ref(), branch="b", message="m",
+                             changed_files=["a.py"], test_command=["pytest"])
+    assert sh.ran("pytest") == []
+    assert any("gate" in c for c in res.checks)
+
+
+def test_pr_mode_still_refuses_protected_paths():
+    # A human reviewing later is not a reason to relax the preflight; the
+    # branch is pushed to a shared remote either way.
+    sh = FakeShell(outputs=PR_OUT)
+    with pytest.raises(LandingRefused, match="protected paths"):
+        pr_lander(sh).land(Path("/co"), ref(), branch="b", message="m",
+                           changed_files=[".github/workflows/deploy.yml"])
+    assert sh.ran("push") == []
+
+
+def test_pr_mode_still_refuses_a_conflict_with_main():
+    sh = FakeShell(fail=("merge --no-edit",), outputs=PR_OUT)
+    with pytest.raises(LandingRefused, match="conflicts with current"):
+        pr_lander(sh).land(Path("/co"), ref(), branch="b", message="m",
+                           changed_files=["a.py"])
+    assert sh.ran("push") == []
+
+
+def test_an_existing_pull_request_is_reused_not_treated_as_failure():
+    # The normal state on a retry after a crash. The branch is pushed by then,
+    # so raising here would strand real work over a duplicate-create.
+    sh = FakeShell(fail=("pr create",),
+                   outputs=dict(SHA, **{"pr view": "https://example/pull/7\n"}))
+    res = pr_lander(sh).land(Path("/co"), ref(), branch="b", message="m",
+                             changed_files=["a.py"])
+    assert res.pr_url == "https://example/pull/7"
+    assert any("already open" in c for c in res.checks)
+
+
+def test_a_pushed_branch_with_no_pull_request_is_refused_loudly():
+    sh = FakeShell(fail=("pr create", "pr view"), outputs=SHA)
+    with pytest.raises(LandingRefused, match="is pushed but opening"):
+        pr_lander(sh).land(Path("/co"), ref(), branch="b", message="m",
+                           changed_files=["a.py"])
+
+
+def test_pr_push_uses_force_with_lease_so_retries_are_not_wedged():
+    sh = FakeShell(outputs=PR_OUT)
+    pr_lander(sh).land(Path("/co"), ref(), branch="b", message="m",
+                       changed_files=["a.py"])
+    assert sh.ran("--force-with-lease"), "a retry must be able to update its own branch"
+
+
+def test_pr_title_comes_from_the_first_line_of_the_commit_message():
+    sh = FakeShell(outputs=PR_OUT)
+    pr_lander(sh).land(Path("/co"), ref(), branch="b",
+                       message="drop the unused import\n\nlonger body here",
+                       changed_files=["a.py"])
+    created = sh.ran("pr create")[0]
+    assert created[created.index("--title") + 1] == "drop the unused import"
+
+
+def test_dry_run_in_pr_mode_opens_nothing():
+    sh = FakeShell(outputs=PR_OUT)
+    res = Lander(run=sh, dry_run=True, mode="pr").land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    assert res.pr_url == ""
+    assert sh.ran("push") == [] and sh.ran("pr create") == []

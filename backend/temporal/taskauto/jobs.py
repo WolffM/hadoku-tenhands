@@ -180,8 +180,16 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                        test_cwd: str = ".",
                        watcher: Optional[ProdWatcher] = None,
                        reverter: Optional[Reverter] = None,
-                       health_url: str = "", watch_window_s: int = 600):
-    """An `implement` job. `lander.dry_run` decides whether it really pushes."""
+                       health_url: str = "", watch_window_s: int = 600,
+                       pr_lane: str = selection.LANE_LANDED):
+    """An `implement` job. `lander.dry_run` decides whether it really pushes.
+
+    `pr_lane` is where a task goes once its pull request is open. It defaults
+    to `landed` only because that lane exists on every board today; the honest
+    destination is a "waiting on your merge" lane, which needs a bump to the
+    published `autoland` preset before any board can accept it. Until then the
+    notes carry the truth — they say NOT merged and give the URL.
+    """
 
     def implement_job(pickup, board, sink):
         task = _task_ref(pickup, board, policy)
@@ -259,6 +267,23 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                         blast_radius=outcome.changed_files,
                         pass_number=1)),
                     "land:refused")
+
+        if res.pr_url:
+            # PR mode: the work is done and waiting on a human, which is a
+            # success and must not read as a dry run. `pushed` is False here
+            # by design — nothing reached `main` — so this branch has to come
+            # first, before the not-pushed check below.
+            return (pr_lane,
+                    plan_notes.render(PlanDoc(
+                        understanding=(
+                            "Implemented and pushed as a pull request. NOT "
+                            "merged — this is waiting on you.\n\n"
+                            f"{res.pr_url}\n\n"
+                            "Merge it if the checks are green and the diff "
+                            "reads right."),
+                        plan=res.checks, acceptance=doc.acceptance,
+                        blast_radius=outcome.changed_files, pass_number=1)),
+                    f"pr-open:{res.pr_url.rsplit('/', 1)[-1]}")
 
         if not res.pushed:
             return (selection.LANE_PLAN_REVIEW,
