@@ -1,8 +1,8 @@
 {
   "schemaId": "autoland",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "label": "Autoland",
-  "description": "TenHands' hadoku-task-automation pipeline. One board per repo. Spitball thoughts land untagged in the Inbox; the pipeline claims them into `planning`, interprets them, and writes a plan plus clarifying questions into `notes`. The human answers in `plan-review` and either sends it back for another planning pass or drags it to `approved`. From `approved` onward nothing is asked of the human: the working agent implements end to end, gates run, and the change merges to main and deploys on green — with an automatic revert if production goes red. The human gate is deliberately before the work, not after it.",
+  "description": "TenHands' hadoku-task-automation pipeline. One board per repo. Spitball thoughts land untagged in the Inbox; the pipeline claims them into `planning`, interprets them, and writes a plan plus clarifying questions into `notes`. The human answers in `plan-review` and either sends it back for another planning pass or drags it to `approved`. From `approved` onward the work runs unattended: the working agent implements end to end, gates run, and the change arrives as a pull request for you to review and merge. You are asked for two things and no more — sign off the plan before the work, and merge the pull request after it.",
   "repo": "WolffM/<repo>",
   "lanes": [
     {
@@ -45,14 +45,14 @@
       "label": "Landing",
       "order": 5,
       "editableBy": "agent",
-      "description": "Gates green. Merging to main, then watching the deploy and health signal before letting go."
+      "description": "Gates green. Pushing the branch and opening a pull request against main."
     },
     {
       "tag": "landed",
       "label": "Landed",
       "order": 6,
       "editableBy": "user",
-      "description": "Merged and production verified. Nothing is asked of you — this is a notification."
+      "description": "The pull request is open, gates green, and waiting on you. Review it and merge — this is the last thing asked of you."
     },
     {
       "tag": "stalled",
