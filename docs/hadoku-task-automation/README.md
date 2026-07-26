@@ -526,8 +526,37 @@ Seven commits have reached `main` autonomously — see
 | 4. `TaskRef` + `ClaudeCodeAgent` | ✅ `taskauto/refs.py`, `taskauto/agent.py` |
 | 5. Intake + planning | ✅ `taskauto/jobs.py`, gates G2/G6 |
 | 6. Middle: reuse as-is | ✅ — the agent works in a pipeline-owned checkout |
-| 7. `Landing` seam | ✅ `taskauto/landing.py` + `watch.py` (auto-revert) |
-| 8. Scheduler | ✅ `taskauto/scheduler.py`, pm2 `tenhands-taskauto` |
+| 7. `Landing` seam | ✅ `taskauto/landing.py` — `pr` mode (default) and `push` |
+| 8. Scheduler | ✅ `taskauto/scheduler.py`, one-shot via `.github/workflows/taskauto.yml` |
+
+### The shape changed: a CI job that opens a PR, not a daemon that pushes
+
+Originally this ran as an always-on pm2 service that merged to `main` and
+watched production, reverting if health went red. It now runs as an **ephemeral
+scheduled job that opens a pull request a human merges.** Both halves of that
+were wrong, for reasons worth keeping:
+
+- **A daemon is a long-lived credential holder** sitting on the same host as
+  the services it can break, and it has to poll to find work. A one-shot run
+  holds its credentials for the length of a run and costs nothing when idle.
+  Nothing is lost by not having been running: a fresh process sweeps every
+  board on its first tick, and the sweep does not need to have been *watching*,
+  only to *look*.
+- **The old dry run did the entire expensive pipeline and threw the result
+  away.** That was the tell — the artifact it discarded is the thing worth
+  producing. A pull request *is* the dry run, except it persists, is
+  reviewable, and CI gates it. `TASKAUTO_LIVE` was gesturing at this and
+  implemented the useless half.
+- **Verification is now the repo's own required checks**, not a hardcoded
+  `POLICIES` dict. A dict keyed on repo slug can never keep up with boards that
+  are discovered at runtime: a repo with no entry silently got no test command
+  and therefore no gate. A repo that knows how to test itself needs no second
+  copy of that knowledge here.
+- **The prod watcher and reverter are not wired in `pr` mode.** Nothing reaches
+  `main`, so there is nothing to watch — and reverting on a health signal was
+  always shaky, since production can go red for reasons that have nothing to do
+  with the commit being watched. On merge-on-green the problem mostly stops
+  existing.
 
 **How to run it.** Boards are discovered, not configured: share a board with the
 service key at `contributor`, activate it with
@@ -535,24 +564,46 @@ service key at `contributor`, activate it with
 [our preset endpoint](preset-endpoint.md), pick *TenHands · Autoland* from their picker
 and skip the paste — and it gets driven.
 
+Normally you do not run it at all: `.github/workflows/taskauto.yml` fires every
+15 minutes on the `taskauto` runner, and manual dispatch takes `live` and
+`mode` inputs. By hand:
+
 ```
 node ../hadoku_site/scripts/secrets/dev-vault.mjs -- \
-    .venv/bin/python backend/run_taskauto.py          # dry run
-TASKAUTO_LIVE=1 …                                     # actually pushes
+    .venv/bin/python backend/run_taskauto.py          # dry run, loops forever
+TASKAUTO_ONCE=1 …                                     # drain once and exit
+TASKAUTO_LIVE=1 …                                     # actually push
+TASKAUTO_MODE=push …                                  # merge to main instead
 ```
 
-Under pm2 it is `tenhands-taskauto`, defaulting to `TASKAUTO_LIVE=0`.
+The workflow needs three repo secrets: `HADOKU_TASK_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN` and `HADOKU_SITE_TOKEN`. The last is a PAT and must
+**not** be replaced by the automatic `GITHUB_TOKEN` — pull requests opened with
+`GITHUB_TOKEN` do not trigger `pull_request` workflows, so every PR would carry
+no checks at all, which is precisely the "green because nothing ran" state the
+test workflow exists to prevent.
 
 ### What is deliberately not done yet
 
 - **The fast path is disabled.** Every task goes through `plan-review`, even
   trivial ones. §1.1 describes intake releasing straight to `approved`; the job
   does not make that call unattended yet.
+- **No "waiting on your merge" lane.** A task whose pull request is open has no
+  honest home in the published `autoland` preset, so `pr_lane` defaults to
+  `landed` and the notes carry the truth — they say NOT merged and give the
+  URL. Fixing this properly is a preset bump, which every board reads.
+- **Nothing notices when the PR merges.** The task is already parked by then,
+  so the board does not learn the outcome. A later sweep could close the loop
+  by asking GitHub for the PR state.
 - **No parallelism.** One task in flight per repo. Note a task parked in
   `plan-review` does *not* block — only a live claim does. To parallelise: a
-  worktree per task, and serialise **only the landing**, because two commits
-  inside one prod-watch window cannot be attributed if health goes red (§4.2).
-- **§4.3 is open** — the agent runs on the prod host with a scrubbed environment
-  but no filesystem or network containment.
+  worktree per task, and serialise **only the landing** (§4.2). This is much
+  cheaper now that landing means opening a PR rather than merging: the
+  attribution problem that forced serialisation was a property of the prod
+  watcher, which `pr` mode does not use.
+- **§4.3 is narrower but still open** — the agent no longer runs beside
+  production from a daemon, but a self-hosted runner on the pm2 host is still
+  the pm2 host. The job's environment is scrubbed to an allow-list and the
+  checkout is its own; the filesystem and network are not confined.
 - **A stuck claim on a shared board needs the owner.** `POST /agent/cancel` is
   owner-only, so a crash mid-landing means waiting out the lease.
