@@ -155,13 +155,15 @@ except ImportError:
 #     monitoring probe (dispatch.hadoku.me/ and /tenhands/api/healthcheck) and
 #     must stay reachable with no key, or the watchdog flaps;
 #   - /automation/presets publishes our lane vocabulary to hadoku-task, which
-#     fetches it server-side with no credential. A lane set is public
-#     information — there is nothing in it to leak — and putting it behind a
-#     key would mean shipping them one. See routes/automation_routes.py.
+#     fetches it server-side with no credential, and /automation/openapi.json
+#     describes it. A lane set is public information — there is nothing in it
+#     to leak — and putting it behind a key would mean shipping them one. See
+#     routes/automation_routes.py.
 _PUBLIC_PATHS = frozenset({
     "/",
     f"{URL_PREFIX}/api/healthcheck",
     f"{URL_PREFIX}/automation/presets",
+    f"{URL_PREFIX}/automation/openapi.json",
 })
 
 

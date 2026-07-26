@@ -52,9 +52,9 @@ def real_whoami(monkeypatch):
 @pytest.fixture(autouse=True)
 def clear_preset_cache():
     """The document cache is module-level and outlives a test otherwise."""
-    automation_presets._cache = None
+    automation_presets.clear_caches()
     yield
-    automation_presets._cache = None
+    automation_presets.clear_caches()
 
 
 @pytest.fixture
@@ -75,10 +75,8 @@ def test_shipped_schemas_are_publishable():
     This is the test that fails when someone edits a lane set by hand and gets
     it subtly wrong — before the endpoint starts dropping it in production.
     """
-    document = load_presets()
-    assert document.count >= 1
-    presets = json.loads(document.body)["presets"]
-    assert len(presets) == document.count
+    presets = json.loads(load_presets().body)["presets"]
+    assert presets
     for preset in presets:
         validate_lane_set(preset["lanes"])
 
@@ -209,7 +207,7 @@ def test_identical_content_keeps_the_same_etag(monkeypatch, tmp_path):
     monkeypatch.setattr(automation_presets, "SCHEMA_DIR", tmp_path)
     first = load_presets()
 
-    automation_presets._cache = None
+    automation_presets.clear_caches()
     (tmp_path / "good.json").write_text(payload)
     assert load_presets().etag == first.etag
 

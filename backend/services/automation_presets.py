@@ -27,6 +27,11 @@ Two things happen on the way out:
 
 The ETag is a strong validator over the exact bytes served, so an unchanged
 contract costs a 304 rather than a re-download and re-parse.
+
+`load_openapi` publishes the machine-readable description of both routes on
+the same terms. We asked hadoku-task for a spec instead of a doc to transcribe
+(`board-contract.md` §4.5); shipping an undocumented endpoint at them would be
+that request made in bad faith.
 """
 
 from __future__ import annotations
@@ -42,11 +47,19 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_DOCS = Path(__file__).resolve().parents[2] / "docs" / "hadoku-task-automation"
+
 #: Where the activation payloads live. One file per named config; today that is
 #: `autoland-v1.json` alone. crimson-kitty, the other pipeline, is not
 #: board-driven and has no lane vocabulary to publish.
-SCHEMA_DIR = (Path(__file__).resolve().parents[2]
-              / "docs" / "hadoku-task-automation" / "schemas")
+#:
+#: Every `*.json` in here is served as a preset, so nothing else may live in it
+#: — the OpenAPI document sits one level up for exactly that reason.
+SCHEMA_DIR = _DOCS / "schemas"
+
+#: The hand-written contract for the two routes below, served byte-for-byte.
+#: `tests/test_automation_openapi.py` is what keeps it honest.
+OPENAPI_PATH = _DOCS / "openapi.json"
 
 #: Fields that describe a *board*, not a lane vocabulary. Dropped on the way out.
 _BOARD_SPECIFIC_KEYS = ("repo",)
@@ -56,8 +69,12 @@ class PresetInvalid(ValueError):
     """A payload on disk isn't a lane set anyone should be offered."""
 
 
+class DocumentUnavailable(ValueError):
+    """A document we publish can't be read or parsed."""
+
+
 @dataclass(frozen=True)
-class PresetDocument:
+class ServedDocument:
     """The rendered response and its validator, cached together.
 
     `body` is the exact bytes served, and `etag` hashes those bytes — the two
@@ -66,7 +83,6 @@ class PresetDocument:
 
     body: bytes
     etag: str
-    count: int
 
 
 def validate_lane_set(lanes: Any) -> None:
@@ -128,12 +144,8 @@ def _to_preset(raw: Any, source: str) -> dict[str, Any]:
     return {k: v for k, v in raw.items() if k not in _BOARD_SPECIFIC_KEYS}
 
 
-def _render(payloads: list[dict[str, Any]]) -> PresetDocument:
-    body = (json.dumps({"presets": payloads}, indent=2,
-                       ensure_ascii=False) + "\n").encode("utf-8")
-    return PresetDocument(body=body,
-                          etag=hashlib.sha256(body).hexdigest(),
-                          count=len(payloads))
+def _document(body: bytes) -> ServedDocument:
+    return ServedDocument(body=body, etag=hashlib.sha256(body).hexdigest())
 
 
 def _schema_files() -> list[Path]:
@@ -159,11 +171,42 @@ def _fingerprint(paths: list[Path]) -> tuple:
     return tuple(out)
 
 
-_lock = threading.Lock()
-_cache: tuple[tuple, PresetDocument] | None = None
+class _DocumentCache:
+    """One rendered document, rebuilt only when its source files change.
+
+    A failed build is not cached, so a broken file that gets fixed recovers on
+    the next request instead of pinning the error until a restart.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._entry: tuple[tuple, ServedDocument] | None = None
+
+    def get(self, paths: list[Path], build) -> ServedDocument:
+        fingerprint = _fingerprint(paths)
+        with self._lock:
+            if self._entry is not None and self._entry[0] == fingerprint:
+                return self._entry[1]
+            document = build()
+            self._entry = (fingerprint, document)
+            return document
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entry = None
 
 
-def load_presets() -> PresetDocument:
+_presets_cache = _DocumentCache()
+_openapi_cache = _DocumentCache()
+
+
+def clear_caches() -> None:
+    """Drop both cached documents. For tests — production invalidates on mtime."""
+    _presets_cache.clear()
+    _openapi_cache.clear()
+
+
+def load_presets() -> ServedDocument:
     """Every publishable preset, rendered and hashed.
 
     A file that fails validation is dropped and logged rather than taken down
@@ -173,15 +216,9 @@ def load_presets() -> PresetDocument:
     reads as "this provider has no lane sets" rather than "this provider is
     broken".
     """
-    global _cache
-
     paths = _schema_files()
-    fingerprint = _fingerprint(paths)
 
-    with _lock:
-        if _cache is not None and _cache[0] == fingerprint:
-            return _cache[1]
-
+    def build() -> ServedDocument:
         payloads: list[dict[str, Any]] = []
         for path in paths:
             try:
@@ -196,6 +233,29 @@ def load_presets() -> PresetDocument:
                 f"no publishable lane sets in {SCHEMA_DIR}"
                 f" ({len(paths)} file(s) inspected)")
 
-        document = _render(payloads)
-        _cache = (fingerprint, document)
-        return document
+        body = (json.dumps({"presets": payloads}, indent=2,
+                           ensure_ascii=False) + "\n").encode("utf-8")
+        return _document(body)
+
+    return _presets_cache.get(paths, build)
+
+
+def load_openapi() -> ServedDocument:
+    """The OpenAPI document, served exactly as it sits on disk.
+
+    Parsed only to refuse serving a file that isn't valid JSON — a spec a
+    consumer can't parse is worse than a 503, because they'd cache the garbage.
+    The bytes served are the file's own, so the document a client reads is
+    byte-identical to the one in the repo.
+    """
+    paths = [OPENAPI_PATH]
+
+    def build() -> ServedDocument:
+        try:
+            body = OPENAPI_PATH.read_bytes()
+            json.loads(body)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise DocumentUnavailable(f"{OPENAPI_PATH.name}: {exc}") from exc
+        return _document(body)
+
+    return _openapi_cache.get(paths, build)

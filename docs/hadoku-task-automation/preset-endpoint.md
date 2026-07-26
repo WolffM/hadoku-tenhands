@@ -8,6 +8,9 @@ Shipped. Point `AUTOMATION_PRESET_SOURCES` at:
 [{ "id": "tenhands", "label": "TenHands", "url": "https://dispatch.hadoku.me/tenhands/automation/presets" }]
 ```
 
+The contract is also machine-readable, at
+`https://dispatch.hadoku.me/tenhands/automation/openapi.json` — §6.
+
 ---
 
 ## 1. Why that host, and not `hadoku.me/tenhands`
@@ -102,3 +105,31 @@ with `Date.now` pushed past your TTL so the revalidation path runs for real.
 ✓ label + description present                 ✓ past TTL: revalidated, provider answered 304
                                               ✓ 304 kept the parsed lanes
 ```
+
+## 6. The contract, machine-readable
+
+`GET https://dispatch.hadoku.me/tenhands/automation/openapi.json` — OpenAPI 3.1, public, same
+strong-ETag revalidation, served byte-for-byte from
+[openapi.json](openapi.json). It describes both routes, the `If-None-Match`/304 behaviour and the
+`AutomationPreset` / `Lane` schemas, so a client can be generated rather than transcribed.
+
+This is §4.5 of [board-contract.md](board-contract.md) answered in the other direction. We asked you
+for a spec because our side is Python and can't import your TypeScript types; publishing an
+undocumented endpoint at you would have been that request made in bad faith.
+
+**It is hand-written, not generated** — Flask has no schema layer to generate from — so the honesty
+guarantee has to come from tests instead, and `backend/tests/test_automation_openapi.py` is modelled
+on your `openapi-verify.ts` for the same reason yours exists:
+
+- every documented path must exist in the Flask URL map, and **every automation route must be
+  documented** — a route added with a bare `@bp.route` fails the suite rather than silently dropping
+  out of the contract;
+- a live response is validated against the document's own `PresetDocument` schema, and the shipped
+  `schemas/*.json` against `AutomationPreset`;
+- both directions of the drift guard were confirmed to fail when the spec and the app disagree —
+  a guard nobody has seen fail is decoration.
+
+Two things the document is careful to state rather than imply: the 429 body is Flask-Limiter's
+default HTML with no `Retry-After`, so branch on the status code; and the cross-field lane rules
+(unique `tag`, unique `order`, no whitespace in a `tag`) live in `validate_lane_set`, because JSON
+Schema can't express them.
