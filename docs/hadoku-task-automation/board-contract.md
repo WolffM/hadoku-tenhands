@@ -82,6 +82,16 @@ than after.
 didn't find one — "a human can drag out of an agent lane once no claim is live" does the work an
 `onFailure` would have, without us teaching you a routing policy.
 
+> **Correction, 2026-07-26.** The "once no claim is live" half of that sentence was our assumption,
+> not their behaviour: `assertHumanLaneWrite` validates the **destination** lane only, and the human
+> write path consults no claim state at all. A human can drag a task out from under a *live* claim.
+>
+> That's the better design — the escape hatch works even when a runner is wedged mid-job — but it
+> means the agent has to find out at handback, and ours wasn't asking. `ProgressSink.finish` now
+> sends `ifCurrentLane`, so a retag answers `409 LANE_CHANGED` and the release writes nothing
+> instead of moving the task back and overwriting the human's `notes`. Nothing is asked of
+> hadoku-task; the gap was entirely on our side.
+
 ---
 
 ## 3. Our configuration

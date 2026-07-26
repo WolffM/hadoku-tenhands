@@ -59,25 +59,36 @@ class BoardSink:
     """Publishes onto a hadoku-task board while holding its claim."""
 
     def __init__(self, client: TaskBoardClient, board: str, task_id: str,
-                 token: str) -> None:
+                 token: str, *, lane: Optional[str] = None) -> None:
         self.client = client
         self.board = board
         self.task_id = task_id
         self.token = token
         self.released = False
+        #: Where we believe the board currently has this task: the lane the
+        #: claim moved it into, then whatever `lane()` last *successfully*
+        #: set. Sent as `ifCurrentLane` on release — see `finish`.
+        self._current_lane = lane
 
     def _swallow(self, what: str, exc: Exception) -> None:
         logger.warning("board projection failed (%s): %s: %s",
                        what, type(exc).__name__, exc)
 
     def lane(self, lane: str) -> None:
-        """Move the task to `lane`. Best-effort."""
+        """Move the task to `lane`. Best-effort.
+
+        `_current_lane` advances only on success: a swallowed failure means
+        the task is still where it was, and that older lane is the accurate
+        thing to assert on release.
+        """
         try:
             self.client.set_lane(self.board, self.task_id, self.token, lane)
         except LeaseLost:
             raise
         except TaskBoardError as e:
             self._swallow(f"set-lane {lane}", e)
+            return
+        self._current_lane = lane
 
     def heartbeat(self) -> None:
         """Hold the lease, and learn if a human cancelled us.
@@ -102,10 +113,25 @@ class BoardSink:
         task stops being ours, and a silent failure would leave it pinned in
         an agent lane until the lease expired — invisible, and blocking the
         whole board under one-task-per-repo.
+
+        **`ifCurrentLane` is what makes "a human can take a task back" true.**
+        hadoku-task lets a human drag a task *out* of an agent lane — we asked
+        for that and called it sufficient (`board-contract.md` §2) — and it
+        does not check whether a claim is live first. Without this guard our
+        release moves the task back and overwrites `notes` with the pipeline's
+        version, silently discarding what the human did. With it, a retagged
+        task answers `409 LANE_CHANGED`, the release writes nothing, and the
+        runner abandons the turn.
+
+        The trade is deliberate: if a `set-lane` succeeded but its response
+        was lost, our belief is stale and the release aborts on a lane nobody
+        touched. That leaves the task in an agent lane until the lease expires,
+        which recovery then resumes — recoverable, unlike an overwrite.
         """
         if self.released:
             return
         self.client.release(self.board, self.task_id, self.token,
                             lane=lane, notes=notes, outcome=outcome or None,
-                            complete=complete)
+                            complete=complete,
+                            if_current_lane=self._current_lane)
         self.released = True

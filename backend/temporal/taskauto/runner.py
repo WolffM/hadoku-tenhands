@@ -103,7 +103,10 @@ class Runner:
 
     def _run_claimed(self, pickup: Pickup, board: BoardSnapshot,
                      token: str, job: Job) -> TurnResult:
-        sink = BoardSink(self.client, self.board_handle, pickup.task.id, token)
+        # `pickup.lane` is where the claim just put the task, so the sink
+        # starts out knowing the board's state rather than guessing at it.
+        sink = BoardSink(self.client, self.board_handle, pickup.task.id, token,
+                         lane=pickup.lane)
         try:
             lane, notes, outcome = job(pickup, board, sink)
         except LeaseLost:
