@@ -1,0 +1,65 @@
+name: Tests
+
+# Runs the backend suite on pull requests. Until now this repo had no test
+# workflow at all — the 1200+ tests only ever ran on a laptop — so a PR
+# showed green because nothing had run, not because anything passed. That is
+# fine while push-to-main is the norm and a human runs pytest locally, but it
+# is not a gate, and the task-automation pipeline is moving to opening PRs
+# that a human merges on green. This is the thing that makes "green" mean
+# something.
+#
+# Note the `pull_request` event checks out the MERGE commit (refs/pull/N/merge),
+# not the branch tip, so this verifies the branch against current `main`
+# automatically — the same merge-result property the automation lander
+# enforces before it pushes.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to a PR makes the in-flight run obsolete. Cancel it — this runs
+# on a self-hosted box and there is no reason to hold a slot for a result
+# nobody will read.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend pytest
+    # hokon (the pm2 host) via its tenhands registration. The `taskauto` label
+    # is deliberately opt-in: the claw fleet (`hadoku-builder`) still serves
+    # deploy/publish, and only workflows that ask for `taskauto` land here.
+    runs-on: [self-hosted, pm2-host, taskauto]
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create an isolated venv
+        # Deliberately NOT the repo's production .venv. This job runs on the
+        # host that serves production, and pip-installing a pull request's
+        # requirements into the venv that pm2 launches from would let an
+        # unmerged branch change what production imports. The venv lives in
+        # the runner workspace and dies with it.
+        run: |
+          python3 -m venv .venv-ci
+          .venv-ci/bin/python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        # Test deps are separate from runtime deps and are never installed in
+        # prod, so both files are needed here.
+        run: |
+          .venv-ci/bin/python -m pip install \
+            -r backend/requirements.txt \
+            -r backend/requirements-dev.txt
+
+      - name: Run tests
+        working-directory: backend
+        # No secrets are provided on purpose. The lone integration test
+        # (test_judge.py::test_score_integration_real_cli) gates on
+        # CLAUDE_CODE_OAUTH_TOKEN and skips cleanly without it, so the suite
+        # is green with exactly 1 skip. Handing a pull request a live
+        # credential to earn back one test is a bad trade.
+        run: ../.venv-ci/bin/python -m pytest tests/ -q
