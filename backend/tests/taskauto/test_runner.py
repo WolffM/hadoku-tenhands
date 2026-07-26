@@ -81,6 +81,8 @@ class FakeClient:
                 outcome=None, metadata=None, complete=False,
                 if_current_lane=None):
         self.calls.append(("release", task_id, lane, outcome, complete))
+        # Kept off the tuple so the exact-match assertions above stay readable.
+        self.last_release = {"lane": lane, "if_current_lane": if_current_lane}
         return {}
 
     def named(self, name):
@@ -142,6 +144,29 @@ def test_the_job_can_move_lanes_mid_run():
     c = FakeClient(snapshot(task()))
     runner(c, {"implement": job}).turn()
     assert ("set_lane", "t1", "landing") in c.calls
+
+
+def test_release_asserts_the_lane_it_believes_the_task_is_in():
+    """End to end: the `ifCurrentLane` guard has to reach the client.
+
+    It's the only thing stopping the pipeline from overwriting a task a human
+    dragged out mid-claim — hadoku-task allows that drag and doesn't check for
+    a live claim (`board-contract.md` §2, `test_progress.py`).
+    """
+    def job(pickup, board, sink):
+        sink.lane("landing")
+        return "landed", None, "merged"
+
+    c = FakeClient(snapshot(task()))
+    runner(c, {"implement": job}).turn()
+    assert c.last_release == {"lane": "landed", "if_current_lane": "landing"}
+
+
+def test_release_guard_falls_back_to_the_claim_lane():
+    """A job that never moves lanes still asserts where the claim put it."""
+    c = FakeClient(snapshot(task()))
+    runner(c, {"implement": lambda *a: ("landed", None, "merged")}).turn()
+    assert c.last_release == {"lane": "landed", "if_current_lane": "working"}
 
 
 def test_plan_job_runs_for_an_inbox_task():
@@ -243,7 +268,12 @@ def test_a_live_claim_elsewhere_blocks_this_turn():
 def test_a_lane_changed_release_aborts_like_a_lost_lease():
     """A human retagged the task mid-claim, so the release wrote nothing.
     Different cause from LEASE_LOST, identical consequence — the task is no
-    longer ours to write to."""
+    longer ours to write to.
+
+    This only happens in production because `finish` sends `ifCurrentLane`
+    (`test_release_asserts_the_lane_it_believes_the_task_is_in`). Until it did,
+    the board had no way to raise this and the release quietly moved the task
+    back — the handler was right, the guard that reaches it was missing."""
     from services.task_board import LaneChanged
 
     class C(FakeClient):
