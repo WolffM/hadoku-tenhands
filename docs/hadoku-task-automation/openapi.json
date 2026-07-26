@@ -1,0 +1,282 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TenHands automation contract",
+    "version": "1.0.0",
+    "summary": "The lane vocabularies TenHands publishes for hadoku-task to activate boards from.",
+    "description": "The public, unauthenticated surface TenHands exposes to hadoku-task so a board can be activated from a live contract instead of a pasted copy of one.\n\nThis document covers that surface only — the rest of the TenHands API is authenticated (`X-User-Key`, resolved through the platform's `/session/whoami`) and is not described here.\n\nWe asked hadoku-task for a machine-readable contract rather than a doc to transcribe (`board-contract.md` §4.5). Publishing one for our own endpoint is the same request answered in the other direction. It is hand-written rather than generated — TenHands is Flask, with no schema layer to generate from — so `backend/tests/test_automation_openapi.py` pins it to the implementation: every documented path must exist in the Flask URL map, every automation route must be documented, and a live response must validate against the schema below.\n\nRationale, and why the host is the tunnel origin rather than `hadoku.me/tenhands`, is in `docs/hadoku-task-automation/preset-endpoint.md`.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://dispatch.hadoku.me/tenhands",
+      "description": "Production. The cloudflared tunnel origin — https only, no CORS headers, fetch server-side."
+    }
+  ],
+  "paths": {
+    "/automation/presets": {
+      "get": {
+        "operationId": "getAutomationPresets",
+        "summary": "Every lane vocabulary TenHands publishes",
+        "description": "Each preset is exactly what `POST /task/api/boards/{ref}/activate-automation` accepts, minus the per-board `repo` field: hand `{ schemaId, schemaVersion, lanes }` straight to activation.\n\nToday there is exactly one, `autoland` v1 — the pipeline in `docs/hadoku-task-automation/README.md`. A second pipeline shape would appear as a second array entry with no change to this contract.\n\nUnauthenticated by design: a lane vocabulary is public information, and gating it would mean issuing the consumer a credential to read a document with no secrets in it.",
+        "security": [],
+        "tags": ["automation"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current contract.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetDocument"
+                }
+              }
+            }
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "No publishable lane set. Deliberately not an empty `presets` array — a consumer must be able to tell \"the provider is broken\" from \"the provider has no lane sets\", because the first means keep serving your last good copy and the second means stop offering ours.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/automation/openapi.json": {
+      "get": {
+        "operationId": "getAutomationOpenapi",
+        "summary": "This document",
+        "description": "Served byte-for-byte from `docs/hadoku-task-automation/openapi.json`, with the same strong-ETag revalidation as the contract it describes.",
+        "security": [],
+        "tags": ["automation"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "This OpenAPI document.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "An OpenAPI 3.1 document."
+                }
+              }
+            }
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "The document could not be read or is not valid JSON.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "IfNoneMatch": {
+        "name": "If-None-Match",
+        "in": "header",
+        "required": false,
+        "description": "A previously served `ETag`. Matching it yields `304 Not Modified` with no body, which is the steady state for a consumer that caches and revalidates.",
+        "schema": {
+          "type": "string"
+        },
+        "example": "\"631fdc99d076a51052d9a0dfc7ab04190a6521ee7fe277c7de46a8193eeb9052\""
+      }
+    },
+    "headers": {
+      "ETag": {
+        "description": "Strong validator — `sha256` over the exact bytes of the response. Deliberately not derived from file mtime: a git checkout restamps every file on deploy, so an mtime validator would force a re-download on deploys that changed nothing.",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "CacheControl": {
+        "description": "`public, max-age=300`, matching the consumer's own cache TTL so nothing in between can hold a staler copy than the consumer would have kept.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "NotModified": {
+        "description": "Unchanged since the `ETag` supplied in `If-None-Match`. No body.",
+        "headers": {
+          "ETag": {
+            "$ref": "#/components/headers/ETag"
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limit exceeded (60 requests per minute per client address). Note the body is Flask-Limiter's default HTML, not JSON, and no `Retry-After` is sent — a consumer should branch on the status code, not the body.",
+        "content": {
+          "text/html": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "PresetDocument": {
+        "type": "object",
+        "title": "PresetDocument",
+        "description": "The response envelope. A consumer that also accepts a bare array or a single payload will find neither here — this endpoint always serves the wrapped form.",
+        "required": ["presets"],
+        "additionalProperties": false,
+        "properties": {
+          "presets": {
+            "type": "array",
+            "description": "Every publishable lane vocabulary. Never empty: a provider with nothing to offer answers 503 instead.",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/AutomationPreset"
+            }
+          }
+        }
+      },
+      "AutomationPreset": {
+        "type": "object",
+        "title": "AutomationPreset",
+        "description": "One named lane vocabulary — an activation payload without its board. `repo` is deliberately absent: it is per-board, so a preset that carried one would be advertising a board it has no business naming.",
+        "required": ["schemaId", "lanes"],
+        "properties": {
+          "schemaId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable identifier for this vocabulary. Pass through to activation unchanged.",
+            "examples": ["autoland"]
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Bumped when the lane set changes shape. Pass through to activation unchanged.",
+            "examples": [1]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What a human picks from in a UI.",
+            "examples": ["Autoland"]
+          },
+          "description": {
+            "type": "string",
+            "description": "What activating this vocabulary commits the board to. Worth showing next to the label — a preset drives a destructive board migration."
+          },
+          "lanes": {
+            "type": "array",
+            "description": "The lanes, in `order`. Every `tag` is unique, every `order` is unique, and no `tag` contains whitespace — hadoku-task stores a task's lane as a token in a space-separated tag column, so a tag with a space in it is two lanes. Those cross-field rules are enforced by `validate_lane_set` in `backend/services/automation_presets.py`, which JSON Schema cannot express here.",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Lane"
+            }
+          }
+        }
+      },
+      "Lane": {
+        "type": "object",
+        "title": "Lane",
+        "description": "One column. The four required fields are the ones hadoku-task interprets; any others (we send `description`) are preserved verbatim through activation.",
+        "required": ["tag", "label", "order", "editableBy"],
+        "properties": {
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S+$",
+            "description": "The token written into a task's tag column. Unique within the lane set, no whitespace.",
+            "examples": ["plan-review"]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Column heading.",
+            "examples": ["Plan Review"]
+          },
+          "order": {
+            "type": "number",
+            "description": "Left-to-right position. Unique within the lane set — two lanes sharing an order leaves the column order to a sort tie.",
+            "examples": [1]
+          },
+          "editableBy": {
+            "type": "string",
+            "enum": ["user", "agent"],
+            "description": "`user` lanes a human may drag into; `agent` lanes only a claim holder may write. This is the whole permission model, and it is enough: a human can drag a task out of an agent lane once no claim is live."
+          },
+          "description": {
+            "type": "string",
+            "description": "What this column is for, in the second person. Not interpreted by hadoku-task — carried through as an extra key."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "title": "Error",
+        "required": ["error"],
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Machine-stable reason slug.",
+            "examples": ["no publishable automation presets"]
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "automation",
+      "description": "The board-automation contract consumed by hadoku-task."
+    }
+  ]
+}

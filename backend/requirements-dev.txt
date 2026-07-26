@@ -5,3 +5,10 @@
 #   cd backend && python3 -m pytest tests/ -v
 pytest>=8,<10
 pytest-asyncio>=0.24,<2
+# Keep docs/hadoku-task-automation/openapi.json honest
+# (tests/test_automation_openapi.py): jsonschema validates real responses
+# against the schemas the document promises, and openapi-spec-validator checks
+# the document itself against the OpenAPI 3.1 meta-spec. Test-only on purpose —
+# the document is served as static bytes, so production needs neither.
+jsonschema>=4.20,<5
+openapi-spec-validator>=0.7,<1
