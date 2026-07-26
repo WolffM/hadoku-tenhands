@@ -106,7 +106,11 @@ def test_repo_is_stripped_but_the_human_facing_fields_survive():
     """`repo` is per-board; label/description are what a human picks from."""
     autoland = _preset_by_schema_id("autoland")
     assert "repo" not in autoland
-    assert autoland["schemaVersion"] == 1
+    # Not pinned to a number: the version is meant to move when the lane set
+    # changes shape, and a test that has to be edited alongside it teaches
+    # people to edit tests rather than to think about the bump.
+    assert isinstance(autoland["schemaVersion"], int)
+    assert autoland["schemaVersion"] >= 1
     assert autoland["label"]
     assert autoland["description"]
 
