@@ -1,8 +1,18 @@
-"""Landing: commit, verify against current `main`, push.
+"""Landing: commit, verify against current `main`, then push or open a PR.
+
+Two modes:
+
+* **`pr` (preferred)** — push the branch, open a pull request, stop. A human
+  merges it. Verification is the repo's own required checks, so nothing here
+  runs the suite: the pull request *is* the dry run, and unlike the old one it
+  persists, is reviewable, and is already wired to a merge button.
+* **`push`** — merge straight into `base` with nobody watching. Kept for the
+  crimson-kitty-shaped case and for repos where a PR adds nothing, but it is
+  no longer the default posture for new work.
 
 This is the only component that touches a real branch people depend on, and
-it runs with nobody watching, so it is written to refuse rather than to
-proceed. Every check below is a reason *not* to push.
+in `push` mode it runs with nobody watching, so it is written to refuse rather
+than to proceed. Every check below is a reason *not* to push.
 
 **The load-bearing one is `verify`.** The suite runs on the merge result —
 the branch with current `origin/main` merged in — not on the branch in
@@ -44,6 +54,8 @@ class LandResult:
     reason: str = ""
     checks: list[str] = field(default_factory=list)
     test_output: str = ""
+    #: Set in `pr` mode. `pushed` stays False — nothing reached `main`.
+    pr_url: str = ""
 
 
 @dataclass
@@ -73,6 +85,10 @@ def _default_run(args: Sequence[str], cwd: Path, timeout: int = 1800) -> CmdResu
 class Lander:
     run: Callable[..., CmdResult] = _default_run
     dry_run: bool = True
+    #: "push" merges straight into `base`; "pr" pushes the branch and opens a
+    #: pull request, leaving the merge to a human and the verification to the
+    #: repo's own required checks. See `land()` for why `pr` runs no suite.
+    mode: str = "push"
 
     # ── gates that run before anything is committed ───────────────────────
 
@@ -145,8 +161,18 @@ class Lander:
                 f"resolve this rather than an unattended merge")
         checks.append(f"merged current origin/{base}")
 
+        # In `pr` mode the repo's own required checks are the gate, so running
+        # the suite here as well would burn the expensive half of the job twice
+        # on one runner to learn the same thing. It is also the wrong place to
+        # learn it: a suite failure here would be swallowed into an agent log
+        # nobody reads, whereas the same failure on a pull request is visible,
+        # attributable and already wired to the merge button. A branch that
+        # cannot pass CI should still become a PR — a red PR is a reviewable
+        # artifact, and discarding it is what the old dry run got wrong.
         test_output = ""
-        if test_command:
+        if test_command and self.mode == "pr":
+            checks.append("suite skipped — the pull request's own checks gate this")
+        elif test_command:
             res = self.run(list(test_command), checkout / test_cwd, test_timeout)
             test_output = res.text[-8000:]
             if not res.ok:
@@ -168,6 +194,11 @@ class Lander:
                               reason="dry run — everything but the push",
                               checks=checks, test_output=test_output)
 
+        if self.mode == "pr":
+            return self._open_pr(checkout, task, sha=sha, branch=branch,
+                                 message=message, base=base, checks=checks,
+                                 test_output=test_output)
+
         # Explicit refspec: a bare `git push origin main` pushes the local
         # `main` ref regardless of which branch we are standing on, which
         # silently no-ops while the commit sits somewhere else.
@@ -180,6 +211,70 @@ class Lander:
         return LandResult(True, commit_sha=sha, branch=branch,
                           reason="landed", checks=checks,
                           test_output=test_output)
+
+    # ── pr mode ───────────────────────────────────────────────────────────
+
+    def _open_pr(self, checkout: Path, task: TaskRef, *, sha: str, branch: str,
+                 message: str, base: str, checks: list[str],
+                 test_output: str) -> LandResult:
+        """Push the branch and open a pull request. Never touches `base`."""
+        def git(*args, timeout=300) -> CmdResult:
+            return self.run(["git", "-C", str(checkout), *args], checkout, timeout)
+
+        def gh(*args, timeout=300) -> CmdResult:
+            return self.run(["gh", *args], checkout, timeout)
+
+        # --force-with-lease so a re-run after a crash updates the branch it
+        # already owns, while still refusing if someone else moved it. A plain
+        # push would wedge every retry; a plain --force would not notice.
+        push = git("push", "--force-with-lease", "origin",
+                   f"HEAD:refs/heads/{branch}")
+        if not push.ok:
+            raise LandingRefused(f"could not push branch {branch}: "
+                                 f"{push.text[:200]}")
+        checks.append(f"pushed {sha[:8]} → {branch}")
+
+        title = message.splitlines()[0].strip() or f"taskauto: {task.task_id}"
+        body = self._pr_body(task, checks)
+
+        pr = gh("pr", "create", "--base", base, "--head", branch,
+                "--title", title, "--body", body)
+        url = pr.out.strip().splitlines()[-1] if pr.ok and pr.out.strip() else ""
+
+        if not pr.ok:
+            # The usual cause is a PR already open for this head, which is the
+            # normal state on a retry rather than an error. Ask for it before
+            # deciding this failed — the branch is pushed either way, so
+            # raising here would strand real work over a duplicate-create.
+            existing = gh("pr", "view", branch, "--json", "url", "--jq", ".url")
+            if existing.ok and existing.out.strip():
+                url = existing.out.strip().splitlines()[-1]
+                checks.append("pull request already open for this branch")
+            else:
+                raise LandingRefused(
+                    f"branch {branch} is pushed but opening a pull request "
+                    f"failed: {pr.text[:200]}")
+        else:
+            checks.append(f"opened pull request {url}")
+
+        return LandResult(False, commit_sha=sha, branch=branch,
+                          reason="pull request opened — a human merges it",
+                          checks=checks, test_output=test_output, pr_url=url)
+
+    @staticmethod
+    def _pr_body(task: TaskRef, checks: Sequence[str]) -> str:
+        lines = [
+            f"Opened by hadoku-task-automation for task `{task.task_id}`.",
+            "",
+            f"**Task as filed:** {task.title}",
+            "",
+            "Nobody has reviewed this. The repo's own required checks are the "
+            "gate — merge it if they are green and the diff reads right.",
+            "",
+            "### Preflight",
+        ]
+        lines += [f"- {c}" for c in checks]
+        return "\n".join(lines)
 
 
 def _glob_ok(path: str, pattern: str) -> bool:

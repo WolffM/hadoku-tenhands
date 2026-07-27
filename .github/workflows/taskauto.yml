@@ -1,0 +1,95 @@
+name: Task automation
+
+# The hadoku-task-automation pipeline as an ephemeral job instead of a daemon.
+#
+# It used to be an always-on pm2 service. That made it a long-lived credential
+# holder sitting on the same host as the services it can break, and it had to
+# poll to find work. This shape holds its credentials only for the length of a
+# run, gets a clean checkout by construction, and costs nothing when idle.
+#
+# Why a cron and not a webhook from hadoku-task: two of the transitions have no
+# board event to push. Crash recovery fires on *lease expiry*, and the Inbox
+# settle delay is the *absence* of edits. A timer is required either way, so a
+# webhook would only buy latency — and a fresh process sweeps every board on
+# its first tick, so it misses nothing by not having been running. The sweep
+# does not need to have been watching, only to look.
+#
+# An idle run is one board-API call and an exit, so the cron is cheap.
+
+on:
+  schedule:
+    # Every 15 minutes. The settle delay is 5 minutes, so a task typed on a
+    # phone is picked up on the first or second tick after it goes quiet.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      live:
+        description: 'Actually push branches and open PRs (unchecked = dry run)'
+        type: boolean
+        default: true
+      mode:
+        description: 'pr = open a pull request; push = merge to main unattended'
+        type: choice
+        options: [pr, push]
+        default: pr
+
+# Never two runs at once: the board's claim protocol is per-task, but two
+# concurrent runs would fight over the same checkout. `cancel-in-progress:
+# false` because cancelling a run mid-agent would leave a claim held until its
+# lease expires — queueing behind it is strictly better.
+concurrency:
+  group: taskauto
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: drain the board
+    runs-on: [self-hosted, pm2-host, taskauto]
+    timeout-minutes: 45
+
+    env:
+      # Scheduled runs are live in `pr` mode on purpose. Opening a pull request
+      # cannot hurt `main` — a human still merges — so the thing worth
+      # automating is everything up to that button.
+      TASKAUTO_LIVE: ${{ (github.event_name == 'schedule' || inputs.live) && '1' || '0' }}
+      TASKAUTO_MODE: ${{ inputs.mode || 'pr' }}
+      TASKAUTO_ONCE: '1'
+      HADOKU_TASK_KEY: ${{ secrets.HADOKU_TASK_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # A PAT, deliberately NOT the automatic GITHUB_TOKEN: pull requests
+      # opened with GITHUB_TOKEN do not trigger `pull_request` workflows, so
+      # every PR this job opened would sit with no checks at all — the exact
+      # "green because nothing ran" failure the test workflow exists to stop.
+      GH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+      # claude and gh live in ~/.local/bin, which is not on the runner's PATH.
+      TASKAUTO_CLAUDE_BIN: /home/hadoku/.local/bin/claude
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the credentials are present
+        # Fail here with a sentence rather than 20 minutes later inside an
+        # agent log. A missing board key is the difference between "no work
+        # found" and "could not look", and those must not look alike.
+        run: |
+          missing=
+          [ -n "$HADOKU_TASK_KEY" ] || missing="$missing HADOKU_TASK_KEY"
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || missing="$missing CLAUDE_CODE_OAUTH_TOKEN"
+          [ -n "$GH_TOKEN" ] || missing="$missing HADOKU_SITE_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secret(s):$missing"
+            echo "Set them with: gh secret set <NAME> --repo WolffM/tenhands"
+            exit 1
+          fi
+          echo "credentials present"
+
+      - name: Set up the environment
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          python3 -m venv .venv-ci
+          .venv-ci/bin/python -m pip install --quiet --upgrade pip
+          .venv-ci/bin/python -m pip install --quiet -r backend/requirements.txt
+
+      - name: Run the pipeline
+        working-directory: backend
+        run: ../.venv-ci/bin/python run_taskauto.py

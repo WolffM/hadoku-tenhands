@@ -410,3 +410,93 @@ async def test_render_end_to_end_produces_real_png(ev):
     png_path = Path(ev.path("06-verified/after.png"))
     head = png_path.read_bytes()[:8]
     assert head == b"\x89PNG\r\n\x1a\n", f"not a PNG: {head.hex()}"
+
+
+# ── renderer resilience ───────────────────────────────────────────────────
+#
+# `Page.captureScreenshot` fails transiently when the renderer is starved.
+# The pm2 host routinely has dozens of Chromium processes competing, and a
+# raised exception here means the run produces no evidence at all, so the
+# retry is worth a test rather than a comment.
+
+
+class _FakePlaywright:
+    """Minimal async_playwright() stand-in. Fails `fail_times` launches."""
+
+    def __init__(self, fail_times: int):
+        self.fail_times = fail_times
+        self.launches = 0
+        self.launch_args = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    @property
+    def chromium(self):
+        return self
+
+    async def launch(self, headless=True, args=None):
+        self.launches += 1
+        self.launch_args.append(list(args or []))
+        if self.launches <= self.fail_times:
+            raise RuntimeError("Protocol error (Page.captureScreenshot): "
+                               "Unable to capture screenshot")
+        return _FakeBrowser()
+
+
+class _FakeBrowser:
+    async def new_page(self, viewport=None):
+        return _FakePage()
+
+    async def close(self):
+        return None
+
+
+class _FakePage:
+    async def set_content(self, html, wait_until=None):
+        return None
+
+    async def screenshot(self, type=None, full_page=None):
+        return b"\x89PNG\r\n\x1a\n" + b"x" * 200
+
+
+def _install_fake(monkeypatch, fake):
+    import playwright.async_api as pw
+    monkeypatch.setattr(pw, "async_playwright", lambda: fake)
+    return fake
+
+
+@pytest.mark.asyncio
+async def test_a_starved_renderer_is_retried_not_surfaced(monkeypatch):
+    from temporal.activities import screenshot
+
+    fake = _install_fake(monkeypatch, _FakePlaywright(fail_times=1))
+    png = await screenshot._default_render_png("<html></html>")
+
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert fake.launches == 2, "the first failure should have been retried"
+
+
+@pytest.mark.asyncio
+async def test_a_persistently_failing_renderer_still_raises(monkeypatch):
+    # Retrying forever would hide a real breakage behind a slow green.
+    from temporal.activities import screenshot
+
+    fake = _install_fake(monkeypatch, _FakePlaywright(fail_times=99))
+    with pytest.raises(RuntimeError, match="Unable to capture screenshot"):
+        await screenshot._default_render_png("<html></html>")
+
+    assert fake.launches == screenshot._RENDER_ATTEMPTS
+
+
+@pytest.mark.asyncio
+async def test_chromium_is_launched_with_the_hardening_flags(monkeypatch):
+    from temporal.activities import screenshot
+
+    fake = _install_fake(monkeypatch, _FakePlaywright(fail_times=0))
+    await screenshot._default_render_png("<html></html>")
+
+    assert "--disable-dev-shm-usage" in fake.launch_args[0]
