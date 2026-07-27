@@ -30,7 +30,7 @@ from services.task_board import (
 )
 
 from . import plan_notes, selection
-from .progress import BoardSink
+from .progress import METRICS_KEY, BoardSink
 from .selection import Idle, Pickup
 
 logger = logging.getLogger(__name__)
@@ -105,8 +105,12 @@ class Runner:
                      token: str, job: Job) -> TurnResult:
         # `pickup.lane` is where the claim just put the task, so the sink
         # starts out knowing the board's state rather than guessing at it.
+        # Seed the sink with whatever this task already accumulated, so a
+        # second planning pass adds to the first rather than replacing it —
+        # the board's metadata merge is shallow and would otherwise drop it.
+        prior = (pickup.task.metadata or {}).get(METRICS_KEY) or {}
         sink = BoardSink(self.client, self.board_handle, pickup.task.id, token,
-                         lane=pickup.lane)
+                         lane=pickup.lane, metrics=prior)
         try:
             lane, notes, outcome = job(pickup, board, sink)
         except LeaseLost:

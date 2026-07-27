@@ -40,7 +40,7 @@ class FakeClient:
                 outcome=None, metadata=None, complete=False,
                 if_current_lane=None):
         self.releases.append({"lane": lane, "notes": notes, "outcome": outcome,
-                              "complete": complete,
+                              "complete": complete, "metadata": metadata,
                               "if_current_lane": if_current_lane})
         if self.release_raises:
             raise self.release_raises
@@ -96,6 +96,73 @@ def test_lane_changed_reaches_the_caller():
     c = FakeClient(release_raises=LaneChanged("lane changed"))
     with pytest.raises(LaneChanged):
         sink(c).finish("landed")
+
+
+# ---- Timings ---------------------------------------------------------------
+
+
+def test_metrics_ride_out_on_the_release():
+    c = FakeClient()
+    s = sink(c)
+    s.record(plan_s=12.5, plan_passes=1)
+    s.finish("plan-review", outcome="asked")
+    md = c.releases[0]["metadata"]["taskauto"]
+    assert md["plan_s"] == 12.5 and md["plan_passes"] == 1
+
+
+def test_a_second_pass_adds_to_the_first():
+    """The board merges metadata shallowly, so the running total has to be
+    carried in and added to — otherwise pass two erases pass one and every
+    task reports only its last visit."""
+    c = FakeClient()
+    s = BoardSink(c, "H", "t1", "tok", lane="planning",
+                  metrics={"plan_s": 30.0, "plan_passes": 1})
+    s.record(plan_s=12.0, plan_passes=1)
+    s.finish("plan-review")
+    md = c.releases[0]["metadata"]["taskauto"]
+    assert md["plan_s"] == 42.0 and md["plan_passes"] == 2
+
+
+def test_only_a_terminal_lane_gets_an_end_to_end_total():
+    """A task still mid-conversation has no total yet. Stamping one every pass
+    would make `agent_s` mean 'until last touched' rather than 'to done'."""
+    c = FakeClient()
+    s = sink(c)
+    s.record(plan_s=10.0)
+    s.finish("plan-review")
+    assert "agent_s" not in c.releases[0]["metadata"]["taskauto"]
+
+    c2 = FakeClient()
+    s2 = BoardSink(c2, "H", "t1", "tok", lane="landing",
+                   metrics={"plan_s": 30.0, "implement_s": 120.0})
+    s2.finish("landed", outcome="landed:abc")
+    md = c2.releases[0]["metadata"]["taskauto"]
+    assert md["agent_s"] == 150.0 and md["finished_lane"] == "landed"
+
+
+def test_a_stalled_task_still_gets_a_total():
+    """Stalling is an ending too, and 'how long did we spend before giving up'
+    is the number that makes a stall worth reading."""
+    c = FakeClient()
+    BoardSink(c, "H", "t1", "tok", metrics={"plan_s": 9.0}).finish("stalled")
+    assert c.releases[0]["metadata"]["taskauto"]["agent_s"] == 9.0
+
+
+def test_counts_are_not_summed_into_agent_seconds():
+    """Only `_s` fields are time. A pass counter added into the total would
+    silently inflate it."""
+    c = FakeClient()
+    BoardSink(c, "H", "t1", "tok",
+              metrics={"plan_s": 10.0, "plan_passes": 3}).finish("landed")
+    assert c.releases[0]["metadata"]["taskauto"]["agent_s"] == 10.0
+
+
+def test_no_metrics_means_no_metadata():
+    """crimson-kitty and any path that records nothing must not start writing
+    an empty object onto tasks."""
+    c = FakeClient()
+    sink(c).finish("landed")
+    assert c.releases[0]["metadata"] is None
 
 
 # ---- The projection itself -------------------------------------------------

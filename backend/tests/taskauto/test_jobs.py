@@ -36,9 +36,12 @@ def pickup(title="make coffee theme default", notes="", job="plan"):
 
 
 class FakeSink:
-    def __init__(self): self.lanes, self.beats = [], 0
+    def __init__(self): self.lanes, self.beats, self.metrics = [], 0, {}
     def lane(self, lane): self.lanes.append(lane)
     def heartbeat(self): self.beats += 1
+    def record(self, **f):
+        for k, v in f.items():
+            self.metrics[k] = self.metrics.get(k, 0) + v
     def finish(self, *a, **k): pass
 
 

@@ -143,6 +143,9 @@ def taskauto_status():
                 # invisible to the scheduler. Surfacing it is the whole
                 # reason a status page beats reading the board.
                 "stuck": len(t.lane_tags(full.lanes)) > 1,
+                # Agent seconds only — the clock stops when the subprocess
+                # returns, so CI and human thinking time never appear here.
+                "metrics": (t.metadata or {}).get("taskauto") or {},
             }
             lanes.setdefault(lane, []).append(entry)
             if t.claimed:
@@ -156,12 +159,26 @@ def taskauto_status():
             "prs": pr_by_repo.get(b.repo, []),
         })
 
+    # Roll up finished work only. A task still mid-conversation has no
+    # end-to-end number, and averaging partial ones would understate the cost.
+    done = [t for b in out_boards for lane in b.get("lanes", {}).values()
+            for t in lane if (t.get("metrics") or {}).get("agent_s")]
+    agent_s = [t["metrics"]["agent_s"] for t in done]
     return jsonify({
         "success": True,
         "boards": out_boards,
         "running": running,
         "laneOrder": LANE_ORDER,
         "prCount": sum(len(v) for v in pr_by_repo.values()),
+        "totals": {
+            "completed": len(agent_s),
+            "agentSecondsTotal": round(sum(agent_s), 1),
+            "agentSecondsMean": round(sum(agent_s) / len(agent_s), 1) if agent_s else 0,
+            "planSeconds": round(sum((t["metrics"].get("plan_s") or 0) for t in done), 1),
+            "implementSeconds": round(
+                sum((t["metrics"].get("implement_s") or 0) for t in done), 1),
+            "planPasses": sum(int(t["metrics"].get("plan_passes") or 0) for t in done),
+        },
     })
 
 

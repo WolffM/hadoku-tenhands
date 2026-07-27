@@ -28,12 +28,21 @@ from services.task_board import (
 
 logger = logging.getLogger(__name__)
 
+#: Where per-task timings live on the board. `notes` is rewritten every pass,
+#: so it cannot hold a running total; `metadata` merges and survives.
+METRICS_KEY = "taskauto"
+
+#: Lanes that end the pipeline's involvement. Reaching one is what makes an
+#: end-to-end total meaningful.
+TERMINAL_LANES = ("landed", "stalled")
+
 
 class ProgressSink(Protocol):
     """Where a pipeline reports what it's doing."""
 
     def lane(self, lane: str) -> None: ...
     def heartbeat(self) -> None: ...
+    def record(self, **fields: float) -> None: ...
     def finish(self, lane: str, *, notes: Optional[str] = None,
                outcome: str = "", complete: bool = False) -> None: ...
 
@@ -51,6 +60,9 @@ class NullSink:
     def heartbeat(self) -> None:
         pass
 
+    def record(self, **fields: float) -> None:
+        pass
+
     def finish(self, lane: str, *, notes=None, outcome="", complete=False) -> None:
         pass
 
@@ -59,12 +71,17 @@ class BoardSink:
     """Publishes onto a hadoku-task board while holding its claim."""
 
     def __init__(self, client: TaskBoardClient, board: str, task_id: str,
-                 token: str, *, lane: Optional[str] = None) -> None:
+                 token: str, *, lane: Optional[str] = None,
+                 metrics: Optional[dict] = None) -> None:
         self.client = client
         self.board = board
         self.task_id = task_id
         self.token = token
         self.released = False
+        #: Timings so far, read off the task at claim time and added to as this
+        #: turn runs. `notes` is rewritten every pass and cannot carry a running
+        #: total; `metadata` survives, which is why the numbers live there.
+        self._metrics: dict = dict(metrics or {})
         #: Where we believe the board currently has this task: the lane the
         #: claim moved it into, then whatever `lane()` last *successfully*
         #: set. Sent as `ifCurrentLane` on release — see `finish`.
@@ -89,6 +106,16 @@ class BoardSink:
             self._swallow(f"set-lane {lane}", e)
             return
         self._current_lane = lane
+
+    def record(self, **fields: float) -> None:
+        """Add to this task's running totals. Numbers accumulate, so a task
+        planned three times reports the sum of three planning passes rather
+        than only the last one."""
+        for k, v in fields.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                self._metrics[k] = round(self._metrics.get(k, 0) + v, 3)
+            else:
+                self._metrics[k] = v
 
     def heartbeat(self) -> None:
         """Hold the lease, and learn if a human cancelled us.
@@ -130,8 +157,21 @@ class BoardSink:
         """
         if self.released:
             return
+        metadata = None
+        if self._metrics:
+            metrics = dict(self._metrics)
+            # Only a terminal lane gets a total: a task still mid-conversation
+            # has no end-to-end number yet, and stamping one every pass would
+            # make "how long did this take" mean "how long until it was last
+            # touched".
+            if lane in TERMINAL_LANES:
+                metrics["agent_s"] = round(
+                    sum(v for k, v in metrics.items()
+                        if k.endswith("_s") and isinstance(v, (int, float))), 3)
+                metrics["finished_lane"] = lane
+            metadata = {METRICS_KEY: metrics}
         self.client.release(self.board, self.task_id, self.token,
                             lane=lane, notes=notes, outcome=outcome or None,
-                            complete=complete,
+                            complete=complete, metadata=metadata,
                             if_current_lane=self._current_lane)
         self.released = True
