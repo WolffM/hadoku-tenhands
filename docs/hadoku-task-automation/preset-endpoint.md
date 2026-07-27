@@ -106,6 +106,10 @@ with `Date.now` pushed past your TTL so the revalidation path runs for real.
                                               ✓ 304 kept the parsed lanes
 ```
 
+> **Follow-up, 2026-07-26:** activation reads the contract once, so a board goes stale the next time
+> we change a lane — and only its owner can re-activate. [ask-preset-sync.md](ask-preset-sync.md)
+> asks hadoku-task to surface that on the board read.
+
 ## 6. The contract, machine-readable
 
 `GET https://dispatch.hadoku.me/tenhands/automation/openapi.json` — OpenAPI 3.1, public, same

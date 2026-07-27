@@ -468,10 +468,10 @@ class TaskBoardClient:
     second key would add one more secret to rotate for no isolation gain.
 
     **Where the tier comes from.** edge-router resolves the request tier from
-    membership of the `SERVICE_KEYS` secret array
+    a service-tier record in the edge-router key registry
     (`authGate.ts::resolveCallerTier`) and stamps `X-Hadoku-Tier`; task-api
     trusts that header and never consults the key registry. So the 600/min
-    bucket follows from `SERVICE_KEYS` membership, *not* from the
+    bucket follows from that service-tier resolution, *not* from the
     `key:{rawKey}` registry row `POST /session/admin/keys` writes.
 
     That registry row is still needed, for a different reason: board sharing
