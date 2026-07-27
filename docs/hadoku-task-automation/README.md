@@ -19,9 +19,10 @@ brief. This pipeline starts from eight words — *"fix the production CI workflo
 is **"do I even know what you're talking about."** That's why scoping is a first-class stage with
 its own gates and its own way of asking you a question (§1.1–1.2).
 
-**The human left the loop.** crimson-kitty ends at a PR someone reviews. Here the work merges
-unreviewed, so safety can't rest on a reviewer — it rests on landing being automatically
-reversible (§4).
+**The human moved, not out.** crimson-kitty ends at a PR someone reviews upstream. By default this
+pipeline also ends at a PR — opened here, on our own repo, and merged by a human before anything
+reaches `main`. Safety rests on that review gate, not on being able to undo a bad merge after the
+fact (§4).
 
 ---
 
@@ -54,13 +55,14 @@ a phone is miserable; reading a plan and answering three questions is not.
                                      working (agent) ──▶ repro → fix → verify → gates
                                           │               └─ remediation, capped at 3
                                           ▼
-                                     landing (agent) ──▶ merge → deploy → watch prod
-                                          │                          │ red
-                       ┌──────────────────┴────────┐                 ▼
-                       ▼                           ▼            auto-revert
-                  landed (user)              stalled (user) ◀────────┘
-                  merged + prod green        needs a laptop
-                  or "no change required"
+                                     landing (agent) ──▶ push branch, open PR
+                                          │
+                       ┌──────────────────┴────────┐
+                       ▼                           ▼
+                  landed (user)              stalled (user)
+                  PR open, awaiting your      needs a laptop
+                  merge, or "no change
+                  required"
 ```
 
 Eight lanes, three of them `agent`. The board is [hadoku-task](https://hadoku.me/task); the
@@ -235,7 +237,7 @@ So the build is **three adapters around an existing workflow**, not a second pip
 |---|---|---|
 | `TaskSource` — where work comes from | aggregator + GitHub issue | board poll + claim |
 | `ProgressSink` — where state is published | evidence store + Temporal only | …plus board lane + `notes` |
-| `Landing` — what "done" means | upstream PR, watch maintainer | merge to `main`, watch prod, auto-revert |
+| `Landing` — what "done" means | upstream PR, watch maintainer | push branch, open PR — a human merges |
 
 **The board is a state projection, not a database.** Temporal and the evidence store remain the
 source of truth for pipeline state, exactly as today. The board is where that state becomes visible
@@ -317,35 +319,44 @@ in the workflow, the gates, or the board integration knows which agent ran.
 
 ---
 
-## 4. Auto-merge is safe because auto-revert is automatic
+## 4. Safety rests on review before merge, not revert after it
 
 This is the load-bearing decision, and it is not "the gates are good enough."
 
-Work lands on green with no human PR review. The gates in [gates.md](gates.md) are a real filter,
-but no pre-merge gate set catches everything, and pretending otherwise is how you get a bad night.
-What makes landing-without-review acceptable is that **the pipeline watches production after the
-merge and reverts itself**:
+The gates in [gates.md](gates.md) are a real filter, but no pre-merge gate set catches everything,
+and pretending otherwise is how you get a bad night. What makes the default `pr` mode safe is not
+being able to undo a bad change — it's that the change never reaches `main` unreviewed in the first
+place. `landing.py` pushes a branch and opens a pull request, then stops (`backend/run_taskauto.py`
+confirms `TASKAUTO_MODE` defaults to `pr`). A human reads the diff, waits on the repo's own required
+checks, and merges it — or doesn't.
 
-1. Merge to `main`. Deploy fires (per repo, that's already the normal path).
-2. Watch the deploy run and the service health signal for a fixed window.
-3. Red deploy, red health check, or an error-rate spike inside the window →
-   `git revert` the merge commit, push, move the task to `stalled` with the evidence.
+There is no post-merge watcher and no auto-revert in `pr` mode: nothing has reached `main` yet, so
+there's nothing to watch and nothing to attribute a red signal to. That machinery still exists —
+`push` mode keeps it, merging straight into `base` unattended and then watching production and
+reverting if it goes red, but it's kept for the crimson-kitty-shaped case and for repos where a PR
+adds nothing (§4.1), not as the default board's safety net.
 
-Every landing is reversible by a follow-up commit, automatically, without your phone. That's the
-same test your working agreement already applies to irreversible actions — this pipeline just
-enforces it mechanically.
+**The corollary is a per-repo eligibility bar, but it's about being worth a PR, not about arming a
+revert trigger.** [gates.md](gates.md)'s gates are the filter for what's confident enough to leave
+the pipeline at all — they run before a branch is even pushed. What actually decides whether a
+change lands is downstream of this pipeline entirely: the repo's own required checks and a human
+clicking merge. A repo can only get an auto-land board if it has:
 
-**The corollary is a per-repo eligibility bar.** A repo can only auto-land if it has:
+- a test command the gates can run against, so "confident enough to open a PR" means something, and
+- (for the `push`-mode fallback only, §4.1) a health signal worth watching — the trigger auto-revert
+  needs, since without one "on green" would assert nothing.
 
-- a test command that can go green, and
-- a health signal worth watching (an endpoint, a deploy conclusion, a smoke test).
+Repos that don't clear the bar don't get an auto-land board — they stay manual, or run the gated
+lane set noted in [board-contract.md](board-contract.md). Rollout is therefore **per repo, starting
+with the ones that already have CI**, not a flag day.
 
-Without both, "on green" asserts nothing and revert has no trigger. Repos that don't clear the bar
-don't get an auto-land board — they stay manual, or run the gated lane set noted in
-[board-contract.md](board-contract.md). Rollout is therefore **per repo, starting with the ones
-that already have CI**, not a flag day.
+### 4.1 The daily canary is the prerequisite for `push` mode, and it doesn't exist yet
 
-### 4.1 The daily canary is the prerequisite, and it doesn't exist yet
+This section is about the `push`-mode fallback (§4) — the only path where a post-merge health check
+gates anything. In the default `pr` mode nothing merges without a human, so there is no post-merge
+trigger to arm; nothing below is a prerequisite for the default board. The canary is still worth
+having there, but only as the general fire alarm it was always meant to be for the rest of
+production, not as a gate on this pipeline's own changes.
 
 We decided against duplicating the ecosystem into a pre-prod environment: the catastrophic-failure
 set is small and specific (edge-router, session/auth, vault broker, mgmt-api, cloudflared tunnel),
@@ -359,7 +370,7 @@ of this section ran them together:
 
 | | Trigger | Answers | Latency that matters |
 |---|---|---|---|
-| **Post-merge health check** (G12) | on demand, right after a merge deploys | "did *this* change break it?" | minutes — it gates the auto-revert |
+| **Post-merge health check** (G12) | on demand, right after a merge deploys | "did *this* change break it?" | minutes — it gates the auto-revert, `push` mode only |
 | **Daily canary** | cron | "did anything break without us noticing?" | a day — it's a fire alarm |
 
 A daily schedule can't drive auto-revert; by the time it fires, the revert window is long gone and
@@ -387,8 +398,9 @@ So the work is two-part, and the first part is nearly free: **schedule what alre
 fill the gaps one product at a time. Scheduling first is worth doing on its own merits — sixteen
 specs that nothing runs are already a liability, independent of this pipeline.
 
-A repo has no business auto-landing until its product has a canary. That's the eligibility bar
-above, made concrete.
+A repo has no business running in `push` mode until its product has a canary. That's the push-mode
+eligibility bar above, made concrete. `pr`-mode repos don't need one to land safely — they land
+nothing themselves — though the canary is still worth having as the general early-warning system.
 
 ### 4.1b Mapping the board's `repo` to a checkout we own
 
@@ -423,20 +435,26 @@ the same project (checked via `origin`), when it's shallow, or when it simply is
 a git repo; and if a reference clone fails anyway, we retry without it rather than
 lose the task.
 
-### 4.2 The repo lock has to span the watch window, and that costs throughput
+### 4.2 One task per repo at a time, so two tasks never collide in one checkout
 
-Auto-revert only works if a prod failure can be **attributed to a specific merge**. If task B lands
-while task A is still inside its watch window and health goes red, we don't know which one did it —
-and reverting the wrong commit is worse than not reverting.
+`run_taskauto.py` maps one board to one repo and skips any second board that claims the same one —
+its own comment: "Two boards driving one repo would land into the same checkout concurrently... almost
+certainly a mistake." Within a board, the per-repo lock from §1.1 declines to claim a new task while
+another sits in an `agent` lane. The reason isn't a watch window to hold open — it's that two tasks
+working the same checkout and pushing overlapping branches would step on each other, and a
+merge-result verify (`landing.py`) run against a tree another task is mid-edit on would blame the
+wrong change for whatever it finds.
 
-So the per-repo lock from §1.1 can't be released at merge; it has to be held until the watch window
-closes. The honest consequence: **one task per repo per cycle**, where a cycle is suite + merge +
-deploy + watch — realistically 30–60 minutes. Seven tasks on one repo is most of a day.
+**`push` mode carries the older, stricter reason on top.** Auto-revert only works if a prod failure
+can be attributed to a specific merge — if task B merges while task A is still inside its watch
+window and health goes red, we don't know which one did it, and reverting the wrong commit is worse
+than not reverting. So a `push`-mode repo's lock can't be released at merge; it has to be held until
+the watch window closes, a real throughput ceiling on top of the base one-at-a-time rule. `pr`-mode
+repos don't pay that cost: nothing merges here, so there's no window to attribute against, and the
+lock only needs to span the shorter plan-through-PR cycle.
 
-That's acceptable here — the work arrives at human-typing rates, and tasks on *different* repos run
-concurrently — but it is a real ceiling and it's the price of sound attribution. The tempting
-optimisation (release the lock at merge, watch asynchronously) quietly breaks auto-revert, so it
-isn't available.
+That's acceptable at these volumes — the work arrives at human-typing rates, and tasks on
+*different* repos run concurrently.
 
 ### 4.3 The unmitigated risk is where the agent runs, not what it merges
 
