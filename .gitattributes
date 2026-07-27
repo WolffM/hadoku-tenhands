@@ -1,0 +1,20 @@
+# LF everywhere. This repo runs on Linux only — prod is a Linux host, CI is a
+# Linux runner, and every developer checkout is Linux.
+#
+# Mixed endings cost real time before this file existed: a scripted edit that
+# writes text rather than bytes silently rewrites a CRLF file to LF, so a
+# two-line change lands as a whole-file diff and buries the actual change.
+# It happened twice in one day (cache.py, then six frontend files).
+# `text=auto eol=lf` makes git normalise on the way in, so the working tree and
+# the index agree no matter what wrote the file.
+* text=auto eol=lf
+
+# Binaries git must never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
