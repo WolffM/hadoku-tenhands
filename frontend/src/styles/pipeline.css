@@ -320,3 +320,91 @@
   padding-top: 0.5rem;
   border-top: 1px solid var(--color-border);
 }
+
+/* ── Task Automation ──────────────────────────────────────────────────────
+   Board status + the PR review gate. Colours come from theme tokens only —
+   a hardcoded hex here is a white button on a dark board, which is a bug we
+   already have filed. */
+
+.taskauto-view { display: flex; flex-direction: column; gap: 1rem; }
+
+.taskauto-error {
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background: var(--color-error-bg, rgba(220, 38, 38, 0.12));
+  color: var(--color-error, #dc2626);
+  font-size: 0.85rem;
+}
+
+.taskauto-summary { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.taskauto-summary__stat { display: flex; flex-direction: column; }
+.taskauto-summary__num { font-size: 1.6rem; font-weight: 600; color: var(--color-text); }
+.taskauto-summary__label { font-size: 0.75rem; color: var(--color-text-muted); }
+
+.taskauto-running {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  padding: 0.6rem 0.8rem; border-radius: 6px;
+  background: var(--color-surface-raised, var(--color-surface));
+  border: 1px solid var(--color-border);
+}
+.taskauto-running__item { display: flex; gap: 0.6rem; align-items: center; font-size: 0.85rem; }
+.taskauto-running__lane { color: var(--color-accent); font-weight: 600; }
+.taskauto-running__board { color: var(--color-text-muted); }
+.taskauto-running__title { color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.taskauto-boards { display: flex; flex-direction: column; gap: 1rem; }
+
+.taskauto-board {
+  border: 1px solid var(--color-border); border-radius: 8px;
+  background: var(--color-surface); padding: 0.8rem;
+}
+.taskauto-board__head { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; }
+.taskauto-board__name { margin: 0; font-size: 1rem; color: var(--color-text); }
+.taskauto-board__repo { font-size: 0.78rem; color: var(--color-text-muted); font-family: var(--font-mono, monospace); }
+.taskauto-board__total { margin-left: auto; font-size: 0.75rem; color: var(--color-text-muted); }
+.taskauto-board__error { margin-top: 0.5rem; font-size: 0.8rem; color: var(--color-error, #dc2626); }
+
+.taskauto-lanes {
+  display: grid; gap: 0.6rem; margin-top: 0.7rem;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+.taskauto-lane { border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.55rem; }
+.taskauto-lane__head { display: flex; justify-content: space-between; align-items: center; }
+.taskauto-lane__name { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.taskauto-lane__count { font-size: 0.85rem; font-weight: 600; color: var(--color-text); }
+.taskauto-lane__tasks { list-style: none; margin: 0.35rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+
+/* A lane that wants a human is the thing you came to the page to find. */
+.taskauto-lane--human { border-left: 3px solid var(--color-accent); }
+.taskauto-lane--stalled { border-left: 3px solid var(--color-error, #dc2626); }
+.taskauto-lane--agent { opacity: 0.85; }
+.taskauto-lane--inbox { border-style: dashed; }
+
+.taskauto-task { display: flex; gap: 0.35rem; align-items: center; font-size: 0.78rem; color: var(--color-text); }
+.taskauto-task__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskauto-task__dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--color-success, #16a34a);
+  animation: taskauto-pulse 1.6s ease-in-out infinite;
+}
+.taskauto-task__stuck { color: var(--color-error, #dc2626); font-weight: 700; flex: 0 0 auto; }
+@keyframes taskauto-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.taskauto-board__prs { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.8rem; }
+.taskauto-pr {
+  border: 1px solid var(--color-border); border-radius: 6px;
+  padding: 0.55rem 0.7rem; background: var(--color-surface-raised, var(--color-surface));
+}
+.taskauto-pr__head { display: flex; gap: 0.6rem; align-items: baseline; }
+.taskauto-pr__title { color: var(--color-text); font-size: 0.86rem; text-decoration: none; font-weight: 500; }
+.taskauto-pr__title:hover { text-decoration: underline; }
+.taskauto-pr__task { font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.15rem; font-style: italic; }
+.taskauto-pr__meta { display: flex; gap: 0.7rem; margin-top: 0.3rem; font-size: 0.74rem; color: var(--color-text-muted); }
+.taskauto-pr__diff { font-family: var(--font-mono, monospace); }
+.taskauto-pr__state { text-transform: lowercase; }
+.taskauto-pr__checks { margin-left: auto; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.taskauto-pr__checks--passing { color: var(--color-success, #16a34a); }
+.taskauto-pr__checks--failing { color: var(--color-error, #dc2626); }
+.taskauto-pr__checks--pending { color: var(--color-warning, #d97706); }
+.taskauto-pr__checks--none { color: var(--color-text-muted); }
+.taskauto-pr__actions { display: flex; gap: 0.45rem; margin-top: 0.5rem; }

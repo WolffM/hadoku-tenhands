@@ -42,8 +42,8 @@ import type {
   TemporalDispatchResult,
   TemporalSignalDecision,
   TemporalReasonCode,
-  TemporalSignalResult
-} from './types'
+  TemporalSignalResult,
+  TaskAutoStatus} from './types'
 
 // ============ Stage APIs ============
 
@@ -580,4 +580,19 @@ export async function sendTemporalSignal(
       }
     )
   )
+}
+
+// ============ Task Automation ============
+
+/** Every automation board, its tasks by lane, and its open taskauto PRs. */
+export async function getTaskAutoStatus(): Promise<TaskAutoStatus> {
+  return apiClient.get<TaskAutoStatus>('/api/taskauto/status')
+}
+
+/** Merge one taskauto PR. Deliberately one at a time — this is the human gate. */
+export async function mergeTaskAutoPR(
+  repo: string,
+  number: number
+): Promise<{ success: boolean; error?: string }> {
+  return apiClient.post('/api/taskauto/merge', { repo, number })
 }

@@ -716,3 +716,52 @@ export interface TemporalSignalResult {
   reason_text?: string
   persisted?: Record<string, unknown> | null
 }
+
+// ============ Task Automation (hadoku-task-automation) ============
+
+export interface TaskAutoPR {
+  repo: string
+  number: number
+  title: string
+  url: string
+  branch: string
+  /** ULID of the task this PR was generated from — pairs a diff to its plan. */
+  taskId: string
+  additions: number
+  deletions: number
+  changedFiles: number
+  mergeState: string
+  isDraft: boolean
+  checks: 'passing' | 'failing' | 'pending' | 'none'
+  updatedAt: string
+}
+
+export interface TaskAutoTask {
+  id: string
+  title: string
+  claimed: boolean
+  updatedAt: string
+  hasPlan: boolean
+  /** Two lane tags — resolves to no lane, so the scheduler cannot see it. */
+  stuck: boolean
+}
+
+export interface TaskAutoBoard {
+  handle: string
+  name: string
+  repo: string
+  schemaId?: string
+  schemaVersion?: number
+  lanes: Record<string, TaskAutoTask[]>
+  counts: Record<string, number>
+  prs: TaskAutoPR[]
+  error?: string
+}
+
+export interface TaskAutoStatus {
+  success: boolean
+  boards: TaskAutoBoard[]
+  running: (TaskAutoTask & { board: string; repo: string; lane: string })[]
+  laneOrder: string[]
+  prCount: number
+}

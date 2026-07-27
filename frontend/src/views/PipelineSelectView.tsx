@@ -28,7 +28,14 @@ const pipelines = [
     description:
       'Evidence-gated contribution pipeline: per-state artifacts, mechanical gates, operator inbox',
     stages: ['Eligible', 'Reproduced', 'Verified', 'Submittable'],
-    icon: '\u{1F408}'
+    icon: '\u{1F408}'  },
+  {
+    id: 'taskauto' as const,
+    title: 'Task Automation',
+    description:
+      'Board-driven: a task typed on a phone becomes a plan you approve, then a pull request you merge',
+    stages: ['Inbox', 'Plan Review', 'Approved', 'Review & Merge'],
+    icon: '\u{1F4CB}'
   }
 ]
 

@@ -13,7 +13,8 @@ import {
   OSSView,
   PipelineSelectView,
   RetroView,
-  TemporalPipelineView
+  TemporalPipelineView,
+  TaskAutoView
 } from './views'
 import type { TenHandsProps } from './entry'
 
@@ -101,6 +102,8 @@ export default function App(props: TenHandsProps = {}) {
         return <OSSView />
       case 'temporal':
         return <TemporalPipelineView />
+      case 'taskauto':
+        return <TaskAutoView />
       case 'retro':
         return <RetroView />
       case 'review':
