@@ -8,16 +8,16 @@ try:
     from .. import bp
     from ...services import run_gh_command, get_authenticated_user, OSSService
     from ...helpers.validation import validate_repo_name, validate_owner, safe_error_message
-    from ...routes.debug._middleware import require_admin_key
+    from ...routes.debug._middleware import require_admin
 except ImportError:
     from routes import bp
     from services import run_gh_command, get_authenticated_user, OSSService
     from helpers.validation import validate_repo_name, validate_owner, safe_error_message
-    from routes.debug._middleware import require_admin_key
+    from routes.debug._middleware import require_admin
 
 
 @bp.route("/api/oss/debug/fork-exists", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_fork_exists():
     """Check if a fork exists for the authenticated user."""
     my_user = get_authenticated_user()
@@ -37,7 +37,7 @@ def api_oss_debug_fork_exists():
 
 
 @bp.route("/api/oss/debug/fork-repo", methods=["POST"])
-@require_admin_key
+@require_admin
 def api_oss_debug_fork_repo():
     """Fork a repo (just fork, don't wait or sync)."""
     data = request.json
@@ -66,7 +66,7 @@ def api_oss_debug_fork_repo():
 
 
 @bp.route("/api/oss/debug/fork-ready", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_fork_ready():
     """Single poll check for fork readiness (no blocking loop)."""
     my_user = get_authenticated_user()
@@ -85,7 +85,7 @@ def api_oss_debug_fork_ready():
 
 
 @bp.route("/api/oss/debug/sync-fork", methods=["POST"])
-@require_admin_key
+@require_admin
 def api_oss_debug_sync_fork():
     """Sync a fork with its upstream."""
     data = request.json

@@ -14,7 +14,7 @@ try:
     from ...helpers.validation import (
         validate_owner, validate_repo_name, validate_required_fields, error_response,
     )
-    from ...routes.debug._middleware import require_admin_key
+    from ...routes.debug._middleware import require_admin
 except ImportError:
     from routes import bp
     from config import COPILOT_ASSIGNEE
@@ -23,11 +23,11 @@ except ImportError:
     from helpers.validation import (
         validate_owner, validate_repo_name, validate_required_fields, error_response,
     )
-    from routes.debug._middleware import require_admin_key
+    from routes.debug._middleware import require_admin
 
 
 @bp.route("/api/oss/debug/assign-copilot", methods=["POST"])
-@require_admin_key
+@require_admin
 def api_oss_debug_assign_copilot():
     """Assign Copilot to an issue on a fork."""
     data = request.json
@@ -56,7 +56,7 @@ def api_oss_debug_assign_copilot():
 
 
 @bp.route("/api/oss/debug/score-issue", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_score_issue():
     """Score a single issue with full breakdown."""
     my_user = get_authenticated_user()

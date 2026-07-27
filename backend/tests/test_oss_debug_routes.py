@@ -8,6 +8,10 @@ import pytest
 
 from app import app
 from extensions import limiter
+from middleware.whoami import clear_cache, resolve_tier_from_key as _real_resolve
+import routes.debug._middleware as _gate
+
+ADMIN_K, FRIEND_K, SERVICE_K = "admin-key", "friend-key", "service-key"
 
 
 @pytest.fixture
@@ -21,10 +25,15 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def disable_cache_and_admin_key(monkeypatch):
-    """Disable caching and admin key gating for all route tests."""
+def disable_cache_and_admit_admin(monkeypatch):
+    """Disable caching, and admit the route tests past the debug gate.
+
+    The gate resolves `X-User-Key` through whoami; these tests predate it and
+    send no key, so stub the resolver rather than teach 200 tests to carry a
+    header. `TestDebugGate` overrides this to exercise the real thing.
+    """
     monkeypatch.setenv("CACHE_DISABLED", "1")
-    monkeypatch.delenv("ADMIN_KEY", raising=False)
+    monkeypatch.setattr(_gate, "resolve_tier_from_key", lambda _key: "admin")
 
 
 PREFIX = "/tenhands"
@@ -37,59 +46,81 @@ _assignment = "routes.debug.assignment_routes"
 _tracking = "routes.debug.tracking_routes"
 
 
-# ============ Admin Key Gating ============
+# ============ Debug gate ============
 
 
-class TestAdminKeyGating:
-    """Tests for require_admin_key decorator on debug endpoints."""
+class TestDebugGate:
+    """Admin tier only, resolved through whoami, failing closed.
 
-    def test_no_gating_when_admin_key_unset(self, client, monkeypatch):
-        """When ADMIN_KEY is not set, debug endpoints are accessible without auth."""
-        monkeypatch.delenv("ADMIN_KEY", raising=False)
-        with patch(f"{_health}.run_gh_command") as mock_gh, \
-             patch(f"{_health}.get_authenticated_user", return_value="testuser"):
-            mock_gh.return_value = {"success": True, "output": "testuser"}
-            resp = client.get(f"{PREFIX}/api/oss/debug/gh-health")
-            assert resp.status_code == 200
+    **The regression this exists for:** the gate used to compare the request
+    against an `ADMIN_KEY` env var *only when that var was set*, and admit
+    everyone when it wasn't. TenHands is not permitted an admin credential, so
+    the var was unset in production and the gate became a no-op — and the tests
+    this class replaces asserted exactly that ("accessible without auth"), so
+    the suite stayed green while the endpoints stood open.
 
-    def test_401_when_admin_key_set_but_not_provided(self, client, monkeypatch):
-        """When ADMIN_KEY is set, requests without the key get 401."""
-        monkeypatch.setenv("ADMIN_KEY", "secret123")
-        resp = client.get(f"{PREFIX}/api/oss/debug/gh-health")
+    There is no stored secret now. The caller brings a key, whoami says what
+    tier it is, and anything below admin is refused.
+    """
+
+    @pytest.fixture(autouse=True)
+    def real_gate(self, monkeypatch):
+        """Restore the real resolver, driven by overrides so no network runs."""
+        monkeypatch.setattr(_gate, "resolve_tier_from_key", _real_resolve)
+        monkeypatch.setenv("WHOAMI_TEST_OVERRIDES", json.dumps({
+            ADMIN_K: "admin", FRIEND_K: "friend", SERVICE_K: "service"}))
+        clear_cache()
+        yield
+        clear_cache()
+
+    def _get(self, client, **headers):
+        return client.get(f"{PREFIX}/api/oss/debug/gh-health", headers=headers)
+
+    def test_no_key_is_401(self, client):
+        resp = self._get(client)
         assert resp.status_code == 401
-        data = resp.get_json()
-        assert data["success"] is False
-        assert data["error"] == "Unauthorized"
+        assert resp.get_json()["success"] is False
 
-    def test_401_when_admin_key_wrong(self, client, monkeypatch):
-        """When ADMIN_KEY is set, wrong key gets 401."""
-        monkeypatch.setenv("ADMIN_KEY", "secret123")
-        resp = client.get(
-            f"{PREFIX}/api/oss/debug/gh-health",
-            headers={"X-Admin-Key": "wrong"}
-        )
-        assert resp.status_code == 401
-
-    def test_success_with_correct_header(self, client, monkeypatch):
-        """When correct X-Admin-Key header is provided, request succeeds."""
-        monkeypatch.setenv("ADMIN_KEY", "secret123")
+    def test_admin_tier_gets_in(self, client):
         with patch(f"{_health}.run_gh_command") as mock_gh, \
              patch(f"{_health}.get_authenticated_user", return_value="testuser"):
             mock_gh.return_value = {"success": True, "output": "testuser"}
-            resp = client.get(
-                f"{PREFIX}/api/oss/debug/gh-health",
-                headers={"X-Admin-Key": "secret123"}
-            )
-            assert resp.status_code == 200
+            assert self._get(client, **{"X-User-Key": ADMIN_K}).status_code == 200
 
-    def test_success_with_query_param(self, client, monkeypatch):
-        """admin_key query param also works."""
+    @pytest.mark.parametrize("key, tier", [
+        (FRIEND_K, "friend"),
+        (SERVICE_K, "service"),
+        ("never-issued", "public"),
+    ])
+    def test_below_admin_is_403_and_says_why(self, client, key, tier):
+        """A service key belongs to a machine with no business here, and an
+        unrecognised key resolves to public — both refused, both told which."""
+        resp = self._get(client, **{"X-User-Key": key})
+        assert resp.status_code == 403
+        assert resp.get_json()["tier"] == tier
+
+    def test_fails_closed_when_whoami_cannot_answer(self, client, monkeypatch):
+        """An outage resolves to public, which is refused.
+
+        The gate this replaces failed *open* under exactly this condition —
+        no answer meant no gating at all.
+        """
+        monkeypatch.delenv("WHOAMI_TEST_OVERRIDES", raising=False)
+        monkeypatch.setattr("middleware.whoami._fetch_tier_from_whoami",
+                            lambda _key: None)
+        clear_cache()
+        assert self._get(client, **{"X-User-Key": ADMIN_K}).status_code == 403
+
+    def test_the_old_admin_key_channels_are_gone(self, client, monkeypatch):
+        """`X-Admin-Key` and `?admin_key=` no longer authenticate anything.
+
+        Setting the env var too, so this fails if the old branch is revived.
+        """
         monkeypatch.setenv("ADMIN_KEY", "secret123")
-        with patch(f"{_health}.run_gh_command") as mock_gh, \
-             patch(f"{_health}.get_authenticated_user", return_value="testuser"):
-            mock_gh.return_value = {"success": True, "output": "testuser"}
-            resp = client.get(f"{PREFIX}/api/oss/debug/gh-health?admin_key=secret123")
-            assert resp.status_code == 200
+        assert self._get(client, **{"X-Admin-Key": "secret123"}).status_code == 401
+        assert client.get(
+            f"{PREFIX}/api/oss/debug/gh-health?admin_key=secret123"
+        ).status_code == 401
 
 
 # ============ Group A: Health Checks ============
