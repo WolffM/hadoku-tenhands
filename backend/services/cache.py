@@ -52,8 +52,10 @@ def _ensure_cache_dir():
 
 def _get_cache_path(cache_key: str) -> str:
     """Get the file path for a cache key."""
-    # Hash the key to create a safe filename
-    key_hash = hashlib.md5(cache_key.encode()).hexdigest()
+    # Hash the key to create a safe filename. Not a security boundary — this
+    # only turns an arbitrary cache key into a filename, so md5 is fine and
+    # `usedforsecurity=False` says so to both readers and B324.
+    key_hash = hashlib.md5(cache_key.encode(), usedforsecurity=False).hexdigest()
     return os.path.join(CACHE_DIR, f"{key_hash}.json")
 
 
