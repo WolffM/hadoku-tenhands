@@ -43,7 +43,8 @@ import type {
   TemporalSignalDecision,
   TemporalReasonCode,
   TemporalSignalResult,
-  TaskAutoStatus} from './types'
+  TaskAutoStatus
+} from './types'
 
 // ============ Stage APIs ============
 
