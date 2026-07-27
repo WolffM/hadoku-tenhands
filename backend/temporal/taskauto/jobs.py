@@ -13,6 +13,7 @@ capabilities apart is cheaper than granting both and relying on a prompt.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -126,6 +127,7 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 f"\nWHAT'S ALREADY IN THE TASK NOTES (including anything the "
                 f"human replied):\n---\n{pickup.task.notes.strip()}\n---\n")
 
+        t0 = time.monotonic()
         raw = agent.ask(checkout, PLAN_PROMPT.format(
             title=pickup.task.title,
             kind="a bug report — it claims something is broken"
@@ -135,6 +137,9 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                         if kind.is_bug else
                         "State it so it is unambiguously true or false.",
         ))
+        # Agent time only: the clock stops when the subprocess returns, so CI
+        # and the human's thinking time are never counted.
+        sink.record(plan_s=time.monotonic() - t0, plan_passes=1)
         sink.heartbeat()
 
         doc = plan_notes.parse(raw)
@@ -250,11 +255,13 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 f"---\n{doc.human_text.strip()}\n---\n"
             )
 
+        t0 = time.monotonic()
         outcome = agent.work(checkout, IMPLEMENT_PROMPT.format(
             title=strip_bug_prefix(pickup.task.title),
             plan=plan_notes.render(doc),
             human_block=human_block,
         ))
+        sink.record(implement_s=time.monotonic() - t0, implement_runs=1)
         sink.heartbeat()
 
         if not outcome.made_changes:
