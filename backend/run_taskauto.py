@@ -35,7 +35,10 @@ Configuration:
     TASKAUTO_LIVE     "1" to actually push. Anything else is a dry run.
     TASKAUTO_MODE     "pr" (default) or "push".
     TASKAUTO_ONCE     "1" for a single drain pass, then exit.
-    HADOKU_TASK_KEY   service-tier key for the board API.
+    HADOKU_SERVICE_KEY  service-tier key for the board API. Must be the
+                      `tenhands-service-key` identity — shares are granted
+                      to it, and a valid key for any other identity simply
+                      sees no boards.
 """
 
 from __future__ import annotations
@@ -138,7 +141,7 @@ def main() -> int:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
 
     if not _ambient_key():
-        logger.error("No board credential. Set HADOKU_TASK_KEY.")
+        logger.error("No board credential. Set HADOKU_SERVICE_KEY.")
         return 2
 
     live = os.environ.get("TASKAUTO_LIVE", "") == "1"

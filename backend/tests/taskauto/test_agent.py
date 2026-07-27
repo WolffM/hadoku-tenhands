@@ -43,7 +43,7 @@ def agent(status="", diff="", run=None):
 
 
 SECRETS = {
-    "HADOKU_TASK_KEY": "board-key",
+    "HADOKU_SERVICE_KEY": "board-key",
     "TENHANDS_ADMIN_KEY": "admin-key",
     "SAML_ORG_TOKEN": "sso",
     "HADOKU_SITE_TOKEN": "site",
@@ -87,7 +87,7 @@ def test_extra_values_can_be_injected_explicitly(monkeypatch):
 
 
 def test_the_run_receives_the_scrubbed_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("HADOKU_TASK_KEY", "board-key")
+    monkeypatch.setenv("HADOKU_SERVICE_KEY", "board-key")
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
     seen = {}
 
@@ -97,7 +97,7 @@ def test_the_run_receives_the_scrubbed_env(monkeypatch, tmp_path):
 
     a = ClaudeCodeAgent(run=fake_run, git=FakeGit())
     a.work(tmp_path, "do the thing")
-    assert "HADOKU_TASK_KEY" not in seen["env"]
+    assert "HADOKU_SERVICE_KEY" not in seen["env"]
     assert seen["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "tok"
 
 

@@ -40,7 +40,7 @@ DEFAULT_TIMEOUT_S = int(os.environ.get("TASKAUTO_AGENT_TIMEOUT", "1800"))
 
 #: Environment the agent is allowed to see. Everything else is dropped.
 #: CLAUDE_CODE_OAUTH_TOKEN is its own credential; the rest is what a process
-#: needs to run at all. Notably absent: HADOKU_TASK_KEY, the vault key,
+#: needs to run at all. Notably absent: HADOKU_SERVICE_KEY, the vault key,
 #: TENHANDS_*, GH_TOKEN, GITHUB_TOKEN, SAML_ORG_TOKEN.
 ENV_ALLOWLIST = (
     "PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TMPDIR",

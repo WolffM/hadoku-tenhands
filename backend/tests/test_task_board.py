@@ -114,7 +114,7 @@ def test_missing_key_fails_before_any_request():
     the remediation (fetch it from the vault) is nothing like an auth bug."""
     c = TaskBoardClient(base_url="https://example.test", user_key="",
                         transport=Recorder())
-    with pytest.raises(TaskBoardError, match="HADOKU_TASK_KEY"):
+    with pytest.raises(TaskBoardError, match="HADOKU_SERVICE_KEY"):
         c.get_board("h")
     assert c._transport.calls == []
 
@@ -417,65 +417,59 @@ def test_explicit_empty_key_does_not_fall_back_to_the_environment(monkeypatch):
     """Regression, and it only reproduced under the vault wrapper. `or`
     treats an explicit "" as absent, so a client constructed with no
     credential silently authenticated as the real service account whenever
-    HADOKU_TASK_KEY happened to be set in the process."""
-    monkeypatch.setenv("HADOKU_TASK_KEY", "the-real-service-key")
+    HADOKU_SERVICE_KEY happened to be set in the process."""
+    monkeypatch.setenv("HADOKU_SERVICE_KEY", "the-real-service-key")
     c = TaskBoardClient(base_url="https://example.test", user_key="",
                         transport=Recorder())
-    with pytest.raises(TaskBoardError, match="HADOKU_TASK_KEY"):
+    with pytest.raises(TaskBoardError, match="HADOKU_SERVICE_KEY"):
         c.get_board("h")
     assert c._transport.calls == []
 
 
 def test_key_omitted_entirely_does_read_the_environment(monkeypatch):
-    monkeypatch.setenv("HADOKU_TASK_KEY", "from-env")
+    monkeypatch.setenv("HADOKU_SERVICE_KEY", "from-env")
     c = TaskBoardClient(base_url="https://example.test",
                         transport=Recorder(FakeResponse(200, BOARD_PAYLOAD)))
     c.get_board("h1")
     assert c._transport.calls[0]["headers"]["X-User-Key"] == "from-env"
 
 
-def test_ambient_key_prefers_the_environment(monkeypatch):
-    """Production supplies it via the pm2 wrapper's env; the repo key file is
-    the local-dev fallback, not the primary source."""
+def test_ambient_key_reads_the_environment(monkeypatch):
     from services import task_board as tb
-    monkeypatch.setenv("HADOKU_TASK_KEY", "from-env")
+    monkeypatch.setenv("HADOKU_SERVICE_KEY", "from-env")
     assert tb._ambient_key() == "from-env"
 
 
-def test_ambient_key_falls_back_to_the_repo_key_file(monkeypatch, tmp_path):
+def test_ambient_key_has_no_keyfile_fallback(monkeypatch, tmp_path):
+    """The regression this pins cost a broken CI drain.
+
+    It used to fall back to `.devvault.local.json` "because that file holds
+    the very same key". It doesn't: that file holds the *vault caller*
+    identity, which is registered separately from the one board shares are
+    granted to. The fallback authenticated fine as the wrong service and
+    returned an empty board list — which reads as "nothing is shared with
+    you" and sends you to the sharing UI instead of the credential.
+
+    No credential must mean no credential, loudly.
+    """
     from services import task_board as tb
-    monkeypatch.delenv("HADOKU_TASK_KEY", raising=False)
+    monkeypatch.delenv("HADOKU_SERVICE_KEY", raising=False)
     keyfile = tmp_path / ".devvault.local.json"
-    keyfile.write_text('{"key": "from-file"}')
-    assert tb._ambient_key(keyfile) == "from-file"
+    keyfile.write_text('{"key": "the-vault-caller-not-the-board-identity"}')
+    monkeypatch.chdir(tmp_path)
+    assert tb._ambient_key() == ""
+    assert not hasattr(tb, "_default_keyfile"), \
+        "the keyfile helper is gone on purpose; reviving it revives the bug"
 
 
-def test_the_real_default_keyfile_points_at_the_repo_root(monkeypatch):
-    """Pins the parents[2] arithmetic — an off-by-one here would silently
-    fall back to no credential rather than fail loudly."""
-    from services import task_board as tb
-    assert tb._default_keyfile().name == ".devvault.local.json"
-    assert (tb._default_keyfile().parent / "backend").is_dir()
+def test_missing_credential_names_the_right_variable(monkeypatch):
+    """The error has to say which identity, not just which variable — a valid
+    key for the wrong identity is the failure mode that actually happens."""
+    monkeypatch.delenv("HADOKU_SERVICE_KEY", raising=False)
+    c = TaskBoardClient(base_url="https://example.test", transport=Recorder())
+    with pytest.raises(TaskBoardError, match="tenhands-service-key"):
+        c.get_board("h")
 
-
-@pytest.mark.parametrize("content", [
-    "not json at all", "{}", '{"key": ""}', '{"nope": "x"}', "[]",
-])
-def test_ambient_key_is_empty_on_unusable_keyfile(monkeypatch, tmp_path, content):
-    """Must return "" rather than raising, so the client produces its own
-    actionable message instead of a stray parse error from a file the caller
-    never knew it was reading."""
-    from services import task_board as tb
-    monkeypatch.delenv("HADOKU_TASK_KEY", raising=False)
-    keyfile = tmp_path / ".devvault.local.json"
-    keyfile.write_text(content)
-    assert tb._ambient_key(keyfile) == ""
-
-
-def test_ambient_key_is_empty_when_the_keyfile_is_missing(monkeypatch, tmp_path):
-    from services import task_board as tb
-    monkeypatch.delenv("HADOKU_TASK_KEY", raising=False)
-    assert tb._ambient_key(tmp_path / "nope.json") == ""
 
 
 # ── the code set must track hadoku-task's OpenAPI enum ────────────────────
