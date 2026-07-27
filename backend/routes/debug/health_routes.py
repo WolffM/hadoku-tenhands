@@ -12,16 +12,16 @@ try:
     from .. import bp
     from ...services import run_gh_command, get_authenticated_user
     from ...services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
-    from ...routes.debug._middleware import require_admin_key
+    from ...routes.debug._middleware import require_admin
 except ImportError:
     from routes import bp
     from services import run_gh_command, get_authenticated_user
     from services.oss_service import _call_aggregator, OSS_DATA_DIR, AGGREGATOR_API_URL
-    from routes.debug._middleware import require_admin_key
+    from routes.debug._middleware import require_admin
 
 
 @bp.route("/api/oss/debug/gh-health", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_gh_health():
     """Check gh CLI health: authentication, API access, rate limits."""
     my_user = get_authenticated_user()
@@ -88,7 +88,7 @@ def api_oss_debug_aggregator_health():
 
 
 @bp.route("/api/oss/debug/state-dump", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_state_dump():
     """Dump all local pipeline state (JSON files) with counts."""
     my_user = get_authenticated_user()

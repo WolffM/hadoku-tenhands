@@ -11,16 +11,16 @@ try:
     from .. import bp
     from ...services import run_gh_command, get_authenticated_user, OSSService
     from ...helpers.validation import validate_repo_name
-    from ...routes.debug._middleware import require_admin_key
+    from ...routes.debug._middleware import require_admin
 except ImportError:
     from routes import bp
     from services import run_gh_command, get_authenticated_user, OSSService
     from helpers.validation import validate_repo_name
-    from routes.debug._middleware import require_admin_key
+    from routes.debug._middleware import require_admin
 
 
 @bp.route("/api/oss/debug/fork-pr-status", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_fork_pr_status():
     """Get status of a single fork PR."""
     my_user = get_authenticated_user()
@@ -54,7 +54,7 @@ def api_oss_debug_fork_pr_status():
 
 
 @bp.route("/api/oss/debug/poll-submitted-pr", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_poll_submitted_pr():
     """Poll a single submitted PR for status changes (read-only preview, no updates)."""
     my_user = get_authenticated_user()
@@ -140,7 +140,7 @@ def api_oss_debug_poll_submitted_pr():
 
 
 @bp.route("/api/oss/debug/notification-preview", methods=["GET"])
-@require_admin_key
+@require_admin
 def api_oss_debug_notification_preview():
     """Preview what notifications would fire based on current state."""
     my_user = get_authenticated_user()

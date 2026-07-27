@@ -14,7 +14,7 @@ try:
         validate_owner, validate_repo_name, validate_required_fields,
         to_aggregator_slug, error_response,
     )
-    from ...routes.debug._middleware import require_admin_key
+    from ...routes.debug._middleware import require_admin
 except ImportError:
     from routes import bp
     from config import PLATFORM_PREFIX
@@ -23,11 +23,11 @@ except ImportError:
         validate_owner, validate_repo_name, validate_required_fields,
         to_aggregator_slug, error_response,
     )
-    from routes.debug._middleware import require_admin_key
+    from routes.debug._middleware import require_admin
 
 
 @bp.route("/api/oss/debug/build-context", methods=["POST"])
-@require_admin_key
+@require_admin
 def api_oss_debug_build_context():
     """Build agent context markdown and return it for inspection (does NOT create an issue)."""
     data = request.json
@@ -72,7 +72,7 @@ def api_oss_debug_build_context():
 
 
 @bp.route("/api/oss/debug/create-context-issue", methods=["POST"])
-@require_admin_key
+@require_admin
 def api_oss_debug_create_context_issue():
     """Create an issue on a fork (does NOT assign Copilot or track in JSON)."""
     data = request.json
