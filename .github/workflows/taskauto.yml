@@ -54,7 +54,10 @@ jobs:
       TASKAUTO_LIVE: ${{ (github.event_name == 'schedule' || inputs.live) && '1' || '0' }}
       TASKAUTO_MODE: ${{ inputs.mode || 'pr' }}
       TASKAUTO_ONCE: '1'
-      HADOKU_TASK_KEY: ${{ secrets.HADOKU_TASK_KEY }}
+      # The `tenhands-service-key` identity — the one board shares are
+      # granted to. A valid key for any other identity authenticates fine
+      # and then sees zero boards, which reads like a sharing problem.
+      HADOKU_SERVICE_KEY: ${{ secrets.TENHANDS_SERVICE_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       # A PAT, deliberately NOT the automatic GITHUB_TOKEN: pull requests
       # opened with GITHUB_TOKEN do not trigger `pull_request` workflows, so
@@ -73,7 +76,7 @@ jobs:
         # found" and "could not look", and those must not look alike.
         run: |
           missing=
-          [ -n "$HADOKU_TASK_KEY" ] || missing="$missing HADOKU_TASK_KEY"
+          [ -n "$HADOKU_SERVICE_KEY" ] || missing="$missing HADOKU_SERVICE_KEY"
           [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || missing="$missing CLAUDE_CODE_OAUTH_TOKEN"
           [ -n "$GH_TOKEN" ] || missing="$missing HADOKU_SITE_TOKEN"
           if [ -n "$missing" ]; then

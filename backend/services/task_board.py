@@ -421,28 +421,29 @@ def _task_from(d: dict) -> BoardTask:
     )
 
 
-def _default_keyfile() -> Path:
-    # backend/services/task_board.py → repo root
-    return Path(__file__).resolve().parents[2] / ".devvault.local.json"
+def _ambient_key() -> str:
+    """This service's hadoku identity, from `HADOKU_SERVICE_KEY`.
 
+    One name, one identity, no fallback — and both halves of that are scar
+    tissue.
 
-def _ambient_key(keyfile: Optional[Path] = None) -> str:
-    """This host's service key, from the environment or the repo's key file.
+    **The name.** This used to read `HADOKU_TASK_KEY`, which hadoku_site
+    records as "only ever an alias for the existing `TENHANDS_SERVICE_KEY`".
+    An alias is not free: it hides that a credential has an owner, and two
+    names invite two values. `HADOKU_SERVICE_KEY` is what the pm2 wrapper
+    already exports (`tenhands-wrapper.mjs`), so production, CI and local all
+    now say the same word for the same thing.
 
-    `HADOKU_TASK_KEY` wins, which is how production supplies it (the pm2
-    wrapper sets the env). Falling back to `.devvault.local.json` is what
-    makes local runs work without a wrapper, since that file holds the very
-    same key — it is this repo's documented credential (gitignored, mode
-    0600), not a second secret.
+    **The missing fallback.** It used to fall back to `.devvault.local.json`,
+    on the reasoning that the file "holds the very same key". That stopped
+    being true: that file holds the *vault caller* key, which is a different
+    registered identity from the one holding the board shares. The fallback
+    therefore authenticated successfully as the wrong service and reported
+    an empty board list — indistinguishable from "nothing is shared with
+    you". Failing loudly with no credential beats silently being someone
+    else.
     """
-    from_env = os.environ.get("HADOKU_TASK_KEY", "").strip()
-    if from_env:
-        return from_env
-    keyfile = keyfile or _default_keyfile()
-    try:
-        return str(json.loads(keyfile.read_text()).get("key", "")).strip()
-    except (OSError, ValueError, AttributeError):
-        return ""
+    return os.environ.get("HADOKU_SERVICE_KEY", "").strip()
 
 
 # ── Client ────────────────────────────────────────────────────────────────
@@ -451,21 +452,25 @@ def _ambient_key(keyfile: Optional[Path] = None) -> str:
 class TaskBoardClient:
     """Client for one hadoku-task deployment.
 
-    Auth is this repo's existing **service-tier** key, sent as `X-User-Key`.
-    No dedicated credential is needed — verified live 2026-07-24:
+    Auth is a **service-tier** hadoku key sent as `X-User-Key`, supplied via
+    `HADOKU_SERVICE_KEY` and registered as **`tenhands-service-key`** (vault
+    item `TENHANDS_SERVICE_KEY`). That identity is what board shares are
+    granted to, and it is the *only* thing that decides which boards this
+    client can see.
 
-    - the value in `.devvault.local.json` → `whoami` reports
-      `{"valid":true,"userType":"service"}`, and `GET /task/api/boards` and
-      `/changes` both return 200 with it. It is registered as
-      **`tenhands-service`**.
-    - the `TENHANDS_ADMIN_KEY` vault secret is **not a hadoku user-key at
-      all** (`whoami` → 401 `public`), so it can't be used here.
+    **There were two keys for a while, and it cost an outage.** A second
+    registered identity, `tenhands-service` (vault item
+    `KEY_SERVICE_TENHANDS_SERVICE`), was this repo's vault caller and had
+    historically held the board shares. When the shares moved, CI kept
+    authenticating **successfully** as the older key and reported zero
+    automation boards — a valid credential for the wrong identity, which
+    reads exactly like "nothing is shared with you" and sends you looking at
+    the sharing UI instead of the credential.
 
-    Reusing the repo key rather than minting a second one is deliberate: it
-    is ACL-scoped to this repo's declared secrets (not a global credential),
-    and the tenhands process already holds it in order to read them — so
-    using it here adds no exposure the process doesn't already have, while a
-    second key would add one more secret to rotate for no isolation gain.
+    Two lessons are baked into the code above: never alias this env var, and
+    never fall back to another file for it. `.devvault.local.json` holds the
+    vault caller, which is a different identity — reading it here is how the
+    two got confused in the first place.
 
     **Where the tier comes from.** edge-router resolves the request tier from
     a service-tier record in the edge-router key registry
@@ -509,9 +514,10 @@ class TaskBoardClient:
               params: Optional[dict] = None) -> dict:
         if not self.user_key:
             raise TaskBoardError(
-                "No board credential found. Set HADOKU_TASK_KEY, or ensure "
-                "this repo's .devvault.local.json exists (it holds the "
-                "service key registered as `tenhands-service`)."
+                "No board credential. Set HADOKU_SERVICE_KEY to the "
+                "`tenhands-service-key` value (vault item "
+                "TENHANDS_SERVICE_KEY) — board shares are granted to that "
+                "identity, and no other key can see them."
             )
         url = f"{self.base_url}{path}"
         try:

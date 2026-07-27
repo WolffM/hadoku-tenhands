@@ -2,10 +2,9 @@
   "//": "Maps env var name (left, what code reads) → vault key (right, what's stored). Loaded by ../hadoku_site/scripts/secrets/dev-vault.mjs. NO secrets in this file — only the mapping.",
   "//operator-use": "These are for operator-side commands run from this repo (force-scrape, etc.), distinct from the production wrapper at hadoku_site/services/pm2/tenhands-wrapper.mjs which has its own TENHANDS_* mappings for the worker process.",
   "HADOKU_SCRAPE_API_KEY": "AGGREGATOR_SCRAPER_API_KEY",
-  "TENHANDS_ADMIN_KEY": "TENHANDS_ADMIN_KEY",
   "TENHANDS_MSFT_SSO": "TENHANDS_MSFT_SSO",
   "HADOKU_SITE_TOKEN": "HADOKU_SITE_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN",
-  "//hadoku-task": "services/task_board.py reads HADOKU_TASK_KEY. Intentionally NOT declared yet — the secret does not exist, and declaring an ungranted entry makes dev-vault refuse every command. Add the line below once the operator mints it. Verified 2026-07-24: TENHANDS_ADMIN_KEY is NOT a hadoku user-key (GET /session/whoami -> 401 public), so it cannot be reused for this.",
-  "//hadoku-task-todo": "\"HADOKU_TASK_KEY\": \"HADOKU_TASK_KEY\""
+  "HADOKU_SERVICE_KEY": "TENHANDS_SERVICE_KEY",
+  "//board-credential": "HADOKU_SERVICE_KEY is the board credential — vault item TENHANDS_SERVICE_KEY, registered as `tenhands-service-key`. Board shares are granted to THAT identity. A valid key for any other identity authenticates fine and then sees zero boards, which reads like a sharing problem and isn't. Do not add a second name for this."
 }
