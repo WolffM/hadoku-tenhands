@@ -205,6 +205,25 @@ def _build_html(test_output: str, command: Optional[str]) -> str:
 # ── Renderer ──────────────────────────────────────────────────────────────
 
 
+#: Chromium flags that make a capture survive a loaded host. `--disable-dev-shm-usage`
+#: moves shared memory to /tmp, which matters wherever /dev/shm is small; the rest
+#: drop work this renderer never needs (there is no GPU, no audio, no extensions,
+#: and one blank page does not need a process per site).
+_CHROMIUM_ARGS = [
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--mute-audio",
+    "--disable-site-isolation-trials",
+]
+
+#: One retry. `Page.captureScreenshot` fails transiently when the renderer is
+#: starved — this host regularly has dozens of Chromium processes competing —
+#: and a fresh browser almost always succeeds. More attempts than this would be
+#: hiding a real problem rather than riding out a busy moment.
+_RENDER_ATTEMPTS = 2
+
+
 async def _default_render_png(html: str) -> bytes:
     """Default renderer using headless Chromium via Playwright.
 
@@ -212,18 +231,33 @@ async def _default_render_png(html: str) -> bytes:
     the full visible area to PNG bytes. Tall outputs that overflow the
     viewport get clipped — that's intentional, the resulting PNG should
     fit in a PR body without being a 5MB scroll-saver.
+
+    Retries once on a transient capture failure. The caller treats a raised
+    exception as "no evidence for this run", so riding out a starved renderer
+    is worth one more browser launch.
     """
     from playwright.async_api import async_playwright  # type: ignore
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+    last: Exception | None = None
+    for attempt in range(1, _RENDER_ATTEMPTS + 1):
         try:
-            page = await browser.new_page(viewport={"width": 1280, "height": 720})
-            await page.set_content(html, wait_until="networkidle")
-            png = await page.screenshot(type="png", full_page=False)
-            return png
-        finally:
-            await browser.close()
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True,
+                                                  args=_CHROMIUM_ARGS)
+                try:
+                    page = await browser.new_page(
+                        viewport={"width": 1280, "height": 720})
+                    await page.set_content(html, wait_until="networkidle")
+                    return await page.screenshot(type="png", full_page=False)
+                finally:
+                    await browser.close()
+        except Exception as e:  # noqa: BLE001 — retried, then re-raised below
+            last = e
+            logger.warning("screenshot render attempt %d/%d failed: %s",
+                           attempt, _RENDER_ATTEMPTS, e)
+
+    assert last is not None
+    raise last
 
 
 async def render_test_output_screenshot(

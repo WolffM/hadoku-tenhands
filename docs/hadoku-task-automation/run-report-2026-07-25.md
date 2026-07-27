@@ -118,26 +118,21 @@ the enrolment step.
 
 **Not yet true:**
 
-- `tenhands-taskauto` **is reloaded on the host but not running.** It needs a
-  vault credential that does not exist yet: `hadoku_site/services/pm2/
-  taskauto.vaultkey` (mode 0600, gitignored, host-local), granted
-  `TENHANDS_SERVICE_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and `HADOKU_SITE_TOKEN`.
-  Generating one is operator-tier. Until then the service is `stopped` —
-  deliberately, so it is not flapping.
+- **The daemon is retired.** `tenhands-taskauto` crashlooped under pm2 for want
+  of a `taskauto.vaultkey`, and rather than mint one the pipeline moved to an
+  ephemeral CI job — which is the better answer to the same question, because a
+  scheduled job holds its credentials for the length of a run instead of
+  forever. The service is gone from pm2 and the vault-key request is withdrawn.
 
-  Watch the name: vault-fetch derives the keyfile from the *wrapper* filename
-  (`taskauto-wrapper.mjs` → `taskauto.vaultkey`), **not** the pm2 service name
-  `tenhands-taskauto`. Without it no `X-User-Key` is sent, the loopback bypass
-  does not cover ACL-gated secrets, and it dies on `403` against
-  `TENHANDS_SERVICE_KEY` — which reads like a missing grant rather than a
-  missing key. `vault-fetch.mjs` now warns with the exact path it wanted
-  (hadoku_site `4ec59804`).
+  Worth keeping from that dead end: `vault-fetch` derives a wrapper's keyfile
+  name from the *wrapper filename* (`taskauto-wrapper.mjs` → `taskauto.vaultkey`),
+  **not** the pm2 service name, and a missing keyfile degrades silently to the
+  loopback bypass and then 403s on an arbitrary secret — which reads like a
+  missing grant rather than a missing key. `vault-fetch.mjs` now warns with the
+  exact path it wanted (hadoku_site `4ec59804`).
 
-  The tenhands key already holds all three grants, so symlinking it would start
-  the service immediately — but it carries 16 grants including
-  `TENHANDS_ADMIN_KEY` and `SAML_ORG_TOKEN`, and handing the identity that supervises
-  an autonomous agent more reach than it declares is the wrong direction while
-  §4.3 is still open.
+  The credential story is now three repo secrets — `HADOKU_TASK_KEY`,
+  `CLAUDE_CODE_OAUTH_TOKEN`, `HADOKU_SITE_TOKEN` — and no host keyfile at all.
 - The **fast path is disabled** — every task goes through `plan-review`, even
   trivial ones. The design has intake releasing straight to `approved`.
 - **No parallelism.** One task in flight per repo. A task parked in `plan-review`
