@@ -45,9 +45,7 @@ function PRCard({
         <a className="taskauto-pr__title" href={pr.url} target="_blank" rel="noreferrer">
           {pr.repo.split('/')[1]} #{pr.number} — {pr.title}
         </a>
-        <span className={`taskauto-pr__checks taskauto-pr__checks--${pr.checks}`}>
-          {pr.checks}
-        </span>
+        <span className={`taskauto-pr__checks taskauto-pr__checks--${pr.checks}`}>{pr.checks}</span>
       </div>
       {taskTitle && (
         <div className="taskauto-pr__task" title="the task this PR came from">
@@ -127,9 +125,14 @@ function BoardCard({
                 <ul className="taskauto-lane__tasks">
                   {(board.lanes[lane] ?? []).map(t => (
                     <li key={t.id} className="taskauto-task" title={t.title}>
-                      {t.claimed && <span className="taskauto-task__dot" title="claimed — running now" />}
+                      {t.claimed && (
+                        <span className="taskauto-task__dot" title="claimed — running now" />
+                      )}
                       {t.stuck && (
-                        <span className="taskauto-task__stuck" title="two lane tags — invisible to the scheduler">
+                        <span
+                          className="taskauto-task__stuck"
+                          title="two lane tags — invisible to the scheduler"
+                        >
                           !
                         </span>
                       )}
@@ -177,15 +180,21 @@ export function TaskAutoView() {
     }
   }, [])
 
-  useEffect(() => {
-    void load()
-    // A run takes minutes and the cron is every 15, so a slow poll is plenty;
-    // anything faster just spends gh calls to watch nothing change.
-    const id = setInterval(() => void load(), 60_000)
-    return () => clearInterval(id)
+  // `load` handles its own failures and never rejects, so these wrappers exist
+  // purely to hand React a void-returning callback.
+  const refresh = useCallback(() => {
+    load().catch(() => undefined)
   }, [load])
 
-  const onMerge = useCallback(
+  useEffect(() => {
+    refresh()
+    // A run takes minutes and the cron is every 15, so a slow poll is plenty;
+    // anything faster just spends gh calls to watch nothing change.
+    const id = setInterval(refresh, 60_000)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  const runMerge = useCallback(
     async (pr: TaskAutoPR) => {
       const key = `${pr.repo}#${pr.number}`
       setBusyPR(key)
@@ -199,6 +208,13 @@ export function TaskAutoView() {
       }
     },
     [load]
+  )
+
+  const onMerge = useCallback(
+    (pr: TaskAutoPR) => {
+      runMerge(pr).catch(() => undefined)
+    },
+    [runMerge]
   )
 
   if (loading && !status) return <LoadingState text="Reading the boards…" />
