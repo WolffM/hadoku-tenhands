@@ -19,4 +19,5 @@ from . import oss_routes_stage4  # noqa: E402, F401
 from . import oss_routes_retro   # noqa: E402, F401
 from . import oss_routes_stage5  # noqa: E402, F401
 from . import temporal_routes   # noqa: E402, F401
+from . import taskauto_routes  # noqa: E402, F401
 from . import debug             # noqa: E402, F401
