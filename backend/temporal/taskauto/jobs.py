@@ -184,11 +184,13 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                        pr_lane: str = selection.LANE_LANDED):
     """An `implement` job. `lander.dry_run` decides whether it really pushes.
 
-    `pr_lane` is where a task goes once its pull request is open. It defaults
-    to `landed` only because that lane exists on every board today; the honest
-    destination is a "waiting on your merge" lane, which needs a bump to the
-    published `autoland` preset before any board can accept it. Until then the
-    notes carry the truth — they say NOT merged and give the URL.
+    `pr_lane` is where a task goes once its pull request is open, and `landed`
+    is now honestly that lane rather than a stopgap: `autoland` v2 redefined it
+    as "The pull request is open, gates green, and waiting on you. Review it
+    and merge." The lane that used to mean *merged and production verified*
+    means *yours to merge* — which is the same change this module makes, said
+    in the vocabulary the board publishes. The notes still give the URL and say
+    NOT merged, because a lane name is not evidence.
     """
 
     def implement_job(pickup, board, sink):
