@@ -230,6 +230,34 @@ def test_a_refused_landing_stalls_with_the_gate_reason():
     assert "suite failed" in notes
 
 
+def test_what_the_human_added_reaches_the_implementer():
+    """Answering a question and dragging straight to `approved` — skipping
+    `replan` — must not lose the answer.
+
+    `render` emits only the sections the pipeline controls, so a plan is
+    re-rendered without the human's own words. The planning path was never
+    exposed to this (it forwards raw notes), which is exactly why the approve
+    path could drop them unnoticed: a human writes an instruction, watches the
+    agent implement the plan without it, and has no way to tell that their
+    sentence was never read.
+    """
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
+    amended = GOOD_PLAN + "\n\nalso update the tooltip, and do NOT touch Bar.tsx"
+    make_implement_job(agent, FakeCheckouts(), FakeLander())(
+        approved(notes=amended), board(), FakeSink())
+    assert "also update the tooltip" in agent.worked[0]
+    assert "do NOT touch Bar.tsx" in agent.worked[0]
+    assert "amending the plan" in agent.worked[0], \
+        "it has to be labelled, or the agent reads it as part of its own plan"
+
+
+def test_an_unamended_plan_adds_no_human_block():
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
+    make_implement_job(agent, FakeCheckouts(), FakeLander())(
+        approved(), board(), FakeSink())
+    assert "WHAT THE HUMAN WROTE" not in agent.worked[0]
+
+
 def test_implementing_without_a_plan_goes_back_to_the_human():
     lane, _, outcome = make_implement_job(
         FakeAgent(outcome=AgentOutcome(changed_files=["a"])),

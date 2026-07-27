@@ -75,7 +75,7 @@ your diff before it merges, so correctness matters more than speed.
 TASK: {title}
 
 {plan}
-
+{human_block}
 Rules:
 - Change ONLY what the plan's blast radius describes. Unrelated cleanup will
   fail a gate and stall the task.
@@ -235,9 +235,25 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                         pass_number=1)),
                     "implement:no-plan")
 
+        # Anything the human wrote that we didn't. `render` deliberately emits
+        # only the sections we control, so without this the approve path
+        # silently drops their words: a person who answers a question and drags
+        # straight to `approved` — rather than through `replan` — would watch
+        # the agent implement the unamended plan. The planning path never had
+        # this hole; it hands the raw notes over verbatim.
+        human_block = ""
+        if doc.human_text.strip():
+            human_block = (
+                "\nWHAT THE HUMAN WROTE ALONGSIDE THIS PLAN. They approved it "
+                "with this in the notes, so treat it as amending the plan "
+                "above, and prefer it wherever the two disagree:\n"
+                f"---\n{doc.human_text.strip()}\n---\n"
+            )
+
         outcome = agent.work(checkout, IMPLEMENT_PROMPT.format(
             title=strip_bug_prefix(pickup.task.title),
             plan=plan_notes.render(doc),
+            human_block=human_block,
         ))
         sink.heartbeat()
 
