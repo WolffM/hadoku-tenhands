@@ -127,6 +127,29 @@ def test_losing_the_claim_race_is_not_an_error():
 # ── the happy path ────────────────────────────────────────────────────────
 
 
+def test_the_log_line_says_what_the_job_decided_not_just_where_it_went():
+    """Two very different conclusions release to the same lane.
+
+    `plan:no-op` ("this looks already done") and `plan:unverifiable` ("I could
+    not state an acceptance check") both land in plan-review with no plan, and
+    a card that then gets approved bounces identically. Without the outcome in
+    the log line the two are indistinguishable after the fact — the notes are
+    rewritten each pass, so the evidence is gone. That cost a real debugging
+    round.
+    """
+    c = FakeClient(snapshot(task()))
+    r = runner(c, {"implement": lambda *a: ("plan-review", None, "implement:no-plan")}).turn()
+    assert r.outcome == "implement:no-plan"
+    assert "[implement:no-plan]" in str(r)
+    assert "→ plan-review" in str(r)
+
+
+def test_an_idle_turn_has_no_outcome_to_report():
+    c = FakeClient(snapshot())
+    r = runner(c, {"implement": lambda *a: ("landed", None, "ok")}).turn()
+    assert str(r).startswith("idle:") and "[" not in str(r)
+
+
 def test_claims_into_the_lane_selection_chose_and_releases():
     c = FakeClient(snapshot(task()))
     r = runner(c, {"implement": lambda *a: ("landed", "done", "merged")}).turn()
