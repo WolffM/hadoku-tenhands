@@ -50,12 +50,23 @@ class TurnResult:
     task_id: str = ""
     job: str = ""
     released_to: str = ""
+    #: What the job CONCLUDED — `plan:no-op`, `plan:unverifiable`,
+    #: `implement:no-plan`, `landed:<sha>`. Distinct from `reason`, which is
+    #: why the task was picked up. Both are needed and they answer different
+    #: questions: "why did this run" versus "what did it decide".
+    outcome: str = ""
 
     def __str__(self) -> str:
         if not self.acted:
             return f"idle: {self.reason}"
+        # The outcome goes first because it is the part you cannot reconstruct
+        # from anywhere else. Two very different conclusions — "this looks
+        # already done" and "I could not state an acceptance check" — both
+        # release to plan-review, and without this they are indistinguishable
+        # in the logs. Working that out cost a round of guessing.
+        tail = f" [{self.outcome}]" if self.outcome else ""
         return (f"{self.job} on {self.task_id} → {self.released_to}"
-                f" ({self.reason})")
+                f"{tail} ({self.reason})")
 
 
 #: A job takes (pickup, board, sink) and returns (destination_lane, notes,
@@ -147,7 +158,7 @@ class Runner:
                               task_id=pickup.task.id, job=pickup.job)
 
         return TurnResult(True, pickup.reason, task_id=pickup.task.id,
-                          job=pickup.job, released_to=lane)
+                          job=pickup.job, released_to=lane, outcome=outcome)
 
 
 def _failure_notes(pickup: Pickup, exc: Exception) -> str:
