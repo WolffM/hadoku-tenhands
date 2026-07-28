@@ -580,3 +580,14 @@
   gap: 0.45rem;
   margin-top: 0.5rem;
 }
+.taskauto-review__reason {
+  width: 22rem;
+  max-width: 60vw;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  resize: vertical;
+}

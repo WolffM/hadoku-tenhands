@@ -3,11 +3,14 @@ hadoku-task-automation status + PR review.
 
 The pipeline ends at "pull request open" and hands off to GitHub. That is a
 reasonable boundary for a machine and a bad one for a human: the last step of
-every task on every board is the one step with no UI here. These two routes
-close it.
+every task on every board is the one step with no UI here. These routes
+close it — entirely in-app, so reviewing a taskauto PR never requires a trip
+to github.com.
 
-    GET  /api/taskauto/status   every board, its lanes, and its open PRs
-    POST /api/taskauto/merge    merge one taskauto PR
+    GET  /api/taskauto/status      every board, its lanes, and its open PRs
+    GET  /api/taskauto/pr-details  one PR's diff + the task it came from
+    POST /api/taskauto/merge       merge one taskauto PR
+    POST /api/taskauto/send-back   move a PR's task to `stalled` with a reason
 
 **Repos are discovered, never listed.** A board carries its own `repo`, and
 `run_taskauto.py` drives whatever is shared with the service key — so a
@@ -17,8 +20,18 @@ would go stale silently. Everything below keys off `board.repo`.
 **Nothing here merges by itself.** The merge route is a button a person
 presses; it takes an explicit repo and number and does exactly one PR. The
 whole point of the `pr` mode the pipeline runs in is that a human decides.
+
+**Send-back needs no new board primitive.** Once a PR is open, `landing.py`
+releases the task's claim into `pr_lane` (a user lane, `landed` by default) —
+so by review time the task is normally unclaimed sitting in a user lane. That
+is exactly the situation the pipeline itself claims from every time it picks
+up `approved`: claiming is not restricted to agent lanes. Send-back just does
+the same thing a human dragging the card would — claim, then release into
+`stalled` — using the two primitives every other lane transition in this
+codebase already uses.
 """
 
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
@@ -30,11 +43,11 @@ logger = logging.getLogger(__name__)
 
 try:
     from ..services import run_gh_command
-    from ..services.task_board import TaskBoardClient, TaskBoardError
+    from ..services.task_board import ClaimHeld, TaskBoardClient, TaskBoardError
     from ..extensions import limiter
 except ImportError:
     from services import run_gh_command
-    from services.task_board import TaskBoardClient, TaskBoardError
+    from services.task_board import ClaimHeld, TaskBoardClient, TaskBoardError
     from extensions import limiter
 
 #: Branch prefix the pipeline pushes. Anything else in the repo is a human's.
@@ -100,6 +113,69 @@ def _prs_for(repo: str) -> list[dict]:
             "updatedAt": pr.get("updatedAt") or "",
         })
     return out
+
+
+def _task_for(client: TaskBoardClient, repo: str, task_id: str) -> dict:
+    """The task a PR came from: its title and plan, or {} if it can't be found.
+
+    A PR review must not fail because the board lookup did — the diff is the
+    part that matters, and the plan is context alongside it.
+    """
+    try:
+        board = next((b for b in client.automation_boards() if b.repo == repo), None)
+        if board is None:
+            return {}
+        full = client.get_board(board.handle)
+        task = next((t for t in full.active_tasks if t.id == task_id), None)
+        if task is None:
+            return {}
+        return {"boardHandle": board.handle, "title": task.title, "notes": task.notes}
+    except TaskBoardError as e:
+        logger.warning("taskauto pr-details: task lookup failed for %s/%s: %s",
+                       repo, task_id, e)
+        return {}
+
+
+@bp.route("/api/taskauto/pr-details", methods=["GET"])
+@limiter.limit("30 per minute")
+def taskauto_pr_details():
+    """One PR's diff, plus the task it came from — the pairing GitHub can't show."""
+    repo = (request.args.get("repo") or "").strip()
+    number_raw = request.args.get("number") or ""
+    if not repo or not number_raw.isdigit():
+        return jsonify({"success": False,
+                        "error": "repo and integer number are required"}), 400
+    number = int(number_raw)
+
+    view = run_gh_command([
+        "pr", "view", str(number), "--repo", repo,
+        "--json", "number,title,body,author,createdAt,headRefName,baseRefName,"
+                  "files,commits,state,url,isDraft,additions,deletions,changedFiles",
+    ], timeout=20)
+    if not view.get("success"):
+        return jsonify({"success": False, "error": view.get("error", "")}), 502
+    try:
+        pr = json.loads(view.get("output") or "{}")
+    except ValueError:
+        return jsonify({"success": False, "error": "unreadable pr metadata"}), 502
+
+    branch = str(pr.get("headRefName", ""))
+    if not branch.startswith(BRANCH_PREFIX):
+        return jsonify({"success": False,
+                        "error": f"{repo}#{number} is not a {BRANCH_PREFIX} branch"}), 403
+    task_id = branch[len(BRANCH_PREFIX):]
+
+    diff = run_gh_command(["pr", "diff", str(number), "--repo", repo], timeout=20)
+    pr["diff"] = diff.get("output") or "" if diff.get("success") else ""
+    pr["repo"] = repo
+    pr["taskId"] = task_id
+
+    client = TaskBoardClient()
+    task = _task_for(client, repo, task_id)
+    pr["taskTitle"] = task.get("title", "")
+    pr["taskNotes"] = task.get("notes", "")
+
+    return jsonify({"success": True, "data": pr})
 
 
 @bp.route("/api/taskauto/status", methods=["GET"])
@@ -218,3 +294,58 @@ def taskauto_merge():
         return jsonify({"success": False, "error": res.get("error", "")}), 502
     logger.info("taskauto: merged %s#%s", repo, number)
     return jsonify({"success": True, "repo": repo, "number": number})
+
+
+@bp.route("/api/taskauto/send-back", methods=["POST"])
+@limiter.limit("20 per minute")
+def taskauto_send_back():
+    """Move a PR's task to `stalled` with a reason a human can read later.
+
+    The PR itself is untouched — this is a board move, not a GitHub action.
+    The task is normally unclaimed (landing releases it into a user lane once
+    the PR is open), so this claims it and immediately releases it into
+    `stalled`, the same two-step every lane transition in this codebase uses.
+    A live claim on the task (`ClaimHeld`) means a pipeline run picked it back
+    up between page load and this click — rare, and the right answer is to
+    let the person retry after a refresh, not to fight over it.
+    """
+    body = request.get_json(silent=True) or {}
+    repo = (body.get("repo") or "").strip()
+    number = body.get("number")
+    reason = (body.get("reason") or "").strip()
+    if not repo or not isinstance(number, int) or not reason:
+        return jsonify({"success": False,
+                        "error": "repo, integer number, and reason are required"}), 400
+
+    view = run_gh_command(["pr", "view", str(number), "--repo", repo,
+                           "--json", "headRefName"], timeout=20)
+    if not view.get("success"):
+        return jsonify({"success": False, "error": view.get("error", "")}), 502
+    try:
+        meta = json.loads(view.get("output") or "{}")
+    except ValueError:
+        return jsonify({"success": False, "error": "unreadable pr metadata"}), 502
+    branch = str(meta.get("headRefName", ""))
+    if not branch.startswith(BRANCH_PREFIX):
+        return jsonify({"success": False,
+                        "error": f"{repo}#{number} is not a {BRANCH_PREFIX} branch"}), 403
+    task_id = branch[len(BRANCH_PREFIX):]
+
+    try:
+        client = TaskBoardClient()
+        board = next((b for b in client.automation_boards() if b.repo == repo), None)
+        if board is None:
+            return jsonify({"success": False,
+                            "error": f"no board drives {repo}"}), 404
+        token = client.claim(board.handle, task_id)
+        client.release(board.handle, task_id, token, lane="stalled", notes=reason)
+    except ClaimHeld as e:
+        return jsonify({"success": False,
+                        "error": f"task is claimed right now — {e.holder or 'a pipeline run'} "
+                                 "picked it up; try again shortly"}), 409
+    except TaskBoardError as e:
+        logger.error("taskauto send-back %s#%s: %s", repo, number, e)
+        return jsonify({"success": False, "error": str(e)}), 502
+
+    logger.info("taskauto: sent %s#%s (task %s) back to stalled", repo, number, task_id)
+    return jsonify({"success": True, "repo": repo, "number": number, "taskId": task_id})

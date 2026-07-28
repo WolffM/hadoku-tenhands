@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getTaskAutoStatus, mergeTaskAutoPR } from '../api'
 import type { TaskAutoBoard, TaskAutoPR, TaskAutoStatus } from '../api/types'
 import { EmptyState, LoadingState, SectionHeader } from '../components/common'
+import { TaskAutoReviewModal } from '../components/taskauto/TaskAutoReviewModal'
 
 /** Lanes a human is expected to act on, so they can be pulled to the front. */
 const HUMAN_LANES = new Set(['plan-review', 'replan', 'approved', 'stalled'])
@@ -29,12 +30,14 @@ function PRCard({
   pr,
   taskTitle,
   busy,
-  onMerge
+  onMerge,
+  onReview
 }: {
   pr: TaskAutoPR
   taskTitle?: string
   busy: boolean
   onMerge: () => void
+  onReview: () => void
 }) {
   // Merge is offered only when GitHub says it would succeed. A button that
   // reliably fails teaches people to ignore buttons.
@@ -63,9 +66,9 @@ function PRCard({
         {pr.isDraft && <span className="taskauto-pr__state">draft</span>}
       </div>
       <div className="taskauto-pr__actions">
-        <a className="btn btn--secondary btn--sm" href={pr.url} target="_blank" rel="noreferrer">
+        <button className="btn btn--secondary btn--sm" onClick={onReview}>
           Review diff
-        </a>
+        </button>
         <button
           className="btn btn--primary btn--sm"
           disabled={!mergeable || busy}
@@ -83,12 +86,14 @@ function BoardCard({
   board,
   laneOrder,
   busyPR,
-  onMerge
+  onMerge,
+  onReview
 }: {
   board: TaskAutoBoard
   laneOrder: string[]
   busyPR: string | null
   onMerge: (pr: TaskAutoPR) => void
+  onReview: (pr: TaskAutoPR, taskTitle?: string) => void
 }) {
   const titleFor = useMemo(() => {
     const map = new Map<string, string>()
@@ -154,6 +159,7 @@ function BoardCard({
               taskTitle={titleFor.get((pr.taskId || '').toLowerCase())}
               busy={busyPR === `${pr.repo}#${pr.number}`}
               onMerge={() => onMerge(pr)}
+              onReview={() => onReview(pr, titleFor.get((pr.taskId || '').toLowerCase()))}
             />
           ))}
         </div>
@@ -167,6 +173,7 @@ export function TaskAutoView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyPR, setBusyPR] = useState<string | null>(null)
+  const [reviewing, setReviewing] = useState<{ pr: TaskAutoPR; taskTitle?: string } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -216,6 +223,10 @@ export function TaskAutoView() {
     },
     [runMerge]
   )
+
+  const onReview = useCallback((pr: TaskAutoPR, taskTitle?: string) => {
+    setReviewing({ pr, taskTitle })
+  }, [])
 
   if (loading && !status) return <LoadingState text="Reading the boards…" />
 
@@ -271,9 +282,19 @@ export function TaskAutoView() {
             laneOrder={status.laneOrder}
             busyPR={busyPR}
             onMerge={onMerge}
+            onReview={onReview}
           />
         ))}
       </div>
+
+      {reviewing && (
+        <TaskAutoReviewModal
+          pr={reviewing.pr}
+          taskTitle={reviewing.taskTitle}
+          onClose={() => setReviewing(null)}
+          onChanged={refresh}
+        />
+      )}
     </div>
   )
 }
