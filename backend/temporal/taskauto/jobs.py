@@ -232,11 +232,24 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
 
         doc = plan_notes.parse(pickup.task.notes or "")
         if not doc.plan:
-            return (selection.LANE_PLAN_REVIEW,
+            # Approved without ever being planned — usually a task dragged
+            # straight from the Inbox. Send it to `replan`, not `plan-review`:
+            # the pipeline claims from `replan`, so the next tick plans it and
+            # the task heals itself.
+            #
+            # This used to go to `plan-review` and ask "should this go back
+            # through planning?". That lane is terminal for the pipeline, so
+            # nothing would ever pick the task up again, and the question could
+            # not be answered by answering it — only by dragging the task
+            # somewhere else. A question whose answer is a lane change should
+            # be the lane change.
+            return (selection.LANE_REPLAN,
                     plan_notes.render(PlanDoc(
-                        understanding="I was asked to implement this but the "
-                                      "notes carry no plan.",
-                        questions=["Should this go back through planning?"],
+                        understanding=(
+                            "You approved this before it had a plan, so there "
+                            "was nothing to implement. I've put it back in "
+                            "`replan` and will plan it on the next pass — "
+                            "nothing is needed from you."),
                         pass_number=1)),
                     "implement:no-plan")
 

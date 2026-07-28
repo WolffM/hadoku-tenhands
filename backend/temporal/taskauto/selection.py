@@ -50,6 +50,17 @@ DEFAULT_SETTLE = timedelta(minutes=5)
 JOB_PLAN = "plan"
 JOB_IMPLEMENT = "implement"
 
+#: The `user` lanes the pipeline picks work up from, in priority order, with
+#: the job each one starts and the lane it moves into. Named because it is an
+#: invariant other code depends on: anything routing a task "back to a human"
+#: has to pick a lane in here, or the task is parked where nothing will ever
+#: look at it again. `plan-review`, `landed` and `stalled` are deliberately
+#: absent — they are resting places where a human is expected to act.
+CLAIMABLE_HUMAN_LANES = (
+    (LANE_APPROVED, JOB_IMPLEMENT, LANE_WORKING, "approved by human"),
+    (LANE_REPLAN, JOB_PLAN, LANE_PLANNING, "human answered, re-planning"),
+)
+
 
 @dataclass(frozen=True)
 class Pickup:
@@ -170,10 +181,7 @@ def choose(
             is_recovery=True,
         )
 
-    for lane_tag, job, target, why in (
-        (LANE_APPROVED, JOB_IMPLEMENT, LANE_WORKING, "approved by human"),
-        (LANE_REPLAN, JOB_PLAN, LANE_PLANNING, "human answered, re-planning"),
-    ):
+    for lane_tag, job, target, why in CLAIMABLE_HUMAN_LANES:
         candidates = board.tasks_in(lane_tag)
         if candidates:
             task = min(candidates, key=lambda t: t.last_touched or "")

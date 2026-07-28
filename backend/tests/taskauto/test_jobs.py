@@ -261,12 +261,24 @@ def test_an_unamended_plan_adds_no_human_block():
     assert "WHAT THE HUMAN WROTE" not in agent.worked[0]
 
 
-def test_implementing_without_a_plan_goes_back_to_the_human():
-    lane, _, outcome = make_implement_job(
-        FakeAgent(outcome=AgentOutcome(changed_files=["a"])),
-        FakeCheckouts(), FakeLander())(
+def test_implementing_without_a_plan_routes_where_it_will_be_planned():
+    """Approved before it was planned — a task dragged straight from the Inbox.
+
+    It has to land in `replan`, because that is a lane the pipeline claims
+    from. It used to go to `plan-review`, which the pipeline never touches, and
+    ask "should this go back through planning?" — a question that could not be
+    answered by answering it, on a task nothing would ever pick up again.
+    """
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["a"]))
+    lane, notes, outcome = make_implement_job(
+        agent, FakeCheckouts(), FakeLander())(
         approved(notes="just a raw thought"), board(), FakeSink())
-    assert lane == selection.LANE_PLAN_REVIEW and outcome == "implement:no-plan"
+    assert lane == selection.LANE_REPLAN and outcome == "implement:no-plan"
+    assert lane in {t[0] for t in selection.CLAIMABLE_HUMAN_LANES}, \
+        "the lane must be one selection.choose actually claims from"
+    assert "nothing is needed from you" in notes
+    assert "?" not in notes.split("## Questions")[-1] or "_No open questions._" in notes
+    assert agent.worked == [], "must not run the agent when there is no plan"
 
 
 def test_the_task_is_moved_to_landing_before_the_push():
