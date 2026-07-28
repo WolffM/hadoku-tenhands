@@ -232,8 +232,11 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
 
         doc = plan_notes.parse(pickup.task.notes or "")
         if not doc.plan:
-            # Approved without ever being planned — usually a task dragged
-            # straight from the Inbox. Send it to `replan`, not `plan-review`:
+            # No plan to implement. The usual cause is OURS, not the human's:
+            # a planning pass that asked a question instead of writing a plan
+            # (see `plan:unverifiable`) parks the task in `plan-review` with
+            # questions and no `## Plan`, and approving from there is the
+            # obvious thing to do. Send it to `replan`, not `plan-review`:
             # the pipeline claims from `replan`, so the next tick plans it and
             # the task heals itself.
             #
@@ -246,10 +249,10 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             return (selection.LANE_REPLAN,
                     plan_notes.render(PlanDoc(
                         understanding=(
-                            "You approved this before it had a plan, so there "
-                            "was nothing to implement. I've put it back in "
-                            "`replan` and will plan it on the next pass — "
-                            "nothing is needed from you."),
+                            "There was no plan here to implement — my last "
+                            "pass asked a question instead of writing one. "
+                            "I've put this back in `replan` and will plan it "
+                            "on the next pass. Nothing is needed from you."),
                         pass_number=1)),
                     "implement:no-plan")
 

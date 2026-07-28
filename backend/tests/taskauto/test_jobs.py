@@ -276,7 +276,7 @@ def test_implementing_without_a_plan_routes_where_it_will_be_planned():
     assert lane == selection.LANE_REPLAN and outcome == "implement:no-plan"
     assert lane in {t[0] for t in selection.CLAIMABLE_HUMAN_LANES}, \
         "the lane must be one selection.choose actually claims from"
-    assert "nothing is needed from you" in notes
+    assert "Nothing is needed from you" in notes
     assert "?" not in notes.split("## Questions")[-1] or "_No open questions._" in notes
     assert agent.worked == [], "must not run the agent when there is no plan"
 
