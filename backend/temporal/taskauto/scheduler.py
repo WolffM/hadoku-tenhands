@@ -18,20 +18,33 @@ reason that is specific to this pipeline rather than general taste:
    task sits forever with nobody noticing, and silence is the worst failure
    mode this system can have.
 
-3. **An inbound endpoint is new attack surface on a service that merges to
-   `main`.** Today tenhands only makes outbound calls. Something that can be
-   poked from outside to make it start working is a different security
-   posture, and worth more than the polling it would save.
-
-4. **The polling is genuinely cheap, now that `/changes` exists.** One GET
+3. **The polling is genuinely cheap, now that `/changes` exists.** One GET
    returns deltas across *every* board with a cursor. At the intervals below
    that is on the order of a thousand small requests a day against a 600/min
    budget. Since we serialise to one task per repo, latency-to-start barely
    matters anyway: the work itself takes minutes.
 
 So: **push for latency, poll for correctness.** The poll is the part that
-cannot be skipped, so it is what gets built. If a webhook is added later it
-should *wake the loop early* — never replace it.
+cannot be skipped, so it is what got built first.
+
+**The push half now exists, and it is not a webhook to this process.**
+hadoku-task fires a GitHub `repository_dispatch` when a human writes a task
+into a `user` lane, which starts the workflow in seconds — see
+`docs/hadoku-task-automation/ask-dispatch-on-lane-change.md`. Routing the wake
+through GitHub rather than an inbound endpoint here is deliberate: an endpoint
+that can be poked from outside to make a service that merges to `main` start
+working is a security posture change, and this way tenhands still only makes
+outbound calls.
+
+It was needed because the cron turned out not to be the thing it claimed.
+GitHub deprioritises `schedule`: measured over 63.5h, 78 of 254 runs were
+delivered, median gap 46 min, p90 75. Tightening the cron cannot fix that —
+the throttle is on delivery, not on the schedule expression.
+
+The push does not change anything below. It only shortens the wait for the
+first look, and the reasons in (1) and (2) are why the timer stays. Note the
+Inbox path is still *only* covered by the sweep, because an untagged write
+deliberately does not dispatch — that would defeat the settle delay.
 
 The design that follows from this is two-speed. The change feed is a cheap
 hint that something moved; a slower full sweep runs regardless, because
@@ -95,7 +108,15 @@ class Scheduler:
     now: Callable[[], float] = time.monotonic
 
     cursor: Optional[str] = None
-    _last_sweep: float = field(default=0.0, init=False)
+    #: None until we have actually swept. NOT 0.0: `now` is `time.monotonic`,
+    #: whose reference point Python leaves undefined (boot, on Linux), so
+    #: `now() - 0.0 >= full_sweep_s` was only *incidentally* true — it holds on
+    #: a host with hours of uptime and is false on one rebooted in the last
+    #: `full_sweep_s`. That made the first tick of a fresh one-shot process do
+    #: nothing at all: no sweep, and a primed cursor reporting no changes. The
+    #: guarantee run_taskauto.py rests on ("a fresh process sweeps every board
+    #: on its first tick") has to be stated, not inherited from a clock.
+    _last_sweep: Optional[float] = field(default=None, init=False)
     _backoff: float = field(default=0.0, init=False)
     _cursor_primed: bool = field(default=False, init=False)
 
@@ -103,7 +124,9 @@ class Scheduler:
 
     def tick(self) -> TickResult:
         """Poll once and run at most one turn per board that needs it."""
-        due_for_sweep = (self.now() - self._last_sweep) >= self.full_sweep_s
+        due_for_sweep = (
+            self._last_sweep is None
+            or (self.now() - self._last_sweep) >= self.full_sweep_s)
 
         try:
             changed = self._changed_boards()
