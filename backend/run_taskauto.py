@@ -75,9 +75,21 @@ POLICIES = {
 }
 
 #: Health signal per repo, probed on loopback because this runs on the same
-#: host. Going through the edge is worse than useless: hadoku.me/tenhands/
-#: health returns 200 with the SPA shell whether or not the backend is
-#: alive, so a status-code check would call a dead service healthy.
+#: host: one fewer credential in the probe path, and one fewer hop that can fail
+#: independently of the thing being measured.
+#:
+#: The trap worth keeping in mind is still live — the bare prefix
+#: `hadoku.me/tenhands/` serves the SPA shell, so it answers 200 whether or not
+#: Flask is up, and a status-code check there would call a dead service healthy.
+#: That is why the probe matches a substring below rather than trusting the
+#: status: an HTML shell has to fail closed.
+#:
+#: What changed (hadoku-site cba34656, 2026-07-29) is that `/tenhands/api/*` is
+#: now an edge route to Flask, so `hadoku.me/tenhands/api/healthcheck` returns
+#: real health to an authenticated caller — verified. The edge is therefore no
+#: longer *useless* for this, as this comment used to claim; it is merely
+#: needless. Loopback stays because the reasons above don't depend on how the
+#: edge routes this week.
 HEALTH = {
     "WolffM/tenhands": ("http://127.0.0.1:5024/tenhands/api/healthcheck",
                         '"status":"healthy"'),
