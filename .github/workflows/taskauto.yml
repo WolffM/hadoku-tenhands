@@ -7,20 +7,43 @@ name: Task automation
 # poll to find work. This shape holds its credentials only for the length of a
 # run, gets a clean checkout by construction, and costs nothing when idle.
 #
-# Why a cron and not a webhook from hadoku-task: two of the transitions have no
-# board event to push. Crash recovery fires on *lease expiry*, and the Inbox
-# settle delay is the *absence* of edits. A timer is required either way, so a
-# webhook would only buy latency — and a fresh process sweeps every board on
-# its first tick, so it misses nothing by not having been running. The sweep
-# does not need to have been watching, only to look.
+# TWO TRIGGERS, DOING DIFFERENT JOBS.
+#
+# `repository_dispatch` is the fast path. hadoku-task fires it when a human
+# writes a task into a `user` lane on an automation board — the spec is
+# docs/hadoku-task-automation/ask-dispatch-on-lane-change.md. Its payload is
+# logged and otherwise ignored: the run does its normal board sweep, so the
+# dispatch carries no authority. It says "look now", never "do this". That is
+# what makes an untrusted, duplicated or malformed payload harmless.
+#
+# The cron is the backstop, and it is not redundant. Two transitions have no
+# board event anyone could push: crash recovery fires on *lease expiry*, and
+# the Inbox settle delay is the *absence* of edits. A timer is required no
+# matter what. It also covers dispatches lost while these services restart
+# mid-deploy — the act of working creates those gaps, and a missed push means a
+# task sits forever with nobody noticing. Silence is the worst failure mode
+# this system has.
 #
 # An idle run is one board-API call and an exit, so the cron is cheap.
 
 on:
   schedule:
-    # Every 15 minutes. The settle delay is 5 minutes, so a task typed on a
-    # phone is picked up on the first or second tick after it goes quiet.
+    # Every 15 minutes NOMINALLY — GitHub deprioritises `schedule` and drops
+    # most of them. Measured over 63.5h: 78 of 254 runs delivered, median gap
+    # 46 min, p90 75, max 89. Tightening the expression does not help, because
+    # the throttle is on delivery rather than on the schedule. That is the
+    # whole reason repository_dispatch above exists.
+    #
+    # It stays at */15 rather than relaxing to hourly because this is the ONLY
+    # path for an Inbox task: an untagged write deliberately does not dispatch
+    # (that would defeat the 5-minute settle delay), so planning latency is
+    # bounded by this cron alone. A run costs ~18 seconds.
     - cron: '*/15 * * * *'
+  repository_dispatch:
+    # Must equal the `event_type` the worker sends. Note repository_dispatch
+    # only triggers a workflow present on the DEFAULT branch — the usual reason
+    # a first end-to-end test looks like a silent no-op.
+    types: [taskauto]
   workflow_dispatch:
     inputs:
       live:
@@ -48,10 +71,19 @@ jobs:
     timeout-minutes: 45
 
     env:
-      # Scheduled runs are live in `pr` mode on purpose. Opening a pull request
-      # cannot hurt `main` — a human still merges — so the thing worth
-      # automating is everything up to that button.
-      TASKAUTO_LIVE: ${{ (github.event_name == 'schedule' || inputs.live) && '1' || '0' }}
+      # Automated runs — cron AND dispatch — are live in `pr` mode on purpose.
+      # Opening a pull request cannot hurt `main` (a human still merges), so the
+      # thing worth automating is everything up to that button.
+      #
+      # Phrased as "not the manual trigger" rather than listing the automated
+      # ones. The old form tested `event_name == 'schedule'`, which meant adding
+      # repository_dispatch silently made every pushed run a DRY RUN: `inputs`
+      # is null outside workflow_dispatch, so the whole condition went false and
+      # the run would verify and then refuse to push, with nothing in the log
+      # saying why. Any future trigger is live by default here, which is the
+      # safer direction to be wrong in — a dry run that looks like a success is
+      # worse than a PR nobody asked for.
+      TASKAUTO_LIVE: ${{ (github.event_name != 'workflow_dispatch' || inputs.live) && '1' || '0' }}
       TASKAUTO_MODE: ${{ inputs.mode || 'pr' }}
       TASKAUTO_ONCE: '1'
       # The `tenhands-service-key` identity — the one board shares are
@@ -68,6 +100,29 @@ jobs:
       TASKAUTO_CLAUDE_BIN: /home/hadoku/.local/bin/claude
 
     steps:
+      - name: Say what woke this run
+        # Tracing only. When a board goes quiet the first question is always
+        # "did anything even try", and a cron tick and a pushed wake-up fail in
+        # different places — the log has to distinguish them before the sweep
+        # starts, not after.
+        #
+        # The payload goes through `env`, never interpolated into `run`. A
+        # `${{ github.event.client_payload.* }}` inside a shell line is a script
+        # injection: the values are authored by whoever can reach the worker,
+        # and this job holds a PAT that can push to `main`.
+        env:
+          WOKE_BY: ${{ github.event_name }}
+          PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+          LIVE: ${{ (github.event_name != 'workflow_dispatch' || inputs.live) && '1' || '0' }}
+          MODE: ${{ inputs.mode || 'pr' }}
+        run: |
+          printf 'trigger: %s (live=%s mode=%s)\n' "$WOKE_BY" "$LIVE" "$MODE"
+          if [ "$WOKE_BY" = "repository_dispatch" ]; then
+            # Logged, deliberately not acted on: the sweep below decides what is
+            # actionable. The dispatch is a wake signal with no authority.
+            printf 'client_payload (not trusted, not acted on): %s\n' "$PAYLOAD"
+          fi
+
       - uses: actions/checkout@v4
 
       - name: Check the credentials are present
