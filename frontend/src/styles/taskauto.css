@@ -1,0 +1,281 @@
+/**
+ * Task Automation (hadoku-task-automation)
+ *
+ * Board status + the merge gate. Tabs, buttons, badges and empty states are
+ * the shared primitives (`stage-tabs`, `btn`, `badge`, `empty-state`) — only
+ * the layout that is genuinely specific to boards and lanes lives here.
+ *
+ * Every colour is a theme token. A hardcoded hex here is a white button on a
+ * dark board, which is a bug this repo has already filed once.
+ */
+
+.taskauto-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.taskauto-view__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.taskauto-error {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--hdk-radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-on-danger-bg);
+  font-size: 0.85rem;
+}
+
+.taskauto-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* ── Running now ─────────────────────────────────────────────────────── */
+
+.taskauto-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.taskauto-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius-sm);
+  background: var(--color-bg-card);
+  font-size: 0.85rem;
+}
+
+.taskauto-list__title {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskauto-list__meta {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-family: monospace;
+  font-size: 0.78rem;
+}
+
+/* A claim is the one piece of live state on the page, so it moves. */
+.taskauto-pulse {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: taskauto-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes taskauto-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taskauto-pulse {
+    animation: none;
+  }
+}
+
+/* ── Boards and lanes ────────────────────────────────────────────────── */
+
+.taskauto-boards {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.taskauto-board {
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius);
+  background: var(--color-bg-card);
+  padding: 0.8rem;
+}
+
+.taskauto-board__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+
+.taskauto-board__name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.taskauto-board__repo {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.taskauto-board__total {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.taskauto-board__error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.taskauto-lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.7rem;
+}
+
+.taskauto-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border-radius: var(--hdk-radius-sm);
+  background: var(--color-bg-alt);
+}
+
+.taskauto-lane__head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.taskauto-lane__count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.taskauto-lane__tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.taskauto-lane__task {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.taskauto-lane__task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two lane tags: invisible to the scheduler, so it cannot be a quiet style. */
+.taskauto-lane__task[data-stuck='true'] .taskauto-lane__task-title {
+  color: var(--color-danger);
+}
+
+.taskauto-lane__stuck {
+  flex: none;
+  margin-left: auto;
+  padding: 0 0.35rem;
+  border-radius: var(--hdk-radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-on-danger-bg);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+/* ── The merge gate ──────────────────────────────────────────────────── */
+
+.taskauto-prs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.taskauto-pr {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius);
+  background: var(--color-bg-card);
+}
+
+.taskauto-pr__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.taskauto-pr__title {
+  color: var(--color-primary);
+  font-size: 0.9rem;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.taskauto-pr__title:hover {
+  text-decoration: underline;
+}
+
+.taskauto-pr__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.taskauto-pr__diff {
+  font-family: monospace;
+}
+
+.taskauto-pr__branch {
+  font-family: monospace;
+  color: var(--color-text-muted);
+}
+
+.taskauto-pr__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 640px) {
+  .taskauto-lanes {
+    grid-template-columns: 1fr;
+  }
+}
