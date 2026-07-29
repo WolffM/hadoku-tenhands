@@ -74,24 +74,61 @@ def sched(client, runners, **kw):
     return s
 
 
-# ── cursor priming ────────────────────────────────────────────────────────
+def steady(client, runners, **kw):
+    """A scheduler past its cold start.
+
+    Every scheduler's first tick sweeps every board and primes the cursor — see
+    `test_a_fresh_scheduler_sweeps_every_board_on_its_first_tick`. Tests about
+    change *routing* want the steady state after that, so this consumes the
+    first tick and zeroes the turn counters. Keeping the cold start out of them
+    is what lets each one assert the small number it actually cares about.
+    """
+    s = sched(client, runners, **kw)
+    s.tick()
+    for r in runners.values():
+        r.turns = 0
+    return s
 
 
-def test_the_first_poll_primes_the_cursor_and_acts_on_nothing():
-    """A fresh scheduler must not treat the whole backlog as new and start
-    claiming work a human may have finished with days ago."""
-    r = FakeRunner()
-    s = sched(FakeClient(page("b1", cursor="c9")), {"b1": r})
+# ── the cold start ────────────────────────────────────────────────────────
+
+
+def test_a_fresh_scheduler_sweeps_every_board_on_its_first_tick():
+    """run_taskauto.py's one-shot shape rests entirely on this: a fresh process
+    misses nothing by not having been running, because its first tick looks at
+    everything. The sweep does not need to have been watching, only to look.
+
+    Regression: `_last_sweep` defaulted to 0.0 and was compared against
+    `time.monotonic()`, whose reference point Python leaves undefined (boot, on
+    Linux). So this held on a host with hours of uptime and silently failed on
+    one rebooted within `full_sweep_s` — the first tick swept nothing, the
+    freshly primed cursor reported no changes, and a one-shot run exited having
+    done nothing at all. Hence the clock pinned to zero below.
+    """
+    a, b = FakeRunner(), FakeRunner()
+    s = sched(FakeClient(), {"a": a, "b": b}, full_sweep_s=1_000_000)
+    s.clock.t = 0.0                     # a host that booted a moment ago
     result = s.tick()
-    assert result.acted is False
-    assert r.turns == 0
+    assert (a.turns, b.turns) == (1, 1)
+    assert result.boards_swept == 2
+
+
+def test_the_first_poll_primes_the_cursor_and_reports_no_changes():
+    """A fresh scheduler must not treat the whole change-feed backlog as new.
+
+    Asserted on `_changed_boards` rather than through `tick`, because the
+    first-tick sweep above legitimately does act: priming protects against
+    replaying the *feed*, and the sweep finds what is genuinely actionable by
+    applying the lane and settle rules the raw feed knows nothing about.
+    """
+    s = sched(FakeClient(page("b1", cursor="c9")), {"b1": FakeRunner()})
+    assert s._changed_boards() == set()
     assert s.cursor == "c9"
 
 
 def test_changes_after_priming_do_trigger_a_turn():
     r = FakeRunner()
-    s = sched(FakeClient(page(cursor="c0"), page("b1", cursor="c1")), {"b1": r})
-    s.tick()
+    s = steady(FakeClient(page(cursor="c0"), page("b1", cursor="c1")), {"b1": r})
     assert s.tick().acted is True
     assert r.turns == 1
 
@@ -101,17 +138,16 @@ def test_changes_after_priming_do_trigger_a_turn():
 
 def test_only_boards_that_changed_are_touched():
     a, b = FakeRunner(), FakeRunner()
-    s = sched(FakeClient(page(cursor="c0"), page("a", cursor="c1")),
-              {"a": a, "b": b})
-    s.tick(); s.tick()
+    s = steady(FakeClient(page(cursor="c0"), page("a", cursor="c1")),
+               {"a": a, "b": b})
+    s.tick()
     assert (a.turns, b.turns) == (1, 0)
 
 
 def test_changes_on_boards_we_do_not_drive_are_ignored():
     a = FakeRunner()
-    s = sched(FakeClient(page(cursor="c0"), page("someone-elses", cursor="c1")),
-              {"a": a})
-    assert s.tick().acted is False
+    s = steady(FakeClient(page(cursor="c0"), page("someone-elses", cursor="c1")),
+               {"a": a})
     assert s.tick().acted is False
     assert a.turns == 0
 
@@ -124,8 +160,7 @@ def test_a_full_sweep_runs_even_with_no_changes():
     Inbox task — neither produces a change-feed entry at the moment it
     becomes actionable."""
     r = FakeRunner()
-    s = sched(FakeClient(), {"b1": r}, full_sweep_s=100)
-    s.tick()                      # primes, and counts as the first sweep
+    s = steady(FakeClient(), {"b1": r}, full_sweep_s=100)
     s.clock.t = 500               # well past the sweep interval
     s.tick()
     assert r.turns == 1, "a quiet board must still be swept"
@@ -133,8 +168,7 @@ def test_a_full_sweep_runs_even_with_no_changes():
 
 def test_between_sweeps_a_quiet_board_is_left_alone():
     r = FakeRunner()
-    s = sched(FakeClient(), {"b1": r}, full_sweep_s=1000)
-    s.tick()
+    s = steady(FakeClient(), {"b1": r}, full_sweep_s=1000)
     s.clock.t = 10
     assert s.tick().acted is False
     assert r.turns == 0
@@ -142,8 +176,7 @@ def test_between_sweeps_a_quiet_board_is_left_alone():
 
 def test_the_sweep_covers_every_board_not_just_changed_ones():
     a, b = FakeRunner(acted=False), FakeRunner(acted=False)
-    s = sched(FakeClient(), {"a": a, "b": b}, full_sweep_s=100)
-    s.tick()
+    s = steady(FakeClient(), {"a": a, "b": b}, full_sweep_s=100)
     s.clock.t = 500
     s.tick()
     assert (a.turns, b.turns) == (1, 1)

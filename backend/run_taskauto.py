@@ -199,10 +199,10 @@ def main() -> int:
 
     # One-shot: drain whatever is actionable right now, then exit. This is the
     # shape a CI job wants — a fresh process sweeps every board on its first
-    # tick (the cursor is unprimed and `_last_sweep` is 0), so nothing is
-    # missed by not having been running earlier. That is the property that
-    # makes the daemon unnecessary: the sweep does not need to have been
-    # watching, it only needs to look.
+    # tick (`Scheduler._last_sweep` starts as None, which is unconditionally
+    # due), so nothing is missed by not having been running earlier. That is the
+    # property that makes the daemon unnecessary: the sweep does not need to
+    # have been watching, it only needs to look.
     #
     # Drain rather than a single tick because a tick acts on at most one task
     # per board, and a cron that lands one task per run makes a queue of five
