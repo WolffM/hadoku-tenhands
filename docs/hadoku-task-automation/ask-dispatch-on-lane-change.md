@@ -129,12 +129,11 @@ vault key (already in this repo's `.devvault.json`), used today by `validateRepo
 (`routes/automation.ts:215`). **It is the same PAT TenHands' workflow runs as** — `taskauto.yml`
 passes `secrets.HADOKU_SITE_TOKEN` as `GH_TOKEN` — so no new secret has to be minted or granted.
 
-Two things to settle:
-
-- **Scope.** `POST /repos/{o}/{r}/dispatches` needs `repo` (classic) or Contents: read-write
-  (fine-grained). The token pushes branches and opens PRs on the TenHands side, so it almost
-  certainly qualifies — but verify rather than assume, because the failure is a silent `404`
-  (GitHub returns `404`, not `403`, when the token lacks the scope).
+- **Scope: verified, nothing to do.** `HADOKU_SITE_TOKEN` reports
+  `x-oauth-scopes: repo, write:packages`, and `POST /repos/{o}/{r}/dispatches` needs `repo`. So the
+  existing binding is sufficient — no new secret to mint, no grant to request, no ACL change. (Worth
+  having checked: tenhands is a private repo, so an under-scoped token would have failed with a
+  silent `404` rather than a `403`.)
 - **Name.** Using a binding called `GITHUB_READ_TOKEN` for a write makes the name a lie. Prefer a
   second binding `GITHUB_DISPATCH_TOKEN` mapped to the same vault key, so the two uses can be
   scoped apart later without a code change.
@@ -179,14 +178,17 @@ the pipeline) for tidiness, and the noise may well not be worth it.
 
 ## What TenHands does on its side
 
-Coordinated, not blocking — these land independently and in either order:
+**Already landed** (`taskauto.yml`, as of 2026-07-29) — so the receiving end is live and waiting:
 
-1. `taskauto.yml` gains `on: repository_dispatch: { types: [taskauto] }`. **`event_type` must be
-   exactly `taskauto`.**
-2. The cron drops from `*/15` to hourly.
-3. `client_payload` is logged for tracing but **not** trusted or acted on — the run does its normal
+1. `on: repository_dispatch: { types: [taskauto] }`. **`event_type` must be exactly `taskauto`.**
+2. `client_payload` is logged for tracing but **not** trusted or acted on — the run does its normal
    board sweep. That keeps the dispatch a pure wake signal, so a malformed or duplicated payload
-   cannot make the pipeline do the wrong thing.
+   cannot make the pipeline do the wrong thing. It is passed through `env`, never interpolated into a
+   shell line, because this job holds a PAT that can push to `main`.
+3. The cron **stays at `*/15`** — correcting what an earlier draft of this doc said about relaxing it
+   to hourly. An untagged Inbox write deliberately does not dispatch, so the cron is the *only* path
+   that gets an Inbox task planned; relaxing it would have traded latency you can see for latency you
+   can't. Nothing in this ask depends on that choice either way.
 
 Point 3 is the security posture worth stating plainly: the dispatch carries no authority. It says
 "look now", never "do this".
