@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from ..gates.taskauto.protected_paths import protected_hits
+from . import proc
 from .refs import RepoPolicy, TaskRef
 from .task_text import extract_allow_protected
 
@@ -70,15 +71,27 @@ class CmdResult:
 
 
 def _default_run(args: Sequence[str], cwd: Path, timeout: int = 1800) -> CmdResult:
-    import subprocess
-    try:
-        p = subprocess.run(list(args), cwd=str(cwd), capture_output=True,
-                           text=True, timeout=timeout, check=False)
-        return CmdResult(p.returncode == 0, p.stdout, p.stderr)
-    except subprocess.TimeoutExpired:
-        return CmdResult(False, "", f"timeout after {timeout}s")
-    except OSError as e:
-        return CmdResult(False, "", str(e))
+    """Run a git/gh/test command with its whole tree bounded.
+
+    The test command is why this goes through `proc.run` rather than
+    `subprocess.run`: `pnpm test` is a process *tree*, and a repo's suite can
+    spawn a typechecker, a bundler or a browser. A timeout that kills `pnpm`
+    and leaves the rest running is the exact shape of bug that took the host
+    down on 2026-07-29 — from the agent's side that time, but this side has the
+    same anatomy and had the same hole.
+
+    Timeout output is preserved on purpose: a suite that hangs usually names
+    the hanging test in its last lines, and reporting a bare "timeout after
+    1800s" throws away the only evidence of which one.
+    """
+    res = proc.run(list(args), cwd=cwd, timeout=timeout, label="land")
+    if res.timed_out:
+        return CmdResult(False, res.out, f"timeout after {timeout}s\n{res.err}")
+    if res.out_of_memory:
+        return CmdResult(False, res.out,
+                         f"killed: this command's process tree exceeded "
+                         f"{proc.DEFAULT_MEMORY_MAX}\n{res.err}")
+    return CmdResult(res.ok, res.out, res.err)
 
 
 @dataclass

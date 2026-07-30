@@ -35,6 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence
 
+from . import proc
+
 logger = logging.getLogger(__name__)
 
 #: Where pipeline-owned clones live. Deliberately outside ~/repos so they
@@ -66,16 +68,18 @@ class RunResult:
 
 def _default_run(args: Sequence[str], cwd: Optional[Path] = None,
                  timeout: int = 600) -> RunResult:
-    import subprocess
-    try:
-        p = subprocess.run(list(args), cwd=str(cwd) if cwd else None,
-                           capture_output=True, text=True, timeout=timeout,
-                           check=False)
-        return RunResult(p.returncode == 0, p.stdout, p.stderr)
-    except subprocess.TimeoutExpired:
-        return RunResult(False, "", f"timeout after {timeout}s")
-    except OSError as e:
-        return RunResult(False, "", str(e))
+    """Run a git command with its whole tree bounded.
+
+    Git is not the memory risk the agent is, but it does spawn helpers — a
+    credential helper, a `git-remote-https` that can hang on a network stall —
+    and a clone abandoned by a timeout keeps writing into a directory `ensure`
+    is about to `rmtree`. Same helper, same guarantees, one less special case
+    to reason about.
+    """
+    res = proc.run(list(args), cwd=cwd, timeout=timeout, label="git")
+    if res.timed_out:
+        return RunResult(False, res.out, f"timeout after {timeout}s")
+    return RunResult(res.ok, res.out, res.err)
 
 
 def _normalise_remote(url: str) -> str:
