@@ -4,6 +4,6 @@
   "TENHANDS_MSFT_SSO": "TENHANDS_MSFT_SSO",
   "HADOKU_SITE_TOKEN": "HADOKU_SITE_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN",
-  "HADOKU_SERVICE_KEY": "TENHANDS_SERVICE_KEY",
-  "//board-credential": "HADOKU_SERVICE_KEY is the board credential — vault item TENHANDS_SERVICE_KEY, registered as `tenhands-service-key`. Board shares are granted to THAT identity. A valid key for any other identity authenticates fine and then sees zero boards, which reads like a sharing problem and isn't. Do not add a second name for this."
+  "HADOKU_SERVICE_KEY": "KEY_SERVICE_TENHANDS",
+  "//board-credential": "HADOKU_SERVICE_KEY is the board credential — vault item KEY_SERVICE_TENHANDS, registered as `tenhands-service-key`. Board shares are granted to THAT identity. A valid key for any other identity authenticates fine and then sees zero boards, which reads like a sharing problem and isn't. Do not add a second name for this."
 }
