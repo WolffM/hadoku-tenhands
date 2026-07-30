@@ -2,7 +2,7 @@
  * Crimson-Kitty pipeline-select + main view integration.
  *
  * Covers phase-1-plan.md step 2.7:
- *   - PipelineSelectView shows 3 tiles (vibecheck / oss / crimson-kitty)
+ *   - PipelineSelectView shows one tile per pipeline
  *   - clicking the crimson-kitty tile navigates to the temporal view
  */
 
@@ -16,15 +16,25 @@ test.describe('Temporal pipeline select', () => {
     await mockTemporalAPIs(page)
   })
 
-  test('picker shows 3 tiles', async ({ page }) => {
+  // Every pipeline the picker offers. Adding one belongs in this list — the
+  // count is asserted from it, so a new tile is a deliberate edit here rather
+  // than a number to chase.
+  const PIPELINES = [
+    'Vibecheck Pipeline',
+    'OSS Contribution Pipeline',
+    'Crimson-Kitty',
+    'Task Automation'
+  ]
+
+  test('picker shows one tile per pipeline', async ({ page }) => {
     await page.goto('/?key=test-key')
     await expect(page.locator('text=Select a Pipeline')).toBeVisible()
 
     const cards = page.locator('.pipeline-select-card')
-    await expect(cards).toHaveCount(3)
-    await expect(cards.filter({ hasText: 'Vibecheck Pipeline' })).toBeVisible()
-    await expect(cards.filter({ hasText: 'OSS Contribution Pipeline' })).toBeVisible()
-    await expect(cards.filter({ hasText: 'Crimson-Kitty' })).toBeVisible()
+    await expect(cards).toHaveCount(PIPELINES.length)
+    for (const name of PIPELINES) {
+      await expect(cards.filter({ hasText: name })).toBeVisible()
+    }
   })
 
   test('clicking crimson-kitty tile navigates to temporal view', async ({ page }) => {

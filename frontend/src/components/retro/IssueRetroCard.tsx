@@ -72,20 +72,30 @@ export function IssueRetroCard({ item }: Props) {
   const totalHumanComments = humanForkComments.length + humanUpstreamComments.length
   const hasRetroData = !!(retro?.raw_comments || retro?.context_issue_body)
 
-  const stageReached = upstream_pr
+  // A `merged-in-fork-only` record has no PR number and no URL: the fix landed
+  // in our fork and never went upstream. Treating that as "upstream-open" — the
+  // old fallback for any unrecognised state — labelled it "Open upstream" and
+  // rendered a `PR #` link pointing at nothing, which is the opposite of what
+  // happened. Anything without a PR number is not an upstream PR.
+  const hasUpstreamPR = !!(upstream_pr?.pr_url && upstream_pr.pr_number)
+
+  const stageReached = hasUpstreamPR
     ? upstream_pr.state === 'merged'
       ? 'merged'
       : upstream_pr.state === 'closed'
         ? 'upstream-closed'
         : 'upstream-open'
-    : assignment.stage4_pr_number
-      ? 'fork-pr'
-      : 'dispatched'
+    : upstream_pr
+      ? 'fork-merged'
+      : assignment.stage4_pr_number
+        ? 'fork-pr'
+        : 'dispatched'
 
   const stageLabel: Record<string, string> = {
     merged: 'Merged upstream',
     'upstream-closed': 'Closed upstream',
     'upstream-open': 'Open upstream',
+    'fork-merged': 'Merged in fork only',
     'fork-pr': 'Fork PR created',
     dispatched: 'Dispatched'
   }
@@ -94,6 +104,7 @@ export function IssueRetroCard({ item }: Props) {
     merged: 'success',
     'upstream-closed': 'closed',
     'upstream-open': 'open',
+    'fork-merged': 'neutral',
     'fork-pr': 'neutral',
     dispatched: 'neutral'
   }
@@ -112,7 +123,7 @@ export function IssueRetroCard({ item }: Props) {
           >
             {assignment.origin_slug}#{assignment.issue_number}
           </a>
-          {upstream_pr && (
+          {hasUpstreamPR && (
             <>
               <span className="retro-card__sep">·</span>
               <a
@@ -277,8 +288,13 @@ function Timeline({
   postCommits
 }: Pick<BatchIssue, 'assignment' | 'upstream_pr' | 'retro'> & { postCommits: PrCommit[] }) {
   const timing = retro?.timing
+  const wentUpstream = !!(upstream_pr?.pr_url && upstream_pr.pr_number)
   const steps: { label: string; ts: string | null | undefined; variant?: string }[] = [
-    { label: 'Dispatched', ts: assignment.assigned_at },
+    // Pre-tracking records (everything before assignment tracking shipped)
+    // carry only batch/repo/issue on the assignment, and keep the real
+    // dispatch time in the retro's own timing block. Reading one source only
+    // dropped the first step from every historical batch's timeline.
+    { label: 'Dispatched', ts: assignment.assigned_at ?? timing?.assigned_at },
     { label: 'Fork PR created', ts: timing?.swe_done_at },
     {
       label: 'SA run',
@@ -287,13 +303,27 @@ function Timeline({
     },
     { label: 'Review', ts: timing?.review_done_at },
     { label: 'Remediation', ts: timing?.remediation_done_at },
-    { label: 'Upstream submitted', ts: upstream_pr?.submitted_at },
-    ...(upstream_pr?.merged_at
-      ? [{ label: 'Merged', ts: upstream_pr.merged_at, variant: 'success' }]
-      : []),
-    ...(upstream_pr?.closed_at && !upstream_pr.merged_at
-      ? [{ label: 'Closed', ts: upstream_pr.closed_at, variant: 'closed' }]
-      : [])
+    // A `merged-in-fork-only` record has the same shape as a submitted one —
+    // submitted_at, merged_at — but no PR number, because the work landed in
+    // our fork and never went upstream. Calling that "Upstream submitted"
+    // followed by "Merged" describes a submission that never happened, and
+    // for those records the two timestamps are the same moment anyway.
+    ...(wentUpstream
+      ? [
+          { label: 'Upstream submitted', ts: upstream_pr?.submitted_at },
+          ...(upstream_pr?.merged_at
+            ? [{ label: 'Merged', ts: upstream_pr.merged_at, variant: 'success' }]
+            : []),
+          ...(upstream_pr?.closed_at && !upstream_pr.merged_at
+            ? [{ label: 'Closed', ts: upstream_pr.closed_at, variant: 'closed' }]
+            : [])
+        ]
+      : [
+          {
+            label: 'Fork PR merged',
+            ts: upstream_pr?.merged_at ?? upstream_pr?.submitted_at
+          }
+        ])
   ]
 
   const filled = steps.filter(s => s.ts)

@@ -13,6 +13,14 @@
 
 import type { Page } from '@playwright/test'
 
+/** One recorded signal POST, as the tests read it back off `window`. */
+export interface TemporalSignalCall {
+  workflowId: string | null
+  decision: string | undefined
+  reasonCode: string | null
+  reasonText: string
+}
+
 export const mockTemporalBatches = [
   { batch_id: 'crimson-kitty', issue_count: 3, deferred_count: 1, active: true },
   { batch_id: 'smoke-1', issue_count: 1, deferred_count: 0, active: false }
@@ -223,22 +231,32 @@ export async function mockTemporalAPIs(page: Page): Promise<void> {
   })
 
   // Signal endpoint: record the call on `window.__temporalSignals` and return OK.
+  // The reason code and text are recorded too — an operator override is
+  // captured for the calibration corpus, so "which reason reached the API" is
+  // part of the behaviour, not decoration.
   const signalPattern = /\/issue\/([^/]+)\/signal/
   await page.route('**/tenhands/api/temporal/issue/*/signal', async route => {
     const req = route.request()
-    const body = (req.postDataJSON() ?? {}) as { decision?: string }
+    const body = (req.postDataJSON() ?? {}) as {
+      decision?: string
+      reason_code?: string | null
+      reason_text?: string
+    }
     const url = req.url()
     const match = signalPattern.exec(url)
     const workflowId = match ? decodeURIComponent(match[1]) : null
     await page.evaluate(
-      (call: { workflowId: string | null; decision: string | undefined }) => {
-        const w = window as unknown as {
-          __temporalSignals?: { workflowId: string | null; decision: string | undefined }[]
-        }
+      (call: TemporalSignalCall) => {
+        const w = window as unknown as { __temporalSignals?: TemporalSignalCall[] }
         w.__temporalSignals = w.__temporalSignals ?? []
         w.__temporalSignals.push(call)
       },
-      { workflowId, decision: body.decision }
+      {
+        workflowId,
+        decision: body.decision,
+        reasonCode: body.reason_code ?? null,
+        reasonText: body.reason_text ?? ''
+      }
     )
     await route.fulfill({
       status: 200,

@@ -557,10 +557,13 @@ test.describe('OSS Pipeline - Navigation', () => {
     const tabs = ['Repo Health', 'Fork & Assign', 'Pipeline Runs', 'Review']
     for (const tab of tabs) {
       await page.locator('.stage-tab').filter({ hasText: tab }).click()
-      await page.waitForTimeout(200)
+      // Assert the switch landed instead of sleeping on it — a fixed wait
+      // passes on a tab bar that stopped responding entirely.
+      await expect(page.locator('.stage-tab--active .stage-tab__label')).toHaveText(tab)
     }
-    // Should still be on OSS view
-    await expect(page.locator('.nav-tabs__tab').filter({ hasText: 'OSS Contrib' })).toBeVisible()
+    // Still on the OSS view. Pipelines stopped being top-level nav tabs in the
+    // 2026-04-30 nav cleanup, so "still here" is the stage bar, not a nav tab.
+    await expect(page.locator('.stage-tab')).toHaveCount(tabs.length)
   })
 
   test('Refresh All button exists and works', async ({ page }) => {

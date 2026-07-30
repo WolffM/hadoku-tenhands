@@ -10,6 +10,15 @@ import { defineConfig, devices } from '@playwright/test'
 const VENV_PYTHON = fileURLToPath(new URL('../.venv/bin/python', import.meta.url))
 const PYTHON = existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3'
 
+// Ports are overridable because several agents work this repo at once, often
+// from separate worktrees. On the defaults, `reuseExistingServer` happily
+// attaches to whichever checkout started a dev server first — so a run in one
+// tree silently tests another tree's code. Give a worktree its own pair:
+//   PW_FRONTEND_PORT=5186 PW_BACKEND_PORT=5002 pnpm test
+const FRONTEND_PORT = process.env.PW_FRONTEND_PORT ?? '5184'
+const BACKEND_PORT = process.env.PW_BACKEND_PORT ?? '5001'
+const FRONTEND_URL = `http://localhost:${FRONTEND_PORT}`
+
 /**
  * Playwright configuration for TenHands E2E tests.
  * https://playwright.dev/docs/test-configuration
@@ -32,7 +41,7 @@ export default defineConfig({
   reporter: [['html', { open: 'never' }]],
 
   use: {
-    baseURL: 'http://localhost:5184',
+    baseURL: FRONTEND_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure'
   },
@@ -51,7 +60,7 @@ export default defineConfig({
       fullyParallel: false,
       use: {
         ...devices['Desktop Chrome'],
-        baseURL: 'http://localhost:5184',
+        baseURL: FRONTEND_URL,
         actionTimeout: 10_000,
         navigationTimeout: 30_000,
         trace: 'on',
@@ -66,17 +75,26 @@ export default defineConfig({
   // This catches stale servers with wrong proxy configs immediately.
   webServer: [
     {
-      // No pipeline loop: a test run must not start a background thread that
-      // advances real pipelines against real repos.
-      command: `PORT=5001 PIPELINE_LOOP_ENABLED=false ${PYTHON} -m backend.app`,
-      url: 'http://localhost:5001/tenhands/api/healthcheck',
+      // Two env vars the suite cannot run without:
+      //   PIPELINE_LOOP_ENABLED=false — a test run must not start a background
+      //     thread that advances real pipelines against real repos.
+      //   WHOAMI_TEST_OVERRIDES — the tier gate resolves `X-User-Key` through
+      //     hadoku.me/session/whoami, which does not know `test-key` and
+      //     answers 403. The specs all browse as `?key=test-key`, so without
+      //     this the real-backend tests only pass when some *other* server
+      //     happens to be listening on this port with an override already set.
+      //     `middleware/whoami.py` documents this var for exactly this case.
+      command:
+        `PORT=${BACKEND_PORT} PIPELINE_LOOP_ENABLED=false ` +
+        `WHOAMI_TEST_OVERRIDES='{"test-key":"admin"}' ${PYTHON} -m backend.app`,
+      url: `http://localhost:${BACKEND_PORT}/tenhands/api/healthcheck`,
       reuseExistingServer: !process.env.CI,
       cwd: '..',
       timeout: 60_000
     },
     {
-      command: 'BACKEND_PORT=5001 pnpm dev',
-      url: 'http://localhost:5184',
+      command: `BACKEND_PORT=${BACKEND_PORT} pnpm exec vite --port ${FRONTEND_PORT} --strictPort`,
+      url: FRONTEND_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000
     }
