@@ -101,11 +101,48 @@ def test_children_die_when_the_parent_exits():
 
 @pytest.mark.skipif(not proc.scope_available(),
                     reason="no systemd user scope on this host")
+def test_the_memory_limits_actually_land_on_the_workload_cgroup():
+    """The limits reach the cgroup the workload is really running in.
+
+    Asserted by having the workload read its *own* `memory.max` and
+    `memory.swap.max` out of cgroupfs, rather than by triggering an OOM kill.
+    Two reasons that is the better test. It is silent — a real OOM kill writes
+    to the kernel log and fires a desktop notification, and a suite that does
+    that on every run trains everyone to ignore the one that matters. And it
+    checks the half we are actually responsible for: that our `systemd-run`
+    invocation puts the right numbers on the right cgroup. That the kernel then
+    enforces them is the kernel's business, and is covered by the opt-in test
+    below.
+    """
+    read_own_limits = (
+        'g=$(awk -F: \'/^0::/{print $3}\' /proc/self/cgroup); '
+        'echo "max=$(cat /sys/fs/cgroup$g/memory.max) '
+        'swap=$(cat /sys/fs/cgroup$g/memory.swap.max)"')
+    res = proc.run(["sh", "-c", read_own_limits],
+                   timeout=60, memory_max="256M", label="test")
+
+    assert res.ok, res.err[:300]
+    assert "max=268435456" in res.out, f"MemoryMax did not land: {res.out}"
+    # The incident let swap absorb 40 GB, which is what turned a job that
+    # should have died into an outage. Zero, not "some".
+    assert "swap=0" in res.out, f"MemorySwapMax did not land: {res.out}"
+
+
+@pytest.mark.skipif(
+    os.environ.get("TASKAUTO_TEST_OOM", "") != "1",
+    reason="deliberately OOM-kills a process; set TASKAUTO_TEST_OOM=1 to run")
+@pytest.mark.skipif(not proc.scope_available(),
+                    reason="no systemd user scope on this host")
 def test_memory_ceiling_kills_a_runaway_and_reports_it_as_such():
     """A pathological job dies instead of taking the box down.
 
     This is the guarantee that turns the original incident from a machine-wide
-    outage into one failed tool call.
+    outage into one failed tool call, so it is worth having — but it is opt-in.
+    Running it writes a real `Killed process` line to the kernel log, and a
+    suite that cries OOM on every run is a suite whose OOM reports nobody
+    reads. Run it deliberately:
+
+        TASKAUTO_TEST_OOM=1 pytest tests/taskauto/test_proc.py -k runaway
     """
     hog = ("a = bytearray()\n"
            "for _ in range(200): a.extend(bytearray(50_000_000))\n")
