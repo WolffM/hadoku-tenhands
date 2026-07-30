@@ -32,11 +32,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from . import proc
+
 logger = logging.getLogger(__name__)
 
 CLAUDE_BIN = os.environ.get("TASKAUTO_CLAUDE_BIN", "claude")
 DEFAULT_MODEL = os.environ.get("TASKAUTO_AGENT_MODEL", "sonnet")
 DEFAULT_TIMEOUT_S = int(os.environ.get("TASKAUTO_AGENT_TIMEOUT", "1800"))
+
+#: Memory ceiling for the agent *and its whole subprocess tree*. Higher than
+#: `proc.DEFAULT_MEMORY_MAX` because an agent legitimately runs installs and
+#: builds; still far below the ~19 GB one runaway typecheck reached alone.
+AGENT_MEMORY_MAX = os.environ.get("TASKAUTO_AGENT_MEMORY_MAX", "12G")
 
 #: Environment the agent is allowed to see. Everything else is dropped.
 #: CLAUDE_CODE_OAUTH_TOKEN is its own credential; the rest is what a process
@@ -89,18 +96,42 @@ def scrubbed_env(extra: Optional[dict] = None) -> dict:
 
 def _default_run(args: Sequence[str], cwd: Path, timeout: int,
                  env: dict, stdin_text: Optional[str] = None) -> AgentRun:
+    """Run the agent inside a cgroup that bounds everything it spawns.
+
+    This was a plain `subprocess.run(timeout=)`, and that is what let the
+    2026-07-29 outage happen. The agent is not one process, it is a *tree*, and
+    the interesting members are grandchildren it spawns from its own Bash tool
+    — a typecheck, a test run, a build. `subprocess.run`'s timeout kills only
+    the direct child, so three runaway typechecks survived both the timeout and
+    the runner's exit, were reparented to init, and grew to ~46 GB combined.
+    `proc.py` has the full anatomy.
+
+    Containment #3 in the module docstring above ("a wall-clock budget") was
+    the one that turned out to be a promise this function could not keep. It
+    can now.
+
+    The memory ceiling covers the whole tree rather than the agent alone, which
+    is what makes it useful: when a pathological child blows past it, the
+    kernel OOM-kills the biggest member of the cgroup — that child, not
+    `claude` — so the agent survives, sees its tool call fail, and carries on.
+    """
     try:
-        p = subprocess.run(list(args), cwd=str(cwd), env=env,
-                           input=stdin_text, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace",
-                           timeout=timeout, check=False)
-        return AgentRun(p.returncode == 0, p.stdout, p.stderr)
-    except subprocess.TimeoutExpired as e:
-        return AgentRun(False, (e.stdout or b"").decode("utf-8", "replace")
-                        if isinstance(e.stdout, bytes) else (e.stdout or ""),
-                        "timed out", timed_out=True)
+        res = proc.run(list(args), cwd=cwd, timeout=timeout, env=env,
+                       stdin_text=stdin_text,
+                       memory_max=AGENT_MEMORY_MAX, label="agent")
     except FileNotFoundError as e:
         raise AgentError(f"{CLAUDE_BIN} not found on PATH") from e
+
+    if res.out_of_memory:
+        # Neither a timeout nor an ordinary failure, and worth saying which:
+        # a timeout wants a longer budget, this wants somebody to look at what
+        # the agent ran.
+        logger.error("the agent's process tree exceeded %s and was killed",
+                     AGENT_MEMORY_MAX)
+        return AgentRun(False, res.out,
+                        (res.err or "") + f"\nkilled: the agent's process tree "
+                        f"exceeded {AGENT_MEMORY_MAX}")
+    return AgentRun(res.ok, res.out, res.err, timed_out=res.timed_out)
 
 
 @dataclass
