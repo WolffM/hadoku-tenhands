@@ -23,6 +23,7 @@ export function TaskAutoView() {
   const error = useTaskAutoStore(s => s.error)
   const merging = useTaskAutoStore(s => s.merging)
   const mergeError = useTaskAutoStore(s => s.mergeError)
+  const mergedIds = useTaskAutoStore(s => s.mergedIds)
   const loadStatus = useTaskAutoStore(s => s.loadStatus)
   const merge = useTaskAutoStore(s => s.merge)
 
@@ -34,7 +35,13 @@ export function TaskAutoView() {
 
   const boards = useMemo(() => status?.boards ?? [], [status])
   const running = useMemo(() => status?.running ?? [], [status])
-  const prs = useMemo(() => boards.flatMap(b => b.prs ?? []), [boards])
+  // A PR we just merged stays in `status` until the backend re-reads GitHub;
+  // drop it here so the row leaves on the merge, not on the reload.
+  const prs = useMemo(
+    () =>
+      boards.flatMap(b => b.prs ?? []).filter(pr => !mergedIds.includes(`${pr.repo}#${pr.number}`)),
+    [boards, mergedIds]
+  )
   const laneOrder = status?.laneOrder ?? []
 
   const tabs: { key: TabKey; label: string; count: number }[] = [

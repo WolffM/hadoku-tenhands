@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import logging
 import traceback
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Optional
+from typing import Callable, ContextManager, Optional
 
 from services.task_board import (
     RELEASE_ABORTED,
@@ -79,12 +80,20 @@ class Runner:
     def __init__(self, client: TaskBoardClient, board_handle: str, *,
                  jobs: Optional[dict[str, Job]] = None,
                  settle: timedelta = selection.DEFAULT_SETTLE,
-                 now: Optional[Callable[[], datetime]] = None) -> None:
+                 now: Optional[Callable[[], datetime]] = None,
+                 lock: Optional[Callable[[str], ContextManager[bool]]] = None,
+                 ) -> None:
         self.client = client
         self.board_handle = board_handle
         self.jobs = jobs or {}
         self.settle = settle
         self._now = now or (lambda: datetime.now(timezone.utc))
+        #: Called with the board's `repo` to exclude other processes from its
+        #: checkout for the length of a job — `CheckoutManager.lock` in
+        #: production. None means no exclusion, which is right for a Runner
+        #: whose jobs never touch disk (every unit test here) and wrong for
+        #: anything real, so `build_runner` always supplies it.
+        self._lock = lock
 
     def turn(self) -> TurnResult:
         board = self.client.get_board(self.board_handle)
@@ -101,16 +110,31 @@ class Runner:
             return TurnResult(False, f"no handler for job {decision.job!r}",
                               task_id=decision.task.id, job=decision.job)
 
-        try:
-            token = self.client.claim(
-                self.board_handle, decision.task.id,
-                lane=decision.lane, lease_seconds=CLAIM_LEASE_SECONDS)
-        except ClaimHeld as e:
-            # Someone claimed it between our read and our write. Normal.
-            return TurnResult(False, f"raced: held by {e.holder or 'another worker'}",
-                              task_id=decision.task.id)
+        # Take the checkout BEFORE claiming. The claim serialises a task; this
+        # serialises the directory the job will `reset --hard`, and the two are
+        # not the same guarantee (see CheckoutManager.lock). Ordered this way
+        # round, losing the race costs nothing: we hold no claim, so there is
+        # no task parked in an agent lane waiting for a lease to expire. Claim
+        # first and the same contention would strand one.
+        lock = self._lock(board.repo) if self._lock else nullcontext(True)
+        with lock as got_checkout:
+            if not got_checkout:
+                return TurnResult(
+                    False,
+                    f"checkout for {board.repo} is held by another process",
+                    task_id=decision.task.id, job=decision.job)
 
-        return self._run_claimed(decision, board, token, job)
+            try:
+                token = self.client.claim(
+                    self.board_handle, decision.task.id,
+                    lane=decision.lane, lease_seconds=CLAIM_LEASE_SECONDS)
+            except ClaimHeld as e:
+                # Someone claimed it between our read and our write. Normal.
+                return TurnResult(
+                    False, f"raced: held by {e.holder or 'another worker'}",
+                    task_id=decision.task.id)
+
+            return self._run_claimed(decision, board, token, job)
 
     def _run_claimed(self, pickup: Pickup, board: BoardSnapshot,
                      token: str, job: Job) -> TurnResult:

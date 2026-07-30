@@ -380,3 +380,123 @@ def test_prune_on_a_missing_clone_is_a_no_op(tmp_path):
     git = PruneGit()
     m = CheckoutManager(root=tmp_path / "nope", local_search=(), run=git)
     assert m.prune("WolffM/tenhands") == []
+
+
+# ── the checkout lock ─────────────────────────────────────────────────────
+
+
+def test_the_lockfile_is_a_sibling_of_the_checkout_not_inside_it(tmp_path):
+    """`reset_to` runs `clean -fdx` and `ensure` will rmtree an unhealthy
+    clone. A lockfile inside the working tree would be deleted by the very
+    operations it exists to serialise, and the holder would never notice."""
+    m = mgr(tmp_path, FakeGit())
+    checkout = m.path_for("WolffM/tenhands")
+    lock = m.lock_path_for("WolffM/tenhands")
+    assert lock.parent == checkout.parent
+    assert checkout not in lock.parents
+
+
+def test_holding_the_lock_excludes_a_second_acquirer(tmp_path):
+    m = mgr(tmp_path, FakeGit())
+    with m.lock("WolffM/tenhands") as first:
+        assert first is True
+        with m.lock("WolffM/tenhands") as second:
+            assert second is False, "two holders would share one working tree"
+
+
+def test_the_lock_is_released_on_the_way_out(tmp_path):
+    m = mgr(tmp_path, FakeGit())
+    with m.lock("WolffM/tenhands") as got:
+        assert got is True
+    with m.lock("WolffM/tenhands") as again:
+        assert again is True, "a released lock must be reusable"
+
+
+def test_a_raising_body_still_releases_the_lock(tmp_path):
+    """A job that throws is routed to `stalled` by the runner — the repo must
+    not stay locked out for every run after it."""
+    m = mgr(tmp_path, FakeGit())
+    with pytest.raises(RuntimeError):
+        with m.lock("WolffM/tenhands"):
+            raise RuntimeError("job blew up")
+    with m.lock("WolffM/tenhands") as again:
+        assert again is True
+
+
+def test_different_repos_do_not_block_each_other(tmp_path):
+    """One board per repo, so two repos are genuinely independent work."""
+    m = mgr(tmp_path, FakeGit())
+    with m.lock("WolffM/tenhands") as a, m.lock("WolffM/hadoku_site") as b:
+        assert (a, b) == (True, True)
+
+
+def test_the_lock_excludes_a_separate_PROCESS(tmp_path):
+    """The point of the whole mechanism: the other party is a manual
+    `run_taskauto.py` that GitHub cannot see, in its own process."""
+    import subprocess
+    import sys
+
+    m = mgr(tmp_path, FakeGit())
+    lock_path = m.lock_path_for("WolffM/tenhands")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # A child that takes the lock and holds it until we let it go.
+    child = subprocess.Popen(
+        [sys.executable, "-c",
+         "import fcntl,os,sys\n"
+         "fd=os.open(sys.argv[1],os.O_CREAT|os.O_RDWR,0o644)\n"
+         "fcntl.flock(fd,fcntl.LOCK_EX)\n"
+         "sys.stdout.write('held\\n'); sys.stdout.flush()\n"
+         "sys.stdin.readline()\n",
+         str(lock_path)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert child.stdout.readline().strip() == "held"
+        with m.lock("WolffM/tenhands") as got:
+            assert got is False, "another process holds this checkout"
+    finally:
+        child.stdin.write("go\n")
+        child.stdin.close()
+        child.wait(timeout=10)
+
+    # And the kernel drops it when that process exits, so nothing is stale.
+    with m.lock("WolffM/tenhands") as after:
+        assert after is True
+
+
+def test_a_dead_holder_leaves_no_stale_lock(tmp_path):
+    """Why flock and not a pidfile: a run killed by `timeout-minutes` or
+    cancelled mid-agent must not lock the repo out forever. A stale lock
+    nobody can clear fails closed silently, which is worse than the race."""
+    import subprocess
+    import sys
+
+    m = mgr(tmp_path, FakeGit())
+    lock_path = m.lock_path_for("WolffM/tenhands")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    child = subprocess.Popen(
+        [sys.executable, "-c",
+         "import fcntl,os,sys\n"
+         "fd=os.open(sys.argv[1],os.O_CREAT|os.O_RDWR,0o644)\n"
+         "fcntl.flock(fd,fcntl.LOCK_EX)\n"
+         "sys.stdout.write('held\\n'); sys.stdout.flush()\n"
+         "import time; time.sleep(60)\n",
+         str(lock_path)],
+        stdout=subprocess.PIPE, text=True)
+    assert child.stdout.readline().strip() == "held"
+    child.kill()                      # SIGKILL: no chance to clean up
+    child.wait(timeout=10)
+
+    assert lock_path.exists(), "the file survives; only the lock should not"
+    with m.lock("WolffM/tenhands") as got:
+        assert got is True, "the kernel released it when the holder died"
+
+
+def test_the_holder_is_recorded_for_whoever_is_debugging(tmp_path):
+    m = mgr(tmp_path, FakeGit())
+    import os
+    with m.lock("WolffM/tenhands"):
+        text = m.lock_path_for("WolffM/tenhands").read_text()
+    assert f"pid={os.getpid()}" in text
+    assert "WolffM/tenhands" in text

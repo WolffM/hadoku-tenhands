@@ -306,3 +306,86 @@ def test_a_lane_changed_release_aborts_like_a_lost_lease():
     r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
     assert r.acted is False
     assert "LANE_CHANGED" in r.reason and "wrote nothing" in r.reason
+
+
+# ── the checkout lock ─────────────────────────────────────────────────────
+
+
+class FakeLock:
+    """Stands in for CheckoutManager.lock. Records order of operations."""
+
+    def __init__(self, *, available=True):
+        self.available = available
+        self.events: list[str] = []
+        self.repos: list[str] = []
+
+    def __call__(self, repo):
+        self.repos.append(repo)
+        return self
+
+    def __enter__(self):
+        self.events.append("acquire")
+        return self.available
+
+    def __exit__(self, *exc):
+        self.events.append("release")
+        return False
+
+
+def test_a_busy_checkout_means_we_never_claim():
+    """The lock is taken BEFORE the claim on purpose. Claim first and this
+    same contention would strand a task in an agent lane until its lease
+    expired, with no human able to see why."""
+    lock = FakeLock(available=False)
+    c = FakeClient(snapshot(task()))
+    r = Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+               now=lambda: NOW, lock=lock).turn()
+    assert r.acted is False
+    assert "held by another process" in r.reason
+    assert c.named("claim") == [], "a lost checkout race must cost no claim"
+    assert c.named("release") == []
+    assert lock.events == ["acquire", "release"]
+
+
+def test_the_lock_is_keyed_on_the_boards_repo():
+    lock = FakeLock()
+    c = FakeClient(snapshot(task()))
+    Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+           now=lambda: NOW, lock=lock).turn()
+    assert lock.repos == ["WolffM/tenhands"]
+
+
+def test_a_normal_turn_takes_the_lock_and_gives_it_back():
+    lock = FakeLock()
+    c = FakeClient(snapshot(task()))
+    r = Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+               now=lambda: NOW, lock=lock).turn()
+    assert r.acted is True
+    assert lock.events == ["acquire", "release"]
+    assert c.named("claim"), "the happy path still claims"
+
+
+def test_the_lock_is_released_even_when_the_job_explodes():
+    """The runner swallows a job failure into `stalled`; the lock must not
+    outlive the turn regardless."""
+    lock = FakeLock()
+    c = FakeClient(snapshot(task()))
+
+    def boom(*a):
+        raise RuntimeError("kaboom")
+
+    r = Runner(c, "H", jobs={"implement": boom}, now=lambda: NOW,
+               lock=lock).turn()
+    assert r.acted is True and r.released_to == selection.LANE_STALLED
+    assert lock.events == ["acquire", "release"]
+
+
+def test_nothing_waiting_does_not_touch_the_lock():
+    """An idle board is decided from the snapshot alone. Taking a filesystem
+    lock to conclude there is no work would serialise every poll across
+    processes for no reason."""
+    lock = FakeLock()
+    c = FakeClient(snapshot())
+    Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+           now=lambda: NOW, lock=lock).turn()
+    assert lock.events == []
