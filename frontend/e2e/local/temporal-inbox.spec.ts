@@ -2,13 +2,44 @@
  * Crimson-Kitty PipelineInbox e2e (phase-1-plan.md step 2.6).
  *
  *   - Loads inbox with 3 mocked entries
- *   - approve / abort / retry buttons POST to the signal endpoint
- *   - Each decision is recorded in `window.__temporalSignals`
+ *   - approve / abort / retry each open a reason picker, and confirming it
+ *     POSTs to the signal endpoint
+ *   - Each decision, with its reason code, is recorded in
+ *     `window.__temporalSignals`
+ *
+ * The decision button is not the send button: choosing approve/abort/retry
+ * opens a reason picker and the POST happens on Confirm. That capture step
+ * feeds the calibration corpus, so a test asserting only the decision would
+ * pass while the reason silently went missing — every assertion below checks
+ * the reason code that travelled with it.
  */
 
 import { test, expect } from '../fixtures/base'
+import type { Locator, Page } from '@playwright/test'
 import { mockAllAPIs } from '../fixtures/api-mocks'
-import { mockTemporalAPIs, mockTemporalInboxItems } from '../fixtures/temporal-mocks'
+import {
+  mockTemporalAPIs,
+  mockTemporalInboxItems,
+  type TemporalSignalCall
+} from '../fixtures/temporal-mocks'
+
+/** The last signal POST the mock recorded, or undefined if none yet. */
+function lastSignal(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        (window as unknown as { __temporalSignals?: TemporalSignalCall[] }).__temporalSignals ?? []
+      ).slice(-1)[0]
+  )
+}
+
+/** Choose a decision on a row, then confirm it in the reason picker. */
+async function decide(row: Locator, decision: 'approve' | 'abort' | 'retry') {
+  await row.getByTestId(`temporal-inbox-${decision}`).click()
+  const picker = row.getByTestId('temporal-inbox-reason-picker')
+  await expect(picker).toBeVisible()
+  await picker.getByTestId('temporal-inbox-reason-confirm').click()
+}
 
 test.describe('Temporal pipeline inbox', () => {
   test.beforeEach(async ({ page }) => {
@@ -27,64 +58,78 @@ test.describe('Temporal pipeline inbox', () => {
   test('approve sends approve signal for the first row', async ({ page }) => {
     const firstRow = page.getByTestId('temporal-inbox-row').first()
     const expectedWorkflow = mockTemporalInboxItems[0].workflow_id
-    await firstRow.getByTestId('temporal-inbox-approve').click()
+    await decide(firstRow, 'approve')
 
     await expect
-      .poll(async () =>
-        page.evaluate(
-          () =>
-            (
-              (
-                window as unknown as {
-                  __temporalSignals?: { workflowId: string; decision: string }[]
-                }
-              ).__temporalSignals || []
-            ).slice(-1)[0]
-        )
-      )
-      .toMatchObject({ workflowId: expectedWorkflow, decision: 'approve' })
+      .poll(() => lastSignal(page))
+      .toMatchObject({
+        workflowId: expectedWorkflow,
+        decision: 'approve',
+        reasonCode: 'approve_clean'
+      })
   })
 
   test('abort sends abort signal for the second row', async ({ page }) => {
     const row = page.getByTestId('temporal-inbox-row').nth(1)
     const expectedWorkflow = mockTemporalInboxItems[1].workflow_id
-    await row.getByTestId('temporal-inbox-abort').click()
+    await decide(row, 'abort')
 
     await expect
-      .poll(async () =>
-        page.evaluate(
-          () =>
-            (
-              (
-                window as unknown as {
-                  __temporalSignals?: { workflowId: string; decision: string }[]
-                }
-              ).__temporalSignals || []
-            ).slice(-1)[0]
-        )
-      )
-      .toMatchObject({ workflowId: expectedWorkflow, decision: 'abort' })
+      .poll(() => lastSignal(page))
+      .toMatchObject({
+        workflowId: expectedWorkflow,
+        decision: 'abort',
+        reasonCode: 'abort_scope_mismatch'
+      })
   })
 
   test('retry sends retry signal for the third row', async ({ page }) => {
     const row = page.getByTestId('temporal-inbox-row').nth(2)
     const expectedWorkflow = mockTemporalInboxItems[2].workflow_id
-    await row.getByTestId('temporal-inbox-retry').click()
+    await decide(row, 'retry')
 
     await expect
-      .poll(async () =>
-        page.evaluate(
-          () =>
-            (
-              (
-                window as unknown as {
-                  __temporalSignals?: { workflowId: string; decision: string }[]
-                }
-              ).__temporalSignals || []
-            ).slice(-1)[0]
-        )
-      )
-      .toMatchObject({ workflowId: expectedWorkflow, decision: 'retry' })
+      .poll(() => lastSignal(page))
+      .toMatchObject({
+        workflowId: expectedWorkflow,
+        decision: 'retry',
+        reasonCode: 'retry_transient'
+      })
+  })
+
+  test('choosing a decision sends nothing until it is confirmed', async ({ page }) => {
+    const row = page.getByTestId('temporal-inbox-row').first()
+    await row.getByTestId('temporal-inbox-abort').click()
+    await expect(row.getByTestId('temporal-inbox-reason-picker')).toBeVisible()
+    expect(await lastSignal(page)).toBeUndefined()
+
+    // Cancel puts the row back where it was, still having sent nothing.
+    await row.getByTestId('temporal-inbox-reason-cancel').click()
+    await expect(row.getByTestId('temporal-inbox-reason-picker')).toHaveCount(0)
+    await expect(row.getByTestId('temporal-inbox-abort')).toBeVisible()
+    expect(await lastSignal(page)).toBeUndefined()
+  })
+
+  test('a chosen reason and its free text reach the signal endpoint', async ({ page }) => {
+    const row = page.getByTestId('temporal-inbox-row').first()
+    await row.getByTestId('temporal-inbox-abort').click()
+
+    const picker = row.getByTestId('temporal-inbox-reason-picker')
+    // `abort_other` is the one code that requires free text — Confirm stays
+    // disabled until it is typed, which is the rule worth pinning down.
+    await picker.getByTestId('temporal-inbox-reason-select').selectOption('abort_other')
+    await expect(picker.getByTestId('temporal-inbox-reason-confirm')).toBeDisabled()
+
+    await picker.getByTestId('temporal-inbox-reason-text').fill('patch reverted upstream')
+    await picker.getByTestId('temporal-inbox-reason-confirm').click()
+
+    await expect
+      .poll(() => lastSignal(page))
+      .toMatchObject({
+        decision: 'abort',
+        reasonCode: 'abort_other',
+        reasonText: 'patch reverted upstream'
+      })
   })
 
   // Phase 5.4 — operator signoff card variant.
@@ -134,22 +179,15 @@ test.describe('Temporal pipeline inbox', () => {
       .first()
     const expectedWorkflow = 'issue-crimson-kitty-signoff-microsoft__terminal-5301'
 
-    await signoffRow.getByTestId('temporal-inbox-approve').click()
+    await decide(signoffRow, 'approve')
 
     await expect
-      .poll(async () =>
-        page.evaluate(
-          () =>
-            (
-              (
-                window as unknown as {
-                  __temporalSignals?: { workflowId: string; decision: string }[]
-                }
-              ).__temporalSignals || []
-            ).slice(-1)[0]
-        )
-      )
-      .toMatchObject({ workflowId: expectedWorkflow, decision: 'approve' })
+      .poll(() => lastSignal(page))
+      .toMatchObject({
+        workflowId: expectedWorkflow,
+        decision: 'approve',
+        reasonCode: 'approve_clean'
+      })
   })
 
   test('judge-defer rows still render with the legacy three-button layout', async ({ page }) => {

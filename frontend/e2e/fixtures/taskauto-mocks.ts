@@ -133,7 +133,7 @@ export const mockTaskAutoDetail = {
 
 declare global {
   interface Window {
-    __taskautoMerges?: { repo: string; number: number }[]
+    __taskautoMerges?: { repo: string; number: number; auto?: boolean }[]
   }
 }
 
@@ -155,7 +155,11 @@ export async function mockTaskAutoAPIs(page: Page) {
   })
 
   await page.route('**/tenhands/api/taskauto/merge', async route => {
-    const body = route.request().postDataJSON() as { repo: string; number: number }
+    const body = route.request().postDataJSON() as {
+      repo: string
+      number: number
+      auto?: boolean
+    }
     await page.evaluate(merge => {
       window.__taskautoMerges = [...(window.__taskautoMerges ?? []), merge]
     }, body)

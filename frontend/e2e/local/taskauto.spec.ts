@@ -41,7 +41,10 @@ test.describe('Task automation', () => {
     ).toBeEnabled()
 
     const merges = await page.evaluate(() => window.__taskautoMerges ?? [])
-    expect(merges).toEqual([{ repo: 'WolffM/hadoku-task', number: 72 }])
+    expect(merges).toHaveLength(1)
+    // `auto: false` matters: the plain Merge button merges now. "Merge when
+    // green" is the other button, and it leaves the PR open for CI to veto.
+    expect(merges[0]).toMatchObject({ repo: 'WolffM/hadoku-task', number: 72, auto: false })
   })
 
   test('the Review tab count drops with the merged row', async ({ page }) => {

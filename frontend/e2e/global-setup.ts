@@ -9,7 +9,7 @@
  * Fails fast with a clear error rather than 57 cryptic test failures.
  */
 
-const BACKEND_URL = 'http://localhost:5001'
+const BACKEND_URL = `http://localhost:${process.env.PW_BACKEND_PORT ?? '5001'}`
 const TIMEOUT_MS = 10_000
 
 async function fetchWithTimeout(url: string): Promise<Response> {
