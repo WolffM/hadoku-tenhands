@@ -113,8 +113,8 @@ export function TaskAutoView() {
               prs={prs}
               merging={merging}
               mergeError={mergeError}
-              onMerge={(repo, number) => {
-                void merge(repo, number)
+              onMerge={(repo, number, auto) => {
+                void merge(repo, number, auto)
               }}
             />
           </>

@@ -174,3 +174,56 @@ class TestTaskDetail:
 
         assert data["task"]["lane"] == "(inbox)"
         assert data["task"]["laneTags"] == ["landed", "working"]
+
+
+class TestMerge:
+    """The merge route is the pipeline's human gate, so its two modes matter.
+
+    An immediate merge and a scheduled ("merge when green") one are different
+    promises to the user: the first says the work landed, the second says a
+    decision was recorded and CI still gets a veto. Conflating them would
+    report a merge that has not happened.
+    """
+
+    def _view(self, branch="taskauto/01kyjnff5x7g"):
+        return {"success": True,
+                "output": json.dumps({"headRefName": branch, "state": "OPEN"})}
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    def test_immediate_merge_omits_auto(self, mock_gh, client):
+        mock_gh.side_effect = [self._view(), {"success": True, "output": ""}]
+
+        resp = client.post(f"{PREFIX}/api/taskauto/merge",
+                           json={"repo": "WolffM/tenhands", "number": 88})
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["success"] is True
+        assert body["scheduled"] is False
+        assert "--auto" not in mock_gh.call_args_list[1].args[0]
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    def test_auto_merge_passes_auto_and_reports_scheduled(self, mock_gh, client):
+        mock_gh.side_effect = [self._view(), {"success": True, "output": ""}]
+
+        resp = client.post(f"{PREFIX}/api/taskauto/merge",
+                           json={"repo": "WolffM/tenhands", "number": 88,
+                                 "auto": True})
+
+        assert resp.status_code == 200
+        assert resp.get_json()["scheduled"] is True
+        merge_cmd = mock_gh.call_args_list[1].args[0]
+        assert "--auto" in merge_cmd
+        assert "--squash" in merge_cmd
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    def test_refuses_a_branch_the_pipeline_did_not_push(self, mock_gh, client):
+        """Auto-merge must not widen what this endpoint will touch."""
+        mock_gh.side_effect = [self._view(branch="feature/hand-written")]
+
+        resp = client.post(f"{PREFIX}/api/taskauto/merge",
+                           json={"repo": "WolffM/tenhands", "number": 88,
+                                 "auto": True})
+
+        assert resp.status_code == 403
+        assert mock_gh.call_count == 1

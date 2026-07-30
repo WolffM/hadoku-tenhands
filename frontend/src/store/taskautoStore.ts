@@ -44,7 +44,7 @@ export interface TaskAutoState {
   taskError: string | null
 
   loadStatus: () => Promise<void>
-  merge: (repo: string, number: number) => Promise<void>
+  merge: (repo: string, number: number, auto?: boolean) => Promise<void>
   showTask: (board: string, taskId: string) => Promise<void>
   hideTask: () => void
 }
@@ -82,15 +82,18 @@ export const useTaskAutoStore = create<TaskAutoState>((set, get) => ({
     }
   },
 
-  merge: async (repo: string, number: number) => {
+  merge: async (repo: string, number: number, auto = false) => {
     const id = prId({ repo, number })
     set(s => ({ ...s, merging: id, mergeError: null }))
     try {
-      await mergeTaskAutoPR(repo, number)
+      await mergeTaskAutoPR(repo, number, auto)
       set(s => ({
         ...s,
         merging: null,
-        mergedIds: s.mergedIds.includes(id) ? s.mergedIds : [...s.mergedIds, id]
+        // Only a completed merge earns a hidden row. An auto-merge is still an
+        // OPEN pull request waiting on CI — hiding it would tell the user the
+        // work landed when it may yet fail and need them back.
+        mergedIds: auto || s.mergedIds.includes(id) ? s.mergedIds : [...s.mergedIds, id]
       }))
       await get().loadStatus()
     } catch (err) {
