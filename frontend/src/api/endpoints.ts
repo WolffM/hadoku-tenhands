@@ -601,7 +601,8 @@ export async function getTaskAutoTask(board: string, taskId: string): Promise<Ta
 /** Merge one taskauto PR. Deliberately one at a time — this is the human gate. */
 export async function mergeTaskAutoPR(
   repo: string,
-  number: number
-): Promise<{ success: boolean; error?: string }> {
-  return apiClient.post('/api/taskauto/merge', { repo, number })
+  number: number,
+  auto = false
+): Promise<{ success: boolean; error?: string; scheduled?: boolean }> {
+  return apiClient.post('/api/taskauto/merge', { repo, number, auto })
 }

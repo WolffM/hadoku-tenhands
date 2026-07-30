@@ -336,9 +336,25 @@ def taskauto_merge():
                         "error": f"{repo}#{number} is not a {BRANCH_PREFIX} branch"}), 403
 
     method = "--squash" if (body.get("method") or "squash") == "squash" else "--merge"
-    res = run_gh_command(["pr", "merge", str(number), "--repo", repo,
-                          method, "--delete-branch"], timeout=60)
+
+    # `auto` schedules the merge with GitHub instead of performing it now, for
+    # the case a human has decided but CI hasn't finished. Without it the only
+    # options are "refuse" — which means coming back to press the button again
+    # — or "merge a PR nobody has seen a green run for". Auto-merge is the
+    # third: the decision is recorded now, the merge happens on green, and a
+    # failing run leaves the PR open rather than landing it.
+    #
+    # It is NOT a way to skip review: GitHub still enforces whatever the branch
+    # requires. Where a repo has no required checks, this degrades to an
+    # immediate merge — which is why `checks == "none"` is not offered as
+    # schedulable by the UI.
+    auto = bool(body.get("auto"))
+    cmd = ["pr", "merge", str(number), "--repo", repo, method, "--delete-branch"]
+    if auto:
+        cmd.append("--auto")
+    res = run_gh_command(cmd, timeout=60)
     if not res.get("success"):
         return jsonify({"success": False, "error": res.get("error", "")}), 502
-    logger.info("taskauto: merged %s#%s", repo, number)
-    return jsonify({"success": True, "repo": repo, "number": number})
+    logger.info("taskauto: %s %s#%s", "scheduled" if auto else "merged", repo, number)
+    return jsonify({"success": True, "repo": repo, "number": number,
+                    "scheduled": auto})

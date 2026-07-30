@@ -9,6 +9,12 @@
  *
  * Merge is offered only when GitHub says it would actually succeed. A button
  * that reliably fails teaches people to ignore buttons.
+ *
+ * The exception is a PR whose checks are still running. Refusing that one means
+ * coming back later to press the same button, so it offers "Merge when green"
+ * instead: GitHub records the decision now and performs the merge on a green
+ * run, leaving the PR open if the run fails. That keeps the human gate — a
+ * person still decides — without making them wait on CI.
  */
 
 import { Badge, type BadgeVariant, EmptyState, SectionHeader } from '../common'
@@ -21,12 +27,23 @@ const CHECK_VARIANT: Record<TaskAutoPR['checks'], BadgeVariant> = {
   none: 'secondary'
 }
 
+/** What the button should do for one PR, or null if it can't act at all. */
+function mergeAction(pr: TaskAutoPR): { label: string; auto: boolean } | null {
+  // Conflicts, red runs and drafts are all "not until something changes".
+  if (pr.isDraft || pr.mergeState === 'DIRTY' || pr.checks === 'failing') return null
+  // Still running: schedule it. `mergeState` is BLOCKED while a required check
+  // is pending, so this case cannot be recognised from mergeState alone.
+  if (pr.checks === 'pending') return { label: 'Merge when green', auto: true }
+  if (pr.mergeState === 'CLEAN') return { label: 'Merge', auto: false }
+  return null
+}
+
 interface PRReviewPanelProps {
   prs: TaskAutoPR[]
   /** `repo#number` of the PR mid-merge, or null. */
   merging: string | null
   mergeError: string | null
-  onMerge: (repo: string, number: number) => void
+  onMerge: (repo: string, number: number, auto: boolean) => void
 }
 
 export function PRReviewPanel({ prs, merging, mergeError, onMerge }: PRReviewPanelProps) {
@@ -46,7 +63,7 @@ export function PRReviewPanel({ prs, merging, mergeError, onMerge }: PRReviewPan
         <div className="taskauto-prs">
           {prs.map(pr => {
             const id = `${pr.repo}#${pr.number}`
-            const blocked = pr.mergeState !== 'CLEAN' || pr.checks === 'failing' || pr.isDraft
+            const action = mergeAction(pr)
             const busy = merging === id
             return (
               <article key={id} className="taskauto-pr" data-testid={`taskauto-pr-${pr.number}`}>
@@ -80,15 +97,17 @@ export function PRReviewPanel({ prs, merging, mergeError, onMerge }: PRReviewPan
                   <button
                     type="button"
                     className="btn btn--primary btn--sm"
-                    disabled={blocked || busy}
+                    disabled={!action || busy}
                     title={
-                      blocked
-                        ? `Not mergeable: ${pr.isDraft ? 'draft' : pr.mergeState}`
-                        : 'Squash-merge and delete the branch'
+                      action
+                        ? action.auto
+                          ? 'Squash-merge as soon as checks pass; stays open if they fail'
+                          : 'Squash-merge and delete the branch'
+                        : `Not mergeable: ${pr.isDraft ? 'draft' : pr.mergeState}`
                     }
-                    onClick={() => onMerge(pr.repo, pr.number)}
+                    onClick={() => action && onMerge(pr.repo, pr.number, action.auto)}
                   >
-                    {busy ? 'Merging…' : 'Merge'}
+                    {busy ? 'Merging…' : (action?.label ?? 'Merge')}
                   </button>
                 </div>
               </article>
