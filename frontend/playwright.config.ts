@@ -1,4 +1,14 @@
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
+
+// The backend's dependencies live in the repo's `.venv` (the pm2 wrapper uses
+// it too); bare `python3` has none of them and the web server dies on import.
+// Resolved absolutely — the server runs with `cwd: '..'`, so a relative path
+// here would be interpreted against a different directory than it is written
+// against.
+const VENV_PYTHON = fileURLToPath(new URL('../.venv/bin/python', import.meta.url))
+const PYTHON = existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3'
 
 /**
  * Playwright configuration for TenHands E2E tests.
@@ -56,7 +66,9 @@ export default defineConfig({
   // This catches stale servers with wrong proxy configs immediately.
   webServer: [
     {
-      command: 'PORT=5001 python3 -m backend.app',
+      // No pipeline loop: a test run must not start a background thread that
+      // advances real pipelines against real repos.
+      command: `PORT=5001 PIPELINE_LOOP_ENABLED=false ${PYTHON} -m backend.app`,
       url: 'http://localhost:5001/tenhands/api/healthcheck',
       reuseExistingServer: !process.env.CI,
       cwd: '..',

@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTaskAutoStore } from '../store/taskautoStore'
-import { BoardPanel, PRReviewPanel, RunningNow } from '../components/taskauto'
+import { BoardPanel, PRReviewPanel, RunningNow, TaskDetailModal } from '../components/taskauto'
 import { EmptyState, LoadingState } from '../components/common'
 
 type TabKey = 'review' | 'boards'
@@ -26,6 +26,12 @@ export function TaskAutoView() {
   const mergedIds = useTaskAutoStore(s => s.mergedIds)
   const loadStatus = useTaskAutoStore(s => s.loadStatus)
   const merge = useTaskAutoStore(s => s.merge)
+  const openTask = useTaskAutoStore(s => s.openTask)
+  const taskDetail = useTaskAutoStore(s => s.taskDetail)
+  const taskLoading = useTaskAutoStore(s => s.taskLoading)
+  const taskError = useTaskAutoStore(s => s.taskError)
+  const showTask = useTaskAutoStore(s => s.showTask)
+  const hideTask = useTaskAutoStore(s => s.hideTask)
 
   const [tab, setTab] = useState<TabKey>('review')
 
@@ -43,6 +49,18 @@ export function TaskAutoView() {
     [boards, mergedIds]
   )
   const laneOrder = status?.laneOrder ?? []
+
+  // The board already knows the title of the task being opened, so the modal
+  // can be headed correctly while its detail is still in flight.
+  const openTitle = useMemo(() => {
+    if (!openTask) return ''
+    const board = boards.find(b => b.handle === openTask.board)
+    for (const lane of Object.values(board?.lanes ?? {})) {
+      const task = lane.find(t => t.id === openTask.taskId)
+      if (task) return task.title
+    }
+    return openTask.taskId
+  }, [openTask, boards])
 
   const tabs: { key: TabKey; label: string; count: number }[] = [
     { key: 'review', label: 'Review', count: prs.length },
@@ -112,11 +130,28 @@ export function TaskAutoView() {
           ) : (
             <div className="taskauto-boards">
               {boards.map(b => (
-                <BoardPanel key={b.handle} board={b} laneOrder={laneOrder} />
+                <BoardPanel
+                  key={b.handle}
+                  board={b}
+                  laneOrder={laneOrder}
+                  onOpenTask={(board, taskId) => {
+                    void showTask(board, taskId)
+                  }}
+                />
               ))}
             </div>
           ))}
       </div>
+
+      {openTask && (
+        <TaskDetailModal
+          detail={taskDetail}
+          loading={taskLoading}
+          error={taskError}
+          fallbackTitle={openTitle}
+          onClose={hideTask}
+        />
+      )}
     </div>
   )
 }
