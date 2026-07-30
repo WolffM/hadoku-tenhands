@@ -25,11 +25,15 @@ just slower.
 
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
 import shutil
+import socket
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Iterator, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,14 @@ DEFAULT_LOCAL_SEARCH = (Path.home() / "repos",)
 
 class CheckoutError(RuntimeError):
     """The repo could not be made ready. Never raised for 'no local copy'."""
+
+
+def _lock_holder(path: Path) -> str:
+    """Whatever the current holder wrote about itself, for the log line."""
+    try:
+        return path.read_text(errors="replace").strip() or "no holder recorded"
+    except OSError:
+        return "unreadable"
 
 
 @dataclass
@@ -115,6 +127,83 @@ class CheckoutManager:
 
     def remote_for(self, repo_slug: str) -> str:
         return self.remote_template.format(slug=repo_slug)
+
+    def lock_path_for(self, repo_slug: str) -> Path:
+        """The lockfile guarding this repo's checkout.
+
+        A SIBLING of the checkout, never inside it. `reset_to` runs
+        `clean -fdx` and `ensure` will `rmtree` a clone it judges unhealthy —
+        either would delete a lockfile kept in the working tree, and the
+        process holding it would never notice.
+        """
+        d = self.path_for(repo_slug)
+        return d.parent / f"{d.name}.lock"
+
+    # ── exclusion ─────────────────────────────────────────────────────────
+
+    @contextmanager
+    def lock(self, repo_slug: str, *,
+             blocking: bool = False) -> Iterator[bool]:
+        """Hold this repo's checkout exclusively. Yields whether we got it.
+
+        **What this protects.** The checkout is a fixed host path
+        (`~/.taskauto/repos/<owner>/<name>`), not a per-run workspace, and the
+        pipeline does `reset --hard` / `clean -fdx` / force-checkout inside it.
+        Two processes working the same repo at once would destroy each other's
+        tree mid-run.
+
+        **Why the board's claim protocol is not already enough.** It very
+        nearly is: `selection.choose` refuses a board with any task in flight,
+        one board drives one repo, and `Runner.turn` claims before it touches
+        disk. The hole is narrow but real — two processes can both read the
+        board before either claims, and if the board changed between those two
+        reads they select *different* tasks, both claims succeed, and both run
+        against this one directory. A claim serialises a task; only this
+        serialises the directory.
+
+        In practice the second process is not another Actions run — GitHub's
+        `concurrency: taskauto` group and the single `taskauto`-labelled runner
+        both prevent that. It is a manual `run_taskauto.py`, which CLAUDE.md
+        documents as the local path and which GitHub cannot see.
+
+        **Why flock and not a pidfile.** The kernel drops it when the holder
+        exits, however it exits. A run cancelled mid-agent or killed by
+        `timeout-minutes` leaves nothing to clean up, which a pidfile could not
+        promise — and a stale lock nobody can clear is worse than the race,
+        because it fails closed forever and silently.
+
+        Non-blocking by default: contention means a real run is mid-flight and
+        will hold this for minutes, so waiting only burns a job slot. The
+        caller reports busy and the next tick retries.
+        """
+        path = self.lock_path_for(repo_slug)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+            try:
+                fcntl.flock(fd, flags)
+            except OSError:
+                logger.warning(
+                    "checkout for %s is locked by another process (%s); "
+                    "skipping this turn", repo_slug, _lock_holder(path))
+                yield False
+                return
+            try:
+                # Diagnostics only — flock is what excludes. Written after
+                # acquiring so a reader never sees a half-built line, and
+                # deliberately not trusted for the decision above: a holder
+                # that died leaves this text behind, and only the kernel knows
+                # the lock itself is gone.
+                os.truncate(fd, 0)
+                os.write(fd, f"pid={os.getpid()} host={socket.gethostname()} "
+                             f"repo={repo_slug}\n".encode())
+                os.fsync(fd)
+                yield True
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
     # ── borrowing from a local copy ───────────────────────────────────────
 

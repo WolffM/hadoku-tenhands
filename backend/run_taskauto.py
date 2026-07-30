@@ -134,7 +134,12 @@ def build_runner(client: TaskBoardClient, board, *, live: bool,
                 " ".join(policy.test_command) if mode == "push" else "CI gates it",
                 health_url if watching else "n/a in pr mode")
 
-    return Runner(client, handle, jobs={
+    # `lock=` is what stops a second process working this repo's checkout at the
+    # same time. GitHub already serialises Actions runs (the `taskauto`
+    # concurrency group, plus a single `taskauto`-labelled runner), so the
+    # process this excludes is a manual `run_taskauto.py` on the same host —
+    # which is the documented local path and which GitHub cannot see.
+    return Runner(client, handle, lock=checkouts.lock, jobs={
         "plan": make_plan_job(agent, checkouts, base_branch=policy.base_branch),
         "implement": make_implement_job(
             agent, checkouts, Lander(dry_run=not live, mode=mode),

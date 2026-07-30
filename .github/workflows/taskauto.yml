@@ -60,6 +60,10 @@ on:
 # concurrent runs would fight over the same checkout. `cancel-in-progress:
 # false` because cancelling a run mid-agent would leave a claim held until its
 # lease expires — queueing behind it is strictly better.
+#
+# This only binds runs GitHub knows about. A manual `run_taskauto.py` on the
+# same host shares ~/.taskauto/repos and is invisible here, so the checkout
+# itself is flocked as well — `CheckoutManager.lock`.
 concurrency:
   group: taskauto
   cancel-in-progress: false
