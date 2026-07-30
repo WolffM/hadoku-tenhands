@@ -6,8 +6,9 @@ reasonable boundary for a machine and a bad one for a human: the last step of
 every task on every board is the one step with no UI here. These two routes
 close it.
 
-    GET  /api/taskauto/status   every board, its lanes, and its open PRs
-    POST /api/taskauto/merge    merge one taskauto PR
+    GET  /api/taskauto/status           every board, its lanes, and its open PRs
+    GET  /api/taskauto/task/<b>/<id>    one task: plan, claim history, its PR
+    POST /api/taskauto/merge            merge one taskauto PR
 
 **Repos are discovered, never listed.** A board carries its own `repo`, and
 `run_taskauto.py` drives whatever is shared with the service key — so a
@@ -46,13 +47,47 @@ LANE_ORDER = ["(inbox)", "planning", "plan-review", "replan", "approved",
               "working", "landing", "landed", "stalled"]
 
 
+#: PR fields every view here needs. One list so the status page and the task
+#: detail can never drift into describing the same PR differently.
+PR_FIELDS = ("number,title,url,headRefName,additions,deletions,changedFiles,"
+             "mergeStateStatus,isDraft,statusCheckRollup,updatedAt")
+
+
+def _checks_verdict(pr: dict) -> str:
+    """One word for a PR's checks.
+
+    A PR with no checks configured is not the same as one whose checks
+    failed, and a reviewer needs to tell those apart at a glance.
+    """
+    checks = [c.get("conclusion") or c.get("status") or ""
+              for c in (pr.get("statusCheckRollup") or [])]
+    if not checks:
+        return "none"
+    if any(c in ("FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED")
+           for c in checks):
+        return "failing"
+    if any(c in ("IN_PROGRESS", "QUEUED", "PENDING", "") for c in checks):
+        return "pending"
+    return "passing"
+
+
+def _branch_for(task_id: str) -> str:
+    """The branch the pipeline pushes for a task.
+
+    Mirrors `temporal/taskauto/jobs.py` exactly — first 12 characters of the
+    ULID, lowercased. It is the only link between a board task and its diff,
+    so the two must be derived the same way or the detail view shows no PR
+    for a task that has one.
+    """
+    return f"{BRANCH_PREFIX}{task_id[:12].lower()}"
+
+
 def _prs_for(repo: str) -> list[dict]:
     """Open pipeline PRs on one repo. A failure is empty, not an exception —
     one unreachable repo must not blank the whole page."""
     res = run_gh_command([
         "pr", "list", "--repo", repo, "--state", "open", "--limit", "50",
-        "--json", "number,title,url,headRefName,additions,deletions,"
-                  "changedFiles,mergeStateStatus,isDraft,statusCheckRollup,updatedAt",
+        "--json", PR_FIELDS,
     ], timeout=25)
     if not res.get("success"):
         logger.warning("taskauto: pr list failed for %s: %s",
@@ -68,19 +103,6 @@ def _prs_for(repo: str) -> list[dict]:
     for pr in prs:
         if not str(pr.get("headRefName", "")).startswith(BRANCH_PREFIX):
             continue
-        checks = [c.get("conclusion") or c.get("status") or ""
-                  for c in (pr.get("statusCheckRollup") or [])]
-        # A PR with no checks configured is not the same as one whose checks
-        # failed, and a reviewer needs to tell those apart at a glance.
-        if not checks:
-            verdict = "none"
-        elif any(c in ("FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED")
-                 for c in checks):
-            verdict = "failing"
-        elif any(c in ("IN_PROGRESS", "QUEUED", "PENDING", "") for c in checks):
-            verdict = "pending"
-        else:
-            verdict = "passing"
         out.append({
             "repo": repo,
             "number": pr.get("number"),
@@ -96,7 +118,7 @@ def _prs_for(repo: str) -> list[dict]:
             "changedFiles": pr.get("changedFiles") or 0,
             "mergeState": pr.get("mergeStateStatus") or "",
             "isDraft": bool(pr.get("isDraft")),
-            "checks": verdict,
+            "checks": _checks_verdict(pr),
             "updatedAt": pr.get("updatedAt") or "",
         })
     return out
@@ -179,6 +201,108 @@ def taskauto_status():
                 sum((t["metrics"].get("implement_s") or 0) for t in done), 1),
             "planPasses": sum(int(t["metrics"].get("plan_passes") or 0) for t in done),
         },
+    })
+
+
+def _task_prs(repo: str, task_id: str) -> list[dict]:
+    """Every PR ever opened for one task — open, merged, or closed.
+
+    `--state all` on purpose: the interesting question about a landed task is
+    "where did it end up", and an open-only lookup answers that with silence.
+    A failure is empty rather than an exception; the plan and the claim
+    history are still worth showing when GitHub is unreachable.
+    """
+    branch = _branch_for(task_id)
+    res = run_gh_command([
+        "pr", "list", "--repo", repo, "--head", branch, "--state", "all",
+        "--limit", "10", "--json", PR_FIELDS + ",state,mergedAt,createdAt",
+    ], timeout=25)
+    if not res.get("success"):
+        logger.warning("taskauto: pr lookup failed for %s %s: %s",
+                       repo, branch, res.get("error", "")[:200])
+        return []
+    import json as _json
+    try:
+        prs = _json.loads(res.get("output") or "[]")
+    except ValueError:
+        return []
+    return [{
+        "repo": repo,
+        "number": pr.get("number"),
+        "title": pr.get("title") or "",
+        "url": pr.get("url") or "",
+        "branch": pr.get("headRefName") or "",
+        "taskId": task_id,
+        "additions": pr.get("additions") or 0,
+        "deletions": pr.get("deletions") or 0,
+        "changedFiles": pr.get("changedFiles") or 0,
+        "mergeState": pr.get("mergeStateStatus") or "",
+        "isDraft": bool(pr.get("isDraft")),
+        "checks": _checks_verdict(pr),
+        "state": (pr.get("state") or "").upper(),
+        "mergedAt": pr.get("mergedAt") or "",
+        "createdAt": pr.get("createdAt") or "",
+        "updatedAt": pr.get("updatedAt") or "",
+    } for pr in prs]
+
+
+@bp.route("/api/taskauto/task/<board>/<task_id>", methods=["GET"])
+@limiter.limit("60 per minute")
+def taskauto_task(board: str, task_id: str):
+    """One task, end to end: the plan a human approved, every claim the
+    pipeline took on it, and the PR that came out.
+
+    The status page can only afford a title per task. This is where the rest
+    lives, and it is deliberately assembled from three sources — the board
+    holds the plan, the claim log holds the timeline, GitHub holds the diff —
+    because no one of them can answer "what happened to this task".
+    """
+    try:
+        client = TaskBoardClient()
+        snapshot = client.get_board(board)
+    except TaskBoardError as e:
+        logger.error("taskauto task %s/%s: %s", board, task_id, e)
+        return jsonify({"success": False, "error": str(e)}), 503
+
+    task = next((t for t in snapshot.tasks if t.id == task_id), None)
+    if task is None:
+        return jsonify({"success": False,
+                        "error": f"no task {task_id} on board {board}"}), 404
+
+    # Claim history is supplementary — a board that can't answer it still has
+    # a plan and a PR worth showing, so a failure degrades to an empty
+    # timeline rather than a 503 over the whole view.
+    try:
+        history = client.history(board, task_id)
+    except TaskBoardError as e:
+        logger.warning("taskauto task %s/%s: history unavailable: %s",
+                       board, task_id, e)
+        history = []
+
+    prs = _task_prs(snapshot.repo, task_id) if snapshot.repo else []
+
+    return jsonify({
+        "success": True,
+        "board": {"handle": snapshot.handle, "name": snapshot.name,
+                  "repo": snapshot.repo},
+        "task": {
+            "id": task.id,
+            "title": task.title,
+            "notes": task.notes,
+            "lane": task.lane(snapshot.lanes) or "(inbox)",
+            "laneTags": task.lane_tags(snapshot.lanes),
+            "tag": task.tag,
+            "claimed": task.claimed,
+            "state": task.state,
+            "createdAt": task.created_at,
+            "updatedAt": task.updated_at,
+            "branch": _branch_for(task.id),
+            "metrics": (task.metadata or {}).get("taskauto") or {},
+        },
+        # Newest first from the board; the UI reads a timeline downwards, so
+        # hand it back in the order it will be shown.
+        "history": list(reversed(history)),
+        "prs": prs,
     })
 
 

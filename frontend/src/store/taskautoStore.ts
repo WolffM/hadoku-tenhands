@@ -21,8 +21,8 @@
  */
 
 import { create } from 'zustand'
-import { getTaskAutoStatus, mergeTaskAutoPR } from '../api/endpoints'
-import type { TaskAutoStatus } from '../api/types'
+import { getTaskAutoStatus, getTaskAutoTask, mergeTaskAutoPR } from '../api/endpoints'
+import type { TaskAutoStatus, TaskAutoTaskDetail } from '../api/types'
 import { getErrorMessage } from '../utils'
 
 export interface TaskAutoState {
@@ -37,8 +37,16 @@ export interface TaskAutoState {
   /** `repo#number` of PRs merged this session but still listed by the backend. */
   mergedIds: string[]
 
+  /** The task whose detail is open, or null. Board handle + task id. */
+  openTask: { board: string; taskId: string } | null
+  taskDetail: TaskAutoTaskDetail | null
+  taskLoading: boolean
+  taskError: string | null
+
   loadStatus: () => Promise<void>
   merge: (repo: string, number: number) => Promise<void>
+  showTask: (board: string, taskId: string) => Promise<void>
+  hideTask: () => void
 }
 
 const prId = (pr: { repo: string; number: number }) => `${pr.repo}#${pr.number}`
@@ -51,6 +59,10 @@ export const useTaskAutoStore = create<TaskAutoState>((set, get) => ({
   merging: null,
   mergeError: null,
   mergedIds: [],
+  openTask: null,
+  taskDetail: null,
+  taskLoading: false,
+  taskError: null,
 
   loadStatus: async () => {
     set(s => ({ ...s, loading: true, error: null }))
@@ -84,5 +96,36 @@ export const useTaskAutoStore = create<TaskAutoState>((set, get) => ({
     } catch (err) {
       set(s => ({ ...s, merging: null, mergeError: getErrorMessage(err) }))
     }
-  }
+  },
+
+  showTask: async (board: string, taskId: string) => {
+    set(s => ({
+      ...s,
+      openTask: { board, taskId },
+      // Drop the previous task's detail rather than showing it under the new
+      // title while this one loads.
+      taskDetail: null,
+      taskLoading: true,
+      taskError: null
+    }))
+    try {
+      const detail = await getTaskAutoTask(board, taskId)
+      // A second click while the first was in flight wins; discard the
+      // late answer instead of overwriting what the user is now looking at.
+      if (get().openTask?.taskId !== taskId) return
+      set(s => ({ ...s, taskDetail: detail, taskLoading: false }))
+    } catch (err) {
+      if (get().openTask?.taskId !== taskId) return
+      set(s => ({ ...s, taskLoading: false, taskError: getErrorMessage(err) }))
+    }
+  },
+
+  hideTask: () =>
+    set(s => ({
+      ...s,
+      openTask: null,
+      taskDetail: null,
+      taskLoading: false,
+      taskError: null
+    }))
 }))

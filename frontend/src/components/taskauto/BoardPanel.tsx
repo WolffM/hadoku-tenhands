@@ -27,9 +27,11 @@ function laneVariant(lane: string): BadgeVariant {
 interface BoardPanelProps {
   board: TaskAutoBoard
   laneOrder: string[]
+  /** Open one task's full history. */
+  onOpenTask: (board: string, taskId: string) => void
 }
 
-export function BoardPanel({ board, laneOrder }: BoardPanelProps) {
+export function BoardPanel({ board, laneOrder, onOpenTask }: BoardPanelProps) {
   const total = Object.values(board.lanes).reduce((n, tasks) => n + tasks.length, 0)
 
   return (
@@ -58,16 +60,24 @@ export function BoardPanel({ board, laneOrder }: BoardPanelProps) {
                 <ul className="taskauto-lane__tasks">
                   {tasks.map(t => (
                     <li key={t.id} className="taskauto-lane__task" data-stuck={t.stuck}>
-                      {t.claimed && <span className="taskauto-pulse" aria-hidden="true" />}
-                      <span className="taskauto-lane__task-title">{t.title}</span>
-                      {t.stuck && (
-                        <span
-                          className="taskauto-lane__stuck"
-                          title="Two lane tags — the scheduler cannot see this task. It needs repair."
-                        >
-                          needs repair
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        className="taskauto-lane__task-btn"
+                        title={t.title}
+                        data-testid={`taskauto-task-${t.id}`}
+                        onClick={() => onOpenTask(board.handle, t.id)}
+                      >
+                        {t.claimed && <span className="taskauto-pulse" aria-hidden="true" />}
+                        <span className="taskauto-lane__task-title">{t.title}</span>
+                        {t.stuck && (
+                          <span
+                            className="taskauto-lane__stuck"
+                            title="Two lane tags — the scheduler cannot see this task. It needs repair."
+                          >
+                            needs repair
+                          </span>
+                        )}
+                      </button>
                     </li>
                   ))}
                 </ul>

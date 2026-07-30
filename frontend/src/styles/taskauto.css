@@ -190,6 +190,32 @@
   color: var(--color-text-secondary);
 }
 
+/* The whole row opens the task, so the whole row is the button — a lane card
+   truncates its title, and a hit target smaller than the text it shows is a
+   worse version of the same problem. */
+.taskauto-lane__task-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.3rem;
+  margin: -0.2rem -0.3rem;
+  border: none;
+  border-radius: var(--hdk-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.taskauto-lane__task-btn:hover,
+.taskauto-lane__task-btn:focus-visible {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
 .taskauto-lane__task-title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -274,8 +300,155 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* ── Task detail ─────────────────────────────────────────────────────── */
+
+.taskauto-detail {
+  width: 820px;
+}
+
+/* Board titles are whole sentences typed on a phone. Truncating one in the
+   header of the view you opened *to read it* is the bug this modal exists to
+   fix, so here the title wraps. */
+.taskauto-detail .modal__title {
+  overflow: visible;
+  white-space: normal;
+}
+
+.taskauto-detail__facts {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.taskauto-detail__section {
+  padding-top: 0.9rem;
+}
+
+.taskauto-detail__heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.taskauto-detail__empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.taskauto-detail__pr {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius-sm);
+  background: var(--color-bg-alt);
+  text-decoration: none;
+}
+
+.taskauto-detail__pr:hover {
+  border-color: var(--color-primary);
+}
+
+.taskauto-detail__pr-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.taskauto-detail__pr-title {
+  color: var(--color-text);
+  font-size: 0.88rem;
+  font-weight: var(--font-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskauto-detail__pr-meta {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+/* One rail, one dot per event. The rail is what makes a two-day gap between
+   a question and its answer visible as a gap rather than as two rows. */
+.taskauto-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1rem;
+  border-left: 2px solid var(--color-border);
+}
+
+.taskauto-timeline__item {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0;
+  font-size: 0.82rem;
+}
+
+.taskauto-timeline__item::before {
+  content: '';
+  position: absolute;
+  left: -1.32rem;
+  top: 0.7rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.taskauto-timeline__item[data-kind='pr']::before,
+.taskauto-timeline__item[data-kind='plan']::before {
+  background: var(--color-primary);
+}
+
+.taskauto-timeline__item[data-kind='merged']::before {
+  background: var(--color-success);
+}
+
+.taskauto-timeline__when {
+  flex: none;
+  width: 7.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+}
+
+.taskauto-timeline__label {
+  color: var(--color-text);
+}
+
+.taskauto-timeline__detail {
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+}
+
+.taskauto-detail__notes {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
 @media (max-width: 640px) {
   .taskauto-lanes {
     grid-template-columns: 1fr;
+  }
+
+  .taskauto-timeline__when {
+    width: auto;
   }
 }
