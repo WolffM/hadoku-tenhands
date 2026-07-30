@@ -29,6 +29,48 @@ _retro_batches_cache: dict = {}  # key "batches" → (timestamp, response_dict)
 _retro_batch_cache: dict = {}    # batch_id → (timestamp, response_dict)
 
 
+def _went_upstream(pr: dict) -> bool:
+    """True if this record is an actual pull request on the upstream repo.
+
+    `merged-in-fork-only` records share the shape of a submission — a state,
+    a `submitted_at`, a `merged_at` — but carry no PR number and no URL,
+    because the work landed in our fork and was never offered upstream.
+    Counting one as an upstream PR overstates the funnel and puts a dead link
+    on the card.
+    """
+    return bool(pr.get("pr_number")) and bool(pr.get("pr_url"))
+
+
+def _pick_upstream_pr(submitted_prs: list[dict], origin_slug: str,
+                      issue_number) -> dict | None:
+    """The upstream PR to show for one issue, out of every record it has.
+
+    An issue can accumulate several records: a PR that was closed and a
+    second attempt, or a real PR plus a later fork-only bookkeeping entry.
+    Two rules, both learned from `state/` rather than guessed:
+
+    1. **A real upstream PR beats a fork-only record.** markitdown#183 has
+       PR #1619 (open) *and* a later `merged-in-fork-only` row; showing the
+       latter hid a live upstream PR behind "no upstream PR".
+    2. **Newest by `submitted_at`, not by file order.** These records are not
+       appended chronologically — PowerToys#22315 has the newer open #46315
+       at index 1 and the older closed #46124 at index 26 — so picking the
+       last match in list order showed a stale, closed PR as the outcome.
+    """
+    mine = [p for p in submitted_prs
+            if p.get("origin_slug") == origin_slug
+            and p.get("issue_number") == issue_number]
+    if not mine:
+        return None
+    # `submitted_at` is an ISO 8601 UTC string, so lexical ordering is
+    # chronological; a missing one sorts last rather than crashing.
+    return sorted(
+        mine,
+        key=lambda p: (_went_upstream(p), p.get("submitted_at") or ""),
+        reverse=True,
+    )[0]
+
+
 @bp.route("/api/oss/retrospective-logs", methods=["GET"])
 def api_oss_retrospective_logs():
     """Get all retrospective log entries for pipeline report display.
@@ -82,10 +124,14 @@ def api_oss_retro_batches():
                 if m:
                     batch_slugs_issues.add((m.group(1), int(m.group(2))))
 
-        # Count upstream PRs for issues in this batch
+        # Count upstream PRs for issues in this batch. Fork-only records are
+        # excluded on purpose: the funnel stage is "Upstream PRs", and work
+        # that never left our fork did not reach it. Counting them made
+        # jade-hare read 30 upstream PRs whose outcomes only ever summed to 28.
         batch_prs = [
             p for p in submitted_prs
             if (p.get("origin_slug"), p.get("issue_number")) in batch_slugs_issues
+            and _went_upstream(p)
         ]
 
         summaries.append({
@@ -148,13 +194,7 @@ def api_oss_retro_batch(batch_id):
         origin_slug = assignment.get("origin_slug")
         issue_number = assignment.get("issue_number")
 
-        # Find most recent upstream PR for this issue
-        upstream_pr = next(
-            (p for p in reversed(submitted_prs)
-             if p.get("origin_slug") == origin_slug
-             and p.get("issue_number") == issue_number),
-            None
-        )
+        upstream_pr = _pick_upstream_pr(submitted_prs, origin_slug, issue_number)
 
         # Find most recent retro log for this issue
         retro = next(

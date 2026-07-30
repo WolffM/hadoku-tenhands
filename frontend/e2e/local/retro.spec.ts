@@ -15,10 +15,11 @@
  * so those are asserted against the API rather than pinned to a number:
  *   - 3 batches: crimson-kitty (0 issues, newest), jade-hare (55), dusty-lizard (8)
  *   - jade-hare: 55 dispatched, ≥28 upstream PRs, ≥1 merged (data-formulator#85)
- *   - microsoft/markitdown#183  → merged in fork only (no upstream PR), timing
- *     data, SA annotations, human comments on the fork PR
+ *   - microsoft/markitdown#183  → PR #1619 open (plus a later fork-only row
+ *     that must not shadow it), timing data, SA annotations, human comments
  *   - puppeteer/puppeteer#5096  → ≥13 human comments (wolfib, WolffM, Lightning00Blade)
- *   - microsoft/PowerToys#22315 → upstream PR, upstream-pr-body.md artifact
+ *   - microsoft/PowerToys#22315 → two PRs; #46315 (newer, open) is the outcome,
+ *     not #46124 (older, closed). Plus the upstream-pr-body.md artifact.
  *   - microsoft/PowerToys#36805 → dispatched, never reached upstream
  *   - strapi/strapi#24822       → dispatched with no retro data captured at all
  *
@@ -364,10 +365,29 @@ test.describe('RetroView — IssueRetroCard header (markitdown#183)', () => {
     )
   })
 
-  test('markitdown#183 reads as merged in fork only, with no upstream link', async ({ page }) => {
+  // markitdown#183 has PR #1619 open upstream *and* a later fork-only
+  // bookkeeping row. The card must show the pull request: picking the newest
+  // record instead reported "no upstream PR" for an issue with a live one.
+  test('markitdown#183 shows its open upstream PR, not the later fork-only row', async ({
+    page
+  }) => {
     const card = getCard(page, 'microsoft/markitdown', 183)
-    await expect(card.locator('.retro-badge--neutral').first()).toContainText('Merged in fork only')
-    await expect(card.locator('.retro-card__pr-link')).toHaveCount(0)
+    await expect(card.locator('.retro-card__pr-link')).toHaveText('PR #1619')
+    await expect(card.locator('.retro-card__pr-link')).toHaveAttribute(
+      'href',
+      'https://github.com/microsoft/markitdown/pull/1619'
+    )
+    await expect(card.locator('.retro-badge--open')).toContainText('Open upstream')
+  })
+
+  // PowerToys#22315 has two real PRs: #46124 closed, then #46315 opened six
+  // days later. Records are not stored in date order, so "the last match in
+  // the list" showed the closed one as the outcome.
+  test('PowerToys#22315 shows the newest submission, not the older closed one', async ({
+    page
+  }) => {
+    const card = getCard(page, 'microsoft/PowerToys', 22315)
+    await expect(card.locator('.retro-card__pr-link')).toHaveText('PR #46315')
   })
 
   // Context tiers arrived with the dispatch-readiness work, after jade-hare
@@ -553,34 +573,17 @@ test.describe('RetroView — Timeline (markitdown#183)', () => {
     ).toBeVisible()
   })
 
-  // markitdown#183 merged in our fork and never went upstream, so its last
-  // step is the fork merge — not a submission that never happened.
-  test('shows the fork merge as the last step', async ({ page }) => {
+  test('shows Upstream submitted step', async ({ page }) => {
     const card = getCard(page, 'microsoft/markitdown', 183)
     await expect(
-      card.locator('.retro-timeline__label').filter({ hasText: 'Fork PR merged' })
-    ).toBeVisible()
-    await expect(
       card.locator('.retro-timeline__label').filter({ hasText: 'Upstream submitted' })
-    ).toHaveCount(0)
+    ).toBeVisible()
   })
 
   test('shows 6 timeline steps', async ({ page }) => {
     // Dispatched, Fork PR created, SA run, Review, Remediation, Fork PR merged
     const card = getCard(page, 'microsoft/markitdown', 183)
     await expect(card.locator('.retro-timeline__step')).toHaveCount(6)
-  })
-
-  test('an upstream PR gets the upstream steps instead', async ({ page }) => {
-    const card = getCard(page, 'microsoft/data-formulator', 85)
-    await card.locator('.retro-card__header').click()
-    await card
-      .locator('.retro-section__toggle')
-      .filter({ hasText: /Timeline/i })
-      .click()
-    await expect(
-      card.locator('.retro-timeline__label').filter({ hasText: 'Upstream submitted' })
-    ).toBeVisible()
   })
 
   test('all timestamps are non-empty', async ({ page }) => {
