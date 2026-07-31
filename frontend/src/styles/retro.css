@@ -366,7 +366,6 @@
   border-top: 1px solid var(--color-border);
 }
 
-.retro-placeholder,
 .retro-empty-section {
   color: var(--color-text-muted);
   font-size: var(--hdk-text-sm);

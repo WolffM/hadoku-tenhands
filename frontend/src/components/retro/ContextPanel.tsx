@@ -31,7 +31,7 @@ export function ContextPanel({ title, body, onClose }: Props) {
           </button>
         </div>
         <div
-          className="context-panel__body markdown-body"
+          className="context-panel__body markdown-content"
           dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
         />
       </div>
