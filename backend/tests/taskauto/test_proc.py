@@ -111,8 +111,7 @@ def test_the_memory_limits_actually_land_on_the_workload_cgroup():
     that on every run trains everyone to ignore the one that matters. And it
     checks the half we are actually responsible for: that our `systemd-run`
     invocation puts the right numbers on the right cgroup. That the kernel then
-    enforces them is the kernel's business, and is covered by the opt-in test
-    below.
+    enforces `memory.max` is the kernel's own contract, not ours to re-test.
     """
     read_own_limits = (
         'g=$(awk -F: \'/^0::/{print $3}\' /proc/self/cgroup); '
@@ -128,32 +127,38 @@ def test_the_memory_limits_actually_land_on_the_workload_cgroup():
     assert "swap=0" in res.out, f"MemorySwapMax did not land: {res.out}"
 
 
-@pytest.mark.skipif(
-    os.environ.get("TASKAUTO_TEST_OOM", "") != "1",
-    reason="deliberately OOM-kills a process; set TASKAUTO_TEST_OOM=1 to run")
-@pytest.mark.skipif(not proc.scope_available(),
-                    reason="no systemd user scope on this host")
-def test_memory_ceiling_kills_a_runaway_and_reports_it_as_such():
-    """A pathological job dies instead of taking the box down.
+@pytest.mark.parametrize("rc,unit,expected,why", [
+    (-signal.SIGKILL, "taskauto-x.scope", True,
+     "what a directly-spawned binary returns; observed as -9 reproducing the "
+     "original runaway typecheck"),
+    (137, "taskauto-x.scope", True,
+     "what a shell or systemd-run reports the same signal as"),
+    (-signal.SIGKILL, "", False,
+     "no scope means no ceiling to have hit — a bare SIGKILL here is an "
+     "operator or a supervisor, which is a different story to tell"),
+    (137, "", False, "same, via the exit-status spelling"),
+    (0, "taskauto-x.scope", False, "success is not an OOM"),
+    (1, "taskauto-x.scope", False, "an ordinary failure is not an OOM"),
+    (-signal.SIGTERM, "taskauto-x.scope", False,
+     "our own timeout kill, which must stay distinguishable from the cap"),
+    (None, "taskauto-x.scope", False, "still running / unknown"),
+])
+def test_oom_classification(rc, unit, expected, why):
+    """`out_of_memory` must mean the ceiling, and nothing else.
 
-    This is the guarantee that turns the original incident from a machine-wide
-    outage into one failed tool call, so it is worth having — but it is opt-in.
-    Running it writes a real `Killed process` line to the kernel log, and a
-    suite that cries OOM on every run is a suite whose OOM reports nobody
-    reads. Run it deliberately:
+    This is the half of the memory story that is genuinely ours: the kernel
+    enforcing `memory.max` is the kernel's contract, but reading its result
+    correctly is our logic, and getting it wrong sends a caller down the wrong
+    path — "this job is slow, raise the budget" versus "this job is broken, go
+    look at what it ran".
 
-        TASKAUTO_TEST_OOM=1 pytest tests/taskauto/test_proc.py -k runaway
+    Deliberately a table rather than a real OOM kill. The previous version of
+    this test proved the point by actually killing a process, which wrote
+    `Killed process` to the kernel log on every single suite run — and a suite
+    that cries OOM constantly is one whose OOM reports nobody reads. Gating it
+    behind an env var only traded that for a test that never ran at all.
     """
-    hog = ("a = bytearray()\n"
-           "for _ in range(200): a.extend(bytearray(50_000_000))\n")
-    res = proc.run([sys.executable, "-c", hog],
-                   timeout=120, memory_max="256M", label="test")
-
-    assert not res.ok
-    assert res.out_of_memory, (
-        f"expected the cgroup to kill it; rc={res.returncode} "
-        f"err={res.err[:200]}")
-    assert not res.timed_out, "it should die of the memory cap, not the clock"
+    assert proc._looks_oom_killed(rc, unit) is expected, why
 
 
 @pytest.mark.skipif(not proc.scope_available(),

@@ -12,17 +12,37 @@ import helpers.notifications as _notifications  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def suppress_discord(monkeypatch):
-    """Suppress Discord notifications during test runs.
+def suppress_outbound_notifications(monkeypatch):
+    """Stop any test reaching a real notification sink.
 
-    Forcibly clears DISCORD_WEBHOOK_URL so no test fires a real webhook,
-    regardless of what's set in the environment. Tests that need to
-    verify webhook payloads explicitly `@patch("helpers.notifications.
-    DISCORD_WEBHOOK_URL", ...)` + `@patch("helpers.notifications.
-    requests.post")` — their decorators run after this fixture and
+    Forcibly clears both destinations, regardless of what is set in the
+    environment. Tests that need to verify payloads explicitly `@patch` the
+    module constant back — their decorators run after this fixture and
     override it.
+
+    **Two sinks, not one.** `DISCORD_WEBHOOK_URL` was the original, and for a
+    while it was the only one. `send_discord_notification` later grew a mirror
+    into monitoring-api's event ledger, gated on `HADOKU_SERVICE_KEY` and
+    deliberately independent of the Discord webhook — so clearing the webhook
+    alone stopped covering it, silently.
+
+    That gap was real, not theoretical. Run the suite with the vault
+    credentials loaded (`dev-vault.mjs -- pytest`, which is the only way to run
+    it with zero skips) and three notifications escaped to the live telemetry
+    endpoint: two "Upstream PR Submitted" and one "Upstream PR Merged!", none
+    of which happened. Fake alerts in the sitrep are worse than no alerts,
+    because they are indistinguishable from real ones at the point somebody is
+    trusting the dashboard.
+
+    It also made ten tests fail whenever a service key was present, since the
+    mirror and the webhook post through the *same* `requests.post` the tests
+    mock, so `assert_not_called` saw the mirror's call. A test that passes only
+    when a credential is absent is not testing what it claims to.
+
+    Any future sink needs a line here too.
     """
     monkeypatch.setattr(_notifications, "DISCORD_WEBHOOK_URL", "")
+    monkeypatch.setattr(_notifications, "HADOKU_SERVICE_KEY", "")
 
 
 @pytest.fixture(autouse=True)
