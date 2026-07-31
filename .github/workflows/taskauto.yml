@@ -154,4 +154,63 @@ jobs:
 
       - name: Run the pipeline
         working-directory: backend
-        run: ../.venv-ci/bin/python run_taskauto.py
+        run: |
+          echo "TASKAUTO_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
+          ../.venv-ci/bin/python run_taskauto.py
+
+      - name: Report the outcome so a broken sweep screams
+        # This job ran red every 39 minutes for ten hours on 2026-07-30 and told
+        # nobody: a credential rename left the Actions secret pointing at an
+        # identity with no board shares, and a scheduled workflow that fails
+        # silently is indistinguishable from one with nothing to do.
+        #
+        # `POST /health/api/jobs` is the fleet's one alerting path — monitoring-api
+        # hooks the alert on the outcome itself (`services/job-alerts.ts`), so a
+        # job gets Discord by reporting, with no webhook handed to a runner. Its
+        # throttle is what makes this bearable: alert on the break, then at most
+        # one reminder per 24h, then a recovery notice. Ten hours of failures is
+        # one message, not fifteen.
+        #
+        # NOT `/health/api/telemetry` — that path writes the ledger and alerts
+        # nobody, which is the same silence this step exists to end.
+        #
+        # `always()` so recoveries are reported too: without the success side,
+        # the alert state stays broken and the next real failure is a suppressed
+        # reminder rather than a new one.
+        if: always()
+        env:
+          OUTCOME: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          case "$OUTCOME" in
+            success) status=succeeded ;;
+            failure) status=failed ;;
+            # A cancel is not evidence of breakage, and `skipped` is inert to the
+            # alert state by design — it must not clear a live failure streak.
+            *) echo "outcome=$OUTCOME — not reported"; exit 0 ;;
+          esac
+
+          started=${TASKAUTO_STARTED_AT:-}
+          if [ -n "$started" ]; then
+            duration_ms=$(( ($(date -u +%s) - started) * 1000 ))
+          else
+            # The run died before the pipeline started (checkout, venv, missing
+            # credential). Still report it — that is exactly the outage class —
+            # but do not invent a duration; the field is required, 0 is honest.
+            duration_ms=0
+          fi
+
+          jq -n --arg st "$status" --arg run "gha_$RUN_ID" \
+                --arg err "taskauto sweep failed — $RUN_URL" \
+                --argjson d "$duration_ms" \
+            '{job_name: "tenhands:taskauto", status: $st, run_id: $run, duration_ms: $d}
+             + (if $st == "failed" then {error: $err} else {} end)' > /tmp/taskauto-outcome.json
+
+          # Never fail the job on a reporting failure — a monitoring blip must not
+          # turn a healthy sweep red. `-f` so a non-2xx is visible in the log.
+          curl -sS -f -X POST https://hadoku.me/health/api/jobs \
+            -H "X-User-Key: $HADOKU_SERVICE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/taskauto-outcome.json \
+            || echo "::warning::could not report outcome to monitoring-api"
