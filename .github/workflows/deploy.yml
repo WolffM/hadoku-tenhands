@@ -14,6 +14,9 @@ jobs:
   deploy:
     runs-on: [self-hosted, hadoku-builder]
     steps:
+      - name: Mark the start, so the reported duration is real
+        run: echo "JOB_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
+
       - name: Trigger hadoku_site to redeploy both pm2 services
         env:
           HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
@@ -74,3 +77,47 @@ jobs:
           dispatch_one "tenhands"          || rc=1
           dispatch_one "tenhands-temporal" || rc=1
           exit $rc
+
+      - name: Report the outcome so a silent failure can't hide
+        # Nothing polls this repo's workflows — monitoring-api's ci-check list
+        # covers hadoku_site and watchparty only — so a red run here is seen by
+        # exactly nobody unless it says so itself. A deploy that fails leaves
+        # prod on the previous commit while main looks shipped.
+        #
+        # `POST /health/api/jobs` is the fleet's one alerting path: monitoring-api
+        # turns the outcome into a Discord alert AND into the `crons` domain of
+        # `GET /health/api/sitrep`, so this repo goes red where the operator
+        # already looks. Routing is hadoku_site's business; ours is to be honest
+        # about our own state. Full rationale in taskauto.yml.
+        if: always()
+        env:
+          HADOKU_SERVICE_KEY: ${{ secrets.TENHANDS_SERVICE_KEY }}
+          OUTCOME: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          case "$OUTCOME" in
+            success) status=succeeded ;;
+            failure) status=failed ;;
+            *) echo "outcome=$OUTCOME — not reported"; exit 0 ;;
+          esac
+
+          started=${JOB_STARTED_AT:-}
+          if [ -n "$started" ]; then
+            duration_ms=$(( ($(date -u +%s) - started) * 1000 ))
+          else
+            duration_ms=0
+          fi
+
+          jq -n --arg st "$status" --arg run "gha_$RUN_ID" \
+                --arg err "tenhands:deploy failed — $RUN_URL" \
+                --argjson d "$duration_ms" \
+            '{job_name: "tenhands:deploy", status: $st, run_id: $run, duration_ms: $d}
+             + (if $st == "failed" then {error: $err} else {} end)' > /tmp/tenhands-deploy-outcome.json
+
+          # A monitoring blip must never turn a healthy run red.
+          curl -sS -f -X POST https://hadoku.me/health/api/jobs \
+            -H "X-User-Key: $HADOKU_SERVICE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/tenhands-deploy-outcome.json \
+            || echo "::warning::could not report outcome to monitoring-api"
