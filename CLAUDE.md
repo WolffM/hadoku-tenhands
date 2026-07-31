@@ -52,6 +52,12 @@ This has leaked in 3 consecutive runs. If cross-references reach upstream, the s
 - **Production:** pm2 service managed by hadoku_site. Deploy by pushing to `main` (triggers deploy.yml → hadoku_site dispatch). Never start manually in prod.
 - **Local:** backend `python3 app.py` (port 5024, `/tenhands`); frontend `pnpm dev` (port 5184, proxies to backend)
 - **Tests:** `cd backend && python3 -m pytest tests/ -v`. Needs `backend/requirements-dev.txt` installed too (pytest, and the schema validators that keep `docs/hadoku-task-automation/openapi.json` honest) — those are test-only and never installed in prod. Discord: `DISCORD_WEBHOOK_URL` (prod), `DISCORD_TEST_WEBHOOK_URL` (test). Tests auto-route to test channel.
+- **The one skip, and how to not have it.** A plain run reports `1 skipped`: `test_judge.py::test_score_integration_real_cli` needs `CLAUDE_CODE_OAUTH_TOKEN`, and `test.yml` withholds it deliberately — that workflow runs on `pull_request`, so supplying it would hand a live credential to any PR. It is a real test, not a dead one, so run it locally where the credential is already yours:
+
+      node ../hadoku_site/scripts/secrets/dev-vault.mjs -- \
+        bash -c 'cd backend && ../.venv/bin/python -m pytest tests/ -q'
+
+  That is the zero-skip run, and it is the one to do before pushing anything that touches `temporal/judge.py`.
 
 ## hadoku-site Contract
 

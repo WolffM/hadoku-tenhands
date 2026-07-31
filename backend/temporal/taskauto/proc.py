@@ -314,6 +314,27 @@ def _preexec() -> None:
         os._exit(0)
 
 
+def _looks_oom_killed(rc: Optional[int], unit: str) -> bool:
+    """Whether `rc` from a scoped run means "the memory ceiling killed it".
+
+    `-9` when we spawned the binary directly, `137` when something in between
+    (a shell, `systemd-run`) reports the signal as an exit status. Both were
+    observed reproducing the original incident: the runaway typecheck came back
+    as `returncode=-9` with `out_of_memory` set.
+
+    Only meaningful when a scope was used — without `MemoryMax` there is no
+    ceiling to have hit, and a bare SIGKILL then means something else killed
+    the job (an operator, a supervisor) which is not the same story to tell.
+
+    Split out from `run` so it can be tested without OOM-killing a process on
+    every suite run. Whether the kernel enforces `memory.max` is the kernel's
+    contract; what belongs to us is putting the limit on the right cgroup —
+    asserted directly in the tests — and reading the result correctly, which
+    is this.
+    """
+    return bool(unit) and rc in (-signal.SIGKILL, 137)
+
+
 def _resolve(program: str, env: Optional[dict]) -> str:
     """Absolute path for `program`, or `FileNotFoundError`.
 
@@ -398,12 +419,7 @@ def run(argv: Sequence[str], *, cwd: Optional[Path] = None,
     try:
         out, err = proc.communicate(input=stdin_text, timeout=timeout)
         rc = proc.returncode
-        # -9 when we spawned the binary directly; 137 when something in
-        # between (a shell, systemd-run) reports the signal as an exit status.
-        # Under a scope with MemoryMax that means the kernel OOM-killed a
-        # member, which tells a caller "this job is broken" rather than "this
-        # job is slow".
-        oom = bool(unit) and rc in (-signal.SIGKILL, 137)
+        oom = _looks_oom_killed(rc, unit)
         if oom:
             logger.error("%s exceeded its %s memory ceiling and was killed "
                          "(this is the containment working, not a pipeline "
