@@ -91,7 +91,7 @@ jobs:
         # about our own state. Full rationale in taskauto.yml.
         if: always()
         env:
-          HADOKU_SERVICE_KEY: ${{ secrets.TENHANDS_SERVICE_KEY }}
+          HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
           OUTCOME: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_ID: ${{ github.run_id }}

@@ -93,7 +93,11 @@ jobs:
       # The `tenhands-service-key` identity — the one board shares are
       # granted to. A valid key for any other identity authenticates fine
       # and then sees zero boards, which reads like a sharing problem.
-      HADOKU_SERVICE_KEY: ${{ secrets.TENHANDS_SERVICE_KEY }}
+      #
+      # The secret NAME must match the vault item name: hadoku_site provisions
+      # GitHub secrets by pulling the vault item of the same name, so a name
+      # with no vault item behind it can never be refreshed by anything.
+      HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       # A PAT, deliberately NOT the automatic GITHUB_TOKEN: pull requests
       # opened with GITHUB_TOKEN do not trigger `pull_request` workflows, so
