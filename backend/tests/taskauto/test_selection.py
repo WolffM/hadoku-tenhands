@@ -179,8 +179,13 @@ def test_archived_task_does_not_count_as_in_flight():
 
 def test_freshly_captured_inbox_task_waits():
     """Planning at a sentence still being typed wastes a round trip and
-    looks unnervingly eager."""
-    d = pick(task("t1", "", ago_minutes=1))
+    looks unnervingly eager.
+
+    `ago_minutes=0`, not 1: the settle window is one minute, so a task edited
+    a minute ago is settled by definition. This has to be a task touched *now*
+    to still be testing anything.
+    """
+    d = pick(task("t1", "", ago_minutes=0))
     assert isinstance(d, Idle) and "settling" in d.reason
 
 

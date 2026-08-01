@@ -9,35 +9,42 @@ name: Task automation
 #
 # TWO TRIGGERS, DOING DIFFERENT JOBS.
 #
-# `repository_dispatch` is the fast path. hadoku-task fires it when a human
-# writes a task into a `user` lane on an automation board — the spec is
-# docs/hadoku-task-automation/ask-dispatch-on-lane-change.md. Its payload is
-# logged and otherwise ignored: the run does its normal board sweep, so the
-# dispatch carries no authority. It says "look now", never "do this". That is
-# what makes an untrusted, duplicated or malformed payload harmless.
+# `repository_dispatch` is the fast path. hadoku-task fires it on ANY human
+# write to a task on an automation board — including a brand-new capture into
+# the Inbox — the spec is docs/hadoku-task-automation/ask-dispatch-on-lane-change.md.
+# Its payload is logged and otherwise ignored: the run does its normal board
+# sweep, so the dispatch carries no authority. It says "look now", never "do
+# this". That is what makes an untrusted, duplicated or malformed payload
+# harmless.
 #
-# The cron is the backstop, and it is not redundant. Two transitions have no
-# board event anyone could push: crash recovery fires on *lease expiry*, and
-# the Inbox settle delay is the *absence* of edits. A timer is required no
-# matter what. It also covers dispatches lost while these services restart
-# mid-deploy — the act of working creates those gaps, and a missed push means a
-# task sits forever with nobody noticing. Silence is the worst failure mode
-# this system has.
+# It used to fire only on a write into a `user` lane, and a fresh capture was
+# deliberately excluded to protect the settle window. That made creating a task
+# — the single most common thing a person does here — the ONE action with no
+# fast path, so it fell through to a cron that is not a cron (below) and sat
+# for a median 45 minutes. The settle window is now honoured by waiting a
+# minute inside the run instead of by declining to start one.
+#
+# The cron is the backstop, and it is not redundant. Crash recovery fires on
+# *lease expiry* — the absence of a heartbeat, which nothing can push. It also
+# covers dispatches lost while these services restart mid-deploy: the act of
+# working creates those gaps, and a missed push means a task sits forever with
+# nobody noticing. Silence is the worst failure mode this system has.
 #
 # An idle run is one board-API call and an exit, so the cron is cheap.
 
 on:
   schedule:
-    # Every 15 minutes NOMINALLY — GitHub deprioritises `schedule` and drops
-    # most of them. Measured over 63.5h: 78 of 254 runs delivered, median gap
-    # 46 min, p90 75, max 89. Tightening the expression does not help, because
-    # the throttle is on delivery rather than on the schedule. That is the
-    # whole reason repository_dispatch above exists.
+    # NOT the real backstop, and do not treat it as one. GitHub deprioritises
+    # `schedule` and drops most ticks: measured across 73 consecutive delivered
+    # runs on this workflow, the SHORTEST gap was 24 minutes, the mean ~45 and
+    # the max 86. Not one gap under 24 min in 73 samples. Tightening the
+    # expression cannot fix that — the throttle is on delivery, not on the
+    # expression — so `*/15` here is aspirational, not a guarantee.
     #
-    # It stays at */15 rather than relaxing to hourly because this is the ONLY
-    # path for an Inbox task: an untagged write deliberately does not dispatch
-    # (that would defeat the 5-minute settle delay), so planning latency is
-    # bounded by this cron alone. A run costs ~18 seconds.
+    # The real 15-minute backstop is a HOST cron on the self-hosted runner box
+    # (`scripts/taskauto-cron.sh`, installed in hokon's crontab), which fires
+    # `gh workflow run` on a timer we own and GitHub does not get a vote on.
+    # See that script's header for why this one stays anyway.
     - cron: '*/15 * * * *'
   repository_dispatch:
     # Must equal the `event_type` the worker sends. Note repository_dispatch
@@ -155,6 +162,29 @@ jobs:
           python3 -m venv .venv-ci
           .venv-ci/bin/python -m pip install --quiet --upgrade pip
           .venv-ci/bin/python -m pip install --quiet -r backend/requirements.txt
+
+      - name: Let a fresh capture settle
+        # A dispatch means a human JUST wrote a task. Planning it this instant
+        # would plan against a sentence still being typed, which is the whole
+        # reason `selection.DEFAULT_SETTLE` exists — a task must sit untouched
+        # for a minute before anyone plans it.
+        #
+        # So wait it out HERE, once, before the sweep. The alternative — sweep
+        # immediately, find the task unsettled, sweep again — costs a wasted
+        # board round-trip to learn something we already knew at wake time.
+        # There is nothing to discover: we were told a capture just happened,
+        # and a capture is exactly the thing that needs the minute.
+        #
+        # Keep this in step with DEFAULT_SETTLE. If they drift, the dispatch
+        # path either plans too early (and the sweep no-ops, falling back to the
+        # backstop cron) or waits longer than it has to.
+        #
+        # Only on the dispatch path. A cron sweep is finding tasks that have
+        # been sitting there, so it has nothing to wait for.
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          echo "woken by a fresh capture — waiting 60s for it to settle"
+          sleep 60
 
       - name: Run the pipeline
         working-directory: backend

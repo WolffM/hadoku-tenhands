@@ -3,6 +3,20 @@
 **From:** TenHands · **Date:** 2026-07-29 · **Read cold** — self-contained. Small change,
 one new outbound call and one binding.
 
+> **AMENDED 2026-07-31 — implemented, then widened.** This ask shipped as written, and the
+> `user`-lane-only predicate below turned out to be wrong in one specific way: it excluded a
+> **fresh capture into the Inbox**, which is the most common thing a person does on a board. That
+> left creating a task as the only action with no fast path, so it fell through to the backstop
+> cron — whose shortest observed gap across 73 consecutive delivered runs was **24 minutes**, mean
+> ~45. The predicate is now "a human wrote something", with `agent` lanes as the only exclusion:
+> `isUserLaneWrite` returns `true` for an empty tag instead of `false`.
+>
+> The settle delay that motivated the exclusion is unchanged in spirit and now **1 minute**; it is
+> enforced on the TenHands side by sleeping before the sweep (`taskauto.yml`, "Let a fresh capture
+> settle"), which keeps runner policy out of the worker exactly as this doc argues it should be.
+> Everything else below — payload, token, fire-and-forget posture, no-authority framing — still
+> holds as written.
+
 ---
 
 ## The ask

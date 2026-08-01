@@ -42,9 +42,15 @@ delivered, median gap 46 min, p90 75. Tightening the cron cannot fix that —
 the throttle is on delivery, not on the schedule expression.
 
 The push does not change anything below. It only shortens the wait for the
-first look, and the reasons in (1) and (2) are why the timer stays. Note the
-Inbox path is still *only* covered by the sweep, because an untagged write
-deliberately does not dispatch — that would defeat the settle delay.
+first look, and the reasons in (1) and (2) are why the timer stays.
+
+An untagged Inbox write DOES dispatch, as of 2026-07-31. It used to be
+excluded to protect the settle delay, which left a fresh capture — the most
+ordinary thing anyone does here — as the one action with no fast path, waiting
+on a cron whose *shortest* observed gap was 24 minutes. The settle delay is
+still honoured; it is just honoured by waiting a minute inside the woken run
+(`taskauto.yml`, "Let a fresh capture settle") rather than by declining to
+start one. Policy stayed here, where it belongs, and only the timing moved.
 
 The design that follows from this is two-speed. The change feed is a cheap
 hint that something moved; a slower full sweep runs regardless, because
