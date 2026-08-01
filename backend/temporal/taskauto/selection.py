@@ -42,7 +42,19 @@ AGENT_LANES = (LANE_PLANNING, LANE_WORKING, LANE_LANDING)
 #: How long a task must sit untouched in the Inbox before we plan it.
 #: The Inbox is where half-formed thoughts land; planning at one the instant
 #: it appears means planning against a sentence still being typed.
-DEFAULT_SETTLE = timedelta(minutes=5)
+#:
+#: One minute, not five. Five was chosen when the ONLY thing that could pick an
+#: Inbox task up was the backstop sweep, so the settle window was free — it hid
+#: inside a median 45-minute wait and cost nothing observable. Now that a
+#: capture wakes a run in ~18s (`taskauto.yml`, the `repository_dispatch`
+#: trigger), this window IS the latency, so it has to be the smallest value
+#: that still does its job: long enough to not plan against a half-typed
+#: sentence, short enough that a finished thought moves while you are still
+#: looking at it.
+#:
+#: The dispatch path sleeps for this long before sweeping — keep the two in
+#: step. `taskauto.yml`'s "Let a fresh capture settle" step is the other half.
+DEFAULT_SETTLE = timedelta(minutes=1)
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────
