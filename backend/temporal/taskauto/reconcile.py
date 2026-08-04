@@ -18,8 +18,17 @@ rejected", and nothing would ever plan it again.
 
 `watch.py` calls watching-what-you-did the load-bearing safety property of the
 whole pipeline, and it is — but it only covers `push` mode. This is the same
-property for `pr` mode, where the deciding signal is not a health check but a
-person clicking merge or close.
+property for `pr` mode, where the deciding signal is not a health check but the
+PR being merged or closed.
+
+Since auto-merge was armed (2026-08-04) that signal usually comes from GitHub
+rather than a person: most PRs merge themselves on green. Nothing here needed
+changing for that — this module reads the PR's *state*, never who moved it,
+which is exactly why it kept working. What did change is that this stopped
+being a tidy-up and became the pipeline's main completion path: a task now
+reaches `landed` and is archived without anyone touching it, so a sweep that
+silently stops running no longer just makes the board stale — it hides the
+outcome of everything the pipeline shipped.
 
 **Three outcomes, and only two of them are ours to act on.**
 

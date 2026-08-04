@@ -108,6 +108,10 @@ checks → `--auto` merges immediately, ignoring CI") is armed on five of them. 
 reachable: the pipeline runs in `pr` mode and never passes `--auto`, so a human still merges. That
 is the only thing standing between those five repos and an unchecked auto-merge.
 
+> **Superseded 2026-08-04.** The pipeline now *does* pass `--auto` — see
+> [Auto-merge, and the one thing it must read](#auto-merge-and-the-one-thing-it-must-read) at the
+> bottom. The protection above is no longer a spare tyre; it is the load-bearing gate.
+
 ### Closed out 2026-08-04, same evening
 
 Three more repos done, each verified with the acceptance test this doc prescribes — a PR touching
@@ -262,3 +266,36 @@ tenhands is configured this way today and is the reference.
 Not "is CI green" — that proves nothing here. Open a PR that touches **only** the
 most-ignored corner of the repo (an asset, a doc, a fixture) and confirm a
 required check still reports on it. That is the invariant, stated as a test.
+
+## Auto-merge, and the one thing it must read
+
+As of 2026-08-04 the pipeline arms GitHub auto-merge on every pull request it opens
+(`Lander.auto_merge`, default on). Pipeline PRs now land themselves when the repo's
+required checks go green; nobody presses a button. This is what the invariant was
+being established *for*, and it is why the protection settings above stopped being
+hygiene and became the gate.
+
+**The precondition is not "this PR has checks." It is "the base branch *requires*
+checks."** Those are different questions and only the second one is safe to act on.
+`--auto` waits for required checks and nothing else, so on a branch with none
+configured it does not schedule anything — it merges on the spot, unreviewed. A pull
+request covered in green *non-required* checks looks identical from the outside,
+which is exactly how that mistake gets made. `Lander._required_check_count` therefore
+reads `repos/{slug}/branches/{base}` protection and never the PR's own
+`statusCheckRollup`, and there is a test asserting it never learns to.
+
+A repo that fails that test **holds**: the PR stays open and a human merges it, with
+the reason recorded in the PR body and the board notes. Reading the protection is
+fail-closed — a `gh` error, a missing `.protection` (which is what a token without
+admin sees), or any payload that isn't an integer all count as *no* protection.
+That is deliberately the safe direction, but note the failure mode it implies: **a
+CI token that cannot read branch protection silently disables auto-merge fleet-wide
+rather than breaking loudly.** If PRs stop landing on their own, check the token's
+scopes before looking anywhere else. The runner uses `HADOKU_SITE_TOKEN`, which has
+admin on all seven repos.
+
+So the five repos that had no required checks are no longer one flag away from an
+unchecked auto-merge — the flag is now permanently on, and their protection is the
+only thing that decides whether a PR lands itself or waits. Enrolling a new board
+without doing the work at the top of this document no longer produces a nuisance;
+it produces a repo whose PRs quietly pile up unmerged.

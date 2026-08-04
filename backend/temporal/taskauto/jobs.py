@@ -310,18 +310,25 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                     "land:refused")
 
         if res.pr_url:
-            # PR mode: the work is done and waiting on a human, which is a
-            # success and must not read as a dry run. `pushed` is False here
-            # by design — nothing reached `main` — so this branch has to come
-            # first, before the not-pushed check below.
+            # PR mode: the work is done, which is a success and must not read
+            # as a dry run. `pushed` is False here by design — nothing reached
+            # `main` — so this branch has to come first, before the not-pushed
+            # check below. Whether it still needs a human is the one thing the
+            # note must get right; reconciliation archives it either way once
+            # the PR actually merges.
+            understanding = (
+                "Implemented and pushed as a pull request. NOT merged yet — "
+                "auto-merge is armed, so GitHub lands it when the required "
+                f"checks go green.\n\n{res.pr_url}\n\n"
+                "Nothing to do unless the checks go red or the diff reads "
+                "wrong, in which case close it."
+                if res.auto_merge_armed else
+                "Implemented and pushed as a pull request. NOT merged — this "
+                f"is waiting on you.\n\n{res.pr_url}\n\n"
+                "Merge it if the checks are green and the diff reads right.")
             return (pr_lane,
                     plan_notes.render(PlanDoc(
-                        understanding=(
-                            "Implemented and pushed as a pull request. NOT "
-                            "merged — this is waiting on you.\n\n"
-                            f"{res.pr_url}\n\n"
-                            "Merge it if the checks are green and the diff "
-                            "reads right."),
+                        understanding=understanding,
                         plan=res.checks, acceptance=doc.acceptance,
                         blast_radius=outcome.changed_files, pass_number=1)),
                     f"pr-open:{res.pr_url.rsplit('/', 1)[-1]}")

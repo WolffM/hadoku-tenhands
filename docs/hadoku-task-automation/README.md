@@ -237,7 +237,7 @@ So the build is **three adapters around an existing workflow**, not a second pip
 |---|---|---|
 | `TaskSource` — where work comes from | aggregator + GitHub issue | board poll + claim |
 | `ProgressSink` — where state is published | evidence store + Temporal only | …plus board lane + `notes` |
-| `Landing` — what "done" means | upstream PR, watch maintainer | push branch, open PR — a human merges |
+| `Landing` — what "done" means | upstream PR, watch maintainer | push branch, open PR, arm auto-merge — CI decides |
 
 **The board is a state projection, not a database.** Temporal and the evidence store remain the
 source of truth for pipeline state, exactly as today. The board is where that state becomes visible
@@ -325,10 +325,26 @@ This is the load-bearing decision, and it is not "the gates are good enough."
 
 The gates in [gates.md](gates.md) are a real filter, but no pre-merge gate set catches everything,
 and pretending otherwise is how you get a bad night. What makes the default `pr` mode safe is not
-being able to undo a bad change — it's that the change never reaches `main` unreviewed in the first
-place. `landing.py` pushes a branch and opens a pull request, then stops (`backend/run_taskauto.py`
-confirms `TASKAUTO_MODE` defaults to `pr`). A human reads the diff, waits on the repo's own required
-checks, and merges it — or doesn't.
+being able to undo a bad change — it's that nothing reaches `main` that hasn't been reviewed *and*
+proven green.
+
+**What "reviewed" means changed on 2026-08-04, and this section is the place to be honest about
+it.** `landing.py` now arms GitHub auto-merge on the PR it opens, so pipeline PRs land themselves
+when the repo's required checks pass. Nobody reads the diff. The review moved **upstream, to the
+plan**: tasks reach `approved` because a human read the plan in `plan-review` and said yes, and the
+scope caps in `RepoPolicy` (20 files, 600 lines, the protected-path deny-list) are what stop an
+approved plan from becoming an unreviewable diff. So the safety argument is now three things in
+series — *a reviewed plan*, *gates that refuse anything out of scope*, and *the repo's own required
+checks* — rather than a person looking at the final diff.
+
+That is a real reduction in safety, taken deliberately for velocity, and it is only defensible
+because of the middle term. The moment a repo's required checks stop being meaningful, or a plan
+gets approved without being read, this becomes exactly the unattended-merge pipeline §4 was written
+to argue against. The one hard floor is
+[pr-gate-invariant.md](pr-gate-invariant.md): a repo whose base branch requires **no** checks does
+not get auto-merge at all, because `--auto` there means "merge now, unreviewed" rather than "merge
+on green". Those PRs hold for a human, which is the old behaviour, kept for exactly the case where
+the new argument doesn't hold.
 
 There is no post-merge watcher and no auto-revert in `pr` mode: nothing has reached `main` yet, so
 there's nothing to watch and nothing to attribute a red signal to. That machinery still exists —
@@ -353,10 +369,15 @@ with the ones that already have CI**, not a flag day.
 ### 4.1 The daily canary is the prerequisite for `push` mode, and it doesn't exist yet
 
 This section is about the `push`-mode fallback (§4) — the only path where a post-merge health check
-gates anything. In the default `pr` mode nothing merges without a human, so there is no post-merge
-trigger to arm; nothing below is a prerequisite for the default board. The canary is still worth
-having there, but only as the general fire alarm it was always meant to be for the rest of
-production, not as a gate on this pipeline's own changes.
+gates anything. `pr` mode has no post-merge trigger to arm — the repo's own required checks are the
+gate, and they run before the merge, not after it — so nothing below is a prerequisite for the
+default board. The canary is still worth having there, but only as the general fire alarm it was
+always meant to be for the rest of production, not as a gate on this pipeline's own changes.
+
+Note this got sharper when auto-merge was armed (§4): `pr` mode now lands changes into `main`
+without a human, and still has no post-merge watcher. The reasoning is unchanged — required checks
+run pre-merge and a bad merge is reverted by a follow-up commit — but "nothing has reached `main`"
+is no longer the reason, and a daily canary is worth more here than it was.
 
 We decided against duplicating the ecosystem into a pre-prod environment: the catastrophic-failure
 set is small and specific (edge-router, session/auth, vault broker, mgmt-api, cloudflared tunnel),
@@ -551,7 +572,7 @@ Seven commits have reached `main` autonomously — see
 
 Originally this ran as an always-on pm2 service that merged to `main` and
 watched production, reverting if health went red. It now runs as an **ephemeral
-scheduled job that opens a pull request a human merges.** Both halves of that
+scheduled job that opens a pull request CI merges.** Both halves of that
 were wrong, for reasons worth keeping:
 
 - **A daemon is a long-lived credential holder** sitting on the same host as

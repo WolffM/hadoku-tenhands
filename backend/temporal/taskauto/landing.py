@@ -2,10 +2,14 @@
 
 Two modes:
 
-* **`pr` (preferred)** — push the branch, open a pull request, stop. A human
-  merges it. Verification is the repo's own required checks, so nothing here
-  runs the suite: the pull request *is* the dry run, and unlike the old one it
-  persists, is reviewable, and is already wired to a merge button.
+* **`pr` (preferred)** — push the branch, open a pull request, and arm GitHub
+  auto-merge so it lands when the repo's required checks go green. Verification
+  is those checks, so nothing here runs the suite: the pull request *is* the dry
+  run, and unlike the old one it persists, is reviewable, and lands itself.
+
+  Auto-merge is armed **only if the base branch has required status checks**.
+  See `_arm_auto_merge` — the distinction is the whole safety property, and it
+  is not the one you would guess from the flag's name.
 * **`push`** — merge straight into `base` with nobody watching. Kept for the
   crimson-kitty-shaped case and for repos where a PR adds nothing, but it is
   no longer the default posture for new work.
@@ -57,6 +61,9 @@ class LandResult:
     test_output: str = ""
     #: Set in `pr` mode. `pushed` stays False — nothing reached `main`.
     pr_url: str = ""
+    #: `pr` mode: GitHub is holding this PR to merge when its required checks
+    #: go green. False means it is waiting for a human, and `checks` says why.
+    auto_merge_armed: bool = False
 
 
 @dataclass
@@ -99,9 +106,12 @@ class Lander:
     run: Callable[..., CmdResult] = _default_run
     dry_run: bool = True
     #: "push" merges straight into `base`; "pr" pushes the branch and opens a
-    #: pull request, leaving the merge to a human and the verification to the
-    #: repo's own required checks. See `land()` for why `pr` runs no suite.
+    #: pull request, leaving the verification to the repo's own required
+    #: checks. See `land()` for why `pr` runs no suite.
     mode: str = "push"
+    #: `pr` mode: ask GitHub to merge the PR when its required checks pass.
+    #: Ignored on repos whose base branch has none — see `_arm_auto_merge`.
+    auto_merge: bool = True
 
     # ── gates that run before anything is committed ───────────────────────
 
@@ -247,8 +257,20 @@ class Lander:
                                  f"{push.text[:200]}")
         checks.append(f"pushed {sha[:8]} → {branch}")
 
+        # Read protection *before* creating the PR, so the body can state which
+        # of the two things is about to happen rather than describing a policy
+        # and leaving the reader to work out which branch of it they got.
+        required = self._required_check_count(gh, task, base) if self.auto_merge else 0
+        if self.auto_merge and required == 0:
+            checks.append(
+                f"auto-merge HELD — {task.repo_slug}@{base} has no required "
+                f"status checks, and `--auto` on an unprotected branch merges "
+                f"immediately rather than on green. A human merges this one")
+            logger.warning("auto-merge held on %s: %s@%s has no required checks",
+                           task.task_id, task.repo_slug, base)
+
         title = message.splitlines()[0].strip() or f"taskauto: {task.task_id}"
-        body = self._pr_body(task, checks)
+        body = self._pr_body(task, checks, base=base, required=required)
 
         pr = gh("pr", "create", "--base", base, "--head", branch,
                 "--title", title, "--body", body)
@@ -270,19 +292,82 @@ class Lander:
         else:
             checks.append(f"opened pull request {url}")
 
+        armed = False
+        if required:
+            merged = gh("pr", "merge", branch, "--repo", task.repo_slug,
+                        "--squash", "--auto", "--delete-branch", timeout=60)
+            armed = merged.ok
+            if armed:
+                checks.append(f"auto-merge armed — lands when {required} "
+                              f"required check(s) on {base} go green")
+            else:
+                # Never raise: the branch is pushed and the PR is open by now,
+                # so this is a worse outcome to report, not a reason to strand
+                # real work. A human merges it, which is where we were before.
+                checks.append(f"auto-merge could not be armed, so a human "
+                              f"merges this one: {merged.text[:200]}")
+                logger.warning("auto-merge not armed on %s: %s",
+                               task.task_id, merged.text[:200])
+
         return LandResult(False, commit_sha=sha, branch=branch,
-                          reason="pull request opened — a human merges it",
-                          checks=checks, test_output=test_output, pr_url=url)
+                          reason=("pull request opened — merges itself on green"
+                                  if armed else
+                                  "pull request opened — a human merges it"),
+                          checks=checks, test_output=test_output, pr_url=url,
+                          auto_merge_armed=armed)
 
     @staticmethod
-    def _pr_body(task: TaskRef, checks: Sequence[str]) -> str:
+    def _required_check_count(gh: Callable[..., CmdResult], task: TaskRef,
+                              base: str) -> int:
+        """How many *required* status checks `base` has. Zero holds the merge.
+
+        **The question is not "does this PR have checks" — it is "does `base`
+        require any".** Those are different, and only the second is safe to act
+        on. `--auto` waits for required checks and nothing else, so on a branch
+        with none configured it schedules nothing: it merges on the spot,
+        unreviewed. A PR covered in green non-required checks looks identical
+        from here, which is exactly how that mistake gets made. So this reads
+        the repo's protection, never the pull request's own rollup.
+
+        Fails closed. An unreadable response, a `gh` error, or a payload shape
+        we did not expect all count as *no* protection, because every one of
+        them means we do not know — and not knowing is the case where merging
+        unattended is worst.
+        """
+        res = gh("api", f"repos/{task.repo_slug}/branches/{base}",
+                 "--jq", ".protection.required_status_checks.contexts "
+                         "// [] | length", timeout=30)
+        if not res.ok:
+            logger.warning("could not read protection for %s@%s: %s",
+                           task.repo_slug, base, res.text[:200])
+            return 0
+        try:
+            return int((res.out or "").strip())
+        except ValueError:
+            logger.warning("unreadable protection payload for %s@%s: %r",
+                           task.repo_slug, base, (res.out or "")[:200])
+            return 0
+
+    @staticmethod
+    def _pr_body(task: TaskRef, checks: Sequence[str], *,
+                 base: str = "main", required: int = 0) -> str:
+        gate = (
+            f"Nobody has reviewed this. **Auto-merge is armed**: GitHub lands it "
+            f"when the {required} required check(s) on `{base}` go green, and "
+            f"leaves it open if any of them go red. Close it or disable "
+            f"auto-merge if the diff reads wrong."
+            if required else
+            "Nobody has reviewed this, and auto-merge is **not** armed because "
+            "this repo's base branch has no required status checks — arming it "
+            "there would merge on the spot rather than on green. Merge it by "
+            "hand if the diff reads right."
+        )
         lines = [
             f"Opened by hadoku-task-automation for task `{task.task_id}`.",
             "",
             f"**Task as filed:** {task.title}",
             "",
-            "Nobody has reviewed this. The repo's own required checks are the "
-            "gate — merge it if they are green and the diff reads right.",
+            gate,
             "",
             "### Preflight",
         ]
