@@ -4,9 +4,10 @@ Per the test plan in phase-1-plan.md step 1A.7:
   - 6 unit tests (canary + parse + coerce + exception classes)
   - 1 integration test against the locally-installed `claude` CLI
 
-Integration test is skipped if either:
-  - `claude` binary is not on PATH
-  - `CLAUDE_CODE_OAUTH_TOKEN` is not set in the environment
+The integration test does not skip. It fetches its own OAuth token from the
+vault via this repo's service-tier key, so a plain `pytest tests/` exercises
+the real CLI with no wrapper and no skip. See its docstring for why the old
+`skipif` was worse than no test at all.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import pytest
 
 from temporal import judge as J
 from temporal.config import MissingConfigError
+from tests.support import vault
 
 
 # ── canary unit tests ─────────────────────────────────────────────────────
@@ -268,31 +270,56 @@ def test_exception_hierarchy():
 # ── integration test against the real claude CLI ─────────────────────────
 
 
-def _claude_available() -> bool:
-    if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip():
-        return False
-    if not shutil.which(os.environ.get("CRIMSON_CLAUDE_BIN", "claude")):
-        # Also check the user-local install path
-        home_bin = os.path.expanduser("~/.npm-global/bin/claude")
-        return os.path.exists(home_bin)
-    return True
+def _claude_binary() -> str:
+    """Where the `claude` CLI is, or "" if it isn't installed."""
+    found = shutil.which(os.environ.get("CRIMSON_CLAUDE_BIN", "claude"))
+    if found:
+        return found
+    home_bin = os.path.expanduser("~/.npm-global/bin/claude")
+    return home_bin if os.path.exists(home_bin) else ""
 
 
-@pytest.mark.skipif(
-    not _claude_available(),
-    reason="claude CLI or CLAUDE_CODE_OAUTH_TOKEN not available",
-)
-def test_score_integration_real_cli():
+def test_score_integration_real_cli(monkeypatch):
     """Hit the real claude CLI with a tiny rubric + payload.
 
-    Skipped unless both `claude` is installed and the OAuth token is set.
-    Verifies the full pipeline: subprocess invocation, canary, real call,
-    JSON extraction, coercion to JudgeResult.
+    Verifies the full pipeline: subprocess invocation, canary, real call, JSON
+    extraction, coercion to JudgeResult. This is the only test that proves
+    `score()` works against the actual CLI rather than a mocked seam, which
+    makes it the one test whose absence is least visible and most expensive.
+
+    **It used to skip when `CLAUDE_CODE_OAUTH_TOKEN` was unset, and that was
+    the bug.** There are no `.env` files in this ecosystem, so the token is
+    never ambiently present — it lives in the vault. The old gate therefore
+    fired on the *normal* case: a plain `pytest` run skipped this silently and
+    reported the same green as a run that had exercised it. The only way to
+    actually run it was to remember the `dev-vault.mjs` wrapper, and a test
+    that depends on the operator remembering something is a test that does not
+    run.
+
+    So it fetches its own credential now, by the intended path: the per-repo
+    service-tier key in `.devvault.local.json` (or `HADOKU_VAULT_KEY`) against
+    the vault broker. No wrapper, no skip. If the credential cannot be
+    resolved that is a **failure** with the broker's reason attached, because
+    every cause — no key, sealed vault, missing ACL grant — is something to go
+    fix rather than something to shrug past.
     """
-    # Make sure user-local install path is on PATH for the subprocess.
-    home_bin = os.path.expanduser("~/.npm-global/bin")
-    if os.path.isdir(home_bin) and home_bin not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = home_bin + os.pathsep + os.environ.get("PATH", "")
+    binary = _claude_binary()
+    assert binary, (
+        "the `claude` CLI is not installed, so the judge cannot be exercised "
+        "against anything real. Install it rather than skipping: this is the "
+        "only unmocked coverage `score()` has.")
+
+    # Fetched, not read from the environment — see the docstring. A failure
+    # here carries the broker's own diagnosis (sealed / no grant / no key).
+    token = vault.fetch("CLAUDE_CODE_OAUTH_TOKEN")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", token)
+
+    # `score()` shells out, so the child needs the install path too. monkeypatch
+    # rather than mutating os.environ directly — the old version leaked a PATH
+    # edit into every test that ran after it.
+    home_bin = os.path.dirname(binary)
+    if home_bin and home_bin not in os.environ.get("PATH", ""):
+        monkeypatch.setenv("PATH", home_bin + os.pathsep + os.environ.get("PATH", ""))
 
     rubric = """# Tiny test rubric
 
