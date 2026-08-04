@@ -4,9 +4,12 @@ name: Tests
 # workflow at all — the 1200+ tests only ever ran on a laptop — so a PR
 # showed green because nothing had run, not because anything passed. That is
 # fine while push-to-main is the norm and a human runs pytest locally, but it
-# is not a gate, and the task-automation pipeline is moving to opening PRs
-# that a human merges on green. This is the thing that makes "green" mean
-# something.
+# is not a gate, and the task-automation pipeline opens PRs that land on green.
+# This is the thing that makes "green" mean something.
+#
+# As of 2026-08-04 that is literal: `backend pytest` is a required check on
+# `main`, and the lander arms auto-merge, so this job is what decides whether
+# an unreviewed change reaches production. Nothing else reads the diff.
 #
 # Note the `pull_request` event checks out the MERGE commit (refs/pull/N/merge),
 # not the branch tip, so this verifies the branch against current `main`
@@ -57,9 +60,36 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        # No secrets are provided on purpose. The lone integration test
-        # (test_judge.py::test_score_integration_real_cli) gates on
-        # CLAUDE_CODE_OAUTH_TOKEN and skips cleanly without it, so the suite
-        # is green with exactly 1 skip. Handing a pull request a live
-        # credential to earn back one test is a bad trade.
+        env:
+          # This used to provide no secrets, on the reasoning that handing a
+          # pull request a live credential to earn back one test was a bad
+          # trade, and the suite ran green with exactly 1 skip.
+          #
+          # Both halves of that stopped being true on 2026-08-04.
+          #
+          # The skip was not a tidy opt-out. There are no `.env` files in this
+          # ecosystem, so CLAUDE_CODE_OAUTH_TOKEN is never ambiently set and
+          # the gate fired on the *normal* case — locally as well as here. A
+          # plain `pytest` reported the same green whether or not the only
+          # unmocked coverage of `score()` had run. And this job is now the
+          # required check that gates auto-merge, so "green" here decides
+          # whether unreviewed changes land.
+          #
+          # The trade also got cheaper than it looks. This runs on the same
+          # self-hosted box, with the same label, as taskauto.yml — which
+          # already hands this exact token to a job on that host. Fork PRs get
+          # no secrets and need approval before touching a self-hosted runner,
+          # so the marginal exposure is close to nil.
+          #
+          # Deliberately the token and NOT the vault service key: the key would
+          # also unlock HADOKU_SITE_TOKEN, an admin PAT. The narrowest
+          # credential that does the job is the right one. The test's
+          # environment-first resolution picks this up and never calls the
+          # broker, so CI needs no vault access at all.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # claude lives in ~/.local/bin, which is not on the runner's PATH.
+          # Same override taskauto.yml sets, for the same reason.
+          CRIMSON_CLAUDE_BIN: /home/hadoku/.local/bin/claude
+        # The suite runs with zero skips. A skip appearing here is a regression
+        # to investigate, not the normal state.
         run: ../.venv-ci/bin/python -m pytest tests/ -q

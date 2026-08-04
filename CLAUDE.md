@@ -52,12 +52,10 @@ This has leaked in 3 consecutive runs. If cross-references reach upstream, the s
 - **Production:** pm2 service managed by hadoku_site. Deploy by pushing to `main` (triggers deploy.yml → hadoku_site dispatch). Never start manually in prod.
 - **Local:** backend `python3 app.py` (port 5024, `/tenhands`); frontend `pnpm dev` (port 5184, proxies to backend)
 - **Tests:** `cd backend && python3 -m pytest tests/ -v`. Needs `backend/requirements-dev.txt` installed too (pytest, and the schema validators that keep `docs/hadoku-task-automation/openapi.json` honest) — those are test-only and never installed in prod. Discord: `DISCORD_WEBHOOK_URL` (prod), `DISCORD_TEST_WEBHOOK_URL` (test). Tests auto-route to test channel.
-- **The one skip, and how to not have it.** A plain run reports `1 skipped`: `test_judge.py::test_score_integration_real_cli` needs `CLAUDE_CODE_OAUTH_TOKEN`, and `test.yml` withholds it deliberately — that workflow runs on `pull_request`, so supplying it would hand a live credential to any PR. It is a real test, not a dead one, so run it locally where the credential is already yours:
-
-      node ../hadoku_site/scripts/secrets/dev-vault.mjs -- \
-        bash -c 'cd backend && ../.venv/bin/python -m pytest tests/ -q'
-
-  That is the zero-skip run, and it is the one to do before pushing anything that touches `temporal/judge.py`.
+- **Zero skips, and no wrapper needed.** A plain `cd backend && python3 -m pytest tests/ -q` runs the whole suite with **0 skipped**. It used to report `1 skipped` — `test_judge.py::test_score_integration_real_cli` gated on `CLAUDE_CODE_OAUTH_TOKEN`, which is never ambiently set because there are no `.env` files here, so the skip fired on the normal case and a plain run reported the same green whether or not the only unmocked coverage of `score()` had happened. The test now fetches its own token through `tests/support/vault.py` (service-tier key in `.devvault.local.json` → broker), which is the intended path for any credential a test needs.
+- **If a test needs a secret, fetch it — don't gate on the environment.** `tests/support/vault.py` is the helper; add the env→vault-key mapping to `.devvault.json` and ask the operator to grant it. A `skipif` on a missing credential is indistinguishable from a passing test in the output, which is exactly how the judge test sat unrun.
+- **One trap it costs an afternoon to rediscover:** `hadoku.me` is behind Cloudflare, which rejects urllib's default `Python-urllib/3.x` User-Agent with `HTTP 403` and body `error code: 1010` — before the request reaches edge-router. That is indistinguishable from an ACL denial by status code and sends you chasing a permission that was never missing. Set any honest `User-Agent`; the helper already does.
+- **CI runs it too.** `test.yml` passes `CLAUDE_CODE_OAUTH_TOKEN` and `CRIMSON_CLAUDE_BIN` (claude is at `/home/hadoku/.local/bin/claude`, not on the runner's PATH). Deliberately the token and not the vault service key — the key would also unlock `HADOKU_SITE_TOKEN`, an admin PAT.
 
 ## hadoku-site Contract
 
