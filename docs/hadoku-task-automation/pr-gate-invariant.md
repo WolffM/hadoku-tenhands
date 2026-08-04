@@ -97,7 +97,8 @@ only the most-ignored corner of the repo, confirming a required check still *rep
 |---|---|---|
 | hadoku-pygmalion | `frontend-build`, `python-tests` | docs-only PR → both green in 9s / 8s |
 | hadoku-task | `typecheck`, `lint`, `worker-tests` | docs-only PR → all green in 8–17s |
-| hadoku-conjure | `check` | docs-only PR → green in seconds |
+| hadoku-conjure | `check` | docs-only PR → green in 8s |
+| hadoku-resume-bot | `typecheck`, `lint` | docs-only PR → both green in 8s / 9s |
 
 All three took the same shape as hadoku_site's fix: the path list moves off the `pull_request`
 trigger and into a scope step inside the job, copied verbatim so coverage cannot regress, with every
@@ -121,13 +122,17 @@ plugin build. `typecheck`, `lint` and `worker-tests` were already in `package.js
 never run in CI. Likewise hadoku-conjure's `check` script, which its own `package.json` already
 documented as the CI-safe set.
 
-Still open: **hadoku-watchparty** (`build-ui.yml` filtered) and **hadoku-resume-bot** (no PR CI).
+hadoku-resume-bot was the other repo with no PR CI at all; `typecheck` and `lint` were sitting in
+its `package.json` unused. Its `allow_auto_merge` was also `false` — the only one in the fleet — and
+is now `true`, set *after* protection rather than before, which is the safe order: with auto-merge
+on and no required checks, `--auto` merges immediately and ignores CI entirely.
 
-One correction to the row above while re-measuring: auto-merge is **not** enabled on all seven.
-Measured 2026-08-04, `hadoku-resume-bot` has `allow_auto_merge: false`; the other six are `true`.
-Note also that `watchparty` in the original table is `WolffM/hadoku-watchparty` — there is a
-separate, stale `WolffM/watchparty` with no workflows at all, and querying the wrong one gives
-plausible-looking answers about the wrong repo.
+**Still open: `hadoku-watchparty` alone** — `build-ui.yml` is still filtered to `apps/ui/**` and
+`packages/**`, and `main` is unprotected. Six of seven are done.
+
+One correction to the row above while re-measuring: `watchparty` in the original table means
+`WolffM/hadoku-watchparty`. A separate, stale `WolffM/watchparty` exists with no workflows at all,
+and querying the wrong one returns plausible-looking answers about the wrong repo.
 
 ## What to do, per repo
 
