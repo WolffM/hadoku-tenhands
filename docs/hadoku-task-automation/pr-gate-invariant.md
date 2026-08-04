@@ -59,6 +59,9 @@ Fleet-wide, measured:
 | hadoku-task | `kate-plugin.yml` | no — `plugins/kate/**` only |
 | hadoku-conjure | none | **no CI at all** |
 
+hadoku-task's only PR workflow is scoped to a Kate editor plugin, which is why
+PR #72 sat open for two days with **zero** checks.
+
 ### Re-measured 2026-08-04
 
 Two rows moved and one repo appeared. **hadoku_site is done** — `main` is protected requiring
@@ -84,9 +87,6 @@ job. Auto-merge is enabled on all seven, which means the top row of the table ab
 checks → `--auto` merges immediately, ignoring CI") is armed on five of them. It is not currently
 reachable: the pipeline runs in `pr` mode and never passes `--auto`, so a human still merges. That
 is the only thing standing between those five repos and an unchecked auto-merge.
-
-hadoku-task's only PR workflow is scoped to a Kate editor plugin, which is why
-PR #72 sat open for two days with **zero** checks.
 
 ## What to do, per repo
 
