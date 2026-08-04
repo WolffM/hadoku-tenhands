@@ -141,8 +141,9 @@ def build_runner(client: TaskBoardClient, board, *, live: bool,
     # process this excludes is a manual `run_taskauto.py` on the same host —
     # which is the documented local path and which GitHub cannot see.
     # Reconciliation is wired in BOTH modes on purpose. `pr` mode is where it
-    # earns its keep — a human merging or closing the PR is the only signal
-    # that a task is finished or refused — but a `push`-mode board can still
+    # earns its keep — the PR being merged or closed is the only signal that a
+    # task is finished or refused, and with auto-merge armed that signal is
+    # usually GitHub rather than a person — but a `push`-mode board can still
     # hold `landed` tasks left over from a spell in `pr` mode, and those
     # deserve correcting too.
     return Runner(client, handle, lock=checkouts.lock,
@@ -178,7 +179,9 @@ def main() -> int:
     if not live:
         posture = "DRY RUN: will verify but not push (set TASKAUTO_LIVE=1 to arm)"
     elif mode == "pr":
-        posture = "LIVE: will open pull requests — nothing merges without a human"
+        posture = ("LIVE: will open pull requests and arm auto-merge — they "
+                   "land themselves on green, except on repos whose base "
+                   "branch has no required checks, which hold for a human")
     else:
         posture = "LIVE: will push straight to main, unreviewed"
     logger.warning("taskauto starting — %s", posture)

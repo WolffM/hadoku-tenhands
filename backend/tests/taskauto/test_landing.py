@@ -210,9 +210,16 @@ def test_checks_read_as_an_audit_trail():
 
 PR_OUT = dict(SHA, **{"pr create": "https://github.com/WolffM/tenhands/pull/99\n"})
 
+#: A base branch WITH required checks. `branches/main` is the protection read;
+#: the jq in the lander reduces it to a count, so the fake returns the count.
+PROTECTED = dict(PR_OUT, **{"api repos/WolffM/tenhands/branches/main": "3\n"})
 
-def pr_lander(shell):
-    return Lander(run=shell, dry_run=False, mode="pr")
+#: A base branch with none — GitHub returns 0, not an error.
+UNPROTECTED = dict(PR_OUT, **{"api repos/WolffM/tenhands/branches/main": "0\n"})
+
+
+def pr_lander(shell, auto_merge=False):
+    return Lander(run=shell, dry_run=False, mode="pr", auto_merge=auto_merge)
 
 
 def test_pr_mode_never_pushes_to_base():
@@ -299,3 +306,117 @@ def test_dry_run_in_pr_mode_opens_nothing():
         Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
     assert res.pr_url == ""
     assert sh.ran("push") == [] and sh.ran("pr create") == []
+    assert sh.ran("pr merge") == [], "a dry run must not arm auto-merge either"
+
+
+# ── auto-merge ────────────────────────────────────────────────────────────
+#
+# The whole safety property is one distinction: `--auto` waits for *required*
+# checks and nothing else, so on a branch with none it merges IMMEDIATELY
+# rather than on green. Every test here is about reading the base branch's
+# protection instead of the pull request's own check rollup.
+
+
+def test_auto_merge_is_on_by_default():
+    # The velocity decision, pinned: PRs land themselves unless the repo
+    # gives us a reason not to. `dry_run` is still the safe default separately.
+    assert Lander().auto_merge is True
+
+
+def test_auto_merge_is_armed_when_the_base_branch_requires_checks():
+    sh = FakeShell(outputs=PROTECTED)
+    res = pr_lander(sh, auto_merge=True).land(
+        Path("/co"), ref(), branch="taskauto/t1", message="m",
+        changed_files=["a.py"])
+    assert res.auto_merge_armed is True
+    merge = sh.ran("pr merge")
+    assert merge, "auto-merge should have been armed"
+    assert "--auto" in merge[0] and "--squash" in merge[0]
+    assert "--delete-branch" in merge[0]
+    assert res.pushed is False, "arming auto-merge is not landing it"
+
+
+def test_auto_merge_holds_when_the_base_branch_has_no_required_checks():
+    # The load-bearing case. `--auto` here would merge on the spot, unreviewed.
+    sh = FakeShell(outputs=UNPROTECTED)
+    res = pr_lander(sh, auto_merge=True).land(
+        Path("/co"), ref(), branch="taskauto/t1", message="m",
+        changed_files=["a.py"])
+    assert res.auto_merge_armed is False
+    assert sh.ran("pr merge") == [], "must not arm --auto on an unprotected base"
+    assert any("HELD" in c for c in res.checks)
+    assert "a human merges it" in res.reason
+
+
+def test_unreadable_protection_holds_rather_than_arming():
+    # Fails closed: not knowing is exactly when merging unattended is worst.
+    sh = FakeShell(fail=("api repos/WolffM/tenhands/branches/main",),
+                   outputs=PR_OUT)
+    res = pr_lander(sh, auto_merge=True).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    assert res.auto_merge_armed is False
+    assert sh.ran("pr merge") == []
+
+
+def test_a_non_numeric_protection_payload_holds_rather_than_arming():
+    sh = FakeShell(outputs=dict(
+        PR_OUT, **{"api repos/WolffM/tenhands/branches/main": "null\n"}))
+    res = pr_lander(sh, auto_merge=True).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    assert res.auto_merge_armed is False
+    assert sh.ran("pr merge") == []
+
+
+def test_protection_is_read_from_the_base_branch_not_the_pull_request():
+    # If this ever starts reading `statusCheckRollup`, the guard is worthless:
+    # a PR covered in green NON-required checks looks identical from there.
+    sh = FakeShell(outputs=PROTECTED)
+    pr_lander(sh, auto_merge=True).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    assert sh.ran("branches/main"), "must read the base branch's protection"
+    assert not any("statusCheckRollup" in " ".join(c) for c in sh.calls)
+
+
+def test_a_failure_to_arm_leaves_the_pull_request_open_rather_than_raising():
+    # The branch is pushed and the PR exists by then. Raising would strand
+    # real work over the merge scheduling, which a human can still do.
+    sh = FakeShell(fail=("pr merge",), outputs=PROTECTED)
+    res = pr_lander(sh, auto_merge=True).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    assert res.pr_url == "https://github.com/WolffM/tenhands/pull/99"
+    assert res.auto_merge_armed is False
+    assert any("could not be armed" in c for c in res.checks)
+
+
+def test_auto_merge_never_arms_in_push_mode():
+    # push mode has no pull request to schedule.
+    sh = FakeShell(outputs=SHA)
+    Lander(run=sh, dry_run=False, mode="push", auto_merge=True).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    assert sh.ran("pr merge") == []
+
+
+def test_the_pr_body_states_which_of_the_two_it_got():
+    armed = FakeShell(outputs=PROTECTED)
+    pr_lander(armed, auto_merge=True).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    created = armed.ran("pr create")[0]
+    assert "Auto-merge is armed" in created[created.index("--body") + 1]
+
+    held = FakeShell(outputs=UNPROTECTED)
+    pr_lander(held, auto_merge=True).land(
+        Path("/co"), ref(), branch="b", message="m", changed_files=["a.py"])
+    created = held.ran("pr create")[0]
+    body = created[created.index("--body") + 1]
+    assert "no required status checks" in body
+    assert "Merge it by hand" in body
+
+
+def test_preflight_still_gates_before_anything_is_armed():
+    # Auto-merge is downstream of every refusal, not a way around one.
+    sh = FakeShell(outputs=PROTECTED)
+    with pytest.raises(LandingRefused, match="protected paths"):
+        pr_lander(sh, auto_merge=True).land(
+            Path("/co"), ref(), branch="b", message="m",
+            changed_files=[".github/workflows/deploy.yml"])
+    assert sh.ran("pr merge") == [] and sh.ran("pr create") == []
