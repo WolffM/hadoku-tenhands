@@ -59,6 +59,32 @@ Fleet-wide, measured:
 | hadoku-task | `kate-plugin.yml` | no — `plugins/kate/**` only |
 | hadoku-conjure | none | **no CI at all** |
 
+### Re-measured 2026-08-04
+
+Two rows moved and one repo appeared. **hadoku_site is done** — `main` is protected requiring
+`lint`, `typecheck`, `site-tests`, `mgmt-api-tests`, `No committed build output` and
+`Build variants`, with `enforce_admins: false` and `required_pull_request_reviews: null`, exactly
+the shape this doc specifies. Their blocker was that the `auto-format` janitor pushes back to `main`
+as `github-actions[bot]`, which is not an admin and so cannot waive a required check; they fixed it
+to push as an admin first (`e3df7f66`).
+
+| repo | always-runs check | `main` protected |
+|---|---|---|
+| tenhands | ✅ `test.yml` | ✅ `backend pytest` |
+| hadoku_site | ✅ | ✅ **(new)** |
+| hadoku-pygmalion | ❌ `tests.yml` + `typecheck.yml`, both filtered | ❌ |
+| hadoku-watchparty | ❌ `build-ui.yml`, filtered | ❌ |
+| hadoku-task | ❌ `kate-plugin.yml`, filtered | ❌ |
+| hadoku-conjure | ❌ no PR CI | ❌ |
+| **hadoku-resume-bot** | ❌ no PR CI | ❌ **(new board, new repo)** |
+
+`hadoku-resume-bot` is a seventh automation board enrolled after this doc was written — a reminder
+that the list is discovered, not fixed, so this table is a snapshot and re-measuring is part of the
+job. Auto-merge is enabled on all seven, which means the top row of the table above ("no required
+checks → `--auto` merges immediately, ignoring CI") is armed on five of them. It is not currently
+reachable: the pipeline runs in `pr` mode and never passes `--auto`, so a human still merges. That
+is the only thing standing between those five repos and an unchecked auto-merge.
+
 hadoku-task's only PR workflow is scoped to a Kate editor plugin, which is why
 PR #72 sat open for two days with **zero** checks.
 

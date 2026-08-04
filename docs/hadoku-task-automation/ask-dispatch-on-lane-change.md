@@ -17,6 +17,35 @@ one new outbound call and one binding.
 > Everything else below — payload, token, fire-and-forget posture, no-authority framing — still
 > holds as written.
 
+> **CORRECTED 2026-08-04 — the dispatch was aimed at the wrong repo, and had been from day one.**
+> This doc says to POST to `{cfg.repo}`, and that is wrong for every board but one. The runner is a
+> **single workflow in a single repo** (`.github/workflows/taskauto.yml` in `WolffM/tenhands`) that
+> sweeps every board shared with its service key. A board's `repo` is where its *work* happens —
+> `WolffM/hadoku-pygmalion`, `WolffM/hadoku-resume-bot`, and so on — and none of those repos have a
+> workflow listening for `taskauto`. GitHub accepts a `repository_dispatch` for a repo with no
+> matching workflow and **discards it silently**, so this failed with no error anywhere.
+>
+> Measured: in the 400 runs after the fast path shipped, there was exactly **one**
+> `repository_dispatch` — a manual probe against the tenhands board, the one board where `cfg.repo`
+> happens to equal the runner's repo. Two real captures on the `resume` board woke nothing and were
+> picked up 12 and 35 minutes later by the backstop cron.
+>
+> **The fix is a new install-level binding, `AUTOMATION_RUNNER_REPO`** (`WolffM/tenhands`), set in
+> `hadoku_site/workers/task-api/wrangler.toml`. `runnerRepo(env)` in `board-automation.ts` resolves
+> it; the dispatch goes there, and `cfg.repo` now rides in the payload as `repo` so a run's log can
+> still say which board woke it. Unset ⇒ falls back to `cfg.repo` (the old behaviour, correct only
+> for the runner's own board); malformed ⇒ fires nothing and warns, rather than falling back
+> silently into the same invisible failure.
+>
+> Install-level rather than per-board because that matches the fact: boards are **discovered**, not
+> configured, so one runner drives all of them. A per-board field would be a lie with a default
+> until a second runner exists.
+>
+> **Why nothing caught it:** `lane-dispatch-verify.ts` had `const REPO = 'WolffM/tenhands'` used as
+> *both* the board's repo and the expected dispatch target, so "went to the board's repo" and "went
+> to the runner's repo" were the same assertion. It now uses two different constants and asserts the
+> dispatch does **not** reach the board's repo. Reintroducing the bug fails 5 assertions.
+
 ---
 
 ## The ask
