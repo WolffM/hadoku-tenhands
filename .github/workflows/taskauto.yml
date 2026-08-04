@@ -125,6 +125,84 @@ jobs:
       TASKAUTO_CLAUDE_BIN: /home/hadoku/.local/bin/claude
 
     steps:
+      - name: Report the PREVIOUS run, because a dead run cannot report itself
+        # THE HOLE THIS CLOSES. On 2026-08-04 the self-hosted runner lost its
+        # connection to GitHub mid-job — `BrokerServer SocketException (125)`,
+        # then `renewjob` 404, then "Runner will be shutdown for UserCancelled".
+        # The job went red and told NOBODY, because the reporting step at the
+        # bottom of this file is `if: always()` and `always()` cannot save a
+        # step on a runner that no longer exists. Nothing executes after the
+        # process dies. No in-run condition can ever cover that.
+        #
+        # So the observer has to be OUTSIDE the run, and the cheapest correct
+        # observer is the NEXT run: the host cron guarantees one every 15
+        # minutes, it already holds the credential, and it is a different
+        # process on a different lease. Each run judges exactly its immediate
+        # predecessor, so every run is judged exactly once and no state file is
+        # needed to dedupe.
+        #
+        # FIRST step on purpose. Whatever kills this job later, this has
+        # already spoken for the run before it.
+        #
+        # Reports ANY non-success conclusion, not just `cancelled`. A genuine
+        # failure self-reports too, so that double-reports — deliberately.
+        # `run_id` is `gha_<previous id>`, the same key the self-report uses,
+        # and POST /health/api/jobs UPSERTS on run_id: the second write updates
+        # the same row instead of inventing a second failure. Alert-wise the
+        # duplicate is absorbed by the 24h reminder throttle. Being told twice
+        # is free; being told never is what cost us a red run.
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+          THIS_RUN: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"   # gh is not on the runner PATH
+
+          # The most recent COMPLETED run that is not this one. `--limit 10`
+          # rather than 1: this run, and any still-queued sibling, are in the
+          # list and must be skipped over.
+          prev=$(gh run list --workflow=taskauto.yml --repo "$REPO" --limit 10 \
+                   --json databaseId,status,conclusion \
+                   --jq "[.[] | select(.status == \"completed\")
+                              | select(.databaseId != ${THIS_RUN})] | first" 2>/dev/null || echo "")
+
+          if [ -z "$prev" ] || [ "$prev" = "null" ]; then
+            echo "no completed predecessor to report on"
+            exit 0
+          fi
+
+          prev_id=$(echo "$prev"   | jq -r '.databaseId')
+          prev_concl=$(echo "$prev" | jq -r '.conclusion // "unknown"')
+          echo "previous run $prev_id concluded: $prev_concl"
+
+          if [ "$prev_concl" = "success" ]; then
+            exit 0
+          fi
+
+          # `killed` rather than `failed` for a cancellation: the fleet's job
+          # vocabulary has a state for "something stopped this from outside",
+          # and it is the honest one. Both are in FAILING_STATES, so either
+          # way it alerts.
+          case "$prev_concl" in
+            cancelled) status=killed ;;
+            *)         status=failed ;;
+          esac
+
+          jq -n --arg st "$status" --arg run "gha_${prev_id}" \
+                --arg err "taskauto run $prev_id ended '$prev_concl' — ${SERVER}/${REPO}/actions/runs/${prev_id}" \
+            '{job_name: "tenhands:taskauto", status: $st, run_id: $run,
+              duration_ms: 0, error: $err}' > /tmp/taskauto-prev.json
+
+          # Never fail THIS run over reporting the last one.
+          curl -sS -f -X POST https://hadoku.me/health/api/jobs \
+            -H "X-User-Key: $HADOKU_SERVICE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/taskauto-prev.json \
+            && echo "reported $prev_id as $status" \
+            || echo "::warning::could not report the previous run's outcome"
+
       - name: Say what woke this run
         # Tracing only. When a board goes quiet the first question is always
         # "did anything even try", and a cron tick and a pushed wake-up fail in
@@ -221,6 +299,13 @@ jobs:
         # `always()` so recoveries are reported too: without the success side,
         # the alert state stays broken and the next real failure is a suppressed
         # reminder rather than a new one.
+        #
+        # `always()` is NOT total, and it is worth knowing exactly where it
+        # stops. It covers this job succeeding or failing. It does not cover
+        # the runner process dying, because then there is nothing left to
+        # evaluate a condition — the step is marked `skipped` and no alert
+        # fires. That case is covered from outside, by the "Report the PREVIOUS
+        # run" step at the top of this job, running in the NEXT run.
         if: always()
         env:
           OUTCOME: ${{ job.status }}
