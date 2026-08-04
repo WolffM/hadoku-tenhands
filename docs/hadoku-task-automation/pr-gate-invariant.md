@@ -88,6 +88,47 @@ checks → `--auto` merges immediately, ignoring CI") is armed on five of them. 
 reachable: the pipeline runs in `pr` mode and never passes `--auto`, so a human still merges. That
 is the only thing standing between those five repos and an unchecked auto-merge.
 
+### Closed out 2026-08-04, same evening
+
+Three more repos done, each verified with the acceptance test this doc prescribes — a PR touching
+only the most-ignored corner of the repo, confirming a required check still *reports*:
+
+| repo | contexts now required | skip-path probe |
+|---|---|---|
+| hadoku-pygmalion | `frontend-build`, `python-tests` | docs-only PR → both green in 9s / 8s |
+| hadoku-task | `typecheck`, `lint`, `worker-tests` | docs-only PR → all green in 8–17s |
+| hadoku-conjure | `check` | docs-only PR → green in seconds |
+
+All three took the same shape as hadoku_site's fix: the path list moves off the `pull_request`
+trigger and into a scope step inside the job, copied verbatim so coverage cannot regress, with every
+expensive step guarded by `if: steps.scope.outputs.run == 'true'`. The jobs always report; an
+unrelated PR skips the install and goes green in seconds.
+
+Three things worth carrying to the next repo:
+
+- **`checkout` needs `fetch-depth: 0`.** The scope step diffs `base.sha..head.sha`, and a shallow
+  clone has no common ancestor to diff against.
+- **`setup-node` must come before `corepack enable`.** Otherwise corepack tries to symlink its
+  shims next to the *system* node and dies with `EACCES: permission denied, symlink ... ->
+  '/usr/bin/yarn'`. This failed all three hadoku-task jobs in 11s on the first run.
+- **Not every step should be scope-gated.** pygmalion's "Assert dist is not committed" needs no
+  install and costs nothing, so it stays unguarded — a PR that adds `frontend/dist` without touching
+  `frontend/` is exactly what a scoped gate waves through. That is the difference between a job that
+  skips honestly and the always-passes anti-pattern below.
+
+hadoku-task is the largest gap closed: it had **no PR CI for the application at all**, only the Kate
+plugin build. `typecheck`, `lint` and `worker-tests` were already in `package.json` and had simply
+never run in CI. Likewise hadoku-conjure's `check` script, which its own `package.json` already
+documented as the CI-safe set.
+
+Still open: **hadoku-watchparty** (`build-ui.yml` filtered) and **hadoku-resume-bot** (no PR CI).
+
+One correction to the row above while re-measuring: auto-merge is **not** enabled on all seven.
+Measured 2026-08-04, `hadoku-resume-bot` has `allow_auto_merge: false`; the other six are `true`.
+Note also that `watchparty` in the original table is `WolffM/hadoku-watchparty` — there is a
+separate, stale `WolffM/watchparty` with no workflows at all, and querying the wrong one gives
+plausible-looking answers about the wrong repo.
+
 ## What to do, per repo
 
 Pick whichever fits; the invariant is what matters, not the mechanism.
