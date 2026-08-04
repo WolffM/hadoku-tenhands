@@ -41,7 +41,14 @@ CACHE_TTL_S = 60.0
 CACHE_PRUNE_THRESHOLD = 256
 REQUEST_TIMEOUT_S = 5.0
 
-_VALID_TIERS = ("admin", "service", "friend", "public")
+# The hadoku tier ladder, LOW to HIGH. Mirrors TIER_RANK in
+# @wolffm/worker-utils, which this runtime cannot import.
+#
+# A tier missing here is NOT rejected loudly — `_classify` below rewrites it to
+# "public", so the caller authenticates at the edge and then silently receives
+# the anonymous view: no 401, no 403, no log line. `wife` (2026-08-04) ranks
+# above service and was exactly that case. Keep it complete.
+_VALID_TIERS = ("admin", "wife", "service", "friend", "public")
 
 _cache: dict[str, tuple[str, float]] = {}
 _cache_lock = Lock()
