@@ -50,6 +50,16 @@ on:
     # Must equal the `event_type` the worker sends. Note repository_dispatch
     # only triggers a workflow present on the DEFAULT branch — the usual reason
     # a first end-to-end test looks like a silent no-op.
+    #
+    # THIS WORKFLOW EXISTS ONLY HERE, and that is what makes the wake signal's
+    # destination load-bearing. This one job sweeps EVERY board, so a task on
+    # the pygmalion board must dispatch to `WolffM/tenhands` — not to
+    # `WolffM/hadoku-pygmalion`, which has nothing listening. It did exactly
+    # that for three days: GitHub accepts a dispatch for a repo with no matching
+    # workflow and drops it without an error, so six of seven boards had a fast
+    # path that was dead and looked healthy. hadoku-task aims it with
+    # `AUTOMATION_RUNNER_REPO` (task-api's wrangler.toml). If a fresh capture
+    # stops waking a run, check that binding before anything in this file.
     types: [taskauto]
   workflow_dispatch:
     inputs:
