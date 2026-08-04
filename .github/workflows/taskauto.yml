@@ -226,7 +226,7 @@ jobs:
             printf 'client_payload (not trusted, not acted on): %s\n' "$PAYLOAD"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Check the credentials are present
         # Fail here with a sentence rather than 20 minutes later inside an
