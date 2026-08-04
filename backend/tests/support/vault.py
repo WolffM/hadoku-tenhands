@@ -70,11 +70,27 @@ def repo_root() -> Path:
 
     Tests run from `backend/`, the wrapper runs from the repo root, and CI runs
     from a workspace path that matches neither.
+
+    **Worktrees are why this keeps walking after the first hit.** Agents are
+    supposed to work in `.claude/worktrees/<task>/`, and a worktree gets the
+    *tracked* `.devvault.json` but not the *gitignored* `.devvault.local.json`
+    holding the key. Stopping at the first `.devvault.json` would find the
+    worktree's copy, then fail looking for a key file that only ever exists in
+    the main checkout — one directory further up, since worktrees live inside
+    it. So prefer a root that has both, and fall back to the first one found
+    (CI, where the key comes from `HADOKU_VAULT_KEY` and no file exists at all).
     """
     here = Path(__file__).resolve()
+    first_config: Optional[Path] = None
     for parent in [here, *here.parents]:
-        if (parent / ".devvault.json").is_file():
+        if not (parent / ".devvault.json").is_file():
+            continue
+        if (parent / ".devvault.local.json").is_file():
             return parent
+        if first_config is None:
+            first_config = parent
+    if first_config is not None:
+        return first_config
     raise VaultUnavailable(
         f"no .devvault.json found above {here} — is this a hadoku checkout?")
 
