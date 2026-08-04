@@ -1,7 +1,12 @@
 # Every PR must be covered by at least one check that always runs
 
-**Status:** blocking autonomous landing · **Scope:** one workflow change per repo
+**Status:** ✅ satisfied fleet-wide as of 2026-08-04 (was: blocking autonomous landing)
+**Scope:** one workflow change per repo
 **Filed from:** tenhands, after auditing why the pipeline can't merge its own PRs
+
+> All seven repos now have an always-reporting required check and a protected `main`. See
+> [Status: closed](#status-closed) at the bottom for the current table. The body below is kept as
+> written — it is the argument, and the next repo enrolled will need it again.
 
 ## The invariant
 
@@ -127,8 +132,55 @@ its `package.json` unused. Its `allow_auto_merge` was also `false` — the only 
 is now `true`, set *after* protection rather than before, which is the safe order: with auto-merge
 on and no required checks, `--auto` merges immediately and ignores CI entirely.
 
-**Still open: `hadoku-watchparty` alone** — `build-ui.yml` is still filtered to `apps/ui/**` and
-`packages/**`, and `main` is unprotected. Six of seven are done.
+### hadoku-watchparty — the last one, closed 2026-08-04
+
+Contexts now required: `typecheck`, `unit-tests`, `build`.
+
+`build-ui.yml` was the only `pull_request` workflow and it was scoped to `apps/ui/**` and
+`packages/**`, so a PR touching `apps/server/**`, `e2e/**`, `scripts/**` or docs got nothing. Its
+path list moved into a scope step verbatim. Two suites the repo already had and had never run in CI
+now have workflows: `pnpm typecheck` (recursive, then `e2e/` against the server tsconfig) and
+`pnpm test` (server vitest, server `test:typecheck`, UI vitest — **350 passed, 0 failed** on its
+first CI run ever).
+
+This one needed a **two-part** verification, and it is worth remembering why. The workflow PR proved
+the *run* path for `typecheck` and `unit-tests` only — their scope lists include
+`.github/workflows/ci.yml`, so their own diff triggered them. `build`'s list is a verbatim copy of
+the old trigger and never included workflow files, so `build` **skipped** on that PR and its run
+path was unproven. Requiring it on that evidence would have been requiring a context nobody had
+watched do real work. It was proven separately with a `workflow_dispatch` on `main` (`run=true`
+branch → full `tsc` + `vite build`, success), and only then did the docs-only probe confirm the skip
+path for all three (6s / 9s / 11s).
+
+The general lesson: when the scope lists differ between jobs, one PR does not exercise all of them.
+Check *which* jobs actually ran before treating a green PR as proof.
+
+Left undone deliberately: `game/check.sh` (rustfmt, clippy, `cargo check` against wasm32). The game
+crate is intentionally outside the pnpm workspace and still has no CI. It needs a Rust toolchain on
+the runner, which was not verified, and requiring a context on an unproven assumption is exactly the
+failure mode this document is about. Worth a follow-up.
+
+## Status: closed
+
+All seven repos satisfy the invariant as of 2026-08-04. Every one was verified with the acceptance
+test at the bottom of this document — a PR touching only the most-ignored corner of the repo,
+confirming a required check still *reports* — not with "is CI green".
+
+| repo | required contexts |
+|---|---|
+| tenhands | `backend pytest` |
+| hadoku_site | `lint`, `typecheck`, `site-tests`, `mgmt-api-tests`, `No committed build output`, `Build variants` |
+| hadoku-pygmalion | `frontend-build`, `python-tests` |
+| hadoku-task | `typecheck`, `lint`, `worker-tests` |
+| hadoku-conjure | `check` |
+| hadoku-resume-bot | `typecheck`, `lint` |
+| hadoku-watchparty | `typecheck`, `unit-tests`, `build` |
+
+All with `strict: false`, `enforce_admins: false`, `required_pull_request_reviews: null`, and
+`allow_auto_merge: true`.
+
+This table is a snapshot, not a guarantee. `hadoku-resume-bot` was discovered mid-audit, and the
+next board enrolled will start at the same zero. Re-measuring is part of the job.
 
 One correction to the row above while re-measuring: `watchparty` in the original table means
 `WolffM/hadoku-watchparty`. A separate, stale `WolffM/watchparty` exists with no workflows at all,
