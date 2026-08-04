@@ -76,6 +76,21 @@ the shape this doc specifies. Their blocker was that the `auto-format` janitor p
 as `github-actions[bot]`, which is not an admin and so cannot waive a required check; they fixed it
 to push as an admin first (`e3df7f66`).
 
+The evidence block above closed on its own terms: **#221 and #222 — the two PRs that got zero
+checks on 07-30 — have both since merged with all six required contexts green**, #221 on `pocs/**`
+and #222 on `public/audio/player.js`. Those are the exact paths the union of the old filters missed.
+
+Two details worth carrying. Verifying the push-identity fix needs the **activity API's pusher**, not
+the commit author: auto-format commits are authored by `hadoku-format-bot` either way, and only
+`actor` on the activity record shows the change to `WolffM`. And the three workflow runs that appear
+against the first post-fix auto-format commit are not a loop — all three are `repository_dispatch`
+from child repos, an event `[skip ci]` never governed. Zero push-triggered runs, which is the claim
+that matters.
+
+`scan` (`inventory-test.yml`) is deliberately **not** in hadoku_site's required set and is still
+path-filtered on `pull_request`. That is the right call, not an oversight: a filtered check is safe
+to have and unsafe to *require*, and five always-reporting contexts already satisfy the invariant.
+
 | repo | always-runs check | `main` protected |
 |---|---|---|
 | tenhands | ✅ `test.yml` | ✅ `backend pytest` |
@@ -195,10 +210,21 @@ typecheck or lint. A PR touching only assets then runs a check that passes
 trivially, which is honest: there was nothing of that kind to verify, and you
 still get a status to require. Cheapest change, and the right default.
 
-**Option B — an always-on `gate` job that dispatches internally.** `on:
-pull_request` with no `paths:`, one job that inspects the changed files and runs
-the relevant validations. Always reports, so it is safe to require. Use this when
-unfiltered CI would be genuinely expensive.
+**Option B — move the path list off the trigger and into a scope step.** `on:
+pull_request` with no `paths:`, and each job keeps its own filtering as a first
+step that diffs `base.sha..head.sha` and sets `run=true|false`; every expensive
+step below it carries `if: steps.scope.outputs.run == 'true'`. Always reports, so
+it is safe to require. Use this when unfiltered CI would be genuinely expensive.
+
+This is what all seven repos actually built — Option A was never used. Note the
+shape: **one scope step per job, not one aggregator job for the repo.** hadoku_site
+was asked for the aggregator and declined, citing this document's own anti-pattern
+section: a single job running all the validations means duplicating ~40 lines of
+runner/vault/install setup, which drifts. Three real contexts beat one hollow one.
+Copy each job's path list **verbatim** off its old trigger so coverage cannot
+regress. `frontpage.yml` in hadoku_site is the worked example, and a good one
+because it carries both shapes in one file: `Build variants` is scope-gated,
+while the `No committed build output` guard runs unconditionally.
 
 **Anti-pattern — a job that always passes.** A required check that reports
 success without verifying anything satisfies the letter of this document and
