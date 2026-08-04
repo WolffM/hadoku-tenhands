@@ -30,7 +30,7 @@ from services.task_board import (
     TaskBoardError,
 )
 
-from . import plan_notes, selection
+from . import plan_notes, reconcile, selection
 from .progress import METRICS_KEY, BoardSink
 from .selection import Idle, Pickup
 
@@ -82,12 +82,18 @@ class Runner:
                  settle: timedelta = selection.DEFAULT_SETTLE,
                  now: Optional[Callable[[], datetime]] = None,
                  lock: Optional[Callable[[str], ContextManager[bool]]] = None,
+                 pr_lookup: Optional[reconcile.Lookup] = None,
                  ) -> None:
         self.client = client
         self.board_handle = board_handle
         self.jobs = jobs or {}
         self.settle = settle
         self._now = now or (lambda: datetime.now(timezone.utc))
+        #: Resolves a pull request's real state, so `landed` tasks can be
+        #: corrected against what the human actually did with the PR. None
+        #: disables reconciliation — right for unit tests, wrong for anything
+        #: real, so `build_runner` always supplies it.
+        self._pr_lookup = pr_lookup
         #: Called with the board's `repo` to exclude other processes from its
         #: checkout for the length of a job — `CheckoutManager.lock` in
         #: production. None means no exclusion, which is right for a Runner
@@ -97,6 +103,22 @@ class Runner:
 
     def turn(self) -> TurnResult:
         board = self.client.get_board(self.board_handle)
+
+        # Correct `landed` against reality BEFORE selecting, and re-read if
+        # anything moved. A rejected PR sends its task to `replan`, which is a
+        # claimable lane — so reconciling first means the retry starts on THIS
+        # tick instead of waiting for the next one. It also means selection
+        # never sees a task whose lane we already know to be a lie.
+        if self._pr_lookup is not None:
+            corrected = reconcile.reconcile(
+                board, self.client, self.board_handle,
+                lookup=self._pr_lookup)
+            if corrected:
+                logger.info("reconciled %d task(s) on %s: %s",
+                            len(corrected), self.board_handle,
+                            "; ".join(corrected))
+                board = self.client.get_board(self.board_handle)
+
         decision = selection.choose(board, now=self._now(), settle=self.settle)
 
         if isinstance(decision, Idle):

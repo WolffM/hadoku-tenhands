@@ -52,6 +52,7 @@ from temporal.taskauto.agent import ClaudeCodeAgent
 from temporal.taskauto.checkout import CheckoutManager
 from temporal.taskauto.jobs import make_implement_job, make_plan_job
 from temporal.taskauto.landing import Lander
+from temporal.taskauto import reconcile
 from temporal.taskauto.refs import RepoPolicy
 from temporal.taskauto.runner import Runner
 from temporal.taskauto.scheduler import Scheduler
@@ -139,7 +140,13 @@ def build_runner(client: TaskBoardClient, board, *, live: bool,
     # concurrency group, plus a single `taskauto`-labelled runner), so the
     # process this excludes is a manual `run_taskauto.py` on the same host —
     # which is the documented local path and which GitHub cannot see.
-    return Runner(client, handle, lock=checkouts.lock, jobs={
+    # Reconciliation is wired in BOTH modes on purpose. `pr` mode is where it
+    # earns its keep — a human merging or closing the PR is the only signal
+    # that a task is finished or refused — but a `push`-mode board can still
+    # hold `landed` tasks left over from a spell in `pr` mode, and those
+    # deserve correcting too.
+    return Runner(client, handle, lock=checkouts.lock,
+                  pr_lookup=reconcile.gh_lookup(_gh), jobs={
         "plan": make_plan_job(agent, checkouts, base_branch=policy.base_branch),
         "implement": make_implement_job(
             agent, checkouts, Lander(dry_run=not live, mode=mode),
