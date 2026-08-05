@@ -5,8 +5,12 @@ packages:
 allowBuilds:
   esbuild: true
 
+# Supply-chain cooldown exemption, scope-wide — the same '@wolffm/*' glob the other
+# child repos and hadoku_site use. @wolffm/* is the cross-ecosystem deploy path and
+# must install immediately after publish: the always-latest auto-update pulls versions
+# that are minutes old, so pinned name@version entries here were whack-a-mole that
+# failed every publish until the next version was appended — and they never matched
+# anyway (2026-08-05: the commit that ADDED @wolffm/themes@4.0.0 to this list itself
+# failed verification on @wolffm/themes@4.0.0).
 minimumReleaseAgeExclude:
-  - '@wolffm/themes@3.0.2'
-  - '@wolffm/task-ui-components@2.1.0'
-  - '@wolffm/task-ui-components@3.0.0'
-  - '@wolffm/themes@4.0.0'
+  - '@wolffm/*'
