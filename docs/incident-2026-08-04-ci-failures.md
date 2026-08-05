@@ -98,17 +98,56 @@ killed it was two layers above it.
 
 ## Open items — both outside this repo
 
-1. **`OOMPolicy=continue` on `pm2-hadoku.service`** (owner: hadoku_site). For a
-   process supervisor whose entire job is running independent children, the
-   systemd default is a footgun: one child's OOM stops all 23. With
-   `continue`, systemd leaves the unit alone and pm2 restarts just the app that
-   died. Blast radius goes from the fleet to one service. **Not applied — this
-   is a live host-wide systemd change and needs an operator's call.**
-2. **A memory ceiling on the conjure/ComfyUI backend** (owner: hadoku-conjure
-   / hadoku_site). It currently runs uncapped in the shared pm2 cgroup
-   (`MemoryMax=infinity`). `proc.py` in this repo is the working model.
+### Update, 2026-08-05: the cgroup is now capped — and that makes item 1 urgent
 
-Memory pressure on hokon is ongoing, not resolved: at the time of writing the
-host sits at 35/61 GB RAM and 21/31 GB swap, with an `invokeai-web` python
-holding 8.6 GB. Until item 1 lands, the next uncapped balloon takes the fleet
-down the same way.
+`pm2-hadoku.service` has been bounded (`fix-pm2-memory-cap.sh`, applied 14:26
+PDT, persistent drop-in under `/etc/systemd/system.control/`):
+
+```
+MemoryHigh=16G   MemoryMax=24G   MemorySwapMax=4G   OOMPolicy=stop  ← unchanged
+```
+
+That is a real win for the **host**: pm2's balloons can no longer starve
+`invokeai-web`, the desktop session, or anything else outside the cgroup, and
+`MemoryHigh=16G` adds a reclaim brake that should absorb slow growth without
+killing anything.
+
+For the **fleet** it is a regression, because `OOMPolicy` was not touched:
+
+| | fleet-wide outage triggers when… |
+|---|---|
+| before the cap | the whole host exhausts — ~61 GB RAM + 31 GB swap |
+| after the cap | pm2's cgroup alone exceeds **24 GB + 4 GB swap** |
+
+Same amplifier, roughly a third of the trigger. Every balloon between 24 GB and
+~92 GB that previously would *not* have taken the fleet down now will. The cap
+fixed the trigger; the blast radius is untouched.
+
+Current headroom, for calibration: the cgroup sits at **4.9 GB** with an
+**11.0 GB peak** over the ~23 h since the Aug 4 restart, so the cap will not
+fire in normal operation — it only fires on a genuine balloon, and when it does
+it still takes all 23 apps with it. `memory.events` is all zeros so far, and
+`memory.oom.group=0`, so a kill claims one process rather than the whole cgroup.
+
+## Open items — both outside this repo
+
+1. **`OOMPolicy=continue` on `pm2-hadoku.service`** (owner: hadoku_site).
+   Now the missing half of a change already made, not optional hardening. With
+   `continue`, systemd leaves the unit alone and pm2 restarts just the app that
+   died — blast radius 1 instead of 23, which is the entire point of running a
+   supervisor. It makes systemd do strictly *less*, so it cannot itself cause an
+   outage, and it needs no restart: `OOMPolicy` is read when the OOM event is
+   handled, so `daemon-reload` suffices.
+
+   Note it **cannot** be applied with `systemctl set-property` — `OOMPolicy` is
+   a service property, not a resource-control one, and set-property rejects it
+   ("Cannot set property OOMPolicy, or unknown property"). It needs a real
+   drop-in. Ready to run: `~/security/fix-pm2-oom-policy.sh`.
+2. **A memory ceiling on the conjure/ComfyUI backend** (owner: hadoku-conjure
+   / hadoku_site). Still uncapped *individually* — the new 24 GB ceiling is
+   shared across all 23 apps, so ComfyUI can still consume the whole budget and
+   starve its neighbours out of it. `proc.py` in this repo is the working model
+   for a per-workload cap.
+
+Memory pressure on hokon is ongoing, not resolved: the host sits at 32/61 GB
+RAM and 21/31 GB swap, with an `invokeai-web` python holding 8.6 GB.
