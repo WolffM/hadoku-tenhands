@@ -96,9 +96,85 @@ them the *preferred* victim. In the 21:25 dump the taskauto processes carry adj
 best-behaved workload on the box and still got killed, because the thing that
 killed it was two layers above it.
 
-## Open items — both outside this repo
+## Resolution
 
-### Update, 2026-08-05: the cgroup is now capped — and that makes item 1 urgent
+### Update, 2026-08-05: both open items are closed
+
+**`pm2-hadoku.service` is capped and no longer amplifies.** Current state:
+
+```
+MemoryHigh=20G   MemoryMax=32G   MemorySwapMax=4G   OOMPolicy=continue
+```
+
+The fleet-amplifier argument below is **resolved**. With `OOMPolicy=continue`
+systemd no longer stops the unit when a process inside it is OOM-killed, so the
+blast radius is 1 app rather than 23 — the "same amplifier, a third of the
+trigger" regression no longer applies. The note about `systemctl set-property`
+rejecting `OOMPolicy` is correct and load-bearing: the three resource-control
+properties live in `/etc/systemd/system.control/pm2-hadoku.service.d/`, while
+`OOMPolicy` needed a hand-written drop-in at
+`/etc/systemd/system/pm2-hadoku.service.d/oom.conf` (applied 14:38 PDT via
+`~/security/fix-pm2-oom-policy.sh`).
+
+The ceiling was raised from the 16G/24G above to 20G/32G. The first sizing was
+taken from a `MemoryPeak` of 5.68 GB, which understated real load: `MemoryPeak`
+is a high-water mark since the cgroup was created, and pm2 had been restarted an
+hour earlier. The same counter read **11.04 GB** an hour later under ordinary
+concurrent CI. Size against a peak measured after a busy period, never a fresh
+one.
+
+**Item 2 (a ceiling on the ComfyUI backend) is closed — but the fix was not
+where it looked.**
+
+`backend/launch_comfyui.sh` had already grown the containment on 2026-08-05: its
+own `systemd-run --user --scope` with `MemoryMax=48G`, `MemorySwapMax=4G`, and
+`oom_score_adj=700`. It was not taking effect. The engine kept running at
+`oom_score_adj=0` inside `/system.slice/pm2-hadoku.service`.
+
+The cause is `scripts/restart-backend.py`, conjure's `postDeployCommand`. It
+relaunches the engine by cloning the live process's **argv, cwd and environment**
+out of `/proc` — and a cgroup and `oom_score_adj` are in none of those. So every
+conjure deploy silently relaunched ComfyUI with no ceiling, in whatever cgroup
+the deploy step occupied (mgmt-api's, i.e. pm2's). One correct start via the
+launch script was undone by the very next deploy, and nothing logged it.
+
+Fixed in `hadoku-conjure` `b967bf0`: `start()` re-applies both layers, mirroring
+the launch script so the two entry points cannot drift. Verified live — ComfyUI
+now runs at `adj=700` with `memory.max=48G` in its own `run-p*.scope`, outside
+`pm2-hadoku.service` entirely.
+
+A detail worth keeping: the engine's environment carried `CLAUDECODE`/`TMUX`
+variables cloned forward from a single hand launch many restarts earlier. Those
+fossils are what proved the engine had originally been started outside the
+script — not evidence of repeated hand starts.
+
+**Related, same root:** the two Actions runners left pm2 for
+`github-runner.service` / `github-runner-tenhands.service` in `ci-runner.slice`
+(`hadoku_site` `50f426f5`). CI did not cause this incident, but it sat in the
+same unbounded cgroup and is the likelier future offender.
+
+### Still open
+
+**InvokeAI is the last uncontained GPU engine.** `~/apps/invoke/*.sh` set no
+scope, no `MemoryMax` and no `oom_score_adj`; it currently runs at `adj=200`
+with `memory.max=max`. Conjure's scripts already assume a ladder of
+`invoke=800 > conjure=700 > taskauto jobs=500` — nothing implements the 800.
+`backend/temporal/taskauto/proc.py` in this repo remains the working model.
+
+**Detection now exists.** `hadoku_site`'s sitrep asserts containment rather than
+only watching growth: `collectEngineContainment` reads each known engine's real
+`memory.max` and `oom_score_adj` and warns when either is missing. It reads the
+actual cgroup limit rather than inferring from the cgroup's name — an earlier
+revision tested for a `*.scope` suffix and passed InvokeAI, which runs in
+`tmux-spawn-*.scope`: a real scope by name, `MemoryMax=infinity`, eight
+unrelated processes in it.
+
+## Historical: the fleet-amplifier analysis (superseded by OOMPolicy=continue)
+
+> Kept because the reasoning is still the right way to think about a cap on a
+> unit with `OOMPolicy=stop`, and because it is what motivated the fix. **The
+> numbers and the `OOMPolicy=stop` premise below are as-of 2026-08-05 14:26 PDT
+> and no longer describe the host** — see Resolution above for current state.
 
 `pm2-hadoku.service` has been bounded (`fix-pm2-memory-cap.sh`, applied 14:26
 PDT, persistent drop-in under `/etc/systemd/system.control/`):
@@ -129,7 +205,7 @@ fire in normal operation — it only fires on a genuine balloon, and when it doe
 it still takes all 23 apps with it. `memory.events` is all zeros so far, and
 `memory.oom.group=0`, so a kill claims one process rather than the whole cgroup.
 
-## Open items — both outside this repo
+### The two open items as filed (both now closed — see Resolution)
 
 1. **`OOMPolicy=continue` on `pm2-hadoku.service`** (owner: hadoku_site).
    Now the missing half of a change already made, not optional hardening. With
@@ -149,5 +225,6 @@ it still takes all 23 apps with it. `memory.events` is all zeros so far, and
    starve its neighbours out of it. `proc.py` in this repo is the working model
    for a per-workload cap.
 
-Memory pressure on hokon is ongoing, not resolved: the host sits at 32/61 GB
-RAM and 21/31 GB swap, with an `invokeai-web` python holding 8.6 GB.
+Memory pressure on hokon is real but no longer unbounded: at the time of writing
+the host sits at 23/61 GB RAM and 12/31 GB swap, with every engine except
+InvokeAI now carrying its own ceiling.
