@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, type RefObject } from 'react'
-import { AppHeader, LoadingSkeleton, useHadokuTheme } from '@wolffm/task-ui-components'
+import { AppHeader, LoadingSkeleton } from '@wolffm/task-ui-components'
+import { useHadokuTheme } from '@wolffm/themes'
 import { HadokuThemeRoot } from '@wolffm/themes'
 import { usePipelineStore, type ViewType } from './store'
 import { useTemporalStore } from './store/temporalStore'
