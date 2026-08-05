@@ -308,6 +308,97 @@ def test_a_lane_changed_release_aborts_like_a_lost_lease():
     assert "LANE_CHANGED" in r.reason and "wrote nothing" in r.reason
 
 
+def _guarded_release_client(attempts):
+    """Production's actual shape: the board refuses the *guarded* release and
+    accepts an unguarded one.
+
+    The older test made every release raise, which cannot tell "we let go of
+    the claim" apart from "we walked away still holding it" — the whole point
+    of the fix below. `attempts` records EVERY call including refused ones;
+    `FakeClient.calls` only sees the ones that get through.
+    """
+    class C(FakeClient):
+        def release(self, board, task_id, token, **kw):
+            attempts.append(kw)
+            if kw.get("if_current_lane") is not None:
+                from services.task_board import LaneChanged
+                raise LaneChanged("retagged", code="LANE_CHANGED", status=409)
+            return super().release(board, task_id, token, **kw)
+    return C
+
+
+def test_lane_changed_hands_the_claim_back_instead_of_stranding_it():
+    """The 2026-08-05 outage in one test.
+
+    A refused release leaves the claim OURS, and `selection.choose` idles an
+    entire board while any claim on it is live. Returning without handing it
+    back blocked the `task` board for 32 minutes across four sweeps, on a task
+    the agent had barely touched.
+    """
+    attempts = []
+    c = _guarded_release_client(attempts)(snapshot(task()))
+    r = runner(c, {"implement": lambda *a: ("landed", None, "")}).turn()
+
+    assert r.acted is False
+    assert "LANE_CHANGED" in r.reason and "wrote nothing" in r.reason
+    assert "claim handed back" in r.reason
+
+    assert len(attempts) == 2, "the guarded release, then the handback"
+    assert attempts[0]["if_current_lane"] is not None, "the guarded one first"
+    assert attempts[1].get("if_current_lane") is None, (
+        "the handback must not re-send the guard that just refused us")
+
+
+def test_the_handback_writes_nothing_at_all():
+    """It is a surrender, not an update. The board just told us our idea of
+    this task is stale, so asserting a lane or overwriting notes is exactly
+    the trampling `ifCurrentLane` exists to prevent."""
+    attempts = []
+    c = _guarded_release_client(attempts)(snapshot(task()))
+    runner(c, {"implement": lambda *a: ("landed", "notes!", "out")}).turn()
+
+    handback = attempts[-1]
+    assert handback.get("lane") is None
+    assert handback.get("notes") is None
+    assert handback.get("metadata") is None
+    assert not handback.get("complete")
+
+
+def test_lease_lost_on_release_does_not_attempt_a_handback():
+    """Nothing to hand back — the lease is already gone, and the release would
+    fail too. Only LANE_CHANGED leaves us holding a live token."""
+    from services.task_board import LeaseLost
+
+    attempts = []
+
+    class C(FakeClient):
+        def release(self, board, task_id, token, **kw):
+            attempts.append(kw)
+            raise LeaseLost("gone", code="LEASE_LOST", status=409)
+
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
+    assert "LEASE_LOST" in r.reason and "wrote nothing" in r.reason
+    assert "claim handed back" not in r.reason
+    assert len(attempts) == 1, "must not retry a dead token"
+
+
+def test_a_failed_handback_is_reported_honestly_not_claimed_as_success():
+    """If the handback itself fails the board really is blocked until the
+    lease expires. Saying otherwise would hide the outage."""
+    from services.task_board import LaneChanged, TaskBoardError
+
+    class C(FakeClient):
+        def release(self, board, task_id, token, **kw):
+            if kw.get("if_current_lane") is not None:
+                raise LaneChanged("retagged", code="LANE_CHANGED", status=409)
+            raise TaskBoardError("board unreachable")
+
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
+    assert r.acted is False
+    assert "wrote nothing" in r.reason
+    assert "claim handed back" not in r.reason, "the claim is still stranded"
+
+
 # ── the checkout lock ─────────────────────────────────────────────────────
 
 
