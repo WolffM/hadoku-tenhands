@@ -25,6 +25,7 @@ from services.task_board import (
     RELEASE_ABORTED,
     BoardSnapshot,
     ClaimHeld,
+    LaneChanged,
     LeaseLost,
     TaskBoardClient,
     TaskBoardError,
@@ -189,11 +190,25 @@ class Runner:
         try:
             sink.finish(lane, notes=notes, outcome=outcome)
         except RELEASE_ABORTED as e:
-            # LEASE_LOST: someone else owns the task now. LANE_CHANGED: a
-            # human retagged it mid-claim and the release wrote nothing.
-            # Different causes, identical consequence — the task is no longer
-            # ours and anything further would trample whoever it belongs to.
-            return TurnResult(False, f"release aborted ({e.code}); wrote nothing",
+            # Both mean "the task is no longer ours to describe", and neither
+            # may write. But they differ in the one way that matters here:
+            # whether we are still holding a claim that nothing will release.
+            #
+            # LEASE_LOST — the lease is already gone, so there is no claim to
+            # hand back and a release would fail too. Return.
+            #
+            # LANE_CHANGED — the board moved the task out from under us and
+            # refused the write, but OUR TOKEN IS STILL LIVE. Returning here is
+            # what pinned the `task` board for 32 minutes on 2026-08-05: the
+            # orphaned claim outlived the turn, and `selection.choose` idles a
+            # whole board while any claim on it is live, so four consecutive
+            # sweeps did nothing to any task. Give it back explicitly instead
+            # of waiting out the lease. `abandon()` writes nothing — it only
+            # stops the claim being ours.
+            handed_back = isinstance(e, LaneChanged) and sink.abandon()
+            reason = (f"release aborted ({e.code}); wrote nothing"
+                      + (", claim handed back" if handed_back else ""))
+            return TurnResult(False, reason,
                               task_id=pickup.task.id, job=pickup.job)
         except TaskBoardError as e:
             # The work happened; only the handback failed. Say so loudly —

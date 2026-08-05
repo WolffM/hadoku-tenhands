@@ -175,3 +175,46 @@ class BoardSink:
                             complete=complete, metadata=metadata,
                             if_current_lane=self._current_lane)
         self.released = True
+
+    def abandon(self) -> bool:
+        """Give the claim back, writing nothing at all. Never raises.
+
+        The counterpart to `finish`'s `ifCurrentLane` guard. When that guard
+        trips the release is refused and *the claim stays ours* — which is the
+        dangerous half, because `selection.choose` serialises one task in
+        flight per board off the server's `claimed` flag. A claim nobody will
+        ever release blocks every task on that board until its lease runs out,
+        including tasks the agent has never touched.
+
+        That is not hypothetical. On 2026-08-05 task `MSGNHPC1B11K` was claimed
+        out of the inbox, its lane write did not stick, the release came back
+        `409 LANE_CHANGED`, and the runner returned holding a live token. The
+        `task` board reported `is in flight (lane=None)` to every sweep for the
+        next 32 minutes — four runs did nothing — until the lease expired at
+        22:53:06. The very next sweep planned the task in seconds. Nothing was
+        wrong except that the claim outlived the turn.
+
+        So: no lane, no notes, no metadata, no `ifCurrentLane`. Every one of
+        those is a write, and the whole reason we are here is that the board
+        told us our idea of this task is stale. We surrender ownership and
+        assert nothing about where it should sit — whatever the board says now
+        is right, and the next sweep re-reads it from scratch.
+
+        Returns whether the claim is actually gone, because the caller reports
+        two different things. Never raises: this runs on an error path, and an
+        exception here would replace a precise diagnosis with a worse one.
+        """
+        if self.released:
+            return True
+        try:
+            self.client.release(self.board, self.task_id, self.token)
+        except Exception as e:
+            # Worth a warning rather than a swallow: failing here means the
+            # board stays blocked for the rest of the lease, which is the
+            # exact outage this method exists to prevent.
+            logger.warning("could not hand back the claim on %s; the board "
+                           "stays blocked until the lease expires: %s: %s",
+                           self.task_id, type(e).__name__, e)
+            return False
+        self.released = True
+        return True
