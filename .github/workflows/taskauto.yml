@@ -181,6 +181,41 @@ jobs:
             exit 0
           fi
 
+          # A `cancelled` run is two completely different events wearing one
+          # conclusion, and only one of them is worth waking anyone for.
+          #
+          # `concurrency: {group: taskauto, cancel-in-progress: false}` keeps at
+          # most ONE run pending per group. When a third dispatch arrives while
+          # one is running and one is already waiting, GitHub cancels the waiter
+          # to make room for the newcomer. Nothing started, nothing was claimed,
+          # no work was lost — the run that replaced it performs the same board
+          # sweep. A burst of board updates produces these constantly, and every
+          # one of them used to `@here` the channel.
+          #
+          # The other case is the one this whole step exists for: 2026-08-04,
+          # the runner died mid-job and reported nothing.
+          #
+          # The discriminator is whether any job ever started. A superseded
+          # waiter has zero; a run killed in flight has one that began and
+          # stopped. Measured 2026-08-05 — superseded 31052484109 →
+          # total_count 0, healthy 31052373379 → total_count 1.
+          #
+          # Fails toward alerting: ONLY an exact "0" suppresses. An API error, a
+          # 404 body, an empty string or anything unparseable falls through and
+          # reports. Being told twice is free; being told never is what this
+          # cost us on 2026-08-04.
+          if [ "$prev_concl" = "cancelled" ]; then
+            prev_jobs=$(gh api "repos/${REPO}/actions/runs/${prev_id}/jobs" \
+                          --jq '.total_count' 2>/dev/null)
+            if [ "$prev_jobs" = "0" ]; then
+              echo "run $prev_id never started a job — superseded in the" \
+                   "concurrency queue, not a failure. Not reporting."
+              exit 0
+            fi
+            echo "run $prev_id started ${prev_jobs:-<unreadable>} job(s) —" \
+                 "a real cancellation, reporting it."
+          fi
+
           # `killed` rather than `failed` for a cancellation: the fleet's job
           # vocabulary has a state for "something stopped this from outside",
           # and it is the honest one. Both are in FAILING_STATES, so either
