@@ -72,16 +72,60 @@ jobs:
           current_version=$(node -p "require('./package.json').version")
           
           echo "Current version in package.json: $current_version"
-          
-          # Check if this version already exists in the registry
-          # Need to loop until we find a version that doesn't exist
-          check_version="$current_version"
-          max_attempts=100
+
+          # START FROM THE REGISTRY, NOT FROM package.json.
+          #
+          # The bump below is written into the runner's workspace and published,
+          # but never committed back to main. So package.json on main is frozen
+          # at whatever it was when this workflow was written, while the
+          # registry marches on — and every run used to re-walk the entire gap
+          # one patch at a time, from scratch, before it could publish anything.
+          #
+          # That is not theoretical: on 2026-08-05 main said 1.14.5 and the
+          # registry was past 1.18.20. Walking 1.14.5 → 1.14.20 (15 steps) then
+          # 21 steps per minor across 1.15–1.18 is 99 attempts, and the run died
+          # on attempt 99 having published nothing. The loop was not retrying,
+          # it was counting to a hundred.
+          #
+          # Asking the registry for `latest` makes the walk start where reality
+          # is, so it takes one step instead of a hundred, and it cannot drift
+          # again no matter how far behind the committed version falls.
+          latest_published=$(pnpm view "${package_name}" version 2>/dev/null || echo "")
+          if [ -n "$latest_published" ]; then
+            echo "Latest published in registry:    $latest_published"
+            # Whichever is higher wins. Usually the registry — but if a
+            # pre-commit hook already bumped past it, that newer version is
+            # the right starting point and must not be dragged backwards.
+            check_version=$(printf '%s\n%s\n' "$current_version" "$latest_published" \
+                              | sort -V | tail -1)
+          else
+            # Never published, or the registry is unreachable. Fall back to the
+            # old behaviour rather than guessing — the loop below still checks
+            # each candidate, so the worst case is the slow path, not a wrong
+            # version.
+            echo "No published version found; starting from package.json"
+            check_version="$current_version"
+          fi
+          echo "Starting version check at:       $check_version"
+          check_version_start="$check_version"
+
+          # Now genuinely a retry, not a catch-up: from the true latest the
+          # first candidate is almost always free. A cap of 10 leaves room for
+          # a real race — two publishes in flight at once — while still failing
+          # fast and loudly if something is actually wrong with the registry or
+          # this logic.
+          max_attempts=10
           attempt=0
           while pnpm view "${package_name}@${check_version}" version 2>/dev/null; do
             attempt=$((attempt + 1))
             if [ $attempt -ge $max_attempts ]; then
-              echo "❌ Error: Exceeded maximum version bump attempts ($max_attempts). This may indicate an issue with the registry or version logic."
+              echo "❌ Error: Exceeded maximum version bump attempts ($max_attempts)."
+              echo "   Started at $check_version_start (package.json: $current_version,"
+              echo "   registry latest: ${latest_published:-<could not read>})."
+              echo "   With the starting point taken from the registry this should"
+              echo "   take one step, so $max_attempts consecutive collisions means"
+              echo "   something real is wrong — most likely the registry lookup"
+              echo "   failed and this fell back to the stale committed version."
               exit 1
             fi
             echo "⚠️  Version $check_version already published, bumping version... (attempt $attempt/$max_attempts)"
