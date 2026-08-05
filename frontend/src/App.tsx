@@ -1,7 +1,6 @@
-import { useRef, useState, useEffect } from 'react'
-import { AppHeader, ConnectedThemePicker, LoadingSkeleton } from '@wolffm/task-ui-components'
-import { THEME_ICON_MAP } from '@wolffm/themes'
-import { useTheme } from './hooks/useTheme'
+import { useRef, useState, useEffect, type RefObject } from 'react'
+import { AppHeader, LoadingSkeleton, useHadokuTheme } from '@wolffm/task-ui-components'
+import { HadokuThemeRoot } from '@wolffm/themes'
 import { usePipelineStore, type ViewType } from './store'
 import { useTemporalStore } from './store/temporalStore'
 import { getOwner } from './api/endpoints'
@@ -18,8 +17,23 @@ import {
 } from './views'
 import type { TenHandsProps } from './entry'
 
+/**
+ * Provider boundary. Theme state belongs to the platform (@wolffm/themes),
+ * not to this app — the local hooks/useTheme.ts and app/themeConfig.tsx copies
+ * are gone. AppHeader renders the shared picker from this context, so nothing
+ * below passes one.
+ */
 export default function App(props: TenHandsProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null)
+  return (
+    <HadokuThemeRoot theme={props.theme} containerRef={containerRef}>
+      <AppInner {...props} containerRef={containerRef} />
+    </HadokuThemeRoot>
+  )
+}
+
+function AppInner(props: TenHandsProps & { containerRef: RefObject<HTMLDivElement | null> }) {
+  const { containerRef } = props
 
   // Get active view and owner from store
   const activeView = usePipelineStore(state => state.activeView)
@@ -83,12 +97,9 @@ export default function App(props: TenHandsProps = {}) {
     return false
   })
 
-  const { theme, setTheme, isDarkTheme, isThemeReady, isInitialThemeLoad, THEME_FAMILIES } =
-    useTheme({
-      propsTheme: props.theme,
-      experimentalThemes: false,
-      containerRef
-    })
+  // Theme comes from <HadokuThemeRoot> above — one implementation for
+  // every app, instead of this repo's former hooks/useTheme.ts copy.
+  const { theme, isDarkTheme, isThemeReady, isInitialThemeLoad } = useHadokuTheme()
 
   // Show loading skeleton during initial theme load to prevent FOUC
   if (isInitialThemeLoad && !isThemeReady) {
@@ -128,17 +139,6 @@ export default function App(props: TenHandsProps = {}) {
       <div className="tenhands">
         <AppHeader
           title="TenHands"
-          themePicker={
-            <ConnectedThemePicker
-              themeFamilies={THEME_FAMILIES}
-              currentTheme={theme}
-              onThemeChange={setTheme}
-              getThemeIcon={(themeName: string) => {
-                const Icon = THEME_ICON_MAP[themeName as keyof typeof THEME_ICON_MAP]
-                return Icon ? <Icon /> : null
-              }}
-            />
-          }
         />
 
         <Navigation />

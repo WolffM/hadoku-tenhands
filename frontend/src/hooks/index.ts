@@ -1,4 +1,3 @@
-export { useTheme } from './useTheme'
 export { useAsyncAction } from './useAsyncAction'
 export { useBatchAction } from './useBatchAction'
 export type { BatchActionResult, UseBatchActionOptions } from './useBatchAction'
