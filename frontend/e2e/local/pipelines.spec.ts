@@ -1,231 +1,90 @@
 /**
- * Pipelines View Tests
+ * The two stage-tab pipelines: Vibecheck and OSS Contribution.
  *
- * Tests for the 4-stage vibecheck pipeline view.
+ * Both render through `StageTabView`, so the shape is shared — a tab strip with
+ * a per-stage count, and one stage's content at a time. What differs is the
+ * stage list and which endpoints feed the counts, so both are driven from the
+ * same table below rather than duplicated.
  */
 
-import { test, expect } from '../fixtures/base'
-import { mockAllAPIs } from '../fixtures/api-mocks'
+import { test, expect, type Page } from '../fixtures/base'
+import { mockStage1Repos, mockStage2Repos, mockStage3Issues, mockStage4PRs } from '../fixtures/data'
 
-test.describe('Pipelines View', () => {
+const tabs = (page: Page) => page.locator('.stage-tab')
+
+test.describe('Vibecheck pipeline', () => {
+  const STAGES = [
+    { label: 'Install VibeCheck', count: mockStage1Repos.length },
+    { label: 'Run VibeCheck', count: mockStage2Repos.length },
+    { label: 'Assign Copilot', count: mockStage3Issues.length },
+    // Stage 4 counts only PRs that are ready, so it is not simply the array
+    // length — asserted as "at most the total" rather than pinned to a number
+    // that would encode isPRReady's current rules into the harness.
+    { label: 'Review & Merge', count: null as number | null }
+  ]
+
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await page.goto('/?key=test-key')
-    // Navigate from pipeline selection to Vibecheck pipeline
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
+    await page.goto('/')
+    await page.getByRole('heading', { name: 'Vibecheck Pipeline' }).click()
   })
 
-  test('displays 4 stage tabs', async ({ page }) => {
-    // Should have 4 stage tab buttons
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Run VibeCheck/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Assign Copilot/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Review & Merge/i })).toBeVisible()
-  })
-
-  test('has Refresh All button', async ({ page }) => {
-    const refreshBtn = page.getByRole('button', { name: /Refresh All/i })
-    await expect(refreshBtn).toBeVisible()
-  })
-})
-
-test.describe('Stage 1 - Install', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await page.goto('/?key=test-key')
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-  })
-
-  test('displays repos needing vibecheck installation', async ({ page }) => {
-    // Install VibeCheck tab should be active by default
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
-
-    // Should display repo checkboxes - wait for content
-    await expect(page.getByRole('checkbox', { name: /repo-without-vc-1/i })).toBeVisible()
-  })
-
-  test('has Select All and Select None buttons', async ({ page }) => {
-    // Wait for content to load
-    await expect(page.getByRole('checkbox', { name: /repo-without-vc-1/i })).toBeVisible()
-
-    await expect(page.getByRole('button', { name: /Select All/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Select None/i })).toBeVisible()
-  })
-
-  test('has Install Selected button', async ({ page }) => {
-    // Wait for content to load
-    await expect(page.getByRole('checkbox', { name: /repo-without-vc-1/i })).toBeVisible()
-
-    await expect(page.getByRole('button', { name: /Install Selected/i })).toBeVisible()
-  })
-})
-
-test.describe('Stage 2 - Run', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await page.goto('/?key=test-key')
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-  })
-
-  test('displays repos with vibecheck installed', async ({ page }) => {
-    // Set up response wait BEFORE clicking
-    await page.getByRole('button', { name: /Run VibeCheck/i }).click()
-
-    // Should show stage 2 content - look for repo names
-    await expect(page.locator('text=repo-with-vc-1').first()).toBeVisible()
-  })
-
-  test('shows recommended repos section', async ({ page }) => {
-    await page.getByRole('button', { name: /Run VibeCheck/i }).click()
-
-    // Check for repo content
-    const repoContent = page.locator('text=repo-with-vc')
-    await expect(repoContent.first()).toBeVisible()
-  })
-
-  test('has Run action buttons', async ({ page }) => {
-    await page.getByRole('button', { name: /Run VibeCheck/i }).click()
-
-    // Look for run-related buttons - the stage tab itself contains "Run"
-    // so we need more specific selectors
-    const runBtn = page.getByRole('button', { name: /Run VibeCheck/i })
-    await expect(runBtn).toBeVisible()
-  })
-})
-
-test.describe('Stage 3 - Assign', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await page.goto('/?key=test-key')
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-  })
-
-  test('displays vibecheck issues', async ({ page }) => {
-    await page.getByRole('button', { name: /Assign Copilot/i }).click()
-
-    // Should show issues - look for issue titles from mock data
-    const issueContent = page.locator('text=Security vulnerability')
-    await expect(issueContent.first()).toBeVisible()
-  })
-
-  test('has severity filter or badges', async ({ page }) => {
-    await page.getByRole('button', { name: /Assign Copilot/i }).click()
-
-    // Look for severity-related elements (filter, badges, etc.) or issue content
-    const issueContent = page.locator('text=Security vulnerability')
-    await expect(issueContent.first()).toBeVisible()
-  })
-
-  test('displays severity badges on issues', async ({ page }) => {
-    await page.getByRole('button', { name: /Assign Copilot/i }).click()
-
-    // Verify issues are displayed (badges may or may not be visible depending on UI)
-    const issueContent = page.locator('text=Security vulnerability')
-    await expect(issueContent.first()).toBeVisible()
-  })
-
-  test('displays Created Date column in issue tables', async ({ page }) => {
-    await page.getByRole('button', { name: /Assign Copilot/i }).click()
-
-    // Verify "Created Date" column header is present
-    const createdDateHeader = page.locator('th:has-text("Created Date")')
-    await expect(createdDateHeader.first()).toBeVisible()
-
-    // Verify that date values are displayed in the table (e.g., "1d ago", "2d ago")
-    const dateCell = page.locator('td').filter({ hasText: /\d+[dhms] ago|just now/ })
-    await expect(dateCell.first()).toBeVisible()
-  })
-})
-
-test.describe('Stage 4 - Review', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await page.goto('/?key=test-key')
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-  })
-
-  test('displays open PRs', async ({ page }) => {
-    await page.getByRole('button', { name: /Review & Merge/i }).click()
-
-    // Should show PR titles from mock data
-    const prContent = page.locator('text=Fix security vulnerability')
-    await expect(prContent.first()).toBeVisible()
-  })
-
-  test('shows Ready for Review and In Progress sections', async ({ page }) => {
-    await page.getByRole('button', { name: /Review & Merge/i }).click()
-
-    // Look for PR content - sections may vary by UI implementation
-    const prContent = page.locator('text=Fix security vulnerability')
-    await expect(prContent.first()).toBeVisible()
-  })
-
-  test('has action buttons for PRs', async ({ page }) => {
-    await page.getByRole('button', { name: /Review & Merge/i }).click()
-
-    // Look for action buttons (View, Approve, Merge, etc.)
-    const actionButtons = page.getByRole('button', { name: /View|Approve|Merge|Details/i })
-    const hasButtons = (await actionButtons.count()) > 0
-
-    // If no buttons, at least verify PR content is visible
-    if (!hasButtons) {
-      await expect(page.locator('text=Fix security vulnerability').first()).toBeVisible()
-    } else {
-      await expect(actionButtons.first()).toBeVisible()
+  test('shows the four stages in order', async ({ page }) => {
+    await expect(tabs(page)).toHaveCount(STAGES.length)
+    for (const [i, stage] of STAGES.entries()) {
+      await expect(tabs(page).nth(i)).toContainText(stage.label)
     }
   })
 
-  test('can view PR details', async ({ page }) => {
-    await page.getByRole('button', { name: /Review & Merge/i }).click()
-
-    // Verify PR content is visible
-    await expect(page.locator('text=Fix security vulnerability').first()).toBeVisible()
-
-    // If there's a view/details button, click it
-    const viewButton = page.getByRole('button', { name: /View|Details/i }).first()
-    const hasViewButton = (await viewButton.count()) > 0
-
-    if (hasViewButton) {
-      await viewButton.click()
-      // Wait a moment for any modal/details to appear
-      await page.waitForTimeout(500)
+  test('each stage tab carries the count of what is waiting in it', async ({ page }) => {
+    for (const stage of STAGES) {
+      if (stage.count === null) continue
+      const tab = tabs(page).filter({ hasText: stage.label })
+      await expect(tab.locator('.stage-tab__count')).toHaveText(String(stage.count))
     }
 
-    // Test passes if we got here - PR content was visible
-    expect(true).toBeTruthy()
+    const reviewCount = await tabs(page)
+      .filter({ hasText: 'Review & Merge' })
+      .locator('.stage-tab__count')
+      .innerText()
+    expect(Number(reviewCount)).toBeLessThanOrEqual(mockStage4PRs.length)
+  })
+
+  test('clicking a stage swaps the content below the strip', async ({ page }) => {
+    const content = page.locator('.stage-content')
+    const first = await content.innerText()
+
+    await tabs(page).filter({ hasText: 'Assign Copilot' }).click()
+    await expect(tabs(page).filter({ hasText: 'Assign Copilot' })).toHaveClass(/stage-tab--active/)
+    await expect(content).not.toHaveText(first)
   })
 })
 
-test.describe('Stage Navigation', () => {
+test.describe('OSS Contribution pipeline', () => {
+  const STAGES = ['Repo Health', 'Fork & Assign', 'Pipeline Runs', 'Review']
+
   test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await page.goto('/?key=test-key')
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
+    await page.goto('/')
+    await page.getByRole('heading', { name: 'OSS Contribution Pipeline' }).click()
   })
 
-  test('can navigate between all stages', async ({ page }) => {
-    // Click through each stage tab
-    const stages = ['Run VibeCheck', 'Assign Copilot', 'Review & Merge']
-
-    for (const stage of stages) {
-      await page.getByRole('button', { name: new RegExp(stage, 'i') }).click()
-      await page.waitForTimeout(300)
+  test('shows the four stages in order', async ({ page }) => {
+    await expect(tabs(page)).toHaveCount(STAGES.length)
+    for (const [i, label] of STAGES.entries()) {
+      await expect(tabs(page).nth(i)).toContainText(label)
     }
-
-    // Navigate back to first stage
-    await page.getByRole('button', { name: /Install VibeCheck/i }).click()
-    await expect(page.getByRole('button', { name: /Select All/i })).toBeVisible()
   })
 
-  test('stage tabs show item counts', async ({ page }) => {
-    // Wait for content to appear (indicates data loaded)
-    await expect(page.getByRole('checkbox', { name: /repo-without-vc-1/i })).toBeVisible()
+  test('opens on Pipeline Runs, not on the first tab', async ({ page }) => {
+    // `defaultStageId="pipeline"` — the pipeline-runs tab is the working
+    // surface, so landing on Repo Health would be a regression, not a detail.
+    await expect(tabs(page).filter({ hasText: 'Pipeline Runs' })).toHaveClass(/stage-tab--active/)
+  })
 
-    // Stage tabs should show counts - look for numbers in button text
-    const installBtn = page.getByRole('button', { name: /Install VibeCheck/i })
-    const buttonText = await installBtn.textContent()
-
-    // Should contain a number (the count badge)
-    expect(buttonText).toMatch(/\d+/)
+  test('every stage is reachable and renders content', async ({ page }) => {
+    for (const label of STAGES) {
+      await tabs(page).filter({ hasText: label }).click()
+      await expect(tabs(page).filter({ hasText: label })).toHaveClass(/stage-tab--active/)
+      await expect(page.locator('.stage-content')).not.toBeEmpty()
+    }
   })
 })

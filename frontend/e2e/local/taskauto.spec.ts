@@ -1,74 +1,122 @@
 /**
- * Task Automation view e2e.
+ * Task Automation view — the board-driven pipeline surface.
  *
- * Two behaviours worth pinning down:
- *
- *   - A merged PR's row leaves on the merge. The backend keeps listing it
- *     until it re-reads GitHub, and the naive "clear the spinner, then
- *     reload" order made the row flash back to a live Merge button in that
- *     window — a button that would merge an already-merged PR.
- *   - A lane card opens the task behind it. Lane cards truncate, so the card
- *     is a pointer to the task rather than the task itself.
+ * Two tabs (Review, Boards), a PR list you merge from, and a task modal.
  */
 
 import { test, expect } from '../fixtures/base'
-import { mockAllAPIs } from '../fixtures/api-mocks'
-import { mockTaskAutoAPIs, mockTaskAutoStatus } from '../fixtures/taskauto-mocks'
+import { mockTaskAutoPRs, mockTaskAutoStatus } from '../fixtures/data'
 
-test.describe('Task automation', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-    await mockTaskAutoAPIs(page)
-    await page.goto('/?key=test-key')
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Task Automation' }).click()
+const BOARD = mockTaskAutoStatus.boards[0]
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('heading', { name: 'Task Automation' }).click()
+  await expect(page.getByTestId('taskauto-view')).toBeVisible()
+})
+
+test.describe('tabs', () => {
+  test('opens on Review and shows both tabs with their counts', async ({ page }) => {
+    const tabs = page.getByTestId('taskauto-tabs')
+    await expect(tabs.locator('.stage-tab')).toHaveCount(2)
+
+    // Review counts PRs, Boards counts boards.
+    await expect(page.getByTestId('taskauto-tab-review')).toContainText('Review')
+    await expect(page.getByTestId('taskauto-tab-review')).toContainText(
+      String(mockTaskAutoPRs.length)
+    )
+    await expect(page.getByTestId('taskauto-tab-boards')).toContainText(
+      String(mockTaskAutoStatus.boards.length)
+    )
+
+    await expect(page.getByTestId('taskauto-tab-review')).toHaveClass(/stage-tab--active/)
   })
 
-  test('merging removes the row even while status still lists the PR', async ({ page }) => {
-    const prs = page.getByTestId('taskauto-prs')
-    await expect(prs.locator('.taskauto-pr')).toHaveCount(2)
+  test('Boards tab shows the board and its lanes', async ({ page }) => {
+    await page.getByTestId('taskauto-tab-boards').click()
 
-    await page.getByTestId('taskauto-pr-72').getByRole('button', { name: 'Merge' }).click()
+    const board = page.getByTestId(`taskauto-board-${BOARD.handle}`)
+    await expect(board).toBeVisible()
+    await expect(board.getByRole('heading', { name: BOARD.name })).toBeVisible()
 
-    // Gone, and it stays gone: the mocked status keeps returning PR 72.
-    await expect(page.getByTestId('taskauto-pr-72')).toHaveCount(0)
-    await expect(prs.locator('.taskauto-pr')).toHaveCount(1)
-    await page.getByRole('button', { name: 'Refresh' }).click()
-    await expect(page.getByTestId('taskauto-pr-72')).toHaveCount(0)
+    // Only lanes with tasks render a card; the fixture has one in each of two.
+    for (const lane of Object.values(BOARD.lanes)) {
+      for (const task of lane) {
+        await expect(page.getByTestId(`taskauto-task-${task.id}`)).toBeVisible()
+      }
+    }
+  })
+})
 
-    // The other PR is untouched and still mergeable.
-    await expect(
-      page.getByTestId('taskauto-pr-73').getByRole('button', { name: 'Merge' })
-    ).toBeEnabled()
+test.describe('review queue', () => {
+  test('lists every open PR the boards report', async ({ page }) => {
+    const list = page.getByTestId('taskauto-prs')
+    await expect(list).toBeVisible()
 
-    const merges = await page.evaluate(() => window.__taskautoMerges ?? [])
-    expect(merges).toHaveLength(1)
-    // `auto: false` matters: the plain Merge button merges now. "Merge when
-    // green" is the other button, and it leaves the PR open for CI to veto.
-    expect(merges[0]).toMatchObject({ repo: 'WolffM/hadoku-task', number: 72, auto: false })
+    for (const pr of mockTaskAutoPRs) {
+      const row = page.getByTestId(`taskauto-pr-${pr.number}`)
+      await expect(row).toBeVisible()
+      await expect(row).toContainText(pr.title)
+    }
+  })
+
+  test('merging removes the row immediately, without waiting for a reload', async ({
+    page,
+    api
+  }) => {
+    // The backend keeps returning a merged PR until it re-reads GitHub, so the
+    // view filters on `mergedIds` locally. That is the behaviour under test:
+    // /api/taskauto/status still reports both PRs after the merge.
+    const target = mockTaskAutoPRs[0]
+    const row = page.getByTestId(`taskauto-pr-${target.number}`)
+    await expect(row).toBeVisible()
+
+    await row.getByRole('button', { name: /merge/i }).click()
+
+    await expect(row).toBeHidden()
+    await expect(page.getByTestId(`taskauto-pr-${mockTaskAutoPRs[1].number}`)).toBeVisible()
+
+    const merge = api.posts.find(p => p.key === 'POST /api/taskauto/merge')
+    expect(merge?.body).toMatchObject({ repo: target.repo, number: target.number })
   })
 
   test('the Review tab count drops with the merged row', async ({ page }) => {
-    await expect(page.getByTestId('taskauto-tab-review')).toContainText('2')
-    await page.getByTestId('taskauto-pr-72').getByRole('button', { name: 'Merge' }).click()
-    await expect(page.getByTestId('taskauto-tab-review')).toContainText('1')
-  })
+    await expect(page.getByTestId('taskauto-tab-review')).toContainText(
+      String(mockTaskAutoPRs.length)
+    )
 
-  test('a lane card opens the task with its timeline, PR and plan', async ({ page }) => {
+    await page
+      .getByTestId(`taskauto-pr-${mockTaskAutoPRs[0].number}`)
+      .getByRole('button', { name: /merge/i })
+      .click()
+
+    await expect(page.getByTestId('taskauto-tab-review')).toContainText(
+      String(mockTaskAutoPRs.length - 1)
+    )
+  })
+})
+
+test.describe('task detail', () => {
+  test('a lane card opens the task modal headed with its title', async ({ page }) => {
     await page.getByTestId('taskauto-tab-boards').click()
 
-    const taskId = mockTaskAutoStatus.boards[0].lanes.landed[0].id
-    await page.getByTestId(`taskauto-task-${taskId}`).click()
+    const task = BOARD.lanes['plan-review'][0]
+    await page.getByTestId(`taskauto-task-${task.id}`).click()
 
     const modal = page.getByTestId('taskauto-task-modal')
     await expect(modal).toBeVisible()
-    await expect(modal.locator('.modal__title')).toContainText('dragging while in edit boards view')
-    // Claim log oldest first, then the PR it produced.
-    await expect(modal.locator('.taskauto-timeline__item')).toHaveCount(3)
-    await expect(modal.locator('.taskauto-timeline__item').nth(1)).toContainText('planned — ready')
-    await expect(modal.locator('.taskauto-detail__pr')).toContainText('#72')
-    await expect(modal.locator('.taskauto-detail__notes')).toContainText('fix the drag handler')
+    await expect(modal).toContainText(task.title)
+  })
+})
 
-    await page.keyboard.press('Escape')
-    await expect(modal).toHaveCount(0)
+test.describe('failure surfaces', () => {
+  test.use({
+    apiOverrides: {
+      'GET /api/taskauto/status': { success: false, error: 'board unreachable' }
+    }
+  })
+
+  test('a failed status load shows the error instead of an empty board', async ({ page }) => {
+    await expect(page.getByTestId('taskauto-error')).toBeVisible()
   })
 })

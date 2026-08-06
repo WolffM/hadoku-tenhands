@@ -48,10 +48,28 @@ export default async function globalSetup(): Promise<void> {
     )
   }
 
-  // 2. gh CLI auth — non-fatal warning so tests that depend on it fail with clear names
+  // 2. gh CLI auth — non-fatal, and deliberately quiet about the one answer it
+  //    cannot interpret.
+  //
+  //    This probe is unauthenticated, and `/oss/debug/gh-health` is behind the
+  //    backend's auth gate, so on a normal local run it gets a 401. The old code
+  //    only acted `if (res.ok)`, so a 401 meant it silently did nothing — while
+  //    still printing `"GET .../gh-health HTTP/1.1" 401` into the Flask log that
+  //    scrolls past during every run. That line reads like a test failing on a
+  //    permission problem and is the first thing you chase when the suite is
+  //    red. It is not: it is this check, and it has no bearing on any test.
+  //
+  //    The local specs do not touch gh at all now — every request is served by
+  //    the mock router in `fixtures/api.ts` — so this is only useful for the
+  //    `prod` project. Say what a 401 actually means instead of leaving the log
+  //    line to be misread.
   try {
     const res = await fetchWithTimeout(`${BACKEND_URL}/tenhands/api/oss/debug/gh-health`)
-    if (res.ok) {
+    if (res.status === 401) {
+      console.info(
+        `ℹ  gh-health probe got 401 (auth gate) — expected without a key, and irrelevant to the local suite.`
+      )
+    } else if (res.ok) {
       const body = (await res.json()) as { authenticated?: boolean; api_working?: boolean }
       if (!body.authenticated || !body.api_working) {
         console.warn(

@@ -1,10 +1,12 @@
 /**
- * API Mock Helpers for Playwright Tests
+ * Mock data for the local e2e suite.
  *
- * Intercepts Flask API calls and returns mock data for consistent testing.
+ * Data only — no Playwright import, no routing. `api.ts` owns the wiring, and
+ * keeping the two apart is what lets the router be exhaustive: a response body
+ * and the decision to serve it are separate concerns, and the file this
+ * replaced conflated them into one opt-in helper per endpoint. Every endpoint
+ * the UI can call is answered from here, whether or not a spec expects it.
  */
-
-import type { Page } from '@playwright/test'
 
 // ============ Mock Data ============
 
@@ -633,489 +635,290 @@ export const mockRetroBatchDetail = {
   ]
 }
 
-// ============ Mock Setup Functions ============
+// ============ Task automation ============
 
-/**
- * Set up all API mocks for a page (vibecheck + OSS + health).
- *
- * Pass `{ retro: false }` to leave retro endpoints unmocked so tests hit the
- * real backend and can catch actual data bugs.
- */
-export async function mockAllAPIs(page: Page, options?: { retro?: boolean }): Promise<void> {
-  await mockOwnerAPI(page)
-  await mockStageAPIs(page)
-  await mockHealthAPIs(page)
-  await mockActionAPIs(page)
-  await mockOSSAPIs(page, options)
-}
+export const mockTaskAutoPRs = [
+  {
+    repo: 'WolffM/hadoku-task',
+    number: 72,
+    title: 'fix dragging in edit boards view',
+    url: 'https://github.com/WolffM/hadoku-task/pull/72',
+    branch: 'taskauto/ms3gt4qmq0xi',
+    taskId: 'MS3GT4QMQ0XISM3R1IZFF34BU2',
+    additions: 25,
+    deletions: 5,
+    changedFiles: 2,
+    mergeState: 'CLEAN',
+    isDraft: false,
+    checks: 'passing',
+    updatedAt: '2026-07-28T01:52:51Z'
+  },
+  {
+    repo: 'WolffM/hadoku-task',
+    number: 73,
+    title: 'make coffee theme default',
+    url: 'https://github.com/WolffM/hadoku-task/pull/73',
+    branch: 'taskauto/ms3k7f81as2a',
+    taskId: 'MS3K7F81AS2A6471SS20L34OVC',
+    additions: 4,
+    deletions: 1,
+    changedFiles: 1,
+    mergeState: 'CLEAN',
+    isDraft: false,
+    checks: 'passing',
+    updatedAt: '2026-07-28T02:10:00Z'
+  }
+]
 
-/**
- * Mock the owner endpoint
- */
-export async function mockOwnerAPI(page: Page): Promise<void> {
-  await page.route('**/tenhands/api/owner', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, owner: mockOwner })
-    })
-  })
-}
-
-/**
- * Mock all stage data endpoints
- */
-export async function mockStageAPIs(page: Page): Promise<void> {
-  await page.route('**/tenhands/api/stage1-repos', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        owner: mockOwner,
-        repos: mockStage1Repos
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/stage2-repos', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        owner: mockOwner,
-        repos: mockStage2Repos
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/stage3-issues', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        owner: mockOwner,
-        issues: mockStage3Issues,
-        labels: [
-          'vibeCheck',
-          'severity:critical',
-          'severity:high',
-          'severity:medium',
-          'severity:low'
-        ],
-        repos_with_copilot_prs: []
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/stage4-prs', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        owner: mockOwner,
-        prs: mockStage4PRs
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/pr-details', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        pr: mockPRDetails
-      })
-    })
-  })
-}
-
-/**
- * Mock health check endpoints
- */
-export async function mockHealthAPIs(page: Page): Promise<void> {
-  await page.route('**/tenhands/api/healthcheck', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        status: 'healthy',
-        owner: mockOwner,
-        api_version: '2.0.0'
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/global-workflow-runs', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        runs: mockWorkflowRuns,
-        owner: mockOwner
-      })
-    })
-  })
-}
-
-/**
- * Mock action endpoints (install, run, assign, approve, merge)
- */
-export async function mockActionAPIs(page: Page): Promise<void> {
-  await page.route('**/tenhands/api/install-vibecheck', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        message: 'vibeCheck workflow installed!'
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/run-vibecheck', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        message: 'vibeCheck workflow triggered!'
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/assign-copilot', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        message: 'Copilot assigned!'
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/approve-pr', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        message: 'PR approved!'
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/mark-pr-ready', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        message: 'PR marked as ready!'
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/merge-pr', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        message: 'PR merged!'
-      })
-    })
-  })
-}
-
-/**
- * Mock all OSS pipeline endpoints.
- *
- * Pass `{ retro: false }` to skip mocking retro endpoints so tests can hit
- * the real backend for genuine data validation.
- */
-export async function mockOSSAPIs(page: Page, options?: { retro?: boolean }): Promise<void> {
-  // Stage endpoints
-  await page.route('**/tenhands/api/oss/stage1-targets', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, targets: mockOSSTargets, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/stage2-issues', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, issues: mockOSSScoredIssues, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/stage3-assigned', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, assignments: mockOSSAssignments, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/stage4-fork-prs', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, prs: mockOSSForkPRs, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/stage5-submit', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, ready: mockOSSReadyToSubmit, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/stage5-tracking', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, submitted: mockOSSSubmittedPRs, owner: mockOwner })
-    })
-  })
-
-  // Detail endpoints
-  await page.route('**/tenhands/api/oss/issue-brief/**', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: mockOSSIssueBrief, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/fork-pr-details', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, pr: mockOSSForkPRDetails, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/dossier/**', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        dossier: {
-          slug: 'acme-corp-widget-api',
-          generatedAt: new Date().toISOString(),
-          sections: {
-            overview: 'Popular Node.js framework for building web applications.',
-            contributionRules: 'Follow the style guide and add tests.',
-            successPatterns: 'Small focused PRs with clear descriptions.',
-            antiPatterns: 'Avoid large refactors without prior discussion.',
-            issueBoard: 'Check the good first issue label.',
-            environmentSetup: 'Run npm install && npm test.'
+export const mockTaskAutoStatus = {
+  success: true,
+  boards: [
+    {
+      handle: 'MS0Y0VKGSIQNB5Y1P4S805OQP3',
+      name: 'task',
+      repo: 'WolffM/hadoku-task',
+      lanes: {
+        'plan-review': [
+          {
+            id: 'MS3K7F81AS2A6471SS20L34OVC',
+            title: 'a couple of quality of life features',
+            claimed: false,
+            updatedAt: '2026-07-27T18:55:00Z',
+            hasPlan: true,
+            stuck: false
           }
-        },
-        owner: mockOwner
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/poll-submitted-prs', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, submitted: mockOSSSubmittedPRs, owner: mockOwner })
-    })
-  })
-
-  // Pipeline Runs (redesigned Tab 3)
-  await page.route('**/tenhands/api/oss/pipeline-status', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, statuses: mockPipelineStatuses, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/retrospective-logs', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, logs: mockRetrospectiveLogs, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/issue-report/**', async route => {
-    // Realistic mock: self-contained HTML report with JS that mirrors the real template.
-    // Tests that the report handles empty runs gracefully (no JS errors).
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/html',
-      body: `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>Pipeline Report</title>
-<style>body{font-family:sans-serif;background:#0d1117;color:#e6edf3;display:flex;justify-content:center;}
-.shell{width:90%;max-width:900px;}.header{padding:20px 0;}.header h1{font-size:1.3em;}
-.header .sub{color:#8b949e;font-size:0.85em;}.content{padding:16px 0;}
-.empty-detail{padding:48px;text-align:center;color:#8b949e;font-size:0.9em;}
-.run-tabs{display:flex;border-bottom:1px solid #30363d;}
-.run-tab{padding:10px 24px;cursor:pointer;color:#8b949e;font-size:0.85em;border-bottom:2px solid transparent;}
-.run-tab.active{color:#58a6ff;border-bottom-color:#58a6ff;}.run-tab .tag{font-size:0.75em;margin-left:6px;}
-</style></head>
-<body><div class="shell">
-<div class="header"><h1>Pipeline Report</h1><div class="sub" id="headerSub"></div></div>
-<div class="run-tabs" id="runTabs"></div>
-<div class="content" id="app"></div>
-</div>
-<script>
-const DATA = {"repo":"test-repo","health":{},"runs":[{"label":"Run 1","tag":"Feb 27","entries":[{"issue_number":1234,"swe":{"pr_number":10,"title":"Fix bug","pr_branch":"fix/bug","additions":5,"deletions":2,"changed_files":1,"commit_count":1},"static_analysis":{"conclusion":"success","run_id":"sa-1","jobs":[]},"review":{"inline_comment_count":1,"actionable":true},"remediation":{"skipped":false,"new_commits":1},"workflow":{"reproduced":true,"verified":true,"self_corrected":false,"codeql":false,"code_review":true,"tool_installed":true,"step_count":15,"tools_used":["bash","editor"]},"timing":{"assigned_at":"2026-02-27T10:00:00Z","swe_done_at":"2026-02-27T10:15:00Z","sa_done_at":"2026-02-27T10:20:00Z","review_done_at":"2026-02-27T10:25:00Z","remediation_done_at":"2026-02-27T10:28:00Z","completed_at":"2026-02-27T10:30:00Z"},"data_quality":{"context_tier":1,"dossier_completeness":{"score":6,"total":6,"overview":true,"contributionRules":true,"successPatterns":true,"antiPatterns":true,"issueBoard":true,"environmentSetup":true}},"pipeline":{"language":"JavaScript","swe_agent":"CopilotSWEDispatcher","review_agent":"CopilotReviewDispatcher","static_analysis":"GitHubActionsDispatcher","remediation_agent":"CopilotRemediationDispatcher"}}]}]};
-let activeRun = Math.max(0, DATA.runs.length - 1);
-let activeIssue = 0;
-function renderTabs() {
-  document.getElementById('runTabs').innerHTML = DATA.runs.map((r, i) =>
-    '<div class="run-tab '+(i===activeRun?'active':'')+'">' + r.label + '<span class="tag">'+r.tag+'</span></div>'
-  ).join('');
+        ],
+        landed: [
+          {
+            id: 'MS3GT4QMQ0XISM3R1IZFF34BU2',
+            title: 'buggy interaction with dragging while in edit boards view',
+            claimed: false,
+            updatedAt: '2026-07-28T01:52:52Z',
+            hasPlan: true,
+            stuck: false
+          }
+        ]
+      },
+      counts: { 'plan-review': 1, landed: 1 },
+      prs: mockTaskAutoPRs
+    }
+  ],
+  running: [],
+  laneOrder: [
+    '(inbox)',
+    'planning',
+    'plan-review',
+    'replan',
+    'approved',
+    'working',
+    'landing',
+    'landed',
+    'stalled'
+  ],
+  prCount: 2
 }
-function renderContent() {
-  const run = DATA.runs[activeRun];
-  if (!run) {
-    document.getElementById('headerSub').textContent = DATA.repo + ' — No retrospective data yet';
-    document.getElementById('app').innerHTML = '<div class="empty-detail">No retrospective logs found for this issue.</div>';
-    return;
+
+export const mockTaskAutoDetail = {
+  success: true,
+  board: {
+    handle: 'MS0Y0VKGSIQNB5Y1P4S805OQP3',
+    name: 'task',
+    repo: 'WolffM/hadoku-task'
+  },
+  task: {
+    id: 'MS3GT4QMQ0XISM3R1IZFF34BU2',
+    title: 'buggy interaction with dragging while in edit boards view',
+    notes:
+      '## What I think you want\n\nDragging misbehaves in edit mode.\n\n## Plan\n\n1. fix the drag handler\n',
+    lane: 'landed',
+    laneTags: ['landed'],
+    tag: 'landed',
+    claimed: false,
+    state: 'Active',
+    createdAt: '2026-07-27T18:36:54Z',
+    updatedAt: '2026-07-28T01:52:52Z',
+    branch: 'taskauto/ms3gt4qmq0xi',
+    metrics: { agent_s: 210.467, implement_s: 210.467, implement_runs: 1 }
+  },
+  history: [
+    {
+      agentId: 'a1',
+      claimedAt: '2026-07-27T19:12:22Z',
+      endedAt: '2026-07-27T19:15:05Z',
+      endedBy: 'release',
+      outcome: 'plan:ready'
+    },
+    {
+      agentId: 'a1',
+      claimedAt: '2026-07-28T01:41:20Z',
+      endedAt: '2026-07-28T01:52:52Z',
+      endedBy: 'release',
+      outcome: 'pr-open:72'
+    }
+  ],
+  prs: [{ ...mockTaskAutoPRs[0], state: 'OPEN', mergedAt: '', createdAt: '2026-07-28T01:52:51Z' }]
+}
+
+declare global {
+  interface Window {
+    __taskautoMerges?: { repo: string; number: number; auto?: boolean }[]
   }
-  const entries = run.entries;
-  document.getElementById('headerSub').textContent = DATA.repo + ' — ' + entries.length + ' issues — ' + run.tag;
-  document.getElementById('app').innerHTML = '<div class="empty-detail">Report loaded successfully with ' + entries.length + ' entries.</div>';
 }
-renderTabs();
-renderContent();
-</script></body></html>`
-    })
-  })
 
-  await page.route('**/tenhands/api/oss/signoff', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        pr_url: 'https://github.com/acme-corp/widget-api/pull/5555',
-        clean_branch: 'clean/memory-leak',
-        owner: mockOwner
-      })
-    })
-  })
+// ============ Temporal ============
 
-  await page.route('**/tenhands/api/oss/compute-target', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, message: 'Compute triggered', owner: mockOwner })
-    })
-  })
+export const mockTemporalBatches = [
+  { batch_id: 'crimson-kitty', issue_count: 3, deferred_count: 1, active: true },
+  { batch_id: 'smoke-1', issue_count: 1, deferred_count: 0, active: false }
+]
 
-  if (options?.retro !== false) {
-    await page.route('**/tenhands/api/oss/retro/batches', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, batches: mockRetroBatches, owner: mockOwner })
-      })
-    })
+export const mockTemporalBatchDetail = {
+  batch_id: 'crimson-kitty',
+  issue_count: 3,
+  issues: [
+    {
+      batch_id: 'crimson-kitty',
+      issue_id: 'microsoft__markitdown-183',
+      current_state: 'submittable',
+      is_deferred: false,
+      deferred_at: null,
+      deferred_gate: null,
+      transition_count: 9,
+      gate_count: 12
+    },
+    {
+      batch_id: 'crimson-kitty',
+      issue_id: 'acme-corp__widget-api-42',
+      current_state: 'awaiting_human_review',
+      is_deferred: true,
+      deferred_at: 'fixed',
+      deferred_gate: 'relevance',
+      transition_count: 5,
+      gate_count: 6
+    },
+    {
+      batch_id: 'crimson-kitty',
+      issue_id: 'zeit__next-7',
+      current_state: 'aborted',
+      is_deferred: false,
+      deferred_at: null,
+      deferred_gate: null,
+      transition_count: 3,
+      gate_count: 2
+    }
+  ]
+}
 
-    await page.route('**/tenhands/api/oss/retro/batch/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, ...mockRetroBatchDetail, owner: mockOwner })
-      })
-    })
+const sampleDiff = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -1,3 +1,4 @@
+ export function foo() {
+-  return 1
++  return 2
+ }
+`
+
+export const mockTemporalIssueDetail = {
+  batch_id: 'crimson-kitty',
+  issue_id: 'microsoft__markitdown-183',
+  current_state: 'submittable',
+  is_deferred: false,
+  deferred_at: null,
+  deferred_gate: null,
+  transition_count: 3,
+  gate_count: 3,
+  transitions: [
+    {
+      from: 'candidate',
+      to: 'eligible',
+      reason: 'eligibility gate passed',
+      decided_by: 'gate:eligibility',
+      ts: '2026-04-14T10:00:00Z'
+    },
+    {
+      from: 'eligible',
+      to: 'forked',
+      reason: 'fork ensured + brief scrubbed',
+      decided_by: 'activity:fork_and_scrub_brief',
+      ts: '2026-04-14T10:01:00Z'
+    },
+    {
+      from: 'forked',
+      to: 'fixed',
+      reason: 'agent produced diff with 2 commits',
+      decided_by: 'activity:agent_fix',
+      ts: '2026-04-14T10:05:00Z'
+    }
+  ],
+  gates: [
+    {
+      gate: 'eligibility',
+      verdict: 'pass',
+      reason: 'repo passes all eligibility checks',
+      evidence_data: { ai_policy: 'allowed', dco_required: false },
+      ts: '2026-04-14T10:00:00Z'
+    },
+    {
+      gate: 'diff_non_empty',
+      verdict: 'pass',
+      reason: '2 commits, 1 file changed',
+      evidence_data: sampleDiff,
+      ts: '2026-04-14T10:05:00Z'
+    },
+    {
+      gate: 'relevance',
+      verdict: 'defer',
+      reason: 'judge returned low confidence on relevance',
+      evidence_data: { score: 0.55, files_touched: ['src/foo.ts'] },
+      ts: '2026-04-14T10:06:00Z'
+    }
+  ],
+  events: [
+    { ts: '2026-04-14T10:00:00Z', type: 'workflow_started' },
+    { ts: '2026-04-14T10:06:00Z', type: 'defer_notified' }
+  ]
+}
+
+export const mockTemporalInboxItems = [
+  {
+    batch_id: 'crimson-kitty',
+    issue_id: 'acme-corp__widget-api-42',
+    workflow_id: 'issue-crimson-kitty-acme-corp__widget-api-42',
+    state: 'fixed',
+    gate: 'relevance',
+    reason: 'judge returned low confidence',
+    queued_at: '2026-04-14T10:10:00Z'
+  },
+  {
+    batch_id: 'crimson-kitty',
+    issue_id: 'zeit__next-7',
+    workflow_id: 'issue-crimson-kitty-zeit__next-7',
+    state: 'submittable',
+    gate: 'submission_judge',
+    reason: 'PR body fails template compliance',
+    queued_at: '2026-04-14T10:12:00Z'
+  },
+  {
+    batch_id: 'smoke-1',
+    issue_id: 'microsoft__markitdown-183',
+    workflow_id: 'issue-smoke-1-microsoft__markitdown-183',
+    state: 'fixed',
+    gate: 'relevance',
+    reason: 'unrelated imports detected',
+    queued_at: '2026-04-14T10:15:00Z'
+  },
+  {
+    batch_id: 'crimson-kitty-signoff',
+    issue_id: 'microsoft__terminal-5301',
+    workflow_id: 'issue-crimson-kitty-signoff-microsoft__terminal-5301',
+    state: 'awaiting_signoff',
+    gate: 'operator_signoff',
+    reason: 'preview PR ready on fork; edit if needed, then approve to ship upstream',
+    queued_at: '2026-04-26T18:00:00Z',
+    operator_pr_url: 'https://github.com/WolffM/microsoft-terminal/pull/9',
+    pr_title: 'fix: Tab close button stops responding after switching profiles',
+    pr_body_excerpt:
+      '## Summary\n\nThe tab close button became unresponsive after switching profiles because the click handler was bound to the old profile context. This change rebinds it on profile change.\n\n## Root cause\n\nProfileSwitchEvent invalidated...'
   }
-
-  // Always mock pr-commits — this hits a subprocess (gh api) in the backend which
-  // would block Flask (single-threaded) during card-expand, starving subsequent
-  // requests.  Real commit data is tested via the retro_report.py CLI script.
-  await page.route('**/tenhands/api/oss/retro/pr-commits/**', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, commits: [] })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/advance-pipeline', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/refresh-target', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/select-issue', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/fork-and-assign', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        fork_issue_url: 'https://github.com/test-user/widget-api/issues/2',
-        fork_issue_number: 2,
-        owner: mockOwner
-      })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/approve-fork-pr', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, message: 'PR approved!', owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/merge-fork-pr', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, message: 'PR merged!', owner: mockOwner })
-    })
-  })
-
-  await page.route('**/tenhands/api/oss/submit-to-origin', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        pr_url: 'https://github.com/acme-corp/widget-api/pull/5555',
-        owner: mockOwner
-      })
-    })
-  })
-}
+]
