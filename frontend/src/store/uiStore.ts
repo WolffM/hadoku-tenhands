@@ -7,14 +7,7 @@
 // ============ Types (re-exported for consumers) ============
 
 export type ViewType =
-  | 'select'
-  | 'list'
-  | 'review'
-  | 'health'
-  | 'oss'
-  | 'retro'
-  | 'temporal'
-  | 'taskauto'
+  'select' | 'list' | 'review' | 'health' | 'oss' | 'retro' | 'temporal' | 'taskauto'
 
 export interface LogEntry {
   id: string

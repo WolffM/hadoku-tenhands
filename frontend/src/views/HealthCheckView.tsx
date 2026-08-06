@@ -43,7 +43,7 @@ export function HealthCheckView() {
       }
 
       if (runsResponse.success) {
-        setAllRuns(runsResponse.runs as WorkflowRunWithRepo[])
+        setAllRuns(runsResponse.runs)
       }
     } catch (err) {
       setError(getErrorMessage(err))

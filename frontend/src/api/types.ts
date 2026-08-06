@@ -35,13 +35,7 @@ export interface WorkflowRun {
   workflowName?: string
   status: 'queued' | 'in_progress' | 'completed' | 'waiting' | 'requested' | 'pending'
   conclusion?:
-    | 'success'
-    | 'failure'
-    | 'cancelled'
-    | 'skipped'
-    | 'timed_out'
-    | 'action_required'
-    | null
+    'success' | 'failure' | 'cancelled' | 'skipped' | 'timed_out' | 'action_required' | null
   createdAt: string
   updatedAt?: string
   url?: string
@@ -172,12 +166,7 @@ export interface GlobalWorkflowRunsResponse {
 // ============ Pipeline Item Types (for new UI) ============
 
 export type PipelineStatus =
-  | 'pending'
-  | 'processing'
-  | 'waiting_for_review'
-  | 'ready'
-  | 'completed'
-  | 'failed'
+  'pending' | 'processing' | 'waiting_for_review' | 'ready' | 'completed' | 'failed'
 
 export interface PipelineItem {
   id: string
@@ -594,9 +583,7 @@ export type TemporalAbortReasonCode =
   | 'abort_other'
 export type TemporalRetryReasonCode = 'retry_transient' | 'retry_with_changes'
 export type TemporalReasonCode =
-  | TemporalApproveReasonCode
-  | TemporalAbortReasonCode
-  | TemporalRetryReasonCode
+  TemporalApproveReasonCode | TemporalAbortReasonCode | TemporalRetryReasonCode
 
 export interface TemporalEnvelope<T> {
   success: boolean

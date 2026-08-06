@@ -137,9 +137,7 @@ function AppInner(props: TenHandsProps & { containerRef: RefObject<HTMLDivElemen
       data-dark-theme={isDarkTheme ? 'true' : 'false'}
     >
       <div className="tenhands">
-        <AppHeader
-          title="TenHands"
-        />
+        <AppHeader title="TenHands" />
 
         <Navigation />
 
