@@ -40,6 +40,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+          # `registry-url` is what makes NODE_AUTH_TOKEN mean anything: without
+          # it setup-node writes no auth file, so the env var on the steps below
+          # was decorative and a separate step had to hand-write a .npmrc with
+          # the PAT expanded into it in cleartext. With it, setup-node writes
+          # the .npmrc to RUNNER_TEMP and points NPM_CONFIG_USERCONFIG at it,
+          # referencing ${NODE_AUTH_TOKEN} rather than the value — so the token
+          # stays in the environment and never lands in a file in the workspace.
+          # publish.yml has always done it this way; this matches it.
+          registry-url: https://npm.pkg.github.com
+          scope: '@wolffm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       # pnpm via corepack, pinned by the `packageManager` field in package.json.
@@ -52,10 +62,14 @@ jobs:
           corepack prepare pnpm@11.5.0 --activate
           pnpm --version
 
-      - name: Configure .npmrc for GitHub Packages
-        run: |
-          echo "@wolffm:registry=https://npm.pkg.github.com" > .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.HADOKU_SITE_TOKEN }}" >> .npmrc
+      # No "Configure .npmrc" step: setup-node above already wrote one, keyed to
+      # ${NODE_AUTH_TOKEN}. The step that used to be here wrote the PAT itself
+      # into frontend/.npmrc (this job defaults to working-directory: frontend),
+      # which is the same file the repo now keeps as `${HADOKU_SITE_TOKEN}` —
+      # a workspace file holding a live admin PAT for the length of the run,
+      # one `git add -A` away from being committed. The commit step below names
+      # its paths explicitly, so it never was, but the hazard did not need to
+      # exist.
 
       - name: Update @wolffm/* to latest (majors included)
         env:
