@@ -1,12 +1,14 @@
 # Every PR must be covered by at least one check that always runs
 
-**Status:** ✅ satisfied fleet-wide as of 2026-08-04 (was: blocking autonomous landing)
+**Status:** ✅ satisfied on 16 enrolled repos as of 2026-08-06; 4 active repos still open (was: blocking autonomous landing)
 **Scope:** one workflow change per repo
 **Filed from:** tenhands, after auditing why the pipeline can't merge its own PRs
 
-> All seven repos now have an always-reporting required check and a protected `main`. See
-> [Status: closed](#status-closed) at the bottom for the current table. The body below is kept as
-> written — it is the argument, and the next repo enrolled will need it again.
+> Sixteen repos now have an always-reporting required check and a protected `main` — the original
+> seven (2026-08-04) plus nine more (2026-08-06). See [Status](#status-16-enrolled-4-open) at the
+> bottom for the current table and the four repos still open. The body below is kept as written —
+> it is the argument, and the next repo enrolled will need it again. Where it says "all seven", read
+> it as the seven this audit began with.
 
 ## The invariant
 
@@ -179,24 +181,96 @@ crate is intentionally outside the pnpm workspace and still has no CI. It needs 
 the runner, which was not verified, and requiring a context on an unproven assumption is exactly the
 failure mode this document is about. Worth a follow-up.
 
-## Status: closed
+### Nine more enrolled, 2026-08-06
 
-All seven repos satisfy the invariant as of 2026-08-04. Every one was verified with the acceptance
-test at the bottom of this document — a PR touching only the most-ignored corner of the repo,
-confirming a required check still *reports* — not with "is CI green".
+Nine repos that were never part of the original audit had `main` completely unprotected:
+`hadoku-promptsmith`, `hadoku-aggregator`, `hadoku-contact-ui`, `hadoku-jobplatform`,
+`hadoku-printTool`, `hadoku-dataplatform`, `hadoku-scraper`, `vibecheck` and `brave-quartet`.
 
-| repo | required contexts |
+All nine already satisfied the hard half of the invariant — an unfiltered `pull_request:` trigger
+with the path list in a scope step and *step-level* `if:` guards, the pattern this document
+prescribes. Only the protection was missing, so enrolling them was a settings change rather than a
+workflow change. That is the payoff of the pattern having been copied verbatim between repos.
+
+Three things worth carrying to the next one:
+
+- **The required context is the job's *rendered* name, not its id.** `vibecheck`'s job id is
+  `check`; the context GitHub reports is `Lint, typecheck & test`. Requiring the id would have
+  blocked every PR on a context that never reports — precisely the failure this document is about.
+  Read the names off a real run (`gh api repos/WolffM/<repo>/actions/runs/<id>/jobs`), never off
+  the YAML.
+- **Grep for a job-level `if:` before requiring anything.** Step-level guards make the job report;
+  a job-level guard makes it *skip*, and a skipped required check is not a passing one. All nine
+  were checked for `^    if:` first.
+- **`gh` cannot write workflow files.** The OAuth token carries no `workflow` scope, so the
+  Contents API rejects any `.github/workflows/*` write with "refusing to allow an OAuth App to
+  create or update workflow". Push over SSH instead; it is not subject to that check.
+
+`allow_auto_merge` was flipped to `true` only after protection read back correctly on each — the
+order this document already insists on, since auto-merge with no required checks merges
+immediately and ignores CI.
+
+### The second axis: `push: [main]`
+
+Enrolling these surfaced a gap the invariant itself does not cover. `enforce_admins: false` is
+deliberate — the owner pushes straight to `main` and the required check does not apply to them —
+but in the repos whose `ci.yml` ran only `on: pull_request`, that meant the branch carrying nearly
+every commit was verified by nothing at all. `hadoku-conjure` had run `ci.yml` three times in its
+entire life (two PRs and one manual dispatch) while roughly ten commits landed directly on `main`.
+
+`push: branches: [main]` was added to the six that lacked it: conjure, aggregator, contact-ui,
+jobplatform, printTool and dataplatform. No other change was needed — the scope step already
+forces `run=true` for any non-`pull_request` event.
+
+This is a smoke alarm, not a gate. The deploy/publish workflow fires on the same push regardless,
+so a red `main` becomes *visible*, not *blocked*. Gating the deploy on CI would need a
+`workflow_run` trigger and is a separate change.
+
+### Still open
+
+Four active repos remain outside the invariant. Each needs PR CI written before a context can be
+required, which is why they were left alone rather than half-enrolled — requiring a context on an
+unproven workflow is the failure mode this document exists to prevent:
+
+| repo | why it is not enrolled |
 |---|---|
-| tenhands | `backend pytest` |
-| hadoku_site | `lint`, `typecheck`, `site-tests`, `mgmt-api-tests`, `No committed build output`, `Build variants` |
-| hadoku-pygmalion | `frontend-build`, `python-tests` |
-| hadoku-task | `typecheck`, `lint`, `worker-tests` |
-| hadoku-conjure | `check` |
-| hadoku-resume-bot | `typecheck`, `lint` |
-| hadoku-watchparty | `typecheck`, `unit-tests`, `build` |
+| `hadoku-registry` | only workflow is `drift-check.yml`, on `schedule`/`push` — no `pull_request` trigger at all |
+| `hadoku-trader` | no `pull_request` workflow; `publish`, `update-wolffm` and `vibecheck` only |
+| `hadoku-games-host` | no `.github/workflows` directory |
+| `hadoku-task-mobile` | `build-apk.yml` does run on PRs, but its rendered job name and skip path are unverified |
+
+## Status: 16 enrolled, 4 open
+
+Sixteen repos satisfy the invariant — seven as of 2026-08-04, nine more as of 2026-08-06.
+
+| repo | required contexts | enrolled |
+|---|---|---|
+| tenhands | `backend pytest` | 08-04 |
+| hadoku_site | `lint`, `typecheck`, `site-tests`, `mgmt-api-tests`, `No committed build output`, `Build variants` | 08-04 |
+| hadoku-pygmalion | `frontend-build`, `python-tests` | 08-04 |
+| hadoku-task | `typecheck`, `lint`, `worker-tests` | 08-04 |
+| hadoku-conjure | `check` | 08-04 |
+| hadoku-resume-bot | `typecheck`, `lint` | 08-04 |
+| hadoku-watchparty | `typecheck`, `unit-tests`, `build` | 08-04 |
+| hadoku-promptsmith | `check` | 08-06 |
+| hadoku-aggregator | `lint`, `typecheck` | 08-06 |
+| hadoku-contact-ui | `lint`, `typecheck` | 08-06 |
+| hadoku-jobplatform | `lint`, `typecheck` | 08-06 |
+| hadoku-printTool | `lint`, `typecheck` | 08-06 |
+| hadoku-dataplatform | `typecheck`, `lint` | 08-06 |
+| hadoku-scraper | `check` | 08-06 |
+| vibecheck | `Lint, typecheck & test` | 08-06 |
+| brave-quartet | `wasm-size`, `check` | 08-06 |
 
 All with `strict: false`, `enforce_admins: false`, `required_pull_request_reviews: null`, and
 `allow_auto_merge: true`.
+
+**The two cohorts were verified to different standards, and the table should not hide it.** The
+08-04 seven each passed the acceptance test at the bottom of this document — a PR touching only the
+most-ignored corner of the repo, confirming a required check still *reports*. The 08-06 nine were
+enrolled on structural evidence instead: an unfiltered `pull_request:` trigger, no job-level `if:`,
+and a green run of the workflow. That is weaker, and the first real PR into any of those nine is
+the probe that has not been run yet.
 
 This table is a snapshot, not a guarantee. `hadoku-resume-bot` was discovered mid-audit, and the
 next board enrolled will start at the same zero. Re-measuring is part of the job.
