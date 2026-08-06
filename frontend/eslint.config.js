@@ -3,6 +3,7 @@ import tsParser from '@typescript-eslint/parser'
 import tsPlugin from '@typescript-eslint/eslint-plugin'
 import globals from 'globals'
 import prettierConfig from 'eslint-config-prettier'
+import reactHooks from 'eslint-plugin-react-hooks'
 
 export default [
   {
@@ -66,7 +67,8 @@ export default [
       }
     },
     plugins: {
-      '@typescript-eslint': tsPlugin
+      '@typescript-eslint': tsPlugin,
+      'react-hooks': reactHooks
     },
     rules: {
       // Pull in all recommended + strict TS rules
@@ -74,6 +76,23 @@ export default [
       ...tsPlugin.configs['recommended'].rules,
       ...tsPlugin.configs['recommended-type-checked'].rules,
       ...tsPlugin.configs['stylistic-type-checked'].rules,
+
+      // This block was labelled "Base TypeScript + React config" while enabling
+      // no React rule at all: eslint-plugin-react-hooks was a devDependency that
+      // nothing imported, so a React codebase had no hook linting whatsoever.
+      //
+      // rules-of-hooks catches conditional/looped hook calls — the class of bug
+      // that corrupts hook order and produces state landing on the wrong hook.
+      // It reports zero violations here today, so it costs nothing and stops the
+      // next one.
+      //
+      // exhaustive-deps is deliberately NOT enabled yet. It finds 3 real misses
+      // (App.tsx:90 addLog, ReviewQueueShell.tsx:55 currentItem,
+      // useAsyncAction.ts:59 opts), but adding a dependency to an effect array
+      // changes when that effect re-runs and can introduce a render loop. That
+      // is a deliberate pass with something green to verify against, and the
+      // local e2e suite is not currently that. Turn it on with those three.
+      'react-hooks/rules-of-hooks': 'error',
 
       // -----------------------------
       //     SENSIBLE STRICT RULES
