@@ -181,8 +181,8 @@ jobs:
             exit 0
           fi
 
-          # A `cancelled` run is two completely different events wearing one
-          # conclusion, and only one of them is worth waking anyone for.
+          # A non-success conclusion is several completely different events
+          # wearing one word, and only some of them are worth waking anyone for.
           #
           # `concurrency: {group: taskauto, cancel-in-progress: false}` keeps at
           # most ONE run pending per group. When a third dispatch arrives while
@@ -195,26 +195,72 @@ jobs:
           # The other case is the one this whole step exists for: 2026-08-04,
           # the runner died mid-job and reported nothing.
           #
-          # The discriminator is whether any job ever started. A superseded
-          # waiter has zero; a run killed in flight has one that began and
-          # stopped. Measured 2026-08-05 — superseded 31052484109 →
-          # total_count 0, healthy 31052373379 → total_count 1.
+          # THE DISCRIMINATOR IS WHETHER THE WORK EVER REACHED A RUNNER, and it
+          # is deliberately NOT the run-level conclusion, which lies about this.
+          #
+          # This used to test `total_count == 0` under an `if cancelled` gate,
+          # on the theory that a run GitHub never dispatched has no job row at
+          # all. That is true of a superseded waiter and false of everything
+          # else that never ran. During the 2026-08-06 Actions incident
+          # (githubstatus: critical, Actions+Pages, 15:22Z onward) GitHub
+          # accepted five taskauto runs, created a job row for each, and then
+          # could not hand any of them to a runner — "The job was not acquired
+          # by Runner of type self-hosted even after multiple attempts". Those
+          # surface as `total_count: 1`, run-level conclusion `failure`, so they
+          # missed the `cancelled` gate AND the `== 0` test, and paged @here for
+          # an outage on GitHub's side of the wire that we could not act on.
+          #
+          # Measured 2026-08-06 on the three shapes:
+          #   never dispatched  31126318586 → runner_name "",             steps 0
+          #   died mid-job      31120917042 → runner_name "hokon-tenhands", steps 11
+          #   healthy           31126553517 → runner_name "hokon-tenhands", steps 11
+          # so "no runner claimed it AND no step ran" separates the case where
+          # nothing of ours executed from the case where our job ran and died.
+          # A superseded waiter has an empty `.jobs` array and lands here too,
+          # which is why this replaces the old test rather than joining it.
+          #
+          # NOT extended to "the self-hosted runner lost communication". That is
+          # the 2026-08-04 signature, where OUR job took the host down — a
+          # runner claimed it and steps ran, so it stays loud on purpose.
+          #
+          # Reported as `skipped`, not dropped. `skipped` is inert to the alert
+          # state by design — it neither pages nor clears a live failure streak —
+          # so this buys silence on GitHub's outages without going dark: if the
+          # board stops draining for six hours the ledger still shows the runs
+          # arriving and being turned away, which is the trail you need to tell
+          # "GitHub is down" apart from "the cron died".
           #
           # Fails toward alerting: ONLY an exact "0" suppresses. An API error, a
           # 404 body, an empty string or anything unparseable falls through and
           # reports. Being told twice is free; being told never is what this
           # cost us on 2026-08-04.
-          if [ "$prev_concl" = "cancelled" ]; then
-            prev_jobs=$(gh api "repos/${REPO}/actions/runs/${prev_id}/jobs" \
-                          --jq '.total_count' 2>/dev/null)
-            if [ "$prev_jobs" = "0" ]; then
-              echo "run $prev_id never started a job — superseded in the" \
-                   "concurrency queue, not a failure. Not reporting."
-              exit 0
-            fi
-            echo "run $prev_id started ${prev_jobs:-<unreadable>} job(s) —" \
-                 "a real cancellation, reporting it."
+          prev_started=$(gh api "repos/${REPO}/actions/runs/${prev_id}/jobs" \
+                           --jq '[.jobs[]
+                                  | select((.runner_name // "") != ""
+                                           or ((.steps // []) | length) > 0)]
+                                 | length' 2>/dev/null)
+          if [ "$prev_started" = "0" ]; then
+            echo "run $prev_id never reached a runner (no job claimed it, no" \
+                 "step ran) — superseded in the concurrency queue, or GitHub" \
+                 "could not dispatch it. Not our failure; recording it as skipped."
+            jq -n --arg run "gha_${prev_id}" \
+              '{job_name: "tenhands:taskauto", status: "skipped", run_id: $run,
+                duration_ms: 0}' > /tmp/taskauto-prev.json
+            curl -sS -f -X POST https://hadoku.me/health/api/jobs \
+              -H "X-User-Key: $HADOKU_SERVICE_KEY" \
+              -H 'Content-Type: application/json' \
+              --data @/tmp/taskauto-prev.json \
+              && echo "recorded $prev_id as skipped" \
+              || echo "::warning::could not record the previous run as skipped"
+            exit 0
           fi
+          # Anything that is not a plain integer is an error body, not a count —
+          # say so rather than pasting a 404 blob into the middle of a sentence.
+          case "$prev_started" in
+            ''|*[!0-9]*) prev_started='<unreadable>' ;;
+          esac
+          echo "run $prev_id reached a runner ($prev_started job(s) claimed or" \
+               "started) — a real failure, reporting it."
 
           # `killed` rather than `failed` for a cancellation: the fleet's job
           # vocabulary has a state for "something stopped this from outside",
