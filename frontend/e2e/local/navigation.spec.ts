@@ -1,119 +1,74 @@
 /**
- * Navigation Tests
+ * The app shell: three top tabs, four pipeline cards, and getting in and out of
+ * each pipeline.
  *
- * Tests for navigating between views in TenHands.
+ * Navigation.tsx is explicit that pipelines are NOT top-level tabs — you pick
+ * one from Home and click Home to switch. The suite this replaced asserted
+ * three pipeline tiles; there have been four since Task Automation landed, and
+ * nothing caught it because `pnpm test` was passing a project name that did not
+ * exist and never ran. Counts are asserted exactly here so the next addition
+ * fails loudly rather than silently.
  */
 
 import { test, expect } from '../fixtures/base'
-import { mockAllAPIs } from '../fixtures/api-mocks'
 
-test.describe('Navigation', () => {
-  test.beforeEach(async ({ page }) => {
-    // Set up API mocks before each test
-    await mockAllAPIs(page)
+const TOP_TABS = ['Home', 'Retrospective', 'Health']
+
+const PIPELINES = [
+  { title: 'Vibecheck Pipeline', marker: 'Install VibeCheck' },
+  { title: 'OSS Contribution Pipeline', marker: 'Repo Health' },
+  { title: 'Crimson-Kitty (Temporal)', marker: 'Eligible' },
+  { title: 'Task Automation', marker: 'Inbox' }
+]
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/')
+})
+
+test.describe('shell', () => {
+  test('renders exactly the three top tabs', async ({ page }) => {
+    const tabs = page.locator('.nav-tabs__tab')
+    await expect(tabs).toHaveCount(TOP_TABS.length)
+    await expect(tabs).toHaveText(TOP_TABS)
   })
 
-  test('loads the app with pipeline selection view by default', async ({ page }) => {
-    await page.goto('/?key=test-key')
-
-    // App should render - look for the title
-    await expect(page.locator('text=TenHands')).toBeVisible()
-
-    // Pipeline selection should be visible
-    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
-    await expect(page.locator('text=Vibecheck Pipeline')).toBeVisible()
-    await expect(page.locator('text=OSS Contribution Pipeline')).toBeVisible()
+  test('opens on the pipeline picker with Home active', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: 'Select a Pipeline' })).toBeVisible()
+    await expect(page.locator('.nav-tabs__tab--active')).toHaveText('Home')
   })
 
-  test('can navigate to Pipelines view via card', async ({ page }) => {
-    await page.goto('/?key=test-key')
-    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
+  test('offers exactly the four pipelines, each with its stage list', async ({ page }) => {
+    const cards = page.locator('.pipeline-select-card__title')
+    await expect(cards).toHaveCount(PIPELINES.length)
+    await expect(cards).toHaveText(PIPELINES.map(p => p.title))
 
-    // Click the Vibecheck Pipeline card
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-
-    // Stage tabs should be visible
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
-  })
-
-  test('can navigate to Health view', async ({ page }) => {
-    await page.goto('/?key=test-key')
-    await expect(page.locator('text=TenHands')).toBeVisible()
-
-    // Click Health nav tab (use specific selector to avoid matching OSS "Repo Health" card)
-    await page
-      .locator('.nav-tabs__tab')
-      .filter({ hasText: /^Health$/ })
-      .click()
-
-    // Pipeline selection should disappear
-    await expect(page.locator('text=Select a Pipeline')).not.toBeVisible()
-
-    // Health nav tab should still be visible
-    await expect(page.locator('.nav-tabs__tab').filter({ hasText: /^Health$/ })).toBeVisible()
-  })
-
-  test('can navigate between Home and Health', async ({ page }) => {
-    await page.goto('/?key=test-key')
-
-    // Go to a pipeline first via card so we have view-state to navigate away from
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
-
-    // Go to Health via top tab
-    await page
-      .locator('.nav-tabs__tab')
-      .filter({ hasText: /^Health$/ })
-      .click()
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).not.toBeVisible()
-
-    // Go back to Home (pipeline picker) via top tab
-    await page.getByRole('button', { name: /^Home$/i }).click()
-    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
-  })
-
-  test('Home button returns to pipeline selection', async ({ page }) => {
-    await page.goto('/?key=test-key')
-
-    // Navigate to Pipelines
-    await page.locator('.pipeline-select-card').filter({ hasText: 'Vibecheck Pipeline' }).click()
-    await expect(page.getByRole('button', { name: /Install VibeCheck/i })).toBeVisible()
-
-    // Click Home
-    await page.getByRole('button', { name: /Home/i }).click()
-
-    // Should be back at pipeline selection
-    await expect(page.locator('text=Select a Pipeline')).toBeVisible()
+    for (const { marker } of PIPELINES) {
+      await expect(page.getByText(marker, { exact: true }).first()).toBeVisible()
+    }
   })
 })
 
-test.describe('Auth Key Handling', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllAPIs(page)
-  })
+test.describe('entering and leaving a pipeline', () => {
+  for (const { title } of PIPELINES) {
+    test(`${title} opens from Home and Home comes back`, async ({ page }) => {
+      await page.getByRole('heading', { name: title }).click()
 
-  test('stores auth key from URL in sessionStorage', async ({ page }) => {
-    await page.goto('/?key=my-secret-key')
+      // The picker is gone — we are inside the pipeline.
+      await expect(page.getByRole('heading', { name: 'Select a Pipeline' })).toBeHidden()
 
-    // Wait for app to load
-    await expect(page.locator('text=TenHands')).toBeVisible()
+      await page.getByRole('button', { name: 'Home', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Select a Pipeline' })).toBeVisible()
+    })
+  }
 
-    // Check sessionStorage
-    const storedKey = await page.evaluate(() => sessionStorage.getItem('dispatch_key'))
-    expect(storedKey).toBe('my-secret-key')
-  })
+  test('Retrospective and Health are reachable directly from any pipeline', async ({ page }) => {
+    await page.getByRole('heading', { name: 'Task Automation' }).click()
 
-  test('uses auth key from sessionStorage on subsequent loads', async ({ page }) => {
-    // First visit with key
-    await page.goto('/?key=my-secret-key')
-    await expect(page.locator('text=TenHands')).toBeVisible()
+    await page.getByRole('button', { name: 'Health', exact: true }).click()
+    await expect(page.locator('.nav-tabs__tab--active')).toHaveText('Health')
 
-    // Navigate to same page without key
-    await page.goto('/')
-    await expect(page.locator('text=TenHands')).toBeVisible()
-
-    // Should still have the key
-    const storedKey = await page.evaluate(() => sessionStorage.getItem('dispatch_key'))
-    expect(storedKey).toBe('my-secret-key')
+    await page.getByRole('button', { name: 'Retrospective', exact: true }).click()
+    await expect(page.locator('.nav-tabs__tab--active')).toHaveText('Retrospective')
+    await expect(page.getByTestId('retro-view')).toBeVisible()
   })
 })
