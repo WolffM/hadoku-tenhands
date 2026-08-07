@@ -47,6 +47,78 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
 
+      - name: Runtime deps must clear hadoku_site's supply-chain cooldown
+        # A PUBLISH THAT SUCCEEDS IS NOT A PUBLISH THE PARENT CAN TAKE.
+        #
+        # hadoku_site enforces `minimumReleaseAge: 10080` — 7 days. tenhands
+        # enforces none: frontend/pnpm-workspace.yaml has a
+        # `minimumReleaseAgeExclude` list and no `minimumReleaseAge`, and an
+        # exclusion without a window is inert. So this repo can adopt a
+        # dependency published hours ago, publish happily, and leave the parent
+        # unable to install the result for a week.
+        #
+        # On 2026-08-06 that is exactly what happened: dompurify@3.4.13 (4 days
+        # old) and marked@18.0.9 (3 days old) shipped, hadoku_site's Update
+        # Packages run died with ERR_PNPM_NO_MATURE_MATCHING_VERSION, and the
+        # site kept serving the PREVIOUS bundle while the same push had already
+        # redeployed the backend — a stale client against a changed API.
+        #
+        # Only `dependencies` are checked. Consumers resolve those and nothing
+        # else, so devDependencies may be as new as they like; a blanket cooldown
+        # here would force rolling back ~20 dev packages for no downstream gain.
+        #
+        # The floor of each range is what matters: a cooldown-enforcing consumer
+        # picks the newest MATURE version within the range, so the range's
+        # minimum has to be old enough to exist as an option at all.
+        working-directory: frontend
+        run: |
+          node -e '
+            const { execSync } = require("child_process");
+            const deps = require("./package.json").dependencies || {};
+            const WINDOW_DAYS = 7;
+            const cutoff = Date.now() - WINDOW_DAYS * 864e5;
+            const bad = [];
+            for (const [name, range] of Object.entries(deps)) {
+              if (name.startsWith("@wolffm/")) continue;  // excluded by policy
+              const floor = range.replace(/^[\^~>=<\s]*/, "");
+              // Fetch the WHOLE time map and index it in JS. `npm view pkg
+              // time.3.4.13` looks like it should work and does not — npm treats
+              // the dots as a field path, walks time -> 3 -> 4 -> 13, finds
+              // nothing and prints nothing. That returns null, which read as
+              // "no data, skip" and made this gate pass on the exact versions it
+              // exists to reject. Verified against them both ways.
+              let times;
+              try {
+                times = JSON.parse(
+                  execSync(`npm view ${name} time --json`, {stdio:["ignore","pipe","ignore"]})
+                    .toString().trim() || "null"
+                );
+              } catch {
+                bad.push(`${name}: could not read publish times from the registry`);
+                continue;
+              }
+              const published = times && times[floor];
+              if (!published) {
+                // A range floor with no matching published version is a typo or a
+                // yanked release. Either way it is not something to wave through.
+                bad.push(`${name}@${floor} is not a published version`);
+                continue;
+              }
+              const age = (Date.now() - Date.parse(published)) / 864e5;
+              if (Date.parse(published) > cutoff) {
+                bad.push(`${name}@${floor} published ${published} (${age.toFixed(1)} days ago)`);
+              }
+            }
+            if (bad.length) {
+              console.error("::error::These runtime dependencies are younger than hadoku_site’s " +
+                WINDOW_DAYS + "-day cooldown, so the parent will NOT be able to install this package:");
+              for (const b of bad) console.error("  " + b);
+              console.error("Pin each to the newest release older than " + WINDOW_DAYS + " days.");
+              process.exit(1);
+            }
+            console.log("runtime dependencies all clear the parent’s " + WINDOW_DAYS + "-day cooldown");
+          '
+
       - name: Build package
         working-directory: frontend
         run: pnpm run build
