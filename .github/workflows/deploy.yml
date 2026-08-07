@@ -1,10 +1,31 @@
 name: Deploy to PM2
 
+# NOT triggered by push. `Publish Package` dispatches this workflow as its last
+# step, so the pm2 redeploy happens only after the frontend package has actually
+# published.
+#
+# It used to be `on: push`, which meant this and publish.yml raced on every
+# commit — and the backend always won, because publishing has to build, resolve
+# a version and upload first. That is how 2026-08-06 went wrong: a dependency
+# bump left @wolffm/tenhands uninstallable by hadoku_site, `Publish Package`
+# failed, and this workflow cheerfully redeployed the backend anyway. Production
+# ran the new API against the previously-published bundle until someone noticed.
+#
+# Chaining from inside the publish run, rather than via `workflow_run`, is
+# deliberate. A `workflow_run` trigger is one more webhook that can be dropped —
+# GitHub throttled exactly those for hours on 2026-08-06 — and a deploy that
+# never starts reports nothing, which is the one failure this repo has already
+# been bitten by twice. An explicit API call from a step that is already running
+# either happens or fails loudly inside a run someone is watching.
+#
+# ORDERING DOES NOT MAKE A BREAKING CHANGE SAFE, and nothing here pretends
+# otherwise. The frontend still lands last — parent update, site build, then a
+# Cloudflare edge cache that took 7 minutes to turn over on 2026-08-06 — so any
+# change that alters the request/response contract needs the backend to accept
+# BOTH shapes until the bundle is out. What this ordering buys is narrower: the
+# backend never ships a contract the frontend could not ship against.
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch: # Manual trigger, and how publish.yml chains to this.
 
 concurrency:
   group: deploy

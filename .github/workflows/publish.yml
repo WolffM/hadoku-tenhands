@@ -281,6 +281,55 @@ jobs:
             echo "⚠️  Failed to notify hadoku_site (HTTP $status_code)"
           fi
 
+      - name: Redeploy the backend, now that the frontend has shipped
+        # THE ORDERING THIS EXISTS TO ENFORCE. deploy.yml used to run `on: push`,
+        # so it raced this workflow on every commit and always won — publishing
+        # has to build, resolve a version and upload before it can finish.
+        #
+        # That race is what stranded production on 2026-08-06: a dependency bump
+        # left @wolffm/tenhands uninstallable by hadoku_site (its 7-day
+        # supply-chain cooldown rejected two deps), this workflow failed, and the
+        # backend redeployed anyway. The new API served the previously-published
+        # bundle until someone noticed.
+        #
+        # Dispatching from here means the backend cannot ship a contract the
+        # frontend failed to ship against: if anything above fails — the cooldown
+        # gate, the build, the publish — this step never runs.
+        #
+        # NOT gated on `package_changed`. A commit that touches only the Python
+        # backend still needs the pm2 services restarted, and that path must not
+        # depend on whether the npm package happened to change.
+        #
+        # If this step is ever removed, put deploy.yml back on `on: push` or the
+        # backend stops deploying entirely, silently.
+        env:
+          HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+        run: |
+          if [ -z "$HADOKU_SITE_TOKEN" ]; then
+            echo "::error::HADOKU_SITE_TOKEN not available — cannot trigger the backend deploy"
+            exit 1
+          fi
+
+          status_code=$(curl -sS \
+            -o /dev/null \
+            -w "%{http_code}" \
+            -X POST "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/dispatches" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d '{"ref":"${{ github.ref_name }}"}')
+
+          # Fail the run on a failed dispatch. The alternative is a green publish
+          # whose backend never deployed — main looks shipped, prod is not, and
+          # nothing says so.
+          if [ "$status_code" = "204" ]; then
+            echo "✅ backend redeploy requested (Deploy to PM2)"
+          else
+            echo "::error::could not trigger Deploy to PM2 (HTTP $status_code) —" \
+                 "the backend is still on the previous commit."
+            exit 1
+          fi
+
       - name: Report the outcome so a silent failure can't hide
         # Nothing polls this repo's workflows — monitoring-api's ci-check list
         # covers hadoku_site and watchparty only — so a red run here is seen by
