@@ -40,8 +40,39 @@ def _state_root() -> Path:
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _envelope(data: Any, status: int = 200, **meta):
-    return jsonify({"success": True, "data": data, "_meta": meta}), status
+def _envelope(payload: dict[str, Any], status: int = 200):
+    """Flat success envelope: ``{"success": true, **payload}``.
+
+    THIS USED TO NEST under ``data`` and carry a ``_meta`` key, and that was the
+    odd one out in this backend. ``{success, data, _meta}`` is the envelope the
+    hadoku ECOSYSTEM serves — hadoku-aggregator uses it (see the docstring on
+    ``_unwrap_aggregator_response`` in services/oss_service.py, which calls it
+    "the standard envelope") and the Cloudflare workers' SuccessResponse<T>
+    nests under ``data`` too. It is the shape tenhands CONSUMES.
+
+    Every route tenhands SERVES is flat: ``{success, ...payload}``. The Feb 2026
+    modules (action, health, oss_routes_*) are flat and taskauto_routes, added
+    July 2026, is flat. This module, scaffolded in April, was the only one that
+    served the consuming convention — apparently because the author reached for
+    the shape the codebase already had an unwrapping idiom for. Nothing in the
+    crimson-kitty design docs asks for it, and the newest module went back to
+    flat, so it was divergence rather than a migration.
+
+    The cost was a matching ``unwrap()`` on the client that existed for these
+    eight endpoints and nothing else, and a second response shape every
+    consumer and test fixture had to know about. Mixing the two silently yields
+    an empty view rather than an error, which is the worst way for a mistake
+    like that to present.
+
+    ``**meta`` is gone with it. It fed the ``_meta`` key, and not one of this
+    module's call sites ever passed a kwarg — every response shipped
+    ``"_meta": {}``. It was inherited from an envelope whose ``_meta`` carries
+    aggregator freshness data that temporal has no equivalent of.
+
+    Callers pass a dict and are unchanged by the flattening; ``success`` is not
+    a key any of them use.
+    """
+    return jsonify({"success": True, **payload}), status
 
 
 def _error(message: str, status: int = 400, **extra):

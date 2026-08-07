@@ -31,6 +31,24 @@ POST /recon/{slug}/unclaim           → report issue unclaimed
 
 All responses are wrapped in `{ success: true, data: {...} }` — unwrapped in `oss_service.py`.
 
+## Two envelopes, and which one is ours
+
+Nesting under `data` is the shape tenhands **consumes**, not the one it serves:
+
+- **`{ success, data: {...}, _meta }`** — the hadoku ecosystem's. hadoku-aggregator serves it
+  (`_unwrap_aggregator_response` in `oss_service.py` calls it "the standard envelope"), and
+  hadoku_site's workers do too (`SuccessResponse<T>` in `workers/shared/types.ts`).
+- **`{ success, ...payload }`** — flat, and what **every route tenhands serves** returns.
+
+`temporal_routes.py` served the nested one from April 2026 until 2026-08-06, the only module in
+this backend that did, which cost a `unwrap()` in `endpoints.ts` that existed for eight endpoints
+and nothing else, plus a `.get("data", {})` in three operator scripts. It is flat now. Do not
+reintroduce the split: mixing the two yields an **empty view rather than an error**, because
+`.get("data", {})` and a missing `data` key both read as "no content".
+
+`_meta` on a flat response is fine and unrelated — the OSS routes attach the aggregator's
+freshness metadata that way (`oss_routes_stage1.py`).
+
 ## Upstream Cross-Linking Prevention — CRITICAL
 
 Fork work MUST be invisible to upstream until the user explicitly submits via their personal account. GitHub creates cross-reference notifications from URLs (`github.com/owner/repo/issues/N`), short refs (`owner/repo#N`), and keywords (`Fixes #N`). All of these MUST be stripped:

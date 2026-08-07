@@ -70,7 +70,7 @@ def _pretty_issue(item: dict) -> str:
 
 def show_inbox(admin: str) -> None:
     body = _get(f"{DISPATCH_BASE}/inbox", {"X-User-Key": admin})
-    items = body.get("data", {}).get("items", [])
+    items = body.get("items", [])
     print(f"\n=== INBOX — {len(items)} awaiting decision ===")
     if not items:
         print("  (empty — nothing needs a decision)")
@@ -93,7 +93,7 @@ def show_inbox(admin: str) -> None:
 
 def show_active(admin: str) -> None:
     body = _get(f"{DISPATCH_BASE}/batches", {"X-User-Key": admin})
-    batches = body.get("data", {}).get("batches", [])
+    batches = body.get("batches", [])
     active = [b for b in batches if b.get("active")]
     print(f"\n=== ACTIVE — {len(active)} batch(es) "
           f"({len(batches) - len(active)} archived) ===")
@@ -103,7 +103,7 @@ def show_active(admin: str) -> None:
     for b in active:
         bid = b["batch_id"]
         detail = _get(f"{DISPATCH_BASE}/batch/{bid}", {"X-User-Key": admin})
-        issues = detail.get("data", {}).get("issues", [])
+        issues = detail.get("issues", [])
         states = Counter(i["current_state"] for i in issues)
         deferred = [i for i in issues if i.get("is_deferred")]
         print(f"\n  ▸ {bid}  ({b.get('issue_count', len(issues))} runs, "

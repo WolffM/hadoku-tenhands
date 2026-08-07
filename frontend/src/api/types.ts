@@ -585,13 +585,6 @@ export type TemporalRetryReasonCode = 'retry_transient' | 'retry_with_changes'
 export type TemporalReasonCode =
   TemporalApproveReasonCode | TemporalAbortReasonCode | TemporalRetryReasonCode
 
-export interface TemporalEnvelope<T> {
-  success: boolean
-  data: T
-  _meta?: Record<string, unknown>
-  error?: string
-}
-
 export interface TemporalBatchSummary {
   batch_id: string
   issue_count: number

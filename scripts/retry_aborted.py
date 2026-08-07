@@ -70,7 +70,7 @@ def main(argv: list[str]) -> int:
     admin = _admin_key()
 
     detail = _request(f"{DISPATCH_BASE}/batch/{batch_id}", {"X-User-Key": admin})
-    issues = detail.get("data", {}).get("issues", [])
+    issues = detail.get("issues", [])
     if not issues:
         print(f"batch '{batch_id}' has no issues (or was not found)")
         return 1
@@ -108,9 +108,8 @@ def main(argv: list[str]) -> int:
     resp = _request(f"{DISPATCH_BASE}/dispatch",
                     {"X-User-Key": admin, "Content-Type": "application/json"},
                     data=body)
-    data = resp.get("data", {})
-    print(f"dispatched: batch={data.get('batch_id')} "
-          f"workflow={data.get('workflow_id')} issues={data.get('issue_count')}")
+    print(f"dispatched: batch={resp.get('batch_id')} "
+          f"workflow={resp.get('workflow_id')} issues={resp.get('issue_count')}")
     return 0
 
 

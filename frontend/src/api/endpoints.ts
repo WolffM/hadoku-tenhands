@@ -32,7 +32,6 @@ import type {
   BatchListResponse,
   BatchDetailResponse,
   PrCommit,
-  TemporalEnvelope,
   TemporalHealth,
   TemporalBatchSummary,
   TemporalBatchDetail,
@@ -479,29 +478,46 @@ export async function computeOSSTarget(
 
 // ============ Temporal (crimson-kitty) APIs ============
 
-function unwrap<T>(env: TemporalEnvelope<T>): T {
-  if (!env.success) {
-    throw new Error(env.error || 'temporal request failed')
+/**
+ * These endpoints used to return `{success, data, _meta}` and be unwrapped with
+ * a `.data` deref that existed for this module and nothing else. The backend now
+ * returns the flat `{success, ...payload}` every other tenhands route returns —
+ * see the docstring on `_envelope` in backend/routes/temporal_routes.py for why
+ * the nested shape was there and why it was the odd one out.
+ *
+ * What survives the flattening is the THROW. Every temporal store action is a
+ * bare `try { await getTemporalX() } catch (err) { ...getErrorMessage(err) }`,
+ * so a `success: false` has to raise to become a visible error. Returning the
+ * body and letting the caller check `.success` — the pattern ossStore and
+ * vibeCheckStore use — would turn a failed load into an empty panel with no
+ * message, which is the failure mode worth the most care here.
+ */
+interface FlatBody {
+  success: boolean
+  error?: string
+}
+
+function assertOk<T extends FlatBody>(body: T): T {
+  if (!body.success) {
+    throw new Error(body.error ?? 'temporal request failed')
   }
-  return env.data
+  return body
 }
 
 export async function getTemporalHealth(): Promise<TemporalHealth> {
-  return unwrap(await apiClient.get<TemporalEnvelope<TemporalHealth>>('/api/temporal/health'))
+  return assertOk(await apiClient.get<TemporalHealth & FlatBody>('/api/temporal/health'))
 }
 
 export async function getTemporalBatches(): Promise<TemporalBatchSummary[]> {
-  const data = unwrap(
-    await apiClient.get<TemporalEnvelope<{ batches: TemporalBatchSummary[] }>>(
-      '/api/temporal/batches'
-    )
+  const body = assertOk(
+    await apiClient.get<{ batches: TemporalBatchSummary[] } & FlatBody>('/api/temporal/batches')
   )
-  return data.batches
+  return body.batches
 }
 
 export async function getTemporalBatch(batchId: string): Promise<TemporalBatchDetail> {
-  return unwrap(
-    await apiClient.get<TemporalEnvelope<TemporalBatchDetail>>(
+  return assertOk(
+    await apiClient.get<TemporalBatchDetail & FlatBody>(
       `/api/temporal/batch/${encodeURIComponent(batchId)}`
     )
   )
@@ -511,8 +527,8 @@ export async function getTemporalIssue(
   batchId: string,
   issueId: string
 ): Promise<TemporalIssueDetail> {
-  return unwrap(
-    await apiClient.get<TemporalEnvelope<TemporalIssueDetail>>(
+  return assertOk(
+    await apiClient.get<TemporalIssueDetail & FlatBody>(
       `/api/temporal/issue/${encodeURIComponent(batchId)}/${encodeURIComponent(issueId)}`
     )
   )
@@ -522,8 +538,8 @@ export async function getTemporalEvidenceList(
   batchId: string,
   issueId: string
 ): Promise<{ stages: Record<string, string[]> }> {
-  return unwrap(
-    await apiClient.get<TemporalEnvelope<{ stages: Record<string, string[]> }>>(
+  return assertOk(
+    await apiClient.get<{ stages: Record<string, string[]> } & FlatBody>(
       `/api/temporal/evidence/${encodeURIComponent(batchId)}/${encodeURIComponent(issueId)}`
     )
   )
@@ -534,8 +550,8 @@ export async function getTemporalEvidenceFile(
   issueId: string,
   filepath: string
 ): Promise<{ path: string; content: string }> {
-  return unwrap(
-    await apiClient.get<TemporalEnvelope<{ path: string; content: string }>>(
+  return assertOk(
+    await apiClient.get<{ path: string; content: string } & FlatBody>(
       `/api/temporal/evidence/${encodeURIComponent(batchId)}/${encodeURIComponent(issueId)}/${filepath}`
     )
   )
@@ -545,8 +561,8 @@ export async function getTemporalInbox(): Promise<{
   items: TemporalInboxItem[]
   count: number
 }> {
-  return unwrap(
-    await apiClient.get<TemporalEnvelope<{ items: TemporalInboxItem[]; count: number }>>(
+  return assertOk(
+    await apiClient.get<{ items: TemporalInboxItem[]; count: number } & FlatBody>(
       '/api/temporal/inbox'
     )
   )
@@ -556,8 +572,8 @@ export async function dispatchTemporalBatch(
   batchId: string,
   issues: TemporalDispatchIssueInput[]
 ): Promise<TemporalDispatchResult> {
-  return unwrap(
-    await apiClient.post<TemporalEnvelope<TemporalDispatchResult>>('/api/temporal/dispatch', {
+  return assertOk(
+    await apiClient.post<TemporalDispatchResult & FlatBody>('/api/temporal/dispatch', {
       batch_id: batchId,
       issues
     })
@@ -572,8 +588,8 @@ export async function sendTemporalSignal(
     reasonText?: string
   }
 ): Promise<TemporalSignalResult> {
-  return unwrap(
-    await apiClient.post<TemporalEnvelope<TemporalSignalResult>>(
+  return assertOk(
+    await apiClient.post<TemporalSignalResult & FlatBody>(
       `/api/temporal/issue/${encodeURIComponent(workflowId)}/signal`,
       {
         decision,
