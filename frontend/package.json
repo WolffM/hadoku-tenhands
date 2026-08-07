@@ -48,8 +48,8 @@
     "react-dom": "^19.0.0"
   },
   "dependencies": {
-    "dompurify": "^3.4.13",
-    "marked": "^18.0.9",
+    "dompurify": "^3.4.12",
+    "marked": "^18.0.7",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
