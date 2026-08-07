@@ -71,14 +71,6 @@ const ok = (extra: Record<string, unknown> = {}): ResponseBody => ({
 })
 
 /**
- * The temporal routes use a DIFFERENT envelope — `{ success, data, _meta }` —
- * and the client unwraps `.data`. Mixing the two up produces an empty view
- * rather than an error, so they get their own helper rather than a comment.
- */
-const enveloped = (data: unknown): ResponseBody =>
-  ({ success: true, data, _meta: {} }) as ResponseBody
-
-/**
  * Default response for every endpoint `src/api/endpoints.ts` can reach.
  *
  * Keys are `METHOD /path`. A trailing `/*` matches any remaining segments, which
@@ -185,34 +177,34 @@ export const defaultRoutes: Table = {
   },
   'POST /api/taskauto/merge': ok({ message: 'Merged' }),
 
-  // ---- temporal (note: `enveloped`, not `ok`) ----------------------------
-  'GET /api/temporal/health': enveloped({
+  // ---- temporal ----------------------------------------------------------
+  'GET /api/temporal/health': ok({
     state_root: 'state',
     state_root_exists: true,
     batch_count: d.mockTemporalBatches.length,
     cluster_check: 'skipped'
   }),
-  'GET /api/temporal/batches': enveloped({ batches: d.mockTemporalBatches }),
-  'GET /api/temporal/batch/*': enveloped(d.mockTemporalBatchDetail),
-  'GET /api/temporal/inbox': enveloped({
+  'GET /api/temporal/batches': ok({ batches: d.mockTemporalBatches }),
+  'GET /api/temporal/batch/*': ok(d.mockTemporalBatchDetail),
+  'GET /api/temporal/inbox': ok({
     items: d.mockTemporalInboxItems,
     count: d.mockTemporalInboxItems.length
   }),
-  'GET /api/temporal/issue/*': enveloped(d.mockTemporalIssueDetail),
+  'GET /api/temporal/issue/*': ok(d.mockTemporalIssueDetail),
   // Covers `POST /api/temporal/issue/<id>/signal`. The body is captured by the
   // router, so a spec asserts the decision via `api.posts` rather than by
   // stashing calls on `window` the way the previous fixture had to.
   'POST /api/temporal/issue/*': ({ body }) =>
-    enveloped({
+    ok({
       workflow_id: null,
       decision: typeof body?.decision === 'string' ? body.decision : null
     }),
-  'POST /api/temporal/dispatch': enveloped({
+  'POST /api/temporal/dispatch': ok({
     batch_id: 'crimson-kitty',
     workflow_id: 'batch-crimson-kitty',
     issue_count: 0
   }),
-  'GET /api/temporal/evidence/*': enveloped({ evidence: [] }),
+  'GET /api/temporal/evidence/*': ok({ evidence: [] }),
 
   // ---- diagnostics the harness itself pokes ------------------------------
   'GET /api/oss/debug/gh-health': ok({ authenticated: true, api_working: true })

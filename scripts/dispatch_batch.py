@@ -139,7 +139,7 @@ def main() -> int:
     time.sleep(3)
     try:
         b = _get("https://hadoku.me/tenhands/api/temporal/batches", admin, timeout=15)
-        batches = (b.get("data") or {}).get("batches") or []
+        batches = b.get("batches") or []
         match = [x for x in batches if x.get("batch_id") == batch_id]
         if match:
             print(f"  ✓ batch found: {match[0]}")

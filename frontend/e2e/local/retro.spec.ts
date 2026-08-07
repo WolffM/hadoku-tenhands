@@ -65,7 +65,7 @@ test.describe('temporal tab', () => {
   test.describe('when there are no batches', () => {
     test.use({
       apiOverrides: {
-        'GET /api/temporal/batches': { success: true, data: { batches: [] }, _meta: {} }
+        'GET /api/temporal/batches': { success: true, batches: [] }
       }
     })
 
@@ -82,7 +82,7 @@ test.describe('temporal tab', () => {
 test.describe('temporal tab when the batch list fails', () => {
   test.use({
     apiOverrides: {
-      'GET /api/temporal/batches': { success: false, error: 'state root missing', _meta: {} }
+      'GET /api/temporal/batches': { success: false, error: 'state root missing' }
     }
   })
 

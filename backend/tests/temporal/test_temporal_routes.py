@@ -88,8 +88,8 @@ def test_health_returns_envelope(client, state_root):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["success"] is True
-    assert "state_root" in body["data"]
-    assert body["data"]["batch_count"] == 0
+    assert "state_root" in body
+    assert body["batch_count"] == 0
 
 
 # ── 2. /api/temporal/batches ──────────────────────────────────────────────
@@ -99,7 +99,7 @@ def test_batches_empty_when_no_state(client):
     resp = client.get("/tenhands/api/temporal/batches")
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["data"]["batches"] == []
+    assert body["batches"] == []
 
 
 def test_batches_lists_seeded_batches(client, state_root):
@@ -109,7 +109,7 @@ def test_batches_lists_seeded_batches(client, state_root):
 
     resp = client.get("/tenhands/api/temporal/batches")
     body = resp.get_json()
-    batches = {b["batch_id"]: b["issue_count"] for b in body["data"]["batches"]}
+    batches = {b["batch_id"]: b["issue_count"] for b in body["batches"]}
     assert batches == {"batch-a": 2, "batch-b": 1}
 
 
@@ -122,7 +122,7 @@ def test_batches_report_activity_for_active_vs_archive_split(client, state_root)
     _seed_issue(state_root, "batch-b", "issue-3", transitions=[])
 
     body = client.get("/tenhands/api/temporal/batches").get_json()
-    by_id = {b["batch_id"]: b for b in body["data"]["batches"]}
+    by_id = {b["batch_id"]: b for b in body["batches"]}
     assert by_id["batch-a"]["deferred_count"] == 1
     assert by_id["batch-a"]["active"] is True
     assert by_id["batch-b"]["deferred_count"] == 0
@@ -136,7 +136,7 @@ def test_batches_resolved_marker_clears_active(client, state_root):
     (state_root / "batch-c" / "issue-9" / "awaiting" / "resolved").write_text("done")
 
     body = client.get("/tenhands/api/temporal/batches").get_json()
-    batch_c = next(b for b in body["data"]["batches"] if b["batch_id"] == "batch-c")
+    batch_c = next(b for b in body["batches"] if b["batch_id"] == "batch-c")
     assert batch_c["deferred_count"] == 0
     assert batch_c["active"] is False
 
@@ -160,7 +160,7 @@ def test_batch_returns_issue_summaries(client, state_root):
     )
     resp = client.get("/tenhands/api/temporal/batch/batch-a")
     assert resp.status_code == 200
-    data = resp.get_json()["data"]
+    data = resp.get_json()
     assert data["batch_id"] == "batch-a"
     assert data["issue_count"] == 1
     assert data["issues"][0]["current_state"] == "forked"
@@ -191,7 +191,7 @@ def test_issue_returns_full_evidence(client, state_root):
     )
     resp = client.get("/tenhands/api/temporal/issue/batch-a/issue-1")
     assert resp.status_code == 200
-    data = resp.get_json()["data"]
+    data = resp.get_json()
     assert data["current_state"] == "forked"
     assert len(data["transitions"]) == 2
     assert len(data["gates"]) == 2
@@ -218,7 +218,7 @@ def test_issue_classifies_abort_kind(client, state_root):
             ],
         )
     for issue_id, (reason, kind) in cases.items():
-        data = client.get(f"/tenhands/api/temporal/issue/batch-x/{issue_id}").get_json()["data"]
+        data = client.get(f"/tenhands/api/temporal/issue/batch-x/{issue_id}").get_json()
         assert data["current_state"] == "aborted"
         assert data["abort_reason"] == reason
         assert data["abort_kind"] == kind
@@ -230,7 +230,7 @@ def test_issue_classifies_abort_kind(client, state_root):
 def test_inbox_empty_when_no_defers(client):
     resp = client.get("/tenhands/api/temporal/inbox")
     assert resp.status_code == 200
-    assert resp.get_json()["data"]["count"] == 0
+    assert resp.get_json()["count"] == 0
 
 
 def test_inbox_lists_deferred_issues(client, state_root):
@@ -254,7 +254,7 @@ def test_inbox_lists_deferred_issues(client, state_root):
     )
 
     resp = client.get("/tenhands/api/temporal/inbox")
-    data = resp.get_json()["data"]
+    data = resp.get_json()
     assert data["count"] == 1
     assert data["items"][0]["issue_id"] == "issue-1"
     assert data["items"][0]["gate"] == "relevance"
@@ -272,7 +272,7 @@ def test_inbox_sorts_scored_by_score_then_unscored_oldest_first(client, state_ro
     _seed_issue(state_root, "b", "signoff-old", transitions=[],
                 inbox={"gate": "operator_signoff", "queued_at": "2026-05-01T10:00:00Z"})
 
-    items = client.get("/tenhands/api/temporal/inbox").get_json()["data"]["items"]
+    items = client.get("/tenhands/api/temporal/inbox").get_json()["items"]
     order = [i["issue_id"] for i in items]
     # scored first, ascending by score; then unscored, oldest queued_at first.
     assert order == ["scored-lo", "scored-hi", "signoff-old", "signoff-new"]
@@ -306,7 +306,7 @@ def test_inbox_enriches_operator_signoff_with_preview_pr_and_body(client, state_
     (submittable / "pr_body.md").write_text(body)
 
     resp = client.get("/tenhands/api/temporal/inbox")
-    items = resp.get_json()["data"]["items"]
+    items = resp.get_json()["items"]
     signoff = [i for i in items if i["gate"] == "operator_signoff"]
     assert len(signoff) == 1
     entry = signoff[0]
@@ -336,7 +336,7 @@ def test_inbox_does_not_enrich_judge_defer_entries(client, state_root):
     (submittable / "operator_pr_url").write_text("https://github.com/x/y/pull/1")
 
     resp = client.get("/tenhands/api/temporal/inbox")
-    items = resp.get_json()["data"]["items"]
+    items = resp.get_json()["items"]
     assert len(items) == 1
     assert items[0]["gate"] == "relevance"
     assert "operator_pr_url" not in items[0]
@@ -352,7 +352,7 @@ def test_inbox_skips_resolved_entries(client, state_root):
     (state_root / "batch-a" / "issue-1" / "awaiting" / "resolved").touch()
 
     resp = client.get("/tenhands/api/temporal/inbox")
-    assert resp.get_json()["data"]["count"] == 0
+    assert resp.get_json()["count"] == 0
 
 
 def test_inbox_resolve_single_marks_resolved(client, state_root):
@@ -363,17 +363,17 @@ def test_inbox_resolve_single_marks_resolved(client, state_root):
         inbox={"state": "fixed", "gate": "relevance"},
     )
     # Sanity: inbox sees it before resolve
-    assert client.get("/tenhands/api/temporal/inbox").get_json()["data"]["count"] == 1
+    assert client.get("/tenhands/api/temporal/inbox").get_json()["count"] == 1
 
     resp = client.post("/tenhands/api/temporal/inbox/batch-a/issue-1/resolve")
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["success"] is True
-    assert body["data"]["resolved"] is True
+    assert body["resolved"] is True
     assert (state_root / "batch-a" / "issue-1" / "awaiting" / "resolved").exists()
 
     # Inbox no longer lists it
-    assert client.get("/tenhands/api/temporal/inbox").get_json()["data"]["count"] == 0
+    assert client.get("/tenhands/api/temporal/inbox").get_json()["count"] == 0
 
 
 def test_inbox_resolve_is_idempotent(client, state_root):
@@ -415,8 +415,8 @@ def test_inbox_resolve_all_clears_every_deferred_entry(client, state_root):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["success"] is True
-    assert body["data"]["count"] == 2  # only the two unresolved ones
-    touched = {(i["batch_id"], i["issue_id"]) for i in body["data"]["resolved"]}
+    assert body["count"] == 2  # only the two unresolved ones
+    touched = {(i["batch_id"], i["issue_id"]) for i in body["resolved"]}
     assert touched == {("batch-a", "issue-1"), ("batch-b", "issue-3")}
 
     # Pre-resolved marker is preserved verbatim
@@ -425,7 +425,7 @@ def test_inbox_resolve_all_clears_every_deferred_entry(client, state_root):
     ).read_text() == "prior"
 
     # Inbox is now empty
-    assert client.get("/tenhands/api/temporal/inbox").get_json()["data"]["count"] == 0
+    assert client.get("/tenhands/api/temporal/inbox").get_json()["count"] == 0
 
 
 # ── 6. /api/temporal/dispatch (POST) ──────────────────────────────────────
@@ -485,7 +485,7 @@ def test_dispatch_calls_temporal_client(client, monkeypatch):
     assert resp.status_code == 202
     body = resp.get_json()
     assert body["success"] is True
-    assert body["data"]["workflow_id"] == "batch-test-batch"
+    assert body["workflow_id"] == "batch-test-batch"
     assert captured["batch_id"] == "test-batch"
     assert len(captured["issues_raw"]) == 1
 
@@ -582,7 +582,7 @@ def test_signal_legacy_payload_without_reason_code_still_works(
         content_type="application/json",
     )
     assert resp.status_code == 200
-    body = resp.get_json()["data"]
+    body = resp.get_json()
     assert body["decision"] == "abort"
     assert body["reason_code"] is None
     # Persisted record exists with null reason_code
@@ -642,7 +642,7 @@ def test_signal_works_when_issue_dir_not_found(client, monkeypatch, state_root):
         content_type="application/json",
     )
     assert resp.status_code == 200
-    body = resp.get_json()["data"]
+    body = resp.get_json()
     assert body["persisted"] is None  # nothing to persist into
 
 

@@ -101,7 +101,7 @@ test.describe('operator inbox', () => {
 test.describe('failure surfaces', () => {
   test.use({
     apiOverrides: {
-      'GET /api/temporal/inbox': { success: false, error: 'temporal unreachable', _meta: {} }
+      'GET /api/temporal/inbox': { success: false, error: 'temporal unreachable' }
     }
   })
 
@@ -113,7 +113,7 @@ test.describe('failure surfaces', () => {
 test.describe('empty inbox', () => {
   test.use({
     apiOverrides: {
-      'GET /api/temporal/inbox': { success: true, data: { items: [], count: 0 }, _meta: {} }
+      'GET /api/temporal/inbox': { success: true, items: [], count: 0 }
     }
   })
 
