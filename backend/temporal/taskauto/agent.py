@@ -56,7 +56,32 @@ ENV_ALLOWLIST = (
 
 
 class AgentError(RuntimeError):
-    """The agent could not be run, or produced nothing usable."""
+    """The agent ran and this task got nothing usable out of it.
+
+    Task-scoped: another task might well succeed. The runner stalls the task
+    with the reason and carries on.
+    """
+
+
+class AgentUnavailable(AgentError):
+    """The agent could not run AT ALL. Every task will fail identically.
+
+    The distinction is the whole point, and it cost us a task to learn it. On
+    2026-08-08 `CLAUDE_CODE_OAUTH_TOKEN` was revoked; `claude -p` exited 1 in
+    3.5s having printed `Failed to authenticate. API Error: 401 OAuth access
+    token has been revoked.` — **on stdout, with stderr empty**. `ask` checked
+    only for a timeout and for empty output, so that sentence became the plan.
+    It parsed to an empty document, which `jobs.plan_job` read as "neither a
+    plan nor a question" and released to `plan-review` as `no-action-proposed`
+    — the branch that means "this looks already done". The run reported
+    SUCCESS. A human got a task back saying `_No open questions._` and nothing
+    else, with no way to tell that the agent had never run.
+
+    So this is raised, never swallowed, and it is not a stall: stalling asks a
+    human to look at a *task* that has nothing wrong with it. It aborts the
+    run, which turns the health check red — the honest signal, because the
+    pipeline really is down until someone replaces the credential.
+    """
 
 
 @dataclass
@@ -65,6 +90,11 @@ class AgentRun:
     stdout: str = ""
     stderr: str = ""
     timed_out: bool = False
+    #: Carried through from `proc.Ran` rather than folded into `stderr` text,
+    #: because callers have to tell a *pathological task* (this one blew the
+    #: memory ceiling) from a *broken pipeline* (nothing can run) — and those
+    #: want opposite responses: stall the task, versus fail the whole run.
+    out_of_memory: bool = False
 
 
 @dataclass
@@ -120,7 +150,7 @@ def _default_run(args: Sequence[str], cwd: Path, timeout: int,
                        stdin_text=stdin_text,
                        memory_max=AGENT_MEMORY_MAX, label="agent")
     except FileNotFoundError as e:
-        raise AgentError(f"{CLAUDE_BIN} not found on PATH") from e
+        raise AgentUnavailable(f"{CLAUDE_BIN} not found on PATH") from e
 
     if res.out_of_memory:
         # Neither a timeout nor an ordinary failure, and worth saying which:
@@ -130,7 +160,8 @@ def _default_run(args: Sequence[str], cwd: Path, timeout: int,
                      AGENT_MEMORY_MAX)
         return AgentRun(False, res.out,
                         (res.err or "") + f"\nkilled: the agent's process tree "
-                        f"exceeded {AGENT_MEMORY_MAX}")
+                        f"exceeded {AGENT_MEMORY_MAX}",
+                        out_of_memory=True)
     return AgentRun(res.ok, res.out, res.err, timed_out=res.timed_out)
 
 
@@ -167,6 +198,19 @@ class ClaudeCodeAgent:
         if res.timed_out:
             raise AgentError(f"planning timed out after {timeout_s or self.timeout_s}s")
         out = (res.stdout or "").strip()
+        # Exit status FIRST, and before the emptiness check, because the
+        # failure we actually hit was neither a timeout nor silence: a dead
+        # credential exits non-zero and writes a one-line error to *stdout*.
+        # Guarding only on `not out` reads that line as the agent's answer.
+        #
+        # This pass is read-only — Read/Grep/Glob and two git subcommands — so
+        # no prompt can make the CLI exit non-zero on its own. A failure here
+        # is the CLI failing, which is every task's problem, not this one's.
+        if not res.ok:
+            detail = (res.stderr or "").strip() or out or "no output"
+            raise AgentUnavailable(
+                f"{CLAUDE_BIN} exited non-zero and produced no plan: "
+                f"{detail[:300]}")
         if not out:
             raise AgentError(
                 f"planning produced no output: {(res.stderr or '')[:300]}")
@@ -206,6 +250,24 @@ class ClaudeCodeAgent:
         if res.timed_out:
             logger.warning("agent timed out after %ss with %d file(s) changed",
                            self.timeout_s, len(changed))
+
+        # Failed, changed nothing, and neither ran out of time nor out of
+        # memory: it never got going. Measuring the tree cannot tell that
+        # apart from "read the plan and decided against it", and the caller
+        # reads an empty tree as the latter — `implement:no-changes` stalls
+        # the task and asks a human to explain themselves about a task that
+        # is fine. Same laundering `ask` used to do, one lane along.
+        #
+        # A timeout or an OOM kill IS this task's problem, and one changed
+        # file means it got far enough to have an opinion; both fall through
+        # to the tree measurement, which stays the arbiter of what happened.
+        if not res.ok and not changed and not res.timed_out \
+                and not res.out_of_memory:
+            detail = ((res.stderr or "").strip()
+                      or (res.stdout or "").strip() or "no output")
+            raise AgentUnavailable(
+                f"{CLAUDE_BIN} exited non-zero having changed nothing: "
+                f"{detail[:300]}")
 
         return AgentOutcome(changed_files=sorted(changed), diff=diff,
                             log=log[-20000:], timed_out=res.timed_out)

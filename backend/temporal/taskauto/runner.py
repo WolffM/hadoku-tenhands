@@ -32,6 +32,7 @@ from services.task_board import (
 )
 
 from . import plan_notes, reconcile, selection
+from .agent import AgentUnavailable
 from .progress import METRICS_KEY, BoardSink
 from .selection import Idle, Pickup
 
@@ -178,6 +179,27 @@ class Runner:
                         pickup.task.id)
             return TurnResult(False, "lease lost (cancelled or expired)",
                               task_id=pickup.task.id, job=pickup.job)
+        except AgentUnavailable:
+            # The pipeline is down, not the task. Stalling would blame a task
+            # that is fine, hide the outage behind a green run, and require a
+            # human to drag it back once the credential is replaced.
+            #
+            # So: give the claim back writing NOTHING, exactly as the
+            # LANE_CHANGED path does and for the same reason — a claim that
+            # outlives the turn idles the whole board until the lease expires.
+            # The task stays in the agent lane the claim moved it to, which
+            # `selection` already treats as a crashed run to resume, so it
+            # re-plans by itself on the next sweep once the agent works again.
+            #
+            # Then re-raise. Nothing below here may swallow it: the run has to
+            # exit non-zero so the workflow reports `failed` to
+            # /health/api/jobs. A pipeline that cannot run its agent is not a
+            # successful sweep, however many boards it read.
+            logger.exception("agent unavailable during %s on %s; handing the "
+                             "claim back and failing the run",
+                             pickup.job, pickup.task.id)
+            sink.abandon()
+            raise
         except Exception as e:
             # Any other failure still has to hand the task back. Stalling
             # with the reason is strictly better than a task pinned in an

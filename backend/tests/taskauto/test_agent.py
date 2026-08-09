@@ -13,7 +13,9 @@ import pytest
 
 from temporal.taskauto.agent import (
     ENV_ALLOWLIST,
+    AgentError,
     AgentRun,
+    AgentUnavailable,
     ClaudeCodeAgent,
     scrubbed_env,
 )
@@ -176,3 +178,78 @@ def test_timeout_is_reported_but_changes_are_still_harvested():
 def test_log_is_truncated_so_notes_stay_readable():
     a = agent(run=lambda *x, **k: AgentRun(True, "y" * 100000))
     assert len(a.work(Path("/tmp"), "p").log) <= 20000
+
+
+# ── a failed process is never an answer ───────────────────────────────────
+#
+# The regression these pin is 2026-08-08: a revoked CLAUDE_CODE_OAUTH_TOKEN
+# made `claude -p` exit 1 in 3.5s having printed its 401 to STDOUT, with
+# stderr empty. `ask` checked only for a timeout and for empty output, so the
+# error text became the plan, parsed to an empty document, and was published
+# to a human as "no action proposed" by a run that reported success.
+
+AUTH_401 = "Failed to authenticate. API Error: 401 OAuth access token has been revoked."
+
+
+def test_a_failed_planning_process_is_not_a_plan():
+    a = agent(run=lambda *x, **k: AgentRun(False, AUTH_401))
+    with pytest.raises(AgentUnavailable):
+        a.ask(Path("/tmp"), "p")
+
+
+def test_the_auth_error_never_reaches_the_caller_as_content():
+    """The specific shape that broke: non-empty stdout on a non-zero exit."""
+    a = agent(run=lambda *x, **k: AgentRun(False, AUTH_401, ""))
+    with pytest.raises(AgentUnavailable) as e:
+        a.ask(Path("/tmp"), "p")
+    assert "401" in str(e.value)
+
+
+def test_an_unusable_agent_is_distinguishable_from_a_bad_task():
+    """AgentUnavailable must be catchable on its own — the runner aborts the
+    whole sweep for it and merely stalls one task for AgentError."""
+    assert issubclass(AgentUnavailable, AgentError)
+    a = agent(run=lambda *x, **k: AgentRun(True, "   "))
+    with pytest.raises(AgentError) as e:
+        a.ask(Path("/tmp"), "p")
+    assert not isinstance(e.value, AgentUnavailable)
+
+
+def test_a_planning_timeout_is_the_tasks_problem_not_the_pipelines():
+    a = agent(run=lambda *x, **k: AgentRun(False, "", "", timed_out=True))
+    with pytest.raises(AgentError) as e:
+        a.ask(Path("/tmp"), "p")
+    assert not isinstance(e.value, AgentUnavailable)
+
+
+def test_a_successful_plan_still_comes_back():
+    a = agent(run=lambda *x, **k: AgentRun(True, "## Plan\n\n1. do it\n"))
+    assert "## Plan" in a.ask(Path("/tmp"), "p")
+
+
+def test_implementing_with_a_dead_agent_is_not_declining_to_change_anything():
+    """`work` measures the tree, and an empty tree reads as "the agent read
+    the plan and decided against it" — which stalls the task and blames a
+    human for a credential nobody replaced."""
+    a = agent(status="", run=lambda *x, **k: AgentRun(False, AUTH_401))
+    with pytest.raises(AgentUnavailable):
+        a.work(Path("/tmp"), "p")
+
+
+def test_a_failed_agent_that_edited_something_still_reports_its_work():
+    """It got far enough to have an opinion; the gates judge the diff."""
+    a = agent(status=" M a.py", run=lambda *x, **k: AgentRun(False, "crashed late"))
+    assert a.work(Path("/tmp"), "p").changed_files == ["a.py"]
+
+
+def test_an_oom_kill_is_this_tasks_pathology_not_an_outage():
+    """One task blowing the memory ceiling must not red-flag the pipeline."""
+    a = agent(status="", run=lambda *x, **k: AgentRun(
+        False, "", "killed: exceeded 12G", out_of_memory=True))
+    assert a.work(Path("/tmp"), "p").made_changes is False
+
+
+def test_a_timeout_that_changed_nothing_is_still_only_a_timeout():
+    a = agent(status="", run=lambda *x, **k: AgentRun(
+        False, "", "timed out", timed_out=True))
+    assert a.work(Path("/tmp"), "p").timed_out is True

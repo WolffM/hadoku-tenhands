@@ -48,7 +48,7 @@ import os
 import sys
 
 from services.task_board import TaskBoardClient, _ambient_key
-from temporal.taskauto.agent import ClaudeCodeAgent
+from temporal.taskauto.agent import AgentUnavailable, ClaudeCodeAgent
 from temporal.taskauto.checkout import CheckoutManager
 from temporal.taskauto.jobs import make_implement_job, make_plan_job
 from temporal.taskauto.landing import Lander
@@ -95,6 +95,35 @@ HEALTH = {
     "WolffM/tenhands": ("http://127.0.0.1:5024/tenhands/api/healthcheck",
                         '"status":"healthy"'),
 }
+
+
+#: Exit code for "the agent cannot run". Distinct from 2 (misconfiguration)
+#: because the fix is different — 2 wants someone to read this file's docstring,
+#: this wants someone to replace a credential — and because `taskauto.yml`'s
+#: reporting step keys the health check off the step's exit status. Any
+#: non-zero turns the run red; a separate number makes the log say which.
+EXIT_AGENT_DOWN = 3
+
+
+def _agent_down(exc: Exception, *, acted: int = 0) -> int:
+    """Report an unusable agent as a failed run, not a quiet success.
+
+    This exists because the alternative is what actually happened on
+    2026-08-08: a revoked `CLAUDE_CODE_OAUTH_TOKEN` produced a run that swept
+    every board, "planned" a task, released it to `plan-review` and exited 0.
+    Monitoring saw a healthy sweep. The only evidence was a task whose notes
+    said `_No open questions._` and a `plan_s` of 3.7 seconds.
+
+    Nothing here is recoverable in-process — every subsequent task would fail
+    identically — so the run stops. The claim was already handed back in
+    `Runner._run_claimed`, so no task is pinned while this is being fixed.
+    """
+    logger.error(
+        "the coding agent could not be run — stopping this sweep after %d "
+        "task(s). Every remaining task would fail the same way. Check "
+        "CLAUDE_CODE_OAUTH_TOKEN (a revoked one exits 1 in ~3s and prints "
+        "the 401 to stdout): %s", acted, exc)
+    return EXIT_AGENT_DOWN
 
 
 def _gh(argv):
@@ -221,7 +250,10 @@ def main() -> int:
                           runner_for=runners.__getitem__)
 
     if not once:
-        scheduler.run()
+        try:
+            scheduler.run()
+        except AgentUnavailable as e:
+            return _agent_down(e)
         return 0
 
     # One-shot: drain whatever is actionable right now, then exit. This is the
@@ -236,7 +268,10 @@ def main() -> int:
     # take five cron periods for no reason.
     acted = 0
     for i in range(MAX_TICKS_PER_RUN):
-        result = scheduler.tick()
+        try:
+            result = scheduler.tick()
+        except AgentUnavailable as e:
+            return _agent_down(e, acted=acted)
         logger.info("tick %d: %s", i + 1, result)
         if not result.acted:
             break

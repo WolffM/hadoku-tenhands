@@ -72,6 +72,8 @@ from services.task_board import (
     TaskBoardUnavailable,
 )
 
+from .agent import AgentUnavailable
+
 logger = logging.getLogger(__name__)
 
 #: Gap between polls when something is happening.
@@ -163,6 +165,16 @@ class Scheduler:
         for handle in targets:
             try:
                 result = self.runner_for(handle).turn()
+            except AgentUnavailable:
+                # The one failure that is NOT per-board. Every remaining board
+                # would fail identically, so carrying on would turn one outage
+                # into a row of stalled tasks across every repo — and the
+                # `except Exception` below would report each as a detail
+                # string on a tick that still counts as a success.
+                logger.error("agent unavailable — abandoning this tick; the "
+                             "remaining %d board(s) would fail the same way",
+                             len(targets) - targets.index(handle) - 1)
+                raise
             except TaskBoardError as e:
                 # One board being unhappy must not stop the others.
                 details.append(f"{handle[:8]}: board error {e}")

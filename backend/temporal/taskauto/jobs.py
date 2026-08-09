@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import plan_notes, selection
-from .agent import ClaudeCodeAgent
+from .agent import AgentError, ClaudeCodeAgent
 from .checkout import CheckoutManager
 from .landing import Lander, LandingRefused
 from .plan_notes import PlanDoc
@@ -142,6 +142,16 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         sink.record(plan_s=time.monotonic() - t0, plan_passes=1)
         sink.heartbeat()
 
+        # `parse` never raises, so a reply that is not a document at all
+        # arrives here as an empty `PlanDoc` and falls into the
+        # `no-action-proposed` branch below — which tells the human this
+        # looks already done. That is a verdict, and we did not have one.
+        # Refuse to infer anything from a reply we could not read.
+        if not plan_notes.has_known_section(raw):
+            raise AgentError(
+                "the planning reply contained none of the expected sections; "
+                f"it began: {raw.strip()[:200]!r}")
+
         doc = plan_notes.parse(raw)
         # A first plan is pass 1. `parse("")` reports 1 for raw capture, so
         # incrementing unconditionally labelled the first plan "pass 2" and
@@ -152,8 +162,11 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         doc.settled = prior.settled
 
         if not doc.plan and not doc.questions:
-            # Neither a plan nor a question. Usually "already done" — which we
-            # must never conclude unilaterally, so it goes to the human.
+            # Neither a plan nor a question, in a document we could read.
+            # Usually "already done" — which we must never conclude
+            # unilaterally, so it goes to the human. This branch is only
+            # honest because of the check above: it now means the agent
+            # proposed nothing, not that we failed to understand it.
             return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
                     "plan:no-action-proposed")
 
