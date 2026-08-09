@@ -176,8 +176,22 @@ class BoardSink:
                             if_current_lane=self._current_lane)
         self.released = True
 
-    def abandon(self) -> bool:
-        """Give the claim back, writing nothing at all. Never raises.
+    def abandon(self, *, lane: Optional[str] = None) -> bool:
+        """Give the claim back, writing nothing but `lane`. Never raises.
+
+        **`lane=None` does not mean "leave it where it is".** The board reads
+        an absent `lane` on release as *clear the tag*, which drops the task
+        into the Inbox — measured against the live board on 2026-08-08, not
+        inferred. That is correct for the LANE_CHANGED case this was written
+        for, where the whole point is to assert nothing, but it is silently
+        destructive anywhere else: an `approved` task handed back this way
+        loses the approval and gets re-planned instead of implemented, and
+        nothing anywhere says so.
+
+        So callers who know where the task came from pass it. The claim moved
+        the task into an agent lane, so "where it came from" is
+        `pickup.task.lane(board.lanes)` — the pre-claim snapshot — and NOT
+        `pickup.lane`, which is the agent lane we moved it to.
 
         The counterpart to `finish`'s `ifCurrentLane` guard. When that guard
         trips the release is refused and *the claim stays ours* — which is the
@@ -194,11 +208,12 @@ class BoardSink:
         22:53:06. The very next sweep planned the task in seconds. Nothing was
         wrong except that the claim outlived the turn.
 
-        So: no lane, no notes, no metadata, no `ifCurrentLane`. Every one of
-        those is a write, and the whole reason we are here is that the board
-        told us our idea of this task is stale. We surrender ownership and
-        assert nothing about where it should sit — whatever the board says now
-        is right, and the next sweep re-reads it from scratch.
+        Still no notes, no metadata, no `ifCurrentLane`, in either case. Each
+        is a write, and this runs when our idea of the task is either stale or
+        irrelevant. `ifCurrentLane` stays off deliberately even when restoring
+        a lane: the guard trips by refusing the release, and a refused release
+        is the pinned claim above — worth more than the few seconds of race it
+        would close.
 
         Returns whether the claim is actually gone, because the caller reports
         two different things. Never raises: this runs on an error path, and an
@@ -207,7 +222,7 @@ class BoardSink:
         if self.released:
             return True
         try:
-            self.client.release(self.board, self.task_id, self.token)
+            self.client.release(self.board, self.task_id, self.token, lane=lane)
         except Exception as e:
             # Worth a warning rather than a swallow: failing here means the
             # board stays blocked for the rest of the lease, which is the

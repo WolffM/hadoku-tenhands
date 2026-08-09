@@ -184,21 +184,24 @@ class Runner:
             # that is fine, hide the outage behind a green run, and require a
             # human to drag it back once the credential is replaced.
             #
-            # So: give the claim back writing NOTHING, exactly as the
-            # LANE_CHANGED path does and for the same reason — a claim that
-            # outlives the turn idles the whole board until the lease expires.
-            # The task stays in the agent lane the claim moved it to, which
-            # `selection` already treats as a crashed run to resume, so it
-            # re-plans by itself on the next sweep once the agent works again.
+            # So: give the claim back — a claim that outlives the turn idles
+            # the whole board until the lease expires — and put the task back
+            # in the lane we took it from, which is the pre-claim snapshot on
+            # `pickup.task` rather than `pickup.lane`. Restoring it explicitly
+            # is load-bearing: an absent lane on release CLEARS the tag, so
+            # handing back the plain way would drop an `approved` task into
+            # the Inbox and silently convert the human's approval into another
+            # planning round.
             #
             # Then re-raise. Nothing below here may swallow it: the run has to
             # exit non-zero so the workflow reports `failed` to
             # /health/api/jobs. A pipeline that cannot run its agent is not a
             # successful sweep, however many boards it read.
+            came_from = pickup.task.lane(board.lanes)
             logger.exception("agent unavailable during %s on %s; handing the "
-                             "claim back and failing the run",
-                             pickup.job, pickup.task.id)
-            sink.abandon()
+                             "claim back to %s and failing the run",
+                             pickup.job, pickup.task.id, came_from or "the inbox")
+            sink.abandon(lane=came_from)
             raise
         except Exception as e:
             # Any other failure still has to hand the task back. Stalling
