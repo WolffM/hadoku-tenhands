@@ -512,9 +512,35 @@ def test_the_claim_is_handed_back_before_the_run_dies():
         runner(c, {"implement": boom}).turn()
     handback = c.named("release")
     assert handback, "the claim was never given back"
-    # No lane, no notes, no outcome: we assert nothing about a task we never
-    # touched, so the next sweep re-reads it and plans it again.
-    assert handback[0][2] is None and handback[0][3] is None
+    # No notes and no outcome — we assert nothing about a task we never
+    # touched, so the next sweep re-reads it and picks it up again.
+    assert handback[0][3] is None
+
+
+def test_the_task_goes_back_to_the_lane_it_came_from():
+    """An absent lane on release CLEARS the tag, dropping the task into the
+    Inbox — so the obvious "write nothing" handback would turn a human's
+    approval into another planning round, silently. Measured against the live
+    board 2026-08-08."""
+    def boom(*a):
+        raise AgentUnavailable("claude exited non-zero")
+
+    c = FakeClient(snapshot(task(tag="approved")))
+    with pytest.raises(AgentUnavailable):
+        runner(c, {"implement": boom}).turn()
+    assert c.named("release")[0][2] == "approved"
+
+
+def test_an_inbox_task_goes_back_to_the_inbox():
+    """The one case where clearing the tag is right: it had no lane to start
+    with, and `None` is how you say that."""
+    def boom(*a):
+        raise AgentUnavailable("claude exited non-zero")
+
+    c = FakeClient(snapshot(task(tag="", ago=90)))
+    with pytest.raises(AgentUnavailable):
+        runner(c, {"plan": boom}).turn()
+    assert c.named("release")[0][2] is None
 
 
 def test_an_ordinary_agent_error_still_stalls_just_that_task():
