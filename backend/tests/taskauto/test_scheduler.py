@@ -15,6 +15,7 @@ from services.task_board import (
     TaskBoardUnavailable,
     VersionConflict,
 )
+from temporal.taskauto.agent import AgentUnavailable
 from temporal.taskauto.scheduler import Scheduler
 
 
@@ -192,6 +193,19 @@ def test_a_throwing_runner_does_not_stop_the_others():
     result = s.tick()
     assert good.turns == 1
     assert "kaboom" in result.detail
+
+
+def test_an_unavailable_agent_stops_the_whole_tick():
+    """The one failure that is not per-board. Carrying on would turn a single
+    outage into a row of stalled tasks across every repo, on a tick that still
+    reports success — and `except Exception` below would have absorbed it as
+    a detail string."""
+    bad = FakeRunner(raises=AgentUnavailable("claude exited non-zero"))
+    good = FakeRunner()
+    s = sched(FakeClient(), {"bad": bad, "good": good}, full_sweep_s=0)
+    with pytest.raises(AgentUnavailable):
+        s.tick()
+    assert good.turns == 0, "the next board would have failed identically"
 
 
 def test_a_board_error_on_one_board_does_not_stop_the_others():

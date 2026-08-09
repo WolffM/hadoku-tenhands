@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from temporal.taskauto import plan_notes
 from temporal.taskauto.plan_notes import (
     MAX_PASSES,
     PlanDoc,
@@ -250,3 +251,33 @@ def test_a_plan_with_no_questions_still_counts_as_planned():
 @pytest.mark.parametrize("n", [1, 2, 3])
 def test_pass_number_survives_the_round_trip(n):
     assert parse(render(PlanDoc(pass_number=n))).pass_number == n
+
+
+# ── "is this one of our documents at all?" ────────────────────────────────
+
+
+def test_a_reply_with_no_headings_is_not_one_of_our_documents():
+    assert plan_notes.has_known_section("") is False
+    assert plan_notes.has_known_section(
+        "Failed to authenticate. API Error: 401 OAuth access token has been "
+        "revoked.") is False
+
+
+def test_a_heading_we_do_not_emit_does_not_count():
+    assert plan_notes.has_known_section("## Thoughts\n\nsome prose\n") is False
+
+
+def test_one_heading_we_emit_is_enough():
+    assert plan_notes.has_known_section(
+        "## What I think you want\n\nnothing to do\n") is True
+
+
+def test_it_answers_the_question_parse_cannot():
+    """Both parse to an empty document; only one of them is an answer."""
+    unreadable = "401 OAuth access token has been revoked."
+    readable = "## Plan\n\n_none_\n\n## Questions\n\n_No open questions._\n"
+    for text in (unreadable, readable):
+        d = plan_notes.parse(text)
+        assert not d.plan and not d.questions
+    assert plan_notes.has_known_section(unreadable) is False
+    assert plan_notes.has_known_section(readable) is True

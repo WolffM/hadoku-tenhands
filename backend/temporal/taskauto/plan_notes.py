@@ -265,6 +265,23 @@ def parse(text: str) -> PlanDoc:
     return doc
 
 
+def has_known_section(text: str) -> bool:
+    """True if `text` contains at least one heading this module emits.
+
+    The question `parse` cannot answer. `parse` never raises — right for
+    `notes`, which a human may have mangled — so a reply that is not one of
+    our documents at all comes back as an empty `PlanDoc`, indistinguishable
+    from a well-formed document that happens to propose nothing. Those two
+    mean opposite things when the reply came from the *agent*: one is "I
+    looked and there is nothing to do", the other is "this is not a plan".
+
+    Use it on agent output, not on `notes`. A human's raw capture legitimately
+    has no headings — that is `looks_unplanned`.
+    """
+    sections, _ = _sections(text or "")
+    return bool(sections)
+
+
 def looks_unplanned(text: str) -> bool:
     """True when `notes` has never held one of our documents.
 

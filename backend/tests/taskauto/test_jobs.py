@@ -9,7 +9,7 @@ import pytest
 
 from services.task_board import BoardSnapshot, BoardTask, Lane
 from temporal.taskauto import plan_notes, selection
-from temporal.taskauto.agent import AgentOutcome
+from temporal.taskauto.agent import AgentError, AgentOutcome
 from temporal.taskauto.jobs import make_implement_job, make_plan_job
 from temporal.taskauto.landing import LandingRefused, LandResult
 from temporal.taskauto.selection import Pickup
@@ -137,6 +137,36 @@ def test_already_done_is_reported_never_concluded():
         "## What I think you want\n\nThis is already done.\n\n"
         "## Plan\n\n_none_\n\n## Questions\n\n_No open questions._\n"))
     lane, notes, outcome = make_plan_job(agent, FakeCheckouts())(
+        pickup(), board(), FakeSink())
+    assert lane == selection.LANE_PLAN_REVIEW
+    assert outcome == "plan:no-action-proposed"
+
+
+def test_an_unreadable_reply_is_not_a_verdict_of_already_done():
+    """`parse` never raises, so a reply that is not one of our documents came
+    back as an empty PlanDoc and fell into `no-action-proposed` — telling a
+    human "this looks already done" on the strength of output we could not
+    read. That is how a revoked credential's 401 reached a board on
+    2026-08-08. Refuse to conclude anything instead."""
+    agent = FakeAgent(answer="Failed to authenticate. API Error: 401 OAuth "
+                             "access token has been revoked.")
+    with pytest.raises(AgentError):
+        make_plan_job(agent, FakeCheckouts())(pickup(), board(), FakeSink())
+
+
+def test_prose_with_no_headings_is_rejected_even_when_it_sounds_fine():
+    """Not just error strings — anything that ignored the output contract."""
+    agent = FakeAgent(answer="Sure! I had a look and it all seems done already.")
+    with pytest.raises(AgentError):
+        make_plan_job(agent, FakeCheckouts())(pickup(), board(), FakeSink())
+
+
+def test_one_recognised_heading_is_enough_to_be_read_as_a_document():
+    """The check is "did the agent answer in our format", not "is the answer
+    complete" — a document proposing nothing is still a document, and
+    `no-action-proposed` remains the honest outcome for it."""
+    agent = FakeAgent(answer="## What I think you want\n\nNothing to do here.\n")
+    lane, _, outcome = make_plan_job(agent, FakeCheckouts())(
         pickup(), board(), FakeSink())
     assert lane == selection.LANE_PLAN_REVIEW
     assert outcome == "plan:no-action-proposed"

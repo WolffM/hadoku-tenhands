@@ -21,6 +21,7 @@ from services.task_board import (
     TaskBoardUnavailable,
 )
 from temporal.taskauto import selection
+from temporal.taskauto.agent import AgentError, AgentUnavailable
 from temporal.taskauto.runner import Runner, TurnResult
 
 NOW = datetime(2026, 7, 25, 12, 0, 0, tzinfo=timezone.utc)
@@ -480,3 +481,47 @@ def test_nothing_waiting_does_not_touch_the_lock():
     Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
            now=lambda: NOW, lock=lock).turn()
     assert lock.events == []
+
+
+# ── an unusable agent is an outage, not a stall ───────────────────────────
+
+
+def test_an_unavailable_agent_does_not_stall_the_task():
+    """Stalling would blame a task that is fine for a credential nobody
+    replaced, and — because a stall is a normal, successful outcome — hide
+    the outage behind a green run. 2026-08-08: that is exactly what happened.
+    """
+    def boom(*a):
+        raise AgentUnavailable("claude exited non-zero")
+
+    c = FakeClient(snapshot(task()))
+    with pytest.raises(AgentUnavailable):
+        runner(c, {"implement": boom}).turn()
+    assert not [r for r in c.named("release") if r[2] == "stalled"]
+
+
+def test_the_claim_is_handed_back_before_the_run_dies():
+    """A claim that outlives the turn idles the whole board until the lease
+    expires — 32 minutes, measured, on 2026-08-05. Failing the run must not
+    reintroduce that."""
+    def boom(*a):
+        raise AgentUnavailable("claude exited non-zero")
+
+    c = FakeClient(snapshot(task()))
+    with pytest.raises(AgentUnavailable):
+        runner(c, {"implement": boom}).turn()
+    handback = c.named("release")
+    assert handback, "the claim was never given back"
+    # No lane, no notes, no outcome: we assert nothing about a task we never
+    # touched, so the next sweep re-reads it and plans it again.
+    assert handback[0][2] is None and handback[0][3] is None
+
+
+def test_an_ordinary_agent_error_still_stalls_just_that_task():
+    """The whole point of the split — one bad task must not stop the sweep."""
+    def boom(*a):
+        raise AgentError("the reply had no sections in it")
+
+    c = FakeClient(snapshot(task()))
+    r = runner(c, {"implement": boom}).turn()
+    assert r.released_to == "stalled" and r.outcome == "error:AgentError"

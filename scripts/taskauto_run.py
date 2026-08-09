@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from services.task_board import TaskBoardClient, _ambient_key  # noqa: E402
-from temporal.taskauto.agent import ClaudeCodeAgent  # noqa: E402
+from temporal.taskauto.agent import AgentUnavailable, ClaudeCodeAgent  # noqa: E402
 from temporal.taskauto.checkout import CheckoutManager  # noqa: E402
 from temporal.taskauto.jobs import make_implement_job, make_plan_job  # noqa: E402
 from temporal.taskauto.landing import Lander  # noqa: E402
@@ -158,7 +158,16 @@ def main() -> int:
 
     for i in range(args.turns):
         started = time.time()
-        result = runner.turn()
+        try:
+            result = runner.turn()
+        except AgentUnavailable as e:
+            # A traceback would be honest but unhelpful: the cause is almost
+            # always a dead CLAUDE_CODE_OAUTH_TOKEN, and the fix is one line.
+            print(f"\nthe coding agent could not be run: {e}\n"
+                  f"the claim was handed back, so nothing is pinned. Check "
+                  f"CLAUDE_CODE_OAUTH_TOKEN — a revoked one exits 1 in ~3s "
+                  f"and prints its 401 to stdout.")
+            return 3
         print(f"turn {i + 1}/{args.turns} ({time.time() - started:.0f}s): {result}")
         if not result.acted:
             break
