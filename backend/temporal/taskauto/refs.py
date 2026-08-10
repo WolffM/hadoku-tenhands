@@ -54,10 +54,16 @@ class RepoPolicy:
         "backend/temporal/**",
     )
 
-    #: Hard caps on how far one task may reach. Scope creep is the most
-    #: common way a correct fix becomes an unreviewable one.
+    #: Hard cap on how far one task may reach, enforced in `Lander.preflight`.
+    #: Scope creep is the most common way a correct fix becomes an
+    #: unreviewable one, and nobody reads these diffs before they merge.
+    #:
+    #: There was a `max_lines_changed: int = 600` here too, declared under the
+    #: same comment and read by nothing — `preflight` only ever receives
+    #: `changed_files`, so a 3-file 5,000-line diff passed it. Removed rather
+    #: than wired up: a cap that exists only as a field reads as protection
+    #: that is being applied, which is worse than an honestly absent one.
     max_files_changed: int = 20
-    max_lines_changed: int = 600
 
     #: The suite that must go green on the merge result before anything is
     #: pushed. Empty means nothing verifies this repo's changes — allowed,
