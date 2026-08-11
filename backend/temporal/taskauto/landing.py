@@ -142,9 +142,15 @@ class Lander:
             if not any(_glob_ok(p, a) for a in allowed)
         ]
         if unauthorised:
+            # States the fact, and deliberately does NOT name the
+            # `allow-protected:` override. This string is read on a phone by
+            # someone who wanted a change, not a lesson in the gate's API; the
+            # override needs an exact incantation in the task title and nobody
+            # is going to recall it months later. `jobs._refusal_advice` says
+            # what this class of refusal means instead. The mechanism still
+            # exists for the rare case someone reaches for it deliberately.
             raise LandingRefused(
-                f"protected paths touched without `allow-protected:` "
-                f"authorisation: {', '.join(sorted(unauthorised))}")
+                f"protected paths touched: {', '.join(sorted(unauthorised))}")
         checks.append("protected_paths: clean"
                       + (f" ({len(hits)} authorised)" if hits else ""))
         return checks

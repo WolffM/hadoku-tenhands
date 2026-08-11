@@ -265,6 +265,32 @@ def parse(text: str) -> PlanDoc:
     return doc
 
 
+def with_trailing_note(rendered: str, block: str) -> str:
+    """Put `block` after the last section but before the `— pass N` footer.
+
+    For things that happened *to* a document rather than being part of it — a
+    landing gate refusing the diff, a PR being rejected upstream. Those must
+    not become the headline: the plan is what the reader came for, and burying
+    it under a failure notice is what made a refusal read as though the plan
+    itself were the problem.
+
+    It lives here because the footer's position is this module's business, not
+    the caller's. `reconcile` appends *after* the footer for the same class of
+    thing; before it is better — the footer reads as the document's end mark,
+    so anything past it looks like someone else's text pasted on.
+    """
+    block = (block or "").strip()
+    if not block:
+        return rendered
+    m = None
+    for m in _FOOTER_RE.finditer(rendered):
+        pass  # the LAST footer: a human may have pasted an older one above
+    if m is None:
+        return rendered.rstrip() + "\n\n" + block + "\n"
+    return (rendered[:m.start()].rstrip() + "\n\n" + block + "\n\n"
+            + rendered[m.start():].lstrip())
+
+
 def has_known_section(text: str) -> bool:
     """True if `text` contains at least one heading this module emits.
 

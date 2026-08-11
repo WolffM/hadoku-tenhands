@@ -93,37 +93,41 @@ AGENT_LOG_CHARS = 1200
 
 
 def _refusal_advice(reason: str) -> str:
-    """What the human can actually DO about this refusal.
+    """One line on why this class of refusal exists. Not an escape hatch.
 
-    A gate that says only "no" makes the human go and read the gate's source
-    to find out there is an override at all. Each refusal knows its own remedy;
-    say it here rather than making them look it up.
+    It used to end with instructions for `allow-protected:` — put it in the
+    TITLE, not the notes, and here is why. That was accurate and useless: an
+    override you have to remember an exact incantation for, on a phone, months
+    after reading about it, is not an override anyone will reach for. Either
+    the pipeline may touch these paths or it may not, and it may not.
+
+    So this says why it stopped and stops. The human's move is to make the
+    change themselves, or to reword the task so it does not need those paths.
     """
-    if "protected path" in reason.lower() or "allow-protected" in reason.lower():
-        return (
-            "**Why:** those paths — CI, secrets, migrations, lockfiles, and "
-            "this pipeline's own code — are the ones a bad merge cannot be "
-            "undone by a revert. A leaked credential is burned the moment it "
-            "is pushed.\n\n"
-            "**To allow it:** put `allow-protected: <paths>` in the task "
-            "TITLE, then re-approve. It must be the title, not these notes — "
-            "I rewrite the notes every pass, so authorisation living here "
-            "would be authorisation I could grant myself.")
-    if "blast radius" in reason.lower():
-        return ("**To allow it:** split the task, or raise "
-                "`max_files_changed` for this repo in `run_taskauto.py`.")
-    if "test" in reason.lower() or "suite" in reason.lower():
-        return ("**Why:** nothing else reads this diff before it merges, so a "
-                "red suite is the only thing standing between a bad change "
-                "and `main`. Fix the failure, or re-approve to rebuild "
-                "against current `main` if it was a stale merge base.")
-    return ("Nothing about this refusal is retryable on its own — the same "
-            "diff will be refused the same way until something changes.")
+    r = reason.lower()
+    if "protected path" in r or "allow-protected" in r:
+        return ("These paths — CI, secrets, migrations, lockfiles, and this "
+                "pipeline's own code — are the ones a bad merge cannot be "
+                "undone by a revert, so nothing automated may touch them. "
+                "This part needs a human.")
+    if "blast radius" in r:
+        return ("A correct fix this wide is still an unreviewable one. Split "
+                "the task, or raise `max_files_changed` for this repo.")
+    if "test" in r or "suite" in r:
+        return ("Nothing else reads this diff before it merges, so the suite "
+                "is the only thing between a bad change and `main`.")
+    return ""
 
 
-def _stall_note(doc: PlanDoc, *, understanding: str, questions: list,
+def _stall_note(doc: PlanDoc, *, trailing: str, questions: Optional[list] = None,
                 agent_said: str = "", changed_files: Optional[list] = None) -> str:
     """A stall note that does not throw away the plan it stalled on.
+
+    **The plan leads and the failure trails.** An earlier version put the
+    refusal in `## What I think you want`, which is the first thing rendered —
+    so a task whose plan was fine read as though the plan were the problem.
+    What stopped is a fact *about* the document, not the document, so it goes
+    below everything via `plan_notes.with_trailing_note`.
 
     Both stall paths used to build a FRESH `PlanDoc`, which meant the approved
     plan vanished from `notes` — and `notes` is the only place it lives. The
@@ -139,17 +143,18 @@ def _stall_note(doc: PlanDoc, *, understanding: str, questions: list,
     what was built and is otherwise dropped on the floor.
     """
     if agent_said.strip():
-        understanding = (f"{understanding}\n\n**What I did:**\n"
-                         f"{agent_said.strip()[-AGENT_LOG_CHARS:]}")
-    return plan_notes.render(PlanDoc(
-        understanding=understanding,
+        trailing = (f"{trailing}\n\nWhat I built before stopping:\n"
+                    f"{agent_said.strip()[-AGENT_LOG_CHARS:]}")
+    rendered = plan_notes.render(PlanDoc(
+        understanding=doc.understanding,
         plan=doc.plan,
-        questions=questions,
+        questions=questions or [],
         settled=doc.settled,
         acceptance=doc.acceptance,
         blast_radius=list(changed_files) if changed_files else doc.blast_radius,
         pass_number=doc.pass_number,
     ))
+    return plan_notes.with_trailing_note(rendered, trailing)
 
 
 def _task_ref(pickup, board, policy: Optional[RepoPolicy] = None) -> TaskRef:
@@ -363,15 +368,8 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             return (selection.LANE_STALLED,
                     _stall_note(
                         doc,
-                        understanding=(
-                            "The agent made no changes, so there is nothing "
-                            "to land. Its own account of why is below."),
-                        questions=[
-                            "Does its reasoning hold? If so this task needs "
-                            "rewording or closing; if not, put it back in "
-                            "`approved` and it will try again against the "
-                            "same plan.",
-                        ],
+                        trailing=("**NOT LANDED — the agent made no changes, "
+                                  "so there was nothing to land.**"),
                         agent_said=outcome.log,
                         changed_files=[]),
                     "implement:no-changes")
@@ -391,18 +389,10 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             return (selection.LANE_STALLED,
                     _stall_note(
                         doc,
-                        understanding=(
-                            "I built this, then refused to land it. The work "
-                            "is fine as far as I know — a gate that runs "
-                            "before the commit said no, and gates here refuse "
-                            "rather than ask.\n\n"
-                            f"**What the gate said:** {str(e)[:1200]}\n\n"
-                            f"{_refusal_advice(str(e))}"),
-                        questions=[
-                            "Do you want this to land? If so, act on the note "
-                            "above and move this back to `approved` — the plan "
-                            "is intact and will be built again as-is.",
-                        ],
+                        trailing=(
+                            "**NOT LANDED — refused at the landing gate.**\n\n"
+                            f"{str(e)[:1200]}\n\n"
+                            f"{_refusal_advice(str(e))}").strip(),
                         agent_said=outcome.log,
                         changed_files=outcome.changed_files),
                     "land:refused")
