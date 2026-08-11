@@ -217,18 +217,42 @@ def test_re_approving_a_refused_task_rebuilds_instead_of_replanning():
     assert lane2 != selection.LANE_REPLAN
 
 
-def test_a_refusal_says_what_the_human_can_do_about_it():
+def test_a_refusal_explains_itself_without_naming_an_incantation():
+    """The override needs an exact string in the task title, months after you
+    last read about it. Advertising it made the note longer and no more
+    actionable. Say what the refusal MEANS instead."""
     lander = FakeLander(raises=LandingRefused(
-                              "protected paths touched without "
-                              "`allow-protected:` authorisation: .devvault.json"))
+        "protected paths touched: .devvault.json"))
     agent = FakeAgent(outcome=AgentOutcome(changed_files=[".devvault.json"]))
     _, notes, _ = make_implement_job(agent, FakeCheckouts(), lander)(
         _approved(), board(), FakeSink())
-    # The override, and where it must go — not making them read the gate source.
-    assert "allow-protected:" in notes
-    assert "TITLE" in notes
-    # And why the notes are not a valid place to put it.
-    assert "could grant myself" in notes
+    assert "allow-protected" not in notes
+    assert "cannot be undone by a revert" in notes
+    assert "needs a human" in notes
+
+
+def test_the_gate_itself_does_not_advertise_the_override():
+    """The refusal string is user-facing; it reaches the board verbatim."""
+    from temporal.taskauto.landing import Lander
+    from temporal.taskauto.refs import RepoPolicy, TaskRef
+    task = TaskRef(repo_slug="WolffM/x", board="b", task_id="t",
+                   title="add a thing", notes_at_claim="", policy=RepoPolicy())
+    with pytest.raises(LandingRefused) as e:
+        Lander(dry_run=True).preflight(task, [".github/workflows/deploy.yml"])
+    assert "allow-protected" not in str(e.value)
+    assert ".github/workflows/deploy.yml" in str(e.value)
+
+
+def test_the_plan_leads_and_the_refusal_trails():
+    """A task whose plan was fine must not read as though the plan were the
+    problem — the failure is a fact ABOUT the document, not the document."""
+    lander = FakeLander(raises=LandingRefused("protected paths touched: x"))
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["x"]))
+    _, notes, _ = make_implement_job(agent, FakeCheckouts(), lander)(
+        _approved(), board(), FakeSink())
+    assert notes.index("## Plan") < notes.index("NOT LANDED")
+    # ...and the footer still ends the document.
+    assert notes.rstrip().endswith("— pass 3")
 
 
 def test_a_refusal_carries_the_agents_own_account():
