@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -47,6 +48,14 @@ DEFAULT_BASE_URL = "https://hadoku.me/task/api"
 # runner's clock can never extend a lease.
 DEFAULT_LEASE_SECONDS = 1800  # 30 min
 MAX_LEASE_SECONDS = 3600  # 1 h
+
+# In-run retry for reads only — see the comment in `_call`. Kept small: the
+# sweep runs every 15 minutes, so riding out a long outage is the schedule's
+# job, not this loop's. Three attempts with a 1s/2s backoff covers the
+# single-blip case (which is what `GET /boards → 502` was on 2026-08-10) and
+# adds at most ~3s to a run that was going to die anyway.
+_GET_ATTEMPTS = 3
+_GET_BACKOFF_S = 1.0
 
 
 # ── Errors ────────────────────────────────────────────────────────────────
@@ -519,6 +528,41 @@ class TaskBoardClient:
                 "TENHANDS_SERVICE_KEY) — board shares are granted to that "
                 "identity, and no other key can see them."
             )
+
+        # Retry GETs, and ONLY GETs.
+        #
+        # `TaskBoardUnavailable` means we never got a verdict, and per this
+        # module's contract the request "may or may not have been applied" — so
+        # a write is not safe to repeat (a retried claim could double-apply, and
+        # a timeout is exactly the case where the board may have processed it).
+        # A GET has no such hazard.
+        #
+        # Worth doing because the sweep dies on its FIRST call. On 2026-08-10 a
+        # single `GET /boards → HTTP 502` killed the whole run and burned the
+        # 15-minute cycle; the board was fine on the next attempt. Alerting
+        # already debounces taskauto (monitoring-api ALERT_AFTER_CONSECUTIVE),
+        # so this is about not throwing away a cycle, not about silencing pages.
+        attempts = _GET_ATTEMPTS if method.upper() == "GET" else 1
+        last: TaskBoardUnavailable | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._attempt(method, path, json_body=json_body, params=params)
+            except TaskBoardUnavailable as e:
+                last = e
+                if attempt == attempts:
+                    break
+                delay = _GET_BACKOFF_S * attempt
+                logger.warning(
+                    "task board unavailable (%s), retrying in %ss "
+                    "[attempt %d/%d]", e, delay, attempt, attempts,
+                )
+                time.sleep(delay)
+        assert last is not None  # only reachable via the except branch
+        raise last
+
+    def _attempt(self, method: str, path: str, *,
+                 json_body: Optional[dict] = None,
+                 params: Optional[dict] = None) -> dict:
         url = f"{self.base_url}{path}"
         try:
             resp = self._transport(

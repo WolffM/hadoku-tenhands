@@ -17,6 +17,7 @@ import json
 import pytest
 import requests
 
+from services import task_board as task_board_module
 from services.task_board import (
     BoardSnapshot,
     ClaimHeld,
@@ -35,6 +36,16 @@ from services.task_board import (
     TaskNotFound,
     VersionConflict,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_backoff_sleep(monkeypatch):
+    """Reads retry with a real backoff; nothing here should pay for it.
+
+    Autouse so a test added later cannot accidentally reintroduce ~3s of
+    wall-clock per unavailable-GET case.
+    """
+    monkeypatch.setattr(task_board_module.time, "sleep", lambda _s: None)
 
 
 class FakeResponse:
@@ -342,13 +353,14 @@ def test_5xx_is_unavailable_not_a_verdict(status):
 
 
 def test_timeout_is_unavailable():
-    c = client(requests.Timeout("slow"))
+    # A read retries, so the transport must be able to answer every attempt.
+    c = client(*[requests.Timeout("slow")] * 3)
     with pytest.raises(TaskBoardUnavailable, match="timed out"):
         c.get_board("h1")
 
 
 def test_connection_error_is_unavailable():
-    c = client(requests.ConnectionError("refused"))
+    c = client(*[requests.ConnectionError("refused")] * 3)
     with pytest.raises(TaskBoardUnavailable):
         c.get_board("h1")
 
@@ -365,7 +377,7 @@ def test_unparseable_success_body_does_not_crash():
 
 
 def test_unparseable_error_body_still_raises_by_status():
-    c = client(FakeResponse(503, None, bad_json=True))
+    c = client(*[FakeResponse(503, None, bad_json=True)] * 3)
     with pytest.raises(TaskBoardUnavailable):
         c.get_board("h1")
 
@@ -548,3 +560,53 @@ def test_discovery_skips_boards_that_are_not_drivable():
          "lanes": [{"tag": "x", "label": "X", "order": 0, "editableBy": "user"}]},
     ]}
     assert client(FakeResponse(200, payload)).automation_boards() == []
+
+
+# ── transient-read retry ──────────────────────────────────────────────────
+
+
+def test_a_transient_5xx_on_a_read_is_retried():
+    """The sweep dies on its first call. On 2026-08-10 a single
+    `GET /boards → 502` killed the run and burned the 15-minute cycle; the
+    board answered fine moments later."""
+    c = client(FakeResponse(502, {}), FakeResponse(200, BOARD_PAYLOAD))
+    b = c.get_board("h1")
+    assert b.version == 7
+    assert len(c._transport.calls) == 2
+
+
+def test_a_read_gives_up_after_the_attempt_budget():
+    """Riding out a long outage is the 15-minute schedule's job, not this
+    loop's — so the failure must still surface."""
+    c = client(*[FakeResponse(502, {})] * 3)
+    with pytest.raises(TaskBoardUnavailable, match="502"):
+        c.get_board("h1")
+    assert len(c._transport.calls) == 3
+
+
+def test_a_write_is_never_retried():
+    """`TaskBoardUnavailable` means we got no verdict, so a write may already
+    have been applied. Repeating a claim or a release could double-apply it —
+    the module contract says treat writes as unknown, not as safe to repeat."""
+    c = client(FakeResponse(502, {"error": "boom"}))
+    with pytest.raises(TaskBoardUnavailable):
+        c.release("h1", "t1", "tok", lane="landed")
+    assert len(c._transport.calls) == 1
+
+
+def test_a_domain_refusal_on_a_read_is_not_retried():
+    """A structured refusal is deterministic — retrying gets the same answer,
+    and CLAIM_HELD is a normal outcome, not a blip."""
+    c = client(FakeResponse(404, {"code": "BOARD_NOT_FOUND", "error": "nope"}))
+    with pytest.raises(TaskBoardDomainError):
+        c.get_board("h1")
+    assert len(c._transport.calls) == 1
+
+
+def test_a_rate_limited_read_is_not_retried():
+    """429 auto-blacklists after 3 violations, so a retry loop converts a slow
+    poll into a locked-out key. It is a domain refusal, and stays one."""
+    c = client(FakeResponse(429, {"code": "RATE_LIMITED", "retryAfter": 30}))
+    with pytest.raises(RateLimited):
+        c.get_board("h1")
+    assert len(c._transport.calls) == 1
