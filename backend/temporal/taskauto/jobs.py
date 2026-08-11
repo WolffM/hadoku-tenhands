@@ -86,6 +86,72 @@ Rules:
 """
 
 
+#: How much of the agent's own account to keep. It is the only description of
+#: what was actually built, and on a refusal it is the thing that tells you
+#: whether you want the change at all — but `notes` is read on a phone.
+AGENT_LOG_CHARS = 1200
+
+
+def _refusal_advice(reason: str) -> str:
+    """What the human can actually DO about this refusal.
+
+    A gate that says only "no" makes the human go and read the gate's source
+    to find out there is an override at all. Each refusal knows its own remedy;
+    say it here rather than making them look it up.
+    """
+    if "protected path" in reason.lower() or "allow-protected" in reason.lower():
+        return (
+            "**Why:** those paths — CI, secrets, migrations, lockfiles, and "
+            "this pipeline's own code — are the ones a bad merge cannot be "
+            "undone by a revert. A leaked credential is burned the moment it "
+            "is pushed.\n\n"
+            "**To allow it:** put `allow-protected: <paths>` in the task "
+            "TITLE, then re-approve. It must be the title, not these notes — "
+            "I rewrite the notes every pass, so authorisation living here "
+            "would be authorisation I could grant myself.")
+    if "blast radius" in reason.lower():
+        return ("**To allow it:** split the task, or raise "
+                "`max_files_changed` for this repo in `run_taskauto.py`.")
+    if "test" in reason.lower() or "suite" in reason.lower():
+        return ("**Why:** nothing else reads this diff before it merges, so a "
+                "red suite is the only thing standing between a bad change "
+                "and `main`. Fix the failure, or re-approve to rebuild "
+                "against current `main` if it was a stale merge base.")
+    return ("Nothing about this refusal is retryable on its own — the same "
+            "diff will be refused the same way until something changes.")
+
+
+def _stall_note(doc: PlanDoc, *, understanding: str, questions: list,
+                agent_said: str = "", changed_files: Optional[list] = None) -> str:
+    """A stall note that does not throw away the plan it stalled on.
+
+    Both stall paths used to build a FRESH `PlanDoc`, which meant the approved
+    plan vanished from `notes` — and `notes` is the only place it lives. The
+    cost was not cosmetic: `implement_job` starts with `if not doc.plan: ->
+    LANE_REPLAN`, so a human who did the obvious thing and re-approved a
+    stalled task got the whole planning conversation restarted from scratch.
+    On the `meet` task that was 266 seconds of planning across three passes,
+    discarded because a gate said no to one file.
+
+    So the plan, its acceptance check and the pass number are carried through
+    verbatim. What changes is the framing: what stopped, why, and what the
+    human can do — plus the agent's own account, which is the only record of
+    what was built and is otherwise dropped on the floor.
+    """
+    if agent_said.strip():
+        understanding = (f"{understanding}\n\n**What I did:**\n"
+                         f"{agent_said.strip()[-AGENT_LOG_CHARS:]}")
+    return plan_notes.render(PlanDoc(
+        understanding=understanding,
+        plan=doc.plan,
+        questions=questions,
+        settled=doc.settled,
+        acceptance=doc.acceptance,
+        blast_radius=list(changed_files) if changed_files else doc.blast_radius,
+        pass_number=doc.pass_number,
+    ))
+
+
 def _task_ref(pickup, board, policy: Optional[RepoPolicy] = None) -> TaskRef:
     return TaskRef(
         repo_slug=board.repo,
@@ -295,10 +361,19 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
 
         if not outcome.made_changes:
             return (selection.LANE_STALLED,
-                    plan_notes.render(PlanDoc(
-                        understanding="The agent made no changes.",
-                        questions=["It said:\n" + outcome.log[-1200:]],
-                        pass_number=1)),
+                    _stall_note(
+                        doc,
+                        understanding=(
+                            "The agent made no changes, so there is nothing "
+                            "to land. Its own account of why is below."),
+                        questions=[
+                            "Does its reasoning hold? If so this task needs "
+                            "rewording or closing; if not, put it back in "
+                            "`approved` and it will try again against the "
+                            "same plan.",
+                        ],
+                        agent_said=outcome.log,
+                        changed_files=[]),
                     "implement:no-changes")
 
         sink.lane(selection.LANE_LANDING)
@@ -314,12 +389,22 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             )
         except LandingRefused as e:
             return (selection.LANE_STALLED,
-                    plan_notes.render(PlanDoc(
-                        understanding="The change was built but refused at the "
-                                      "landing gate.",
-                        questions=[str(e)[:1500]],
-                        blast_radius=outcome.changed_files,
-                        pass_number=1)),
+                    _stall_note(
+                        doc,
+                        understanding=(
+                            "I built this, then refused to land it. The work "
+                            "is fine as far as I know — a gate that runs "
+                            "before the commit said no, and gates here refuse "
+                            "rather than ask.\n\n"
+                            f"**What the gate said:** {str(e)[:1200]}\n\n"
+                            f"{_refusal_advice(str(e))}"),
+                        questions=[
+                            "Do you want this to land? If so, act on the note "
+                            "above and move this back to `approved` — the plan "
+                            "is intact and will be built again as-is.",
+                        ],
+                        agent_said=outcome.log,
+                        changed_files=outcome.changed_files),
                     "land:refused")
 
         if res.pr_url:
