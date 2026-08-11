@@ -172,6 +172,95 @@ def test_one_recognised_heading_is_enough_to_be_read_as_a_document():
     assert outcome == "plan:no-action-proposed"
 
 
+# ── a stall must not destroy the plan it stalled on ───────────────────────
+#
+# Both stall paths built a FRESH PlanDoc, so the approved plan vanished from
+# `notes` — the only place it lives. `implement_job` opens with
+# `if not doc.plan: -> LANE_REPLAN`, so re-approving a stalled task silently
+# restarted the whole planning conversation. On the `meet` task that would
+# have discarded 266s of planning across three passes over one refused file.
+
+
+def _approved(plan=("step one", "step two")):
+    doc = plan_notes.PlanDoc(understanding="u", plan=list(plan),
+                             acceptance=["it works"], pass_number=3)
+    return pickup(notes=plan_notes.render(doc), job="implement")
+
+
+def test_a_refused_landing_keeps_the_plan():
+    lander = FakeLander(raises=LandingRefused(
+                              "protected paths touched without "
+                              "`allow-protected:` authorisation: .devvault.json"))
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=[".devvault.json"]))
+    lane, notes, outcome = make_implement_job(agent, FakeCheckouts(), lander)(
+        _approved(), board(), FakeSink())
+    assert lane == selection.LANE_STALLED and outcome == "land:refused"
+    assert plan_notes.parse(notes).plan == ["step one", "step two"]
+
+
+def test_re_approving_a_refused_task_rebuilds_instead_of_replanning():
+    """The whole point: the obvious human gesture has to work."""
+    lander = FakeLander(raises=LandingRefused(
+                              "protected paths touched without "
+                              "`allow-protected:` authorisation: .devvault.json"))
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=[".devvault.json"]))
+    _, notes, _ = make_implement_job(agent, FakeCheckouts(), lander)(
+        _approved(), board(), FakeSink())
+
+    # The human drags it back to `approved` unchanged. It must implement, not
+    # bounce to `replan` for a fresh planning conversation.
+    lane2, _, outcome2 = make_implement_job(
+        FakeAgent(outcome=AgentOutcome(changed_files=["a.py"])),
+        FakeCheckouts(), FakeLander())(
+        pickup(notes=notes, job="implement"), board(), FakeSink())
+    assert outcome2 != "implement:no-plan"
+    assert lane2 != selection.LANE_REPLAN
+
+
+def test_a_refusal_says_what_the_human_can_do_about_it():
+    lander = FakeLander(raises=LandingRefused(
+                              "protected paths touched without "
+                              "`allow-protected:` authorisation: .devvault.json"))
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=[".devvault.json"]))
+    _, notes, _ = make_implement_job(agent, FakeCheckouts(), lander)(
+        _approved(), board(), FakeSink())
+    # The override, and where it must go — not making them read the gate source.
+    assert "allow-protected:" in notes
+    assert "TITLE" in notes
+    # And why the notes are not a valid place to put it.
+    assert "could grant myself" in notes
+
+
+def test_a_refusal_carries_the_agents_own_account():
+    lander = FakeLander(raises=LandingRefused("blast radius: 40 files changed, cap is 20"))
+    agent = FakeAgent(outcome=AgentOutcome(
+        changed_files=["a.py"], log="I rewrote the whole module."))
+    _, notes, _ = make_implement_job(agent, FakeCheckouts(), lander)(
+        _approved(), board(), FakeSink())
+    assert "I rewrote the whole module." in notes
+    assert "max_files_changed" in notes  # the remedy for THIS refusal
+
+
+def test_no_changes_also_keeps_the_plan_and_the_agents_words():
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=[],
+                                           log="Nothing to do; already done."))
+    lane, notes, outcome = make_implement_job(agent, FakeCheckouts(), FakeLander())(
+        _approved(), board(), FakeSink())
+    assert lane == selection.LANE_STALLED and outcome == "implement:no-changes"
+    assert plan_notes.parse(notes).plan == ["step one", "step two"]
+    assert "Nothing to do; already done." in notes
+
+
+def test_the_stall_note_does_not_reset_the_pass_number():
+    """`pass 1` on a third-pass task reads as a fresh conversation and would
+    hand the planning loop two extra rounds if it ever went back."""
+    lander = FakeLander(raises=LandingRefused("nope"))
+    agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.py"]))
+    _, notes, _ = make_implement_job(agent, FakeCheckouts(), lander)(
+        _approved(), board(), FakeSink())
+    assert plan_notes.parse(notes).pass_number == 3
+
+
 def test_the_pass_cap_stalls_rather_than_asking_again():
     prior = plan_notes.render(plan_notes.PlanDoc(
         plan=["x"], questions=["again?"],
