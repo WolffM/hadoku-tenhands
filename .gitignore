@@ -118,3 +118,6 @@ CLAUDE.local.md
 
 # Demo teardown evidence tarballs
 demo/archive/
+
+# git worktrees for concurrent agents (local only)
+.claude/worktrees/
