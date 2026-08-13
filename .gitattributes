@@ -18,3 +18,4 @@
 *.pdf binary
 *.woff binary
 *.woff2 binary
+.vibecompact/ledger.jsonl merge=union
