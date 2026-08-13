@@ -16,6 +16,7 @@ import { useTemporalStore } from '../../store/temporalStore'
 import type { TemporalBatchSummary } from '../../api/types'
 import { IssueDetail } from './IssueDetail'
 import { StateBadge } from './StateBadge'
+import { EmptyState } from '../common'
 
 interface BatchBrowserProps {
   batches: TemporalBatchSummary[]
@@ -50,11 +51,7 @@ export function BatchBrowser({ batches, emptyText }: BatchBrowserProps) {
   }, [batchDetail.data, selectedBatchId, selectedIssueId, selectIssue])
 
   if (batches.length === 0) {
-    return (
-      <p className="temporal-browser__empty" data-testid="temporal-browser-empty">
-        {emptyText}
-      </p>
-    )
+    return <EmptyState icon="📦" title={emptyText} testId="temporal-browser-empty" />
   }
 
   const detail = batchDetail.data
@@ -86,7 +83,7 @@ export function BatchBrowser({ batches, emptyText }: BatchBrowserProps) {
                 {isActiveBatch && (
                   <ul className="temporal-browser__run-list" data-testid="temporal-issues-list">
                     {batchDetail.loading && runsForSelectedBatch.length === 0 && (
-                      <li className="temporal-browser__run-loading">Loading runs...</li>
+                      <li className="temporal-browser__run-loading">Loading runs…</li>
                     )}
                     {runsForSelectedBatch.map(i => (
                       <li key={i.issue_id}>

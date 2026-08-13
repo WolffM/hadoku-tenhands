@@ -18,16 +18,16 @@
 }
 
 .markdown-content h1 {
-  font-size: 1.25rem;
+  font-size: calc(var(--hdk-text-base) * 1.25);
 }
 .markdown-content h2 {
-  font-size: 1.1rem;
+  font-size: calc(var(--hdk-text-base) * 1.1);
 }
 .markdown-content h3 {
-  font-size: 1rem;
+  font-size: var(--hdk-text-base);
 }
 .markdown-content h4 {
-  font-size: 0.95rem;
+  font-size: var(--hdk-text-md);
 }
 
 .markdown-content p {
@@ -46,7 +46,7 @@
 
 .markdown-content code {
   font-family: 'SF Mono', Consolas, monospace;
-  font-size: 0.85em;
+  font-size: var(--hdk-text-sm);
   padding: 0.15rem 0.4rem;
   background-color: var(--color-bg-hover);
   border-radius: var(--hdk-radius-sm);
@@ -64,7 +64,7 @@
 .markdown-content pre code {
   padding: 0;
   background: none;
-  font-size: 0.8rem;
+  font-size: var(--hdk-text-xs);
 }
 
 .markdown-content blockquote {
@@ -94,7 +94,7 @@
   width: 100%;
   border-collapse: collapse;
   margin: 0.75rem 0;
-  font-size: 0.85rem;
+  font-size: var(--hdk-text-sm);
 }
 
 .markdown-content th,

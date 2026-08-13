@@ -72,7 +72,7 @@ export function BoardPanel({ board, laneOrder, onOpenTask }: BoardPanelProps) {
                         {t.stuck && (
                           <span
                             className="taskauto-lane__stuck"
-                            title="Two lane tags — the scheduler cannot see this task. It needs repair."
+                            title="This task is tagged with two lanes at once, so automation can't pick it up. Remove one lane tag to fix it."
                           >
                             needs repair
                           </span>

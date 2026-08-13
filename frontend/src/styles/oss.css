@@ -7,7 +7,7 @@
   right: 0;
   bottom: 0;
   background-color: var(--color-bg-overlay);
-  z-index: 1000;
+  z-index: var(--th-z-modal);
   display: flex;
   justify-content: flex-end;
 }
@@ -37,7 +37,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.5rem;
+  padding: var(--hdk-space-xl) var(--hdk-space-3xl);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -49,14 +49,14 @@
 
 .dossier-panel__tabs {
   display: flex;
-  gap: 0.25rem;
-  padding: 0.5rem 1rem;
+  gap: var(--hdk-space-sm);
+  padding: var(--hdk-space-md) var(--hdk-space-xl);
   border-bottom: 1px solid var(--color-border);
   overflow-x: auto;
 }
 
 .dossier-tab {
-  padding: 0.375rem 0.75rem;
+  padding: var(--hdk-space-sm) var(--hdk-space-lg);
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
@@ -78,7 +78,7 @@
 .dossier-panel__content {
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: var(--hdk-space-3xl);
 }
 
 .dossier-panel__markdown {
@@ -91,7 +91,7 @@
 }
 
 .dossier-panel__error {
-  padding: 1.5rem;
+  padding: var(--hdk-space-3xl);
   color: var(--color-danger);
   text-align: center;
 }
@@ -99,11 +99,11 @@
 /* ============ Pipeline Selection ============ */
 
 .pipeline-select {
-  padding: 2rem;
+  padding: var(--hdk-space-3xl);
 }
 
 .pipeline-select__header {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--hdk-space-3xl);
 }
 
 .pipeline-select__title {
@@ -116,15 +116,15 @@
 .pipeline-select__list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--hdk-space-xl);
 }
 
 .pipeline-select-card {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: var(--hdk-space-3xl);
   width: 100%;
-  padding: 1.5rem;
+  padding: var(--hdk-space-3xl);
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
@@ -144,7 +144,7 @@
 }
 
 .pipeline-select-card__icon {
-  font-size: 2rem;
+  font-size: calc(var(--hdk-text-base) * 2);
   flex-shrink: 0;
 }
 
@@ -153,15 +153,32 @@
   min-width: 0;
 }
 
+.pipeline-select-card__heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hdk-space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--hdk-space-sm);
+}
+
 .pipeline-select-card__title {
-  margin: 0 0 0.25rem 0;
+  margin: 0;
   font-size: var(--hdk-text-base);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
 
+.pipeline-select-card__era {
+  font-size: var(--hdk-text-xs);
+  color: var(--color-text-secondary);
+  padding: var(--hdk-space-xs) var(--hdk-space-md);
+  background-color: var(--color-neutral-bg);
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
 .pipeline-select-card__description {
-  margin: 0 0 0.75rem 0;
+  margin: 0 0 var(--hdk-space-lg) 0;
   font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
@@ -169,14 +186,14 @@
 .pipeline-select-card__stages {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: var(--hdk-space-sm);
   align-items: center;
 }
 
 .pipeline-select-card__stage {
   font-size: var(--hdk-text-xs);
   color: var(--color-text-secondary);
-  padding: 0.125rem 0.5rem;
+  padding: var(--hdk-space-xs) var(--hdk-space-md);
   background-color: var(--color-neutral-bg);
   border-radius: 9999px;
 }
@@ -184,7 +201,7 @@
 .pipeline-select-card__arrow {
   color: var(--color-text-secondary);
   font-size: var(--hdk-text-xs);
-  padding: 0 0.125rem;
+  padding: 0 var(--hdk-space-xs);
   background: none;
 }
 
@@ -193,21 +210,21 @@
 .repo-health-grid {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--hdk-space-xl);
 }
 
 .repo-health-card {
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
-  padding: 1rem 1.25rem;
+  padding: var(--hdk-space-xl) var(--hdk-space-2xl);
 }
 
 .repo-health-card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--hdk-space-lg);
 }
 
 .repo-health-card__slug {
@@ -217,28 +234,28 @@
 
 .repo-health-card__scores {
   display: flex;
-  gap: 1.5rem;
-  margin-bottom: 0.5rem;
+  gap: var(--hdk-space-3xl);
+  margin-bottom: var(--hdk-space-md);
 }
 
 .repo-health-card__score {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
+  gap: var(--hdk-space-xs);
   font-size: var(--hdk-text-sm);
 }
 
 .repo-health-card__timestamps {
   display: flex;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+  gap: var(--hdk-space-xl);
+  margin-bottom: var(--hdk-space-lg);
   font-size: var(--hdk-text-xs);
 }
 
 .repo-health-card__dossier {
   border-top: 1px solid var(--color-border);
-  padding-top: 0.5rem;
-  margin-top: 0.5rem;
+  padding-top: var(--hdk-space-md);
+  margin-top: var(--hdk-space-md);
 }
 
 .repo-health-card__section {
@@ -254,7 +271,7 @@
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  padding: 0.5rem 0;
+  padding: var(--hdk-space-md) 0;
   background: none;
   border: none;
   color: var(--color-text);
@@ -277,8 +294,8 @@
   font-family: inherit;
   font-size: var(--hdk-text-sm);
   line-height: 1.6;
-  margin: 0 0 0.75rem 0;
-  padding: 0.5rem;
+  margin: 0 0 var(--hdk-space-lg) 0;
+  padding: var(--hdk-space-md);
   background-color: var(--color-bg);
   border-radius: var(--hdk-radius-sm);
   max-height: 300px;
@@ -287,9 +304,9 @@
 
 .repo-health-card__actions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
+  gap: var(--hdk-space-md);
+  margin-top: var(--hdk-space-lg);
+  padding-top: var(--hdk-space-lg);
   border-top: 1px solid var(--color-border);
 }
 
@@ -313,19 +330,19 @@
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
   box-shadow: var(--hdk-shadow-lg);
-  z-index: 100;
+  z-index: var(--th-z-dropdown);
   display: flex;
   flex-direction: column;
 }
 
 .repo-filter-popover__search {
-  padding: 0.5rem;
+  padding: var(--hdk-space-md);
   border-bottom: 1px solid var(--color-border);
 }
 
 .repo-filter-popover__search input {
   width: 100%;
-  padding: 0.375rem 0.5rem;
+  padding: var(--hdk-space-sm) var(--hdk-space-md);
   font-size: var(--hdk-text-sm);
   background-color: var(--color-bg);
   color: var(--color-text);
@@ -340,22 +357,22 @@
 
 .repo-filter-popover__actions {
   display: flex;
-  gap: 0.375rem;
-  padding: 0.375rem 0.5rem;
+  gap: var(--hdk-space-sm);
+  padding: var(--hdk-space-sm) var(--hdk-space-md);
   border-bottom: 1px solid var(--color-border);
 }
 
 .repo-filter-popover__list {
   max-height: 300px;
   overflow-y: auto;
-  padding: 0.25rem 0;
+  padding: var(--hdk-space-sm) 0;
 }
 
 .repo-filter-popover__item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0.75rem;
+  gap: var(--hdk-space-md);
+  padding: var(--hdk-space-sm) var(--hdk-space-lg);
   font-size: var(--hdk-text-sm);
   cursor: pointer;
   user-select: none;
@@ -371,14 +388,14 @@
 }
 
 .repo-filter-popover__empty {
-  padding: 0.75rem;
+  padding: var(--hdk-space-lg);
   text-align: center;
   color: var(--color-text-secondary);
   font-size: var(--hdk-text-sm);
 }
 
 .repo-filter-popover__footer {
-  padding: 0.375rem 0.75rem;
+  padding: var(--hdk-space-sm) var(--hdk-space-lg);
   border-top: 1px solid var(--color-border);
   font-size: var(--hdk-text-xs);
   color: var(--color-text-secondary);
@@ -428,15 +445,15 @@
 
 .metric-row {
   display: flex;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  gap: var(--hdk-space-lg);
+  margin-bottom: var(--hdk-space-xl);
 }
 
 .metric-card {
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
-  padding: 0.75rem 1rem;
+  padding: var(--hdk-space-lg) var(--hdk-space-xl);
   min-width: 80px;
 }
 
@@ -445,7 +462,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-secondary);
-  margin-bottom: 0.125rem;
+  margin-bottom: var(--hdk-space-xs);
 }
 
 .metric-card__value {
@@ -462,7 +479,7 @@
   right: 0;
   bottom: 0;
   background-color: var(--color-bg-overlay);
-  z-index: 1000;
+  z-index: var(--th-z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -484,7 +501,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
+  padding: var(--hdk-space-lg) var(--hdk-space-xl);
   border-bottom: 1px solid var(--color-border);
 }
 

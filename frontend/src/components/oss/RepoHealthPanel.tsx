@@ -71,14 +71,14 @@ export function RepoHealthPanel() {
   const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
 
   const [refreshingSlug, runRefresh] = useAsyncAction({
-    startMsg: slug => `Re-scraping: ${slug}...`,
+    startMsg: slug => `Re-scraping: ${slug}…`,
     successMsg: (_, key) => `Re-scraped: ${key}`,
     failMsg: 'Failed to re-scrape',
     onSuccess: () => loadOSSStage1()
   })
 
   const [computingSlug, runCompute] = useAsyncAction({
-    startMsg: slug => `Re-computing: ${slug}...`,
+    startMsg: slug => `Re-computing: ${slug}…`,
     successMsg: (_, key) => `Re-computed: ${key}`,
     failMsg: 'Failed to re-compute',
     onSuccess: () => loadOSSStage1()
@@ -94,14 +94,14 @@ export function RepoHealthPanel() {
   )
 
   if (ossStage1.loading && allTargets.length === 0) {
-    return <LoadingState text="Loading repos..." />
+    return <LoadingState text="Loading repos…" />
   }
 
   if (targets.length === 0) {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="\u{1F4ED}"
+          icon="📭"
           title="No target repos"
           description="Repos appear here from the aggregator's scored issues."
         />
@@ -171,7 +171,7 @@ export function RepoHealthPanel() {
                   }}
                   disabled={refreshingSlug === target.slug}
                 >
-                  {refreshingSlug === target.slug ? 'Scraping...' : 'Re-scrape'}
+                  {refreshingSlug === target.slug ? 'Scraping…' : 'Re-scrape'}
                 </button>
                 <button
                   className="btn btn--secondary btn--sm"
@@ -180,7 +180,7 @@ export function RepoHealthPanel() {
                   }}
                   disabled={computingSlug === target.slug}
                 >
-                  {computingSlug === target.slug ? 'Computing...' : 'Re-compute'}
+                  {computingSlug === target.slug ? 'Computing…' : 'Re-compute'}
                 </button>
               </div>
             </div>

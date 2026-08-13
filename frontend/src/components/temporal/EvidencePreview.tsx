@@ -8,7 +8,7 @@
  * that IS already available on the wire:
  *
  *   - JSON / object → pretty-printed JSON
- *   - string that looks like a unified diff → minimal hand-rolled diff renderer
+ *   - string that looks like a unified diff → the shared DiffViewer
  *   - plain string → <pre>
  *   - { kind: 'image', src } → <img>
  *
@@ -16,7 +16,8 @@
  * component without changing the render path.
  */
 
-import type { CSSProperties, ReactElement } from 'react'
+import type { ReactElement } from 'react'
+import { DiffViewer } from '../review'
 
 export type EvidenceValue =
   | null
@@ -41,60 +42,9 @@ function looksLikeDiff(text: string): boolean {
   return false
 }
 
-function renderDiff(text: string): ReactElement {
-  const lines = text.split('\n')
-  return (
-    <pre
-      className="temporal-evidence__diff"
-      data-testid="temporal-evidence-diff"
-      style={diffContainerStyle}
-    >
-      {lines.map((line, i) => {
-        const style = lineStyle(line)
-        return (
-          <span key={i} style={style}>
-            {line || ' '}
-            {'\n'}
-          </span>
-        )
-      })}
-    </pre>
-  )
-}
-
-const diffContainerStyle: CSSProperties = {
-  fontFamily: 'monospace',
-  fontSize: 'var(--hdk-text-xs)',
-  whiteSpace: 'pre',
-  overflowX: 'auto',
-  padding: 'var(--hdk-space-sm)',
-  background: 'var(--color-bg-alt)',
-  borderRadius: 'var(--hdk-radius-sm)'
-}
-
-function lineStyle(line: string): CSSProperties {
-  if (line.startsWith('+++') || line.startsWith('---')) {
-    return { color: 'var(--color-text-muted)', fontWeight: 'bold' }
-  }
-  if (line.startsWith('@@')) {
-    return { color: 'var(--color-primary)' }
-  }
-  if (line.startsWith('+')) {
-    return { color: 'var(--color-success)' }
-  }
-  if (line.startsWith('-')) {
-    return { color: 'var(--color-danger)' }
-  }
-  return {}
-}
-
 function renderJson(value: unknown): ReactElement {
   return (
-    <pre
-      className="temporal-evidence__json"
-      data-testid="temporal-evidence-json"
-      style={{ fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'pre-wrap' }}
-    >
+    <pre className="temporal-evidence__json" data-testid="temporal-evidence-json">
       {JSON.stringify(value, null, 2)}
     </pre>
   )
@@ -111,14 +61,14 @@ export function EvidencePreview({ value, label }: EvidencePreviewProps) {
     )
   } else if (typeof value === 'string') {
     if (looksLikeDiff(value)) {
-      body = renderDiff(value)
+      body = (
+        <div className="temporal-evidence__diff" data-testid="temporal-evidence-diff">
+          <DiffViewer diff={value} />
+        </div>
+      )
     } else {
       body = (
-        <pre
-          className="temporal-evidence__text"
-          data-testid="temporal-evidence-text"
-          style={{ whiteSpace: 'pre-wrap' }}
-        >
+        <pre className="temporal-evidence__text" data-testid="temporal-evidence-text">
           {value}
         </pre>
       )
@@ -131,7 +81,7 @@ export function EvidencePreview({ value, label }: EvidencePreviewProps) {
           src={v.src}
           alt={v.alt || label || 'evidence'}
           data-testid="temporal-evidence-image"
-          style={{ maxWidth: '100%', borderRadius: '4px' }}
+          className="temporal-evidence__image"
         />
       )
     } else {

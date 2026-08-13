@@ -40,7 +40,7 @@ export function ProductionReviewPanel() {
   }, [submitted])
 
   const handleRefresh = async () => {
-    addLog('Polling upstream PR statuses...', 'info')
+    addLog('Polling upstream PR statuses…', 'info')
     try {
       await loadOSSSubmittedPRs()
       addLog(`Status updated for ${submitted.length} PR(s)`, 'success')
@@ -53,14 +53,14 @@ export function ProductionReviewPanel() {
   }
 
   if (ossSubmittedPRs.loading && allSubmitted.length === 0) {
-    return <LoadingState text="Polling upstream PR statuses..." />
+    return <LoadingState text="Polling upstream PR statuses…" />
   }
 
   if (allSubmitted.length === 0) {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="\u{1F4E4}"
+          icon="📤"
           title="No submitted PRs"
           description="Sign off on completed pipeline runs to create upstream PRs."
         />
@@ -92,7 +92,7 @@ export function ProductionReviewPanel() {
 
       {/* Submitted PRs Table */}
       <div className="stage-section">
-        <SectionHeader icon={'\u{1F4CA}'} title="Upstream PRs" count={submitted.length}>
+        <SectionHeader icon={'📊'} title="Upstream PRs" count={submitted.length}>
           <button
             className="btn btn--secondary btn--sm"
             onClick={() => {
@@ -100,7 +100,7 @@ export function ProductionReviewPanel() {
             }}
             disabled={ossSubmittedPRs.loading}
           >
-            {ossSubmittedPRs.loading ? 'Refreshing...' : 'Refresh Status'}
+            {ossSubmittedPRs.loading ? 'Refreshing…' : 'Refresh Status'}
           </button>
         </SectionHeader>
 

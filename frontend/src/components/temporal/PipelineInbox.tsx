@@ -21,6 +21,7 @@
 import { useEffect, useState } from 'react'
 import { useTemporalStore } from '../../store/temporalStore'
 import type { TemporalInboxItem, TemporalSignalDecision, TemporalReasonCode } from '../../api/types'
+import { EmptyState, LoadingState } from '../common'
 
 function workflowIdFor(item: TemporalInboxItem): string {
   if (typeof item.workflow_id === 'string' && item.workflow_id) return item.workflow_id
@@ -177,8 +178,8 @@ function SignoffCard({ item, onSignal, pending }: RowProps) {
       )}
 
       <p className="temporal-inbox__signoff-note">
-        Edits to the fork preview PR are picked up live when you approve. The pipeline re-runs the
-        sanitizer on the live content.
+        Want changes? Edit the preview PR on GitHub first — approving ships its latest contents,
+        after a final safety check.
       </p>
 
       {chosenDecision === null ? (
@@ -345,9 +346,14 @@ export function PipelineInbox() {
         </div>
       )}
       {inbox.loading && inbox.items.length === 0 ? (
-        <p data-testid="temporal-inbox-loading">Loading inbox…</p>
+        <LoadingState text="Loading inbox…" testId="temporal-inbox-loading" />
       ) : inbox.items.length === 0 ? (
-        <p data-testid="temporal-inbox-empty">Inbox is empty.</p>
+        <EmptyState
+          icon="📭"
+          title="Inbox is empty"
+          description="Nothing needs your decision right now."
+          testId="temporal-inbox-empty"
+        />
       ) : (
         <ul className="temporal-inbox__list">
           {inbox.items.map(item => (

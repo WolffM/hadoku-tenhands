@@ -59,7 +59,7 @@ export function RepoFilterPopover() {
           <div className="repo-filter-popover__search">
             <input
               type="text"
-              placeholder="Search projects..."
+              placeholder="Search projects…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               autoFocus

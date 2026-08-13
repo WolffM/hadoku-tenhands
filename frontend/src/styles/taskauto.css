@@ -12,28 +12,28 @@
 .taskauto-view {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--hdk-space-xl);
 }
 
 .taskauto-view__body {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--hdk-space-3xl);
 }
 
 .taskauto-error {
   margin: 0;
-  padding: 0.6rem 0.8rem;
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   border-radius: var(--hdk-radius-sm);
   background: var(--color-danger-bg);
   color: var(--color-on-danger-bg);
-  font-size: 0.85rem;
+  font-size: var(--hdk-text-sm);
 }
 
 .taskauto-section {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: var(--hdk-space-md);
 }
 
 /* ── Running now ─────────────────────────────────────────────────────── */
@@ -44,18 +44,18 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: var(--hdk-space-sm);
 }
 
 .taskauto-list__item {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.7rem;
+  gap: var(--hdk-space-md);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
   background: var(--color-bg-card);
-  font-size: 0.85rem;
+  font-size: var(--hdk-text-sm);
 }
 
 .taskauto-list__title {
@@ -69,7 +69,7 @@
   margin-left: auto;
   color: var(--color-text-muted);
   font-family: monospace;
-  font-size: 0.78rem;
+  font-size: var(--hdk-text-xs);
 }
 
 /* A claim is the one piece of live state on the page, so it moves. */
@@ -103,60 +103,60 @@
 .taskauto-boards {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--hdk-space-xl);
 }
 
 .taskauto-board {
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
   background: var(--color-bg-card);
-  padding: 0.8rem;
+  padding: var(--hdk-space-lg);
 }
 
 .taskauto-board__head {
   display: flex;
   align-items: baseline;
-  gap: 0.7rem;
+  gap: var(--hdk-space-lg);
   flex-wrap: wrap;
-  margin-bottom: 0.7rem;
+  margin-bottom: var(--hdk-space-lg);
 }
 
 .taskauto-board__name {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--hdk-text-base);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
 
 .taskauto-board__repo {
   font-family: monospace;
-  font-size: 0.78rem;
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-muted);
 }
 
 .taskauto-board__total {
   margin-left: auto;
-  font-size: 0.78rem;
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-muted);
 }
 
 .taskauto-board__error {
   margin: 0;
   color: var(--color-danger);
-  font-size: 0.85rem;
+  font-size: var(--hdk-text-sm);
 }
 
 .taskauto-lanes {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 0.7rem;
+  gap: var(--hdk-space-lg);
 }
 
 .taskauto-lane {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.55rem;
+  gap: var(--hdk-space-md);
+  padding: var(--hdk-space-md);
   border-radius: var(--hdk-radius-sm);
   background: var(--color-bg-alt);
 }
@@ -164,12 +164,12 @@
 .taskauto-lane__head {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--hdk-space-md);
 }
 
 .taskauto-lane__count {
   margin-left: auto;
-  font-size: 0.78rem;
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-muted);
 }
 
@@ -179,14 +179,14 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: var(--hdk-space-sm);
 }
 
 .taskauto-lane__task {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
+  gap: var(--hdk-space-md);
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-secondary);
 }
 
@@ -198,9 +198,9 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.2rem 0.3rem;
-  margin: -0.2rem -0.3rem;
+  gap: var(--hdk-space-md);
+  padding: var(--hdk-space-xs) var(--hdk-space-sm);
+  margin: calc(-1 * var(--hdk-space-xs)) calc(-1 * var(--hdk-space-sm));
   border: none;
   border-radius: var(--hdk-radius-sm);
   background: none;
@@ -230,11 +230,11 @@
 .taskauto-lane__stuck {
   flex: none;
   margin-left: auto;
-  padding: 0 0.35rem;
+  padding: 0 var(--hdk-space-sm);
   border-radius: var(--hdk-radius-sm);
   background: var(--color-danger-bg);
   color: var(--color-on-danger-bg);
-  font-size: 0.7rem;
+  font-size: var(--hdk-text-xs);
   white-space: nowrap;
 }
 
@@ -243,14 +243,14 @@
 .taskauto-prs {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: var(--hdk-space-md);
 }
 
 .taskauto-pr {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.7rem 0.8rem;
+  gap: var(--hdk-space-md);
+  padding: var(--hdk-space-lg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
   background: var(--color-bg-card);
@@ -259,13 +259,13 @@
 .taskauto-pr__head {
   display: flex;
   align-items: baseline;
-  gap: 0.6rem;
+  gap: var(--hdk-space-md);
   flex-wrap: wrap;
 }
 
 .taskauto-pr__title {
   color: var(--color-primary);
-  font-size: 0.9rem;
+  font-size: var(--hdk-text-sm);
   font-weight: var(--font-weight-semibold);
   text-decoration: none;
 }
@@ -277,9 +277,9 @@
 .taskauto-pr__meta {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
+  gap: var(--hdk-space-lg);
   flex-wrap: wrap;
-  font-size: 0.78rem;
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-muted);
 }
 
@@ -294,9 +294,9 @@
 
 .taskauto-pr__actions {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--hdk-space-md);
   flex-wrap: wrap;
-  padding-top: 0.5rem;
+  padding-top: var(--hdk-space-md);
   border-top: 1px solid var(--color-border);
 }
 
@@ -317,21 +317,21 @@
 .taskauto-detail__facts {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
+  gap: var(--hdk-space-lg);
   flex-wrap: wrap;
-  padding-bottom: 0.8rem;
+  padding-bottom: var(--hdk-space-lg);
   border-bottom: 1px solid var(--color-border);
-  font-size: 0.8rem;
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-muted);
 }
 
 .taskauto-detail__section {
-  padding-top: 0.9rem;
+  padding-top: var(--hdk-space-xl);
 }
 
 .taskauto-detail__heading {
-  margin: 0 0 0.5rem;
-  font-size: 0.8rem;
+  margin: 0 0 var(--hdk-space-md);
+  font-size: var(--hdk-text-xs);
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -340,16 +340,16 @@
 
 .taskauto-detail__empty {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-muted);
 }
 
 .taskauto-detail__pr {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.6rem 0.7rem;
-  margin-bottom: 0.5rem;
+  gap: var(--hdk-space-md);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
+  margin-bottom: var(--hdk-space-md);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
   background: var(--color-bg-alt);
@@ -363,12 +363,12 @@
 .taskauto-detail__pr-head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--hdk-space-md);
 }
 
 .taskauto-detail__pr-title {
   color: var(--color-text);
-  font-size: 0.88rem;
+  font-size: var(--hdk-text-sm);
   font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -377,9 +377,9 @@
 
 .taskauto-detail__pr-meta {
   display: flex;
-  gap: 0.7rem;
+  gap: var(--hdk-space-lg);
   flex-wrap: wrap;
-  font-size: 0.78rem;
+  font-size: var(--hdk-text-xs);
   color: var(--color-text-muted);
 }
 
@@ -388,7 +388,7 @@
 .taskauto-timeline {
   list-style: none;
   margin: 0;
-  padding: 0 0 0 1rem;
+  padding: 0 0 0 var(--hdk-space-xl);
   border-left: 2px solid var(--color-border);
 }
 
@@ -396,10 +396,10 @@
   position: relative;
   display: flex;
   align-items: baseline;
-  gap: 0.6rem;
+  gap: var(--hdk-space-md);
   flex-wrap: wrap;
-  padding: 0.3rem 0;
-  font-size: 0.82rem;
+  padding: var(--hdk-space-sm) 0;
+  font-size: var(--hdk-text-sm);
 }
 
 .taskauto-timeline__item::before {
@@ -426,7 +426,7 @@
   flex: none;
   width: 7.5rem;
   color: var(--color-text-muted);
-  font-size: 0.76rem;
+  font-size: var(--hdk-text-xs);
 }
 
 .taskauto-timeline__label {
@@ -435,11 +435,11 @@
 
 .taskauto-timeline__detail {
   color: var(--color-text-muted);
-  font-size: 0.76rem;
+  font-size: var(--hdk-text-xs);
 }
 
 .taskauto-detail__notes {
-  font-size: 0.85rem;
+  font-size: var(--hdk-text-sm);
   color: var(--color-text-secondary);
 }
 

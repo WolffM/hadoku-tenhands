@@ -11,6 +11,7 @@
 
 import { useEffect } from 'react'
 import { useTemporalStore } from '../../store/temporalStore'
+import { LoadingState } from '../common'
 import { StateBadge } from './StateBadge'
 import { GateResultRow } from './GateResultRow'
 import { EvidencePreview } from './EvidencePreview'
@@ -30,8 +31,8 @@ export function IssueDetail({ batchId, issueId }: IssueDetailProps) {
 
   if (slot.loading && !slot.data) {
     return (
-      <div className="temporal-issue-detail" data-testid="temporal-issue-detail-loading">
-        Loading issue…
+      <div className="temporal-issue-detail">
+        <LoadingState text="Loading issue…" testId="temporal-issue-detail-loading" />
       </div>
     )
   }
@@ -136,7 +137,7 @@ export function IssueDetail({ batchId, issueId }: IssueDetailProps) {
           <ul className="temporal-issue-detail__events">
             {issue.events.slice(-20).map((e, i) => (
               <li key={i} data-testid="temporal-event">
-                <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+                <pre className="temporal-event__json">
                   {JSON.stringify(e, null, 2)}
                 </pre>
               </li>

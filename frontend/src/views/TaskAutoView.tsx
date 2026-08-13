@@ -6,14 +6,14 @@
  *     because those are the only two things that ever need a person.
  *   - Boards — every board's lanes, for when you want the whole picture.
  *
- * Uses `useTaskAutoStore` exclusively. Tab markup mirrors
- * `TemporalPipelineView` so the two pipelines read as the same product.
+ * Uses `useTaskAutoStore` exclusively. The tab strip is the shared
+ * `StageTabView`, so the pipelines read as the same product.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTaskAutoStore } from '../store/taskautoStore'
 import { BoardPanel, PRReviewPanel, RunningNow, TaskDetailModal } from '../components/taskauto'
-import { EmptyState, LoadingState } from '../components/common'
+import { EmptyState, LoadingState, StageTabView } from '../components/common'
 
 type TabKey = 'review' | 'boards'
 
@@ -62,42 +62,36 @@ export function TaskAutoView() {
     return openTask.taskId
   }, [openTask, boards])
 
-  const tabs: { key: TabKey; label: string; count: number }[] = [
-    { key: 'review', label: 'Review', count: prs.length },
-    { key: 'boards', label: 'Boards', count: boards.length }
-  ]
-
   if (loading && !status) return <LoadingState text="Loading task automation…" />
 
   return (
     <div className="taskauto-view" data-testid="taskauto-view">
-      <nav className="stage-tabs" data-testid="taskauto-tabs">
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            type="button"
-            className={`stage-tab ${tab === t.key ? 'stage-tab--active' : ''}`}
-            data-testid={`taskauto-tab-${t.key}`}
-            onClick={() => setTab(t.key)}
-          >
-            <span className="stage-tab__icon">{t.key === 'review' ? '🔀' : '📋'}</span>
-            <span className="stage-tab__label">{t.label}</span>
-            <span className="stage-tab__count">{t.count}</span>
-          </button>
-        ))}
-        <div className="stage-tabs__actions">
-          <button
-            type="button"
-            className="btn btn--primary btn--sm"
-            disabled={loading}
-            onClick={() => {
-              void loadStatus()
-            }}
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-      </nav>
+      <StageTabView
+        testId="taskauto-tabs"
+        stages={[
+          {
+            id: 'review',
+            label: 'Review',
+            icon: '🔀',
+            getCount: () => prs.length,
+            testId: 'taskauto-tab-review'
+          },
+          {
+            id: 'boards',
+            label: 'Boards',
+            icon: '📋',
+            getCount: () => boards.length,
+            testId: 'taskauto-tab-boards'
+          }
+        ]}
+        activeId={tab}
+        onChange={id => setTab(id as TabKey)}
+        isLoading={loading}
+        onRefreshAll={() => {
+          void loadStatus()
+        }}
+        refreshLabel="Refresh"
+      />
 
       {error && (
         <p className="taskauto-error" data-testid="taskauto-error">
@@ -125,7 +119,7 @@ export function TaskAutoView() {
             <EmptyState
               icon="📋"
               title="No automation boards"
-              description="Boards appear here once one is shared with the tenhands service key."
+              description="Boards appear here once they're connected to the automation account."
             />
           ) : (
             <div className="taskauto-boards">

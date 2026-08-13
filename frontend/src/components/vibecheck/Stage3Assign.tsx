@@ -102,7 +102,7 @@ export function Stage3Assign() {
 
   // Loading state
   if (stage3.loading && allIssues.length === 0) {
-    return <LoadingState text="Loading issues..." />
+    return <LoadingState text="Loading issues…" />
   }
 
   // Empty state
@@ -169,7 +169,7 @@ export function Stage3Assign() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '30px' }}></th>
+                  <th className="data-table__col-check"></th>
                   <th>Repo</th>
                   <th>#</th>
                   <th>Title</th>
@@ -219,7 +219,7 @@ export function Stage3Assign() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '30px' }}></th>
+                  <th className="data-table__col-check"></th>
                   <th>Repo</th>
                   <th>#</th>
                   <th>Title</th>
@@ -269,7 +269,7 @@ function IssueRow({ issue, checked, onChange, disabled, showLabels }: IssueRowPr
     )
     .slice(0, 2)
 
-  const displayTitle = issue.title.length > 45 ? issue.title.substring(0, 45) + '...' : issue.title
+  const displayTitle = issue.title.length > 45 ? issue.title.substring(0, 45) + '…' : issue.title
 
   return (
     <tr>

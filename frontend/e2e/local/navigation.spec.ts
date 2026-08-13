@@ -17,8 +17,8 @@ const TOP_TABS = ['Home', 'Retrospective', 'Health']
 const PIPELINES = [
   { title: 'Vibecheck Pipeline', marker: 'Install VibeCheck' },
   { title: 'OSS Contribution Pipeline', marker: 'Repo Health' },
-  { title: 'Crimson-Kitty (Temporal)', marker: 'Eligible' },
-  { title: 'Task Automation', marker: 'Inbox' }
+  { title: 'Crimson-Kitty (Temporal)', marker: 'Inbox' },
+  { title: 'Task Automation', marker: 'Review' }
 ]
 
 test.beforeEach(async ({ page }) => {

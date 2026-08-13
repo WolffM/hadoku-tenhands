@@ -79,6 +79,31 @@
   color: var(--color-primary);
 }
 
+/* ============ Utilities ============ */
+
+/* Small layout utilities so components don't need inline style props. */
+.u-mb-xl {
+  margin-bottom: var(--hdk-space-xl);
+}
+
+.u-ml-md {
+  margin-left: var(--hdk-space-md);
+}
+
+.u-center-pad {
+  padding: var(--hdk-space-xl);
+  text-align: center;
+}
+
+.u-full-width {
+  width: 100%;
+}
+
+/* The checkbox column in selectable data tables. */
+.data-table__col-check {
+  width: 30px;
+}
+
 /* ============ Responsive ============ */
 
 @media (max-width: 768px) {

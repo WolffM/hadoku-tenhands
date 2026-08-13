@@ -111,7 +111,7 @@ export function Stage4Review() {
   const handleMarkReady = async (pr: PullRequest) => {
     if (!owner) return
 
-    addLog(`Marking ${pr.repo}#${pr.number} as ready...`, 'info')
+    addLog(`Marking ${pr.repo}#${pr.number} as ready…`, 'info')
 
     try {
       const result = await markPRReady(owner, pr.repo ?? '', pr.number)
@@ -131,7 +131,7 @@ export function Stage4Review() {
 
   // Loading state
   if (stage4.loading && prs.length === 0) {
-    return <LoadingState text="Loading pull requests..." />
+    return <LoadingState text="Loading pull requests…" />
   }
 
   // Empty state

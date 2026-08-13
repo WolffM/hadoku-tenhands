@@ -137,7 +137,7 @@ export function HealthCheckView() {
           }}
           disabled={loading}
         >
-          {loading ? 'Refreshing...' : 'Refresh'}
+          {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
@@ -297,17 +297,27 @@ export function HealthCheckView() {
                         {run.createdAt ? formatTimeAgo(run.createdAt) : '-'}
                       </td>
                       <td>
-                        <a
-                          href={
-                            run.url || `https://github.com/${health?.owner}/${run.repo}/actions`
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn--ghost btn--sm"
-                          title="View on GitHub"
-                        >
-                          🔗
-                        </a>
+                        {(() => {
+                          // Only build the GitHub fallback URL when the owner is
+                          // known — otherwise a failed health call rendered a
+                          // link to github.com/undefined/...
+                          const url =
+                            run.url ||
+                            (health?.owner
+                              ? `https://github.com/${health.owner}/${run.repo}/actions`
+                              : null)
+                          return url ? (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn--ghost btn--sm"
+                              title="View on GitHub"
+                            >
+                              🔗
+                            </a>
+                          ) : null
+                        })()}
                       </td>
                     </tr>
                   ))}

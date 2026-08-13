@@ -16,22 +16,24 @@ test.beforeEach(async ({ page }) => {
 })
 
 test.describe('tab strip', () => {
-  test('offers both tabs and opens on Legacy', async ({ page }) => {
+  test('offers both tabs and opens on Temporal', async ({ page }) => {
     await expect(page.getByTestId('retro-tab-strip')).toBeVisible()
-    await expect(page.getByTestId('retro-tab-legacy')).toHaveClass(/retro-view__tab--active/)
-    await expect(page.getByTestId('retro-tab-content-legacy')).toBeVisible()
-    await expect(page.getByTestId('retro-tab-content-temporal')).toBeHidden()
-  })
-
-  test('switching to Temporal swaps the content', async ({ page }) => {
-    await page.getByTestId('retro-tab-temporal').click()
+    await expect(page.getByTestId('retro-tab-temporal')).toHaveClass(/stage-tab--active/)
     await expect(page.getByTestId('retro-tab-content-temporal')).toBeVisible()
     await expect(page.getByTestId('retro-tab-content-legacy')).toBeHidden()
+  })
+
+  test('switching to OSS Contributions swaps the content', async ({ page }) => {
+    await page.getByTestId('retro-tab-legacy').click()
+    await expect(page.getByTestId('retro-tab-legacy')).toHaveClass(/stage-tab--active/)
+    await expect(page.getByTestId('retro-tab-content-legacy')).toBeVisible()
+    await expect(page.getByTestId('retro-tab-content-temporal')).toBeHidden()
   })
 })
 
 test.describe('legacy tab', () => {
   test('lists the recon batches', async ({ page }) => {
+    await page.getByTestId('retro-tab-legacy').click()
     const content = page.getByTestId('retro-tab-content-legacy')
     for (const batch of mockRetroBatches) {
       await expect(content.getByText(batch.batch_id, { exact: false }).first()).toBeVisible()
