@@ -48,9 +48,10 @@ function AppInner(props: TenHandsProps & { containerRef: RefObject<HTMLDivElemen
   // Only consumed once on mount; subsequent in-app navigation is store-driven.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const view = params.get('view') as ViewType | null
-    if (view && view !== 'select') {
-      setActiveView(view)
+    const validViews: ViewType[] = ['list', 'health', 'oss', 'retro', 'temporal', 'taskauto']
+    const view = params.get('view')
+    if (view && (validViews as string[]).includes(view)) {
+      setActiveView(view as ViewType)
     }
     const batch = params.get('batch')
     const issue = params.get('issue')
