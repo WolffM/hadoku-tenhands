@@ -54,6 +54,19 @@ _cache: dict[str, tuple[str, float]] = {}
 _cache_lock = Lock()
 
 
+def tier_rank(tier: str) -> int:
+    """Privilege rank for a tier: higher = more privileged.
+
+    admin=4, wife=3, service=2, friend=1, public=0. An unknown tier ranks as
+    public (0) — the same fail-closed default `_classify` applies, so a tier the
+    ladder doesn't know can never out-rank a real one.
+    """
+    try:
+        return len(_VALID_TIERS) - 1 - _VALID_TIERS.index(tier)
+    except ValueError:
+        return 0
+
+
 def _get_test_overrides() -> dict[str, str] | None:
     raw = os.environ.get("WHOAMI_TEST_OVERRIDES")
     if not raw:
