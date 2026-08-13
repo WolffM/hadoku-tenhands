@@ -70,9 +70,10 @@ surfaces them.
 | 5.4 — Operator inbox UI for signoff | shipped (2026-04-27) |
 | 5.5 — Judge calibration | shipped (2026-04-27) |
 
-Phase 5 is complete. Zero upstream PRs have shipped at scale yet, but
-every phase has now landed: `submit_to_upstream=true` is safe to flip
-on a real batch. Operators drive signoff from the inbox UI (no curl),
+Phase 5 is complete. Every phase has now landed and real batches ship
+with `submit_to_upstream=true`; setting it `false` (forced on demo
+batches) runs the whole pipeline and the signoff UI but stops short of
+opening an upstream PR. Operators drive signoff from the inbox UI (no curl),
 the post-submission watcher reacts to maintainer review comments,
 per-repo conventions are honored automatically, the local Copilot
 Review remediation loop catches blockers before upstream sees them,

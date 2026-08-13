@@ -403,11 +403,23 @@ class SubmitInput:
     base_branch: str
     issue_number: int
     state_root: str
+    # Defense in depth for the preview/demo brake. The workflow already
+    # short-circuits before scheduling this activity when the flag is False,
+    # so reaching here with it False means something bypassed that guard —
+    # refuse rather than open an upstream PR. Default True keeps normal runs
+    # and any pre-existing in-flight payloads working.
+    submit_to_upstream: bool = True
 
 
 @activity.defn(name="submit_upstream_pr")
 async def act_submit_upstream_pr(inp: SubmitInput) -> dict:
     from .activities.submission import submit_upstream_pr
+
+    if not inp.submit_to_upstream:
+        raise RuntimeError(
+            "submit blocked: submit_to_upstream=False reached the submit "
+            "activity (preview/demo run must never open an upstream PR)"
+        )
 
     ev = _evidence_for(inp.state_root)
     return submit_upstream_pr(

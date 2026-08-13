@@ -455,6 +455,28 @@ class IssueWorkflow:
                             else f"operator abandoned after submission failure: {submission_error}"
                         ),
                     )
+                # Preview/demo brake: the operator approved, but this run is
+                # not allowed to open an upstream PR. Record a terminal
+                # awaiting_signoff → submittable transition and finish. The
+                # signoff UI still ran (the point of a demo); nothing reaches
+                # upstream. Guarded again inside submit_upstream_pr as defense
+                # in depth.
+                if not inp.submit_to_upstream:
+                    await workflow.execute_activity(
+                        "record_transition",
+                        TransitionInput(
+                            state_root=inp.state_root,
+                            from_state=self.state,
+                            to_state="submittable",
+                            reason="submit_to_upstream=false: preview-only run; "
+                                   "upstream submission disabled",
+                            decided_by="system:workflow",
+                        ),
+                        start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
+                    )
+                    self.state = "submittable"
+                    return IssueResult(final_state="submittable")
+
                 # approve / retry both fall through to submit
                 try:
                     submit_result = await workflow.execute_activity(
@@ -466,6 +488,7 @@ class IssueWorkflow:
                             base_branch=inp.base_branch,
                             issue_number=inp.issue_number,
                             state_root=inp.state_root,
+                            submit_to_upstream=inp.submit_to_upstream,
                         ),
                         start_to_close_timeout=_SHORT_ACTIVITY_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=3),

@@ -207,14 +207,19 @@ operator-authored squashed commit (produced in `replicated`). The
 the squashed commit message here; any real upstream ref blocks the
 submission.
 
-When `IssueInput.submit_to_upstream` is `false` (default during the
-phase-4 bring-up), the workflow terminates at `submittable` and the
-operator reviews the fork-internal preview PR. When `true`, the
-workflow advances to `awaiting_signoff` for an explicit operator
-go/no-go on actually opening the upstream PR.
+`IssueInput.submit_to_upstream` gates the *submit call*, not entry into
+`awaiting_signoff`. Every run that clears the submittable gates advances
+to `awaiting_signoff` so the operator inbox and signoff UI always run —
+this matters for demos and previews, where exercising the signoff path is
+the point. The flag decides what an `approve` does: with `true` (the
+default) approve opens the upstream PR; with `false` (forced on demo
+batches, and settable per-batch/per-issue) approve instead records a
+terminal `awaiting_signoff → submittable` transition and the run finishes
+without ever touching upstream. `submit_upstream_pr` also refuses to run
+when the flag is `false`, as defense in depth.
 
 ### `awaiting_signoff`
-**Entry**: Submittable gates passed AND `submit_to_upstream=true`. The
+**Entry**: Submittable gates passed. The
 fork-internal preview PR is the operator's editing surface — they may
 edit the PR body directly on GitHub (add screenshots, expand prose,
 tighten the repro, fix anything the renderer got wrong). The pipeline
@@ -342,8 +347,9 @@ to the next state (or aborts).
 | `reviewed` | `replicated` | `read_review_summary` finds blocking=0 → fall through | — |
 | `reviewed` | `aborted` | hit MAX_LOCAL_REMEDIATION_ITERATIONS=3 with blockers persisting | `local_remediation_cap` (synthetic) |
 | `replicated` | `submittable` | direct (evidence written, gates run next) | — |
-| `submittable` | `awaiting_signoff` | submittable gates pass AND `submit_to_upstream=true` | `no_upstream_refs` + `pr_template_compliance` + `submission_judge` |
-| `awaiting_signoff` | `submitted` | signal: `submit_human_decision=approve` → activity: `submit_upstream_pr` (live fork-PR content + sanitizer re-scan) | — |
+| `submittable` | `awaiting_signoff` | submittable gates pass (always — `submit_to_upstream` gates the submit call, not this entry) | `no_upstream_refs` + `pr_template_compliance` + `submission_judge` |
+| `awaiting_signoff` | `submitted` | signal: `approve` AND `submit_to_upstream=true` → activity: `submit_upstream_pr` (live fork-PR content + sanitizer re-scan) | — |
+| `awaiting_signoff` | `submittable` | signal: `approve` AND `submit_to_upstream=false` → terminal preview-only finish (no upstream PR) | — |
 | `awaiting_signoff` | `aborted` | signal: `submit_human_decision=abort` | — |
 | `submitted` | `merged` | watcher: upstream PR merged | — |
 | `submitted` | `closed_by_upstream` | watcher: upstream PR closed (or 30d stale) | — |

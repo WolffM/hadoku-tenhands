@@ -130,6 +130,11 @@ def _list_batches() -> list[dict]:
             "issue_count": len(issue_dirs),
             "deferred_count": deferred,
             "active": deferred > 0,
+            # Demo batches are preview-only throwaways; the UI tags them so a
+            # viewer never mistakes a demo run for real pipeline traffic.
+            # Teardown deletes the state dir afterwards, so this only matters
+            # during the demo window.
+            "demo": batch_dir.name.startswith("demo-"),
         })
     return batches
 
@@ -404,11 +409,27 @@ def temporal_inbox():
     return _envelope({"items": items, "count": len(items)})
 
 
+def _demo_repos() -> set[str]:
+    """Sandbox repos a `demo-` batch is allowed to target.
+
+    Configurable via CRIMSON_DEMO_REPOS (comma-separated owner/repo). These
+    repos are demo-only: they may ONLY be dispatched inside a `demo-` batch,
+    and a `demo-` batch may ONLY target them. Keeping the two mutually
+    exclusive is what stops a demo run from ever touching a real upstream and
+    a real batch from silently landing in the throwaway sandbox.
+    """
+    raw = os.environ.get("CRIMSON_DEMO_REPOS", "WolffM/tenhands-demo-target")
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
 @bp.route("/api/temporal/dispatch", methods=["POST"])
 def temporal_dispatch():
     """Start a test batch via the Temporal cluster.
 
-    Body: {batch_id, issues: [{upstream_slug, fork_slug?, issue_number, raw_brief?, branch_name?, base_branch?}, ...]}
+    Body: {batch_id, submit_to_upstream?, issues: [{upstream_slug, fork_slug?, issue_number, raw_brief?, branch_name?, base_branch?, submit_to_upstream?}, ...]}
+
+    Demo batches (batch_id starting with "demo-") are forced preview-only
+    (submit_to_upstream=False) and are restricted to the sandbox allowlist.
     """
     body = request.get_json(silent=True) or {}
     batch_id = body.get("batch_id")
@@ -416,15 +437,48 @@ def temporal_dispatch():
     if not batch_id or not isinstance(issues_raw, list) or not issues_raw:
         return _error("batch_id and non-empty issues[] required", status=400)
 
+    is_demo = str(batch_id).startswith("demo-")
+    demo_repos = _demo_repos()
+    slugs = [i.get("upstream_slug") for i in issues_raw]
+
+    if is_demo:
+        offenders = [s for s in slugs if s not in demo_repos]
+        if offenders:
+            return _error(
+                f"demo batch may only target sandbox repos {sorted(demo_repos)}; "
+                f"rejected: {offenders}",
+                status=400,
+            )
+    else:
+        sandbox_hits = [s for s in slugs if s in demo_repos]
+        if sandbox_hits:
+            return _error(
+                f"sandbox repos {sandbox_hits} may only be dispatched in a "
+                f"'demo-' batch",
+                status=400,
+            )
+
+    # Batch-level default, per-issue override; a demo batch forces False.
+    batch_submit_default = bool(body.get("submit_to_upstream", True))
+
+    def _submit_flag(issue: dict) -> bool:
+        if is_demo:
+            return False
+        return bool(issue.get("submit_to_upstream", batch_submit_default))
+
+    submit_flags = [_submit_flag(i) for i in issues_raw]
+
     try:
-        result = asyncio.run(_dispatch_batch(batch_id, issues_raw))
+        result = asyncio.run(_dispatch_batch(batch_id, issues_raw, submit_flags))
     except Exception as e:
         return _error(f"dispatch failed: {e}", status=502)
 
     return _envelope(result, status=202)
 
 
-async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
+async def _dispatch_batch(
+    batch_id: str, issues_raw: list[dict], submit_flags: list[bool] | None = None
+) -> dict:
     """Connect to Temporal and start the BatchWorkflow."""
     from temporalio.client import Client
 
@@ -433,6 +487,9 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
 
     cfg = load_config()
     client = await Client.connect(cfg.host, namespace=cfg.namespace)
+
+    if submit_flags is None:
+        submit_flags = [True] * len(issues_raw)
 
     issues = [
         IssueInput(
@@ -452,8 +509,9 @@ async def _dispatch_batch(batch_id: str, issues_raw: list[dict]) -> dict:
             # hardcoded "main" here. Never hardcode a base ref again.
             base_branch=i.get("base_branch") or _resolve_default_branch(i["upstream_slug"]),
             copilot_task_queue=cfg.copilot_task_queue,
+            submit_to_upstream=flag,
         )
-        for i in issues_raw
+        for i, flag in zip(issues_raw, submit_flags)
     ]
     handle = await client.start_workflow(
         BatchWorkflow.run,

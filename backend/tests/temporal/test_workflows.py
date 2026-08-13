@@ -309,11 +309,14 @@ async def _run_workflow(
 ) -> IssueResult:
     """Run an IssueWorkflow to completion.
 
-    Every workflow that clears the submittable gates now defers at
-    `operator_signoff` — there's no `submit_to_upstream=false` short-circuit
-    anymore. To keep tests deterministic, this helper auto-sends a
-    `submit_human_decision` signal once the workflow has had time to reach
-    the wait_condition. Set `signoff=None` to test the wait itself.
+    Every workflow that clears the submittable gates defers at
+    `operator_signoff`. On `approve`, a run with `submit_to_upstream=True`
+    (the default) opens the upstream PR; a run with `submit_to_upstream=False`
+    stops at `submittable` without submitting (the preview/demo brake — see
+    `test_submit_to_upstream_false_blocks_submission`). To keep tests
+    deterministic, this helper auto-sends a `submit_human_decision` signal once
+    the workflow has had time to reach the wait_condition. Set `signoff=None`
+    to test the wait itself.
     """
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -402,9 +405,9 @@ async def test_issue_workflow_happy_path(issue_input):
 @pytest.mark.asyncio
 async def test_issue_workflow_routes_through_operator_signoff_to_merged(issue_input):
     """Default path: every run that clears the submittable gates defers at
-    `operator_signoff` for the operator to approve or abort. The earlier
-    `submit_to_upstream=false` short-circuit to `replicated` is gone — the
-    operator inbox is the single ship-or-stop authority."""
+    `operator_signoff` for the operator to approve or abort. With the default
+    `submit_to_upstream=True`, approve ships upstream; the operator inbox is
+    the single ship-or-stop authority."""
     _set_all_gates_pass()
 
     result = await _run_workflow(issue_input, signoff="approve")
@@ -414,6 +417,61 @@ async def test_issue_workflow_routes_through_operator_signoff_to_merged(issue_in
     # merged on the first poll.
     assert result.final_state == "merged"
     assert result.upstream_pr_number == 9999
+
+
+@pytest.mark.asyncio
+async def test_submit_to_upstream_false_blocks_submission(tmp_path):
+    """Preview/demo brake: a run with `submit_to_upstream=False` still clears
+    every gate and still parks at `operator_signoff`, but an `approve` records
+    a terminal `awaiting_signoff → submittable` transition WITHOUT ever
+    invoking `submit_upstream_pr`. This is the guarantee a demo relies on:
+    even if someone clicks approve, nothing reaches upstream."""
+    _set_all_gates_pass()
+
+    submit_calls: list = []
+
+    @activity.defn(name="submit_upstream_pr")
+    async def recording_submit(inp: SubmitInput) -> dict:
+        submit_calls.append(inp)
+        return {
+            "ok": True,
+            "pr_url": f"https://github.com/{inp.upstream_slug}/pull/9999",
+            "pr_number": 9999,
+        }
+
+    activities = [a for a in _FAKE_ACTIVITIES if a.__name__ != "fake_submit"]
+    activities.append(recording_submit)
+
+    preview_input = IssueInput(
+        upstream_slug="microsoft/markitdown",
+        fork_slug="WolffM/markitdown",
+        issue_number=183,
+        state_root=str(tmp_path / "issue-183-preview"),
+        raw_brief_text="fix the merged-cell bug",
+        branch_name="fix-merged-cells",
+        submit_to_upstream=False,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-tq",
+            workflows=[IssueWorkflow, BatchWorkflow],
+            activities=activities,
+        ):
+            handle = await env.client.start_workflow(
+                IssueWorkflow.run,
+                preview_input,
+                id="issue-183-preview",
+                task_queue="test-tq",
+            )
+            await asyncio.sleep(0.1)
+            await handle.signal("submit_human_decision", "approve")
+            result = await handle.result()
+
+    assert result.final_state == "submittable"
+    assert result.upstream_pr_number is None
+    assert submit_calls == [], "submit_upstream_pr must never run when the brake is set"
 
 
 @pytest.mark.asyncio
