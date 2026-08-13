@@ -43,15 +43,9 @@ export interface VibeCheckSliceState {
   removeStage4PR: (repo: string, prNumber: number) => void
 }
 
-// ============ Slice Dependencies ============
-
-export interface WithRefresh {
-  refreshPipelineItems: () => void
-}
-
 // ============ Slice Creator ============
 
-export function createVibeCheckSlice<S extends VibeCheckSliceState & WithRefresh>(
+export function createVibeCheckSlice<S extends VibeCheckSliceState>(
   set: (fn: (state: S) => Partial<S>) => void,
   get: () => S
 ): VibeCheckSliceState {
@@ -88,7 +82,6 @@ export function createVibeCheckSlice<S extends VibeCheckSliceState & WithRefresh
                 }
               }) as Partial<S>
           )
-          get().refreshPipelineItems()
         } else {
           throw new Error('Failed to load stage1')
         }
@@ -119,7 +112,6 @@ export function createVibeCheckSlice<S extends VibeCheckSliceState & WithRefresh
                 }
               }) as Partial<S>
           )
-          get().refreshPipelineItems()
         } else {
           throw new Error('Failed to load stage2')
         }
@@ -152,7 +144,6 @@ export function createVibeCheckSlice<S extends VibeCheckSliceState & WithRefresh
                 }
               }) as Partial<S>
           )
-          get().refreshPipelineItems()
         } else {
           throw new Error('Failed to load stage3')
         }
@@ -183,7 +174,6 @@ export function createVibeCheckSlice<S extends VibeCheckSliceState & WithRefresh
                 }
               }) as Partial<S>
           )
-          get().refreshPipelineItems()
         } else {
           throw new Error('Failed to load stage4')
         }
@@ -256,7 +246,6 @@ export function createVibeCheckSlice<S extends VibeCheckSliceState & WithRefresh
             }
           }) as Partial<S>
       )
-      get().refreshPipelineItems()
     },
 
     removeStage4PR: (repo: string, prNumber: number) => {
@@ -269,7 +258,6 @@ export function createVibeCheckSlice<S extends VibeCheckSliceState & WithRefresh
             }
           }) as Partial<S>
       )
-      get().refreshPipelineItems()
     }
   }
 }

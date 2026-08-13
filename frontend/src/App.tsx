@@ -7,7 +7,6 @@ import { getOwner } from './api/endpoints'
 import { Navigation } from './components/common'
 import {
   VibecheckView,
-  ReviewQueueView,
   HealthCheckView,
   OSSView,
   PipelineSelectView,
@@ -117,8 +116,6 @@ function AppInner(props: TenHandsProps & { containerRef: RefObject<HTMLDivElemen
         return <TaskAutoView />
       case 'retro':
         return <RetroView />
-      case 'review':
-        return <ReviewQueueView />
       case 'health':
         return <HealthCheckView />
       case 'list':

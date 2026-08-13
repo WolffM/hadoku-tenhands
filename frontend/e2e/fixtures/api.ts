@@ -104,18 +104,10 @@ export const defaultRoutes: Table = {
   'POST /api/approve-pr': ok({ message: 'Approved' }),
   'POST /api/mark-pr-ready': ok({ message: 'Marked ready' }),
   'POST /api/merge-pr': ok({ message: 'Merged' }),
-  'POST /api/clear-cache': ok({ message: 'Cache cleared' }),
-  'POST /api/workflow-status': ok({ runs: d.mockWorkflowRuns, status: 'completed' }),
 
   // ---- OSS recon pipeline ------------------------------------------------
   'GET /api/oss/stage1-targets': ok({ targets: d.mockOSSTargets }),
   'GET /api/oss/stage2-issues': ok({ issues: d.mockOSSScoredIssues }),
-  'GET /api/oss/stage3-assigned': ok({ assignments: d.mockOSSAssignments }),
-  'GET /api/oss/stage4-fork-prs': ok({ prs: d.mockOSSForkPRs }),
-  'GET /api/oss/stage5-submit': ok({
-    ready: d.mockOSSReadyToSubmit,
-    submitted: d.mockOSSSubmittedPRs
-  }),
   'GET /api/oss/stage5-tracking': ok({ submitted: d.mockOSSSubmittedPRs }),
   'GET /api/oss/pipeline-status': ok({ statuses: d.mockPipelineStatuses }),
   'GET /api/oss/retrospective-logs': ok({ logs: d.mockRetrospectiveLogs }),
@@ -136,16 +128,11 @@ export const defaultRoutes: Table = {
   'GET /api/oss/issue-brief/*': ok({ data: d.mockOSSIssueBrief }),
   // Served as HTML, not JSON — it is a standalone report document.
   'GET /api/oss/issue-report/*': '<!DOCTYPE html><title>Pipeline Report</title><div>report</div>',
-  'GET /api/oss/fork-pr-details': ok({ pr: d.mockOSSForkPRDetails }),
-  'POST /api/oss/fork-pr-details': ok({ pr: d.mockOSSForkPRDetails }),
   'POST /api/oss/compute-target': ok({ message: 'Computed' }),
   'POST /api/oss/refresh-target': ok({ message: 'Refreshed' }),
   'POST /api/oss/select-issue': ok({ message: 'Selected' }),
   'POST /api/oss/fork-and-assign': ok({ message: 'Forked and assigned' }),
   'POST /api/oss/advance-pipeline': ok({ message: 'Advanced' }),
-  'POST /api/oss/approve-fork-pr': ok({ message: 'Approved' }),
-  'POST /api/oss/merge-fork-pr': ok({ message: 'Merged' }),
-  'POST /api/oss/submit-to-origin': ok({ message: 'Submitted' }),
   'POST /api/oss/poll-submitted-prs': ok({ submitted: d.mockOSSSubmittedPRs }),
   'POST /api/oss/signoff': ok({ message: 'Signed off' }),
 
@@ -178,12 +165,6 @@ export const defaultRoutes: Table = {
   'POST /api/taskauto/merge': ok({ message: 'Merged' }),
 
   // ---- temporal ----------------------------------------------------------
-  'GET /api/temporal/health': ok({
-    state_root: 'state',
-    state_root_exists: true,
-    batch_count: d.mockTemporalBatches.length,
-    cluster_check: 'skipped'
-  }),
   'GET /api/temporal/batches': ok({ batches: d.mockTemporalBatches }),
   'GET /api/temporal/batch/*': ok(d.mockTemporalBatchDetail),
   'GET /api/temporal/inbox': ok({
@@ -199,11 +180,6 @@ export const defaultRoutes: Table = {
       workflow_id: null,
       decision: typeof body?.decision === 'string' ? body.decision : null
     }),
-  'POST /api/temporal/dispatch': ok({
-    batch_id: 'crimson-kitty',
-    workflow_id: 'batch-crimson-kitty',
-    issue_count: 0
-  }),
   'GET /api/temporal/evidence/*': ok({ evidence: [] }),
 
   // ---- diagnostics the harness itself pokes ------------------------------

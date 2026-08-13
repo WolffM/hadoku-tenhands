@@ -144,12 +144,6 @@ export interface ActionResponse {
   error?: string
 }
 
-export interface WorkflowStatusResponse {
-  success: boolean
-  run?: WorkflowRun
-  error?: string
-}
-
 export interface HealthCheckResponse {
   success: boolean
   status: 'healthy' | 'degraded' | 'unhealthy'
@@ -161,27 +155,6 @@ export interface GlobalWorkflowRunsResponse {
   success: boolean
   runs: (WorkflowRun & { repo: string; vibecheck_installed: boolean })[]
   owner: string
-}
-
-// ============ Pipeline Item Types (for new UI) ============
-
-export type PipelineStatus =
-  'pending' | 'processing' | 'waiting_for_review' | 'ready' | 'completed' | 'failed'
-
-export interface PipelineItem {
-  id: string
-  type: 'vibecheck' | 'investigate' | 'custom' | 'oss'
-  repo: string
-  identifier: string // e.g., "issue-42" or "pr-23"
-  currentStage: number
-  totalStages: number
-  stageName: string
-  status: PipelineStatus
-  createdAt: string
-  updatedAt: string
-  // The underlying data (issue, PR, etc.)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: Issue | PullRequest | Record<string, any>
 }
 
 // ============ OSS Pipeline Types ============
@@ -231,29 +204,6 @@ export interface OSSAssignment {
   assignedAt: string
 }
 
-export interface ForkPR {
-  number: number
-  title: string
-  url: string
-  repo: string
-  originSlug: string
-  headRefName: string
-  additions: number
-  deletions: number
-  changedFiles: number
-  reviewDecision: string
-  isDraft: boolean
-  createdAt: string
-}
-
-export interface ReadyToSubmit {
-  originSlug: string
-  repo: string
-  branch: string
-  title: string
-  baseBranch: string
-}
-
 export interface SubmittedPR {
   originSlug: string
   prUrl: string
@@ -282,18 +232,6 @@ export interface OSSStage2Response extends OSSBaseResponse {
   issues: ScoredIssue[]
 }
 
-export interface OSSStage3Response extends OSSBaseResponse {
-  assignments: OSSAssignment[]
-}
-
-export interface OSSStage4Response extends OSSBaseResponse {
-  prs: ForkPR[]
-}
-
-export interface OSSStage5Response extends OSSBaseResponse {
-  ready: ReadyToSubmit[]
-}
-
 export interface OSSStage5TrackingResponse extends OSSBaseResponse {
   submitted: SubmittedPR[]
 }
@@ -301,11 +239,6 @@ export interface OSSStage5TrackingResponse extends OSSBaseResponse {
 export interface OSSForkAssignResponse extends OSSBaseResponse {
   fork_issue_url?: string
   already_assigned?: boolean
-  error?: string
-}
-
-export interface OSSSubmitResponse extends OSSBaseResponse {
-  pr_url?: string
   error?: string
 }
 
@@ -665,28 +598,6 @@ export interface TemporalInboxItem {
   pr_title?: string
   pr_body_excerpt?: string
   [key: string]: unknown
-}
-
-export interface TemporalHealth {
-  state_root: string
-  state_root_exists: boolean
-  batch_count: number
-  cluster_check: string
-}
-
-export interface TemporalDispatchIssueInput {
-  upstream_slug: string
-  fork_slug?: string
-  issue_number: number
-  raw_brief?: string
-  branch_name?: string
-  base_branch?: string
-}
-
-export interface TemporalDispatchResult {
-  batch_id: string
-  workflow_id: string
-  issue_count: number
 }
 
 export interface TemporalSignalResult {

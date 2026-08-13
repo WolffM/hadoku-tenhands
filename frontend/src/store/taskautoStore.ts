@@ -3,8 +3,8 @@
  *
  * Standalone Zustand store for the board-driven pipeline, kept separate from
  * `usePipelineStore` for the same reason `temporalStore` is: the data shape
- * here is boards → lanes → tasks, which does not fit the `PipelineItem`
- * derivation model used by vibecheck + oss.
+ * here is boards → lanes → tasks, distinct from the stage-based model used
+ * by vibecheck + oss.
  *
  * Mirrors the async-action + error-handling pattern from `temporalStore.ts`.
  *
