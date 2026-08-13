@@ -71,7 +71,7 @@ export function Stage2Run() {
     if (!owner || repos.length === 0) return
 
     setUpdating(true)
-    addLog(`Updating vibecheck workflows on ${repos.length} repos to latest version...`, 'info')
+    addLog(`Updating vibecheck workflows on ${repos.length} repos to latest version…`, 'info')
 
     const repoList = repos.map(r => r.name)
     let successCount = 0
@@ -94,7 +94,7 @@ export function Stage2Run() {
 
   // Loading state
   if (stage2.loading && repos.length === 0) {
-    return <LoadingState text="Loading repos with commit info..." />
+    return <LoadingState text="Loading repos with commit info…" />
   }
 
   // Empty state
@@ -111,7 +111,7 @@ export function Stage2Run() {
   return (
     <div className="stage-panel">
       {/* Global Actions */}
-      <div className="stage-panel__header" style={{ marginBottom: '1rem' }}>
+      <div className="stage-panel__header u-mb-xl">
         <div className="stage-panel__actions">
           <button
             className="btn btn--secondary btn--sm"
@@ -121,7 +121,7 @@ export function Stage2Run() {
             disabled={updating || running || repos.length === 0}
             title="Update all repos to latest vibecheck workflow"
           >
-            {updating ? 'Updating...' : `🔄 Refresh Workflows (${repos.length})`}
+            {updating ? 'Updating…' : `🔄 Refresh Workflows (${repos.length})`}
           </button>
         </div>
       </div>
@@ -148,7 +148,7 @@ export function Stage2Run() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '30px' }}></th>
+                  <th className="data-table__col-check"></th>
                   <th>Repository</th>
                   <th>Last Run</th>
                   <th>Commits Since</th>
@@ -196,7 +196,7 @@ export function Stage2Run() {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: '30px' }}></th>
+                <th className="data-table__col-check"></th>
                 <th>Repository</th>
                 <th>Last Run</th>
                 <th>Status</th>

@@ -35,7 +35,7 @@ export function VibecheckView() {
     {
       id: 'stage1',
       label: 'Install VibeCheck',
-      icon: '\u{1F4E5}',
+      icon: '📥',
       component: Stage1Install,
       getCount: () => stage1.items.length
     },
@@ -49,14 +49,14 @@ export function VibecheckView() {
     {
       id: 'stage3',
       label: 'Assign Copilot',
-      icon: '\u{1F916}',
+      icon: '🤖',
       component: Stage3Assign,
       getCount: () => stage3.items.length
     },
     {
       id: 'stage4',
       label: 'Review & Merge',
-      icon: '\u{1F500}',
+      icon: '🔀',
       component: Stage4Review,
       getCount: () => stage4.items.filter(pr => isPRReady(pr)).length
     }

@@ -105,7 +105,7 @@ export function OSSDossierPanel({ slug, onClose }: OSSDossierPanelProps) {
           </button>
         </div>
 
-        {loading && <LoadingState text="Loading dossier..." />}
+        {loading && <LoadingState text="Loading dossier…" />}
 
         {error && <div className="dossier-panel__error">{error}</div>}
 

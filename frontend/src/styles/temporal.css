@@ -1,60 +1,7 @@
 /* ============ Temporal Pipeline (crimson-kitty) ============ */
 
 .temporal-pipeline-view {
-  padding: 1rem;
-}
-
-/* ---- Tab bar ---- */
-
-.temporal-tabs {
-  display: flex;
-  gap: 0.25rem;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 1.25rem;
-}
-
-.temporal-tabs__tab {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1rem;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  color: var(--color-text-muted);
-  font-family: inherit;
-  font-size: var(--hdk-text-sm);
-  font-weight: var(--font-weight-semibold);
-  cursor: pointer;
-}
-
-.temporal-tabs__tab:hover {
-  color: var(--color-text);
-}
-
-.temporal-tabs__tab[data-active='true'] {
-  color: var(--color-text);
-  border-bottom-color: var(--color-primary);
-}
-
-.temporal-tabs__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.4rem;
-  padding: 0 0.4rem;
-  border-radius: 999px;
-  background-color: var(--color-bg);
-  border: 1px solid var(--color-border);
-  font-size: var(--hdk-text-xs);
-  font-weight: var(--font-weight-semibold);
-}
-
-.temporal-tabs__tab[data-active='true'] .temporal-tabs__count {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-bg);
+  padding: var(--hdk-space-xl);
 }
 
 /* ---- Batch browser (Active / Archive tabs) ---- */
@@ -62,21 +9,15 @@
 .temporal-browser {
   display: grid;
   grid-template-columns: minmax(280px, 360px) 1fr;
-  gap: 1.25rem;
+  gap: var(--hdk-space-2xl);
   align-items: start;
-}
-
-.temporal-browser__empty {
-  color: var(--color-text-muted);
-  padding: 2rem 1rem;
-  text-align: center;
 }
 
 .temporal-browser__rail {
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
-  padding: 0.75rem;
+  padding: var(--hdk-space-lg);
   max-height: calc(100vh - 12rem);
   overflow-y: auto;
 }
@@ -88,12 +29,12 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--hdk-space-sm);
 }
 
 .temporal-browser__run-list {
-  margin: 0.25rem 0 0.5rem 0.75rem;
-  padding-left: 0.5rem;
+  margin: var(--hdk-space-sm) 0 var(--hdk-space-md) var(--hdk-space-lg);
+  padding-left: var(--hdk-space-md);
   border-left: 2px solid var(--color-border);
 }
 
@@ -102,9 +43,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: var(--hdk-space-md);
   width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -145,7 +86,7 @@
 }
 
 .temporal-browser__run-loading {
-  padding: 0.4rem 0.75rem;
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   color: var(--color-text-muted);
   font-size: var(--hdk-text-xs);
 }
@@ -154,7 +95,7 @@
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius);
-  padding: 1rem 1.25rem;
+  padding: var(--hdk-space-xl) var(--hdk-space-2xl);
   min-width: 0;
 }
 
@@ -164,7 +105,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--hdk-space-lg);
 }
 
 .temporal-inbox__header h2 {
@@ -174,8 +115,8 @@
 }
 
 .temporal-inbox__error {
-  margin-bottom: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  margin-bottom: var(--hdk-space-md);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   background-color: var(--color-danger-bg);
   border: 1px solid var(--color-danger);
   border-radius: var(--hdk-radius-sm);
@@ -189,15 +130,15 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--hdk-space-md);
 }
 
 .temporal-inbox__row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
+  gap: var(--hdk-space-xl);
+  padding: var(--hdk-space-lg) var(--hdk-space-xl);
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -206,7 +147,7 @@
 .temporal-inbox__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
+  gap: var(--hdk-space-md) var(--hdk-space-lg);
   font-size: var(--hdk-text-sm);
   min-width: 0;
 }
@@ -230,12 +171,12 @@
 
 .temporal-inbox__actions {
   display: flex;
-  gap: 0.375rem;
+  gap: var(--hdk-space-sm);
   flex-shrink: 0;
 }
 
 .temporal-inbox__actions button {
-  padding: 0.375rem 0.75rem;
+  padding: var(--hdk-space-sm) var(--hdk-space-lg);
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -260,20 +201,20 @@
 .temporal-inbox__row--signoff {
   flex-direction: column;
   align-items: stretch;
-  gap: 0.75rem;
-  padding: 1rem 1.25rem;
+  gap: var(--hdk-space-lg);
+  padding: var(--hdk-space-xl) var(--hdk-space-2xl);
   border-left: 3px solid var(--color-primary);
 }
 
 .temporal-inbox__signoff-header {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--hdk-space-sm);
 }
 
 .temporal-inbox__signoff-title {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--hdk-space-lg);
   align-items: baseline;
   flex-wrap: wrap;
 }
@@ -289,12 +230,12 @@
   align-self: flex-start;
   text-decoration: none;
   font-weight: var(--font-weight-semibold);
-  padding: 0.5rem 1rem;
+  padding: var(--hdk-space-md) var(--hdk-space-xl);
 }
 
 .temporal-inbox__pr-body-excerpt {
   margin: 0;
-  padding: 0.75rem;
+  padding: var(--hdk-space-lg);
   background-color: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -315,11 +256,11 @@
 }
 
 .temporal-inbox__row--signoff .temporal-inbox__actions {
-  gap: 0.5rem;
+  gap: var(--hdk-space-md);
 }
 
 .temporal-inbox__row--signoff .temporal-inbox__actions button {
-  padding: 0.5rem 1rem;
+  padding: var(--hdk-space-md) var(--hdk-space-xl);
   font-size: var(--hdk-text-sm);
 }
 
@@ -334,10 +275,10 @@
 .temporal-issue-detail__header {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--hdk-space-lg);
   flex-wrap: wrap;
-  padding-bottom: 0.75rem;
-  margin-bottom: 1rem;
+  padding-bottom: var(--hdk-space-lg);
+  margin-bottom: var(--hdk-space-xl);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -354,8 +295,8 @@
 }
 
 .temporal-issue-detail__abort {
-  margin-bottom: 1.25rem;
-  padding: 0.6rem 0.85rem;
+  margin-bottom: var(--hdk-space-2xl);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   border: 1px solid var(--color-danger);
   border-radius: var(--hdk-radius-sm);
   background-color: color-mix(in srgb, var(--color-danger) 12%, transparent);
@@ -365,11 +306,11 @@
 }
 
 .temporal-issue-detail__section {
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--hdk-space-2xl);
 }
 
 .temporal-issue-detail__section h3 {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--hdk-space-md);
   font-size: var(--hdk-text-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-muted);
@@ -383,14 +324,14 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: var(--hdk-space-sm);
 }
 
 .temporal-issue-detail__timeline li {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.125rem 0.75rem;
-  padding: 0.5rem 0.75rem;
+  gap: var(--hdk-space-xs) var(--hdk-space-lg);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -432,11 +373,11 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: var(--hdk-space-sm);
 }
 
 .temporal-issue-detail__events li {
-  padding: 0.5rem 0.75rem;
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -447,14 +388,19 @@
   color: var(--color-danger);
 }
 
+.temporal-event__json {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 /* ── Gate rows ─────────────────────────────────────────────────── */
 
 .temporal-gate-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  margin-bottom: 0.375rem;
+  gap: var(--hdk-space-lg);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
+  margin-bottom: var(--hdk-space-sm);
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -483,8 +429,8 @@
 /* ── Evidence ──────────────────────────────────────────────────── */
 
 .temporal-evidence {
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 0.75rem;
+  margin-bottom: var(--hdk-space-lg);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
@@ -495,7 +441,7 @@
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-muted);
   font-family: monospace;
-  margin-bottom: 0.25rem;
+  margin-bottom: var(--hdk-space-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -505,6 +451,23 @@
   margin: 0;
   font-size: var(--hdk-text-xs);
   color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+.temporal-evidence__json {
+  font-family: monospace;
+}
+
+/* Wraps the shared DiffViewer; the diff table brings its own styling. */
+.temporal-evidence__diff {
+  border-radius: var(--hdk-radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.temporal-evidence__image {
+  max-width: 100%;
+  border-radius: var(--hdk-radius-sm);
 }
 
 .temporal-evidence__empty {
@@ -558,37 +521,4 @@
 .retro-temporal-batch-card li > span:last-child {
   color: var(--color-text-muted);
   font-size: var(--hdk-text-xs);
-}
-
-/* ── Retro tab strip (Legacy / Temporal) ───────────────────────── */
-
-.retro-view__tab-strip {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0 0 0 0.25rem;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 1rem;
-}
-
-.retro-view__tab {
-  padding: 0.5rem 1rem;
-  background: none;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: var(--hdk-radius-sm) var(--hdk-radius-sm) 0 0;
-  color: var(--color-text-muted);
-  font-family: inherit;
-  font-size: var(--hdk-text-sm);
-  font-weight: var(--font-weight-semibold);
-  cursor: pointer;
-}
-
-.retro-view__tab:hover {
-  color: var(--color-text);
-}
-
-.retro-view__tab--active {
-  color: var(--color-primary);
-  border-color: var(--color-border);
-  background-color: var(--color-bg-card);
 }

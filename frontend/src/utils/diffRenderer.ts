@@ -51,7 +51,15 @@ export function parseDiff(diffText: string): DiffFile[] {
       continue
     }
 
-    if (!currentFile) continue
+    if (!currentFile) {
+      // Bare unified diffs (no `diff --git` header) still get a file entry,
+      // so a hunk-only diff renders instead of collapsing to "No changes".
+      if (line.startsWith('@@') || line.startsWith('--- ') || line.startsWith('+++ ')) {
+        currentFile = { filename: 'diff', additions: 0, deletions: 0, lines: [] }
+      } else {
+        continue
+      }
+    }
 
     // File metadata headers
     if (
@@ -63,6 +71,10 @@ export function parseDiff(diffText: string): DiffFile[] {
       line.startsWith('rename from') ||
       line.startsWith('rename to')
     ) {
+      if (currentFile.filename === 'diff') {
+        const named = /^\+\+\+ (?:b\/)?(.+)$/.exec(line)
+        if (named) currentFile.filename = named[1]
+      }
       currentFile.lines.push({ type: 'header', content: line })
       continue
     }

@@ -1,5 +1,16 @@
 /* ============ Theme System ============ */
 
+/* Layering scale — @wolffm/themes ships no z-index tokens, so the app's
+   ladder lives here. Overlays sit above dropdowns; a modal's panel sits
+   above its own overlay. */
+.tenhands-container {
+  --th-z-raised: 10;
+  --th-z-sticky: 100;
+  --th-z-dropdown: 200;
+  --th-z-modal: 1000;
+  --th-z-modal-overlay: 1001;
+}
+
 /* Light themes - explicit color scheme */
 .tenhands-container[data-theme='light'],
 .tenhands-container[data-theme='coffee-light'],

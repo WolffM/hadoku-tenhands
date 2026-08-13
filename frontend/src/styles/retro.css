@@ -65,7 +65,7 @@
   color: var(--color-on-success-bg);
   border-radius: 999px;
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: var(--hdk-text-xs);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -85,7 +85,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--hdk-radius-sm);
   box-shadow: var(--hdk-shadow-md);
-  z-index: 100;
+  z-index: var(--th-z-dropdown);
   min-width: 160px;
   display: flex;
   flex-direction: column;
@@ -179,7 +179,7 @@
 
 .batch-summary__arrow {
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: var(--hdk-text-sm);
   padding: 0 2px;
 }
 
@@ -650,7 +650,7 @@
   position: fixed;
   inset: 0;
   background: var(--color-bg-overlay);
-  z-index: 200;
+  z-index: var(--th-z-modal);
 }
 
 .context-panel {
@@ -661,7 +661,7 @@
   width: min(600px, 90vw);
   background: var(--color-bg-card);
   border-left: 1px solid var(--color-border);
-  z-index: 201;
+  z-index: var(--th-z-modal-overlay);
   display: flex;
   flex-direction: column;
   box-shadow: var(--hdk-shadow-lg);
@@ -685,7 +685,7 @@
   border: none;
   cursor: pointer;
   color: var(--color-text-muted);
-  font-size: 1rem;
+  font-size: var(--hdk-text-base);
   padding: 4px 8px;
 }
 
@@ -768,7 +768,7 @@
 
 .retro-temporal-issue-card__chevron {
   color: var(--color-text-muted);
-  font-size: 0.75rem;
+  font-size: var(--hdk-text-xs);
   flex-shrink: 0;
 }
 

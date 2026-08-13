@@ -27,7 +27,7 @@ export function PRRow({
   // Strip [WIP] prefix from title
   let displayTitle = pr.title.replace(/^\[WIP\]\s*/i, '')
   if (displayTitle.length > 40) {
-    displayTitle = displayTitle.substring(0, 40) + '...'
+    displayTitle = displayTitle.substring(0, 40) + '…'
   }
 
   // Build status badges

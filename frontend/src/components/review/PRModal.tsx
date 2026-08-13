@@ -33,7 +33,7 @@ export function PRModal({
         {/* Header */}
         <div className="modal__header">
           <div className="modal__title-section">
-            <h2 className="modal__title">{loading ? 'Loading...' : (pr?.title ?? 'PR Details')}</h2>
+            <h2 className="modal__title">{loading ? 'Loading…' : (pr?.title ?? 'PR Details')}</h2>
             {pr && (
               <span className="modal__subtitle">
                 {pr.repo} #{pr.number}
@@ -92,7 +92,7 @@ export function PRModal({
                     <h4>Description</h4>
                     <div className="pr-description">
                       {pr.body ? escapeHtml(pr.body.substring(0, 500)) : 'No description'}
-                      {pr.body && pr.body.length > 500 && '...'}
+                      {pr.body && pr.body.length > 500 && '…'}
                     </div>
                   </div>
 
@@ -117,8 +117,7 @@ export function PRModal({
                     href={pr.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="btn btn--secondary btn--sm"
-                    style={{ width: '100%' }}
+                    className="btn btn--secondary btn--sm u-full-width"
                   >
                     View on GitHub
                   </a>
@@ -157,7 +156,7 @@ export function PRModal({
               }}
               disabled={loading || actionLoading || !pr}
             >
-              {actionLoading ? 'Approving...' : 'Approve'}
+              {actionLoading ? 'Approving…' : 'Approve'}
             </button>
             <button
               className="btn btn--primary"
@@ -166,7 +165,7 @@ export function PRModal({
               }}
               disabled={loading || actionLoading || !pr}
             >
-              {actionLoading ? 'Merging...' : 'Merge'}
+              {actionLoading ? 'Merging…' : 'Merge'}
             </button>
           </div>
         </div>

@@ -1,11 +1,12 @@
 /**
  * RetroView — batch retrospective page.
  *
- * Tab strip:
- *   - Legacy   → existing oss-contribution batches (default tab)
- *   - Temporal → crimson-kitty batches from the Temporal pipeline
+ * Tab strip (shared `StageTabView`):
+ *   - Temporal          → crimson-kitty batches from the Temporal pipeline
+ *                         (default tab — the most recent generation)
+ *   - OSS Contributions → earlier oss-contribution batches
  *
- * Each tab is lazy: the Temporal tab does not fetch until selected.
+ * Each tab is lazy: a tab does not fetch until selected.
  */
 
 import { useState, useEffect } from 'react'
@@ -25,7 +26,7 @@ import type {
 } from '../api/types'
 import { BatchSummaryPanel } from '../components/retro/BatchSummaryPanel'
 import { IssueRetroCard } from '../components/retro/IssueRetroCard'
-import { LoadingState } from '../components/common'
+import { LoadingState, StageTabView } from '../components/common'
 import { useTemporalStore } from '../store/temporalStore'
 import { StateBadge, GateResultRow } from '../components/temporal'
 
@@ -34,28 +35,19 @@ const MAX_VISIBLE_TABS = 5
 type RetroTab = 'legacy' | 'temporal'
 
 export function RetroView() {
-  const [activeTab, setActiveTab] = useState<RetroTab>('legacy')
+  const [activeTab, setActiveTab] = useState<RetroTab>('temporal')
 
   return (
     <div className="retro-view" data-testid="retro-view">
-      <div className="retro-view__tab-strip" data-testid="retro-tab-strip">
-        <button
-          type="button"
-          data-testid="retro-tab-legacy"
-          className={`retro-view__tab ${activeTab === 'legacy' ? 'retro-view__tab--active' : ''}`}
-          onClick={() => setActiveTab('legacy')}
-        >
-          Legacy
-        </button>
-        <button
-          type="button"
-          data-testid="retro-tab-temporal"
-          className={`retro-view__tab ${activeTab === 'temporal' ? 'retro-view__tab--active' : ''}`}
-          onClick={() => setActiveTab('temporal')}
-        >
-          Temporal
-        </button>
-      </div>
+      <StageTabView
+        testId="retro-tab-strip"
+        stages={[
+          { id: 'temporal', label: 'Temporal', testId: 'retro-tab-temporal' },
+          { id: 'legacy', label: 'OSS Contributions', testId: 'retro-tab-legacy' }
+        ]}
+        activeId={activeTab}
+        onChange={id => setActiveTab(id as RetroTab)}
+      />
       {activeTab === 'legacy' ? <LegacyRetroTab /> : <TemporalRetroTab />}
     </div>
   )
@@ -246,9 +238,8 @@ function TemporalRetroTab() {
 
       {!selectedBatchId && (
         <p
-          className="retro-empty"
+          className="retro-empty u-center-pad"
           data-testid="retro-temporal-no-selection"
-          style={{ padding: 'var(--hdk-space-xl)', textAlign: 'center' }}
         >
           Select a batch above to see its issues.
         </p>
@@ -343,7 +334,7 @@ function TemporalIssueCard({
 
       {expanded && (
         <div className="retro-temporal-issue-card__body">
-          {loading && <LoadingState text="Loading issue detail..." />}
+          {loading && <LoadingState text="Loading issue detail…" />}
           {error && <div className="retro-error">{error}</div>}
           {detail && (
             <>
@@ -459,7 +450,7 @@ function EvidenceFileBrowser({ batchId, issueId }: { batchId: string; issueId: s
         {open ? 'Hide' : 'Browse'} Evidence Files
       </button>
 
-      {open && loading && <LoadingState text="Loading evidence tree..." />}
+      {open && loading && <LoadingState text="Loading evidence tree…" />}
       {open && stages && (
         <div className="retro-evidence-browser">
           {Object.keys(stages).length === 0 ? (
@@ -485,7 +476,7 @@ function EvidenceFileBrowser({ batchId, issueId }: { batchId: string; issueId: s
               </div>
             ))
           )}
-          {fileLoading && <LoadingState text="Loading file..." />}
+          {fileLoading && <LoadingState text="Loading file…" />}
           {viewingFile && (
             <div className="retro-evidence-browser__viewer">
               <div className="retro-evidence-browser__viewer-header">

@@ -40,7 +40,7 @@ export function Stage1Install() {
 
   // Loading state
   if (stage1.loading && repos.length === 0) {
-    return <LoadingState text="Loading repos..." />
+    return <LoadingState text="Loading repos…" />
   }
 
   // Empty state - all repos have vibecheck
@@ -71,7 +71,7 @@ export function Stage1Install() {
             }}
             disabled={processing || selectedCount === 0}
           >
-            {processing ? 'Installing...' : `Install Selected (${selectedCount})`}
+            {processing ? 'Installing…' : `Install Selected (${selectedCount})`}
           </button>
         </div>
       </div>

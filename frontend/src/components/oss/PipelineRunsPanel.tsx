@@ -32,7 +32,7 @@ const STAGE_PROGRESS: Record<Stage4Status, number> = {
 const SEGMENT_LABELS = ['SWE', 'SA', 'Review', 'Remediation', 'Done']
 const SEGMENT_CLASSES = ['seg--swe', 'seg--sa', 'seg--review', 'seg--remediation', 'seg--done']
 
-function ProgressBar({ status }: { status: Stage4Status }) {
+function StagePipelineBar({ status }: { status: Stage4Status }) {
   const filled = STAGE_PROGRESS[status] ?? 0
   return (
     <div className="pipeline-progress" title={status}>
@@ -69,7 +69,7 @@ export function PipelineRunsPanel() {
   }, [assignments])
 
   const [signingOff, runSignoff] = useAsyncAction({
-    startMsg: key => `Signing off ${key}...`,
+    startMsg: key => `Signing off ${key}…`,
     successMsg: result => `Signed off: ${(result.pr_url as string) || 'success'}`,
     failMsg: 'Signoff failed',
     onSuccess: () => {
@@ -79,7 +79,7 @@ export function PipelineRunsPanel() {
   })
 
   const [advancing, runAdvance] = useAsyncAction({
-    startMsg: key => `Advancing pipeline for ${key}...`,
+    startMsg: key => `Advancing pipeline for ${key}…`,
     successMsg: 'Pipeline advanced',
     failMsg: 'Advance failed',
     onSuccess: () => loadOSSPipelineRuns()
@@ -104,14 +104,14 @@ export function PipelineRunsPanel() {
   }
 
   if (ossPipelineRuns.loading && ossPipelineRuns.items.length === 0) {
-    return <LoadingState text="Loading pipeline runs..." />
+    return <LoadingState text="Loading pipeline runs…" />
   }
 
   if (ossPipelineRuns.items.length === 0) {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="\u{2699}\u{FE0F}"
+          icon="⚙️"
           title="No pipeline runs"
           description="Assign issues in the Fork & Assign tab to start the pipeline."
         />
@@ -140,7 +140,7 @@ export function PipelineRunsPanel() {
       {/* Assignments Table */}
       <div className="stage-section">
         <SectionHeader
-          icon={'\u{2699}\u{FE0F}'}
+          icon={'⚙️'}
           title="Pipeline Assignments"
           count={assignments.length}
         />
@@ -172,7 +172,7 @@ export function PipelineRunsPanel() {
                     </td>
                     <td className="text-light">#{a.issueNumber}</td>
                     <td>
-                      <ProgressBar status={a.stage4Status} />
+                      <StagePipelineBar status={a.stage4Status} />
                     </td>
                     <td>
                       <Badge variant={getStage4BadgeVariant(a.stage4Status || 'swe_agent_working')}>
@@ -196,7 +196,7 @@ export function PipelineRunsPanel() {
                             }}
                             disabled={advancing === advanceKey}
                           >
-                            {advancing === advanceKey ? '...' : 'Advance'}
+                            {advancing === advanceKey ? '…' : 'Advance'}
                           </button>
                         )}
                         {isComplete && a.stage4PrNumber && (
@@ -207,7 +207,7 @@ export function PipelineRunsPanel() {
                             }}
                             disabled={signingOff === signoffKey}
                           >
-                            {signingOff === signoffKey ? 'Signing off...' : 'Signoff'}
+                            {signingOff === signoffKey ? 'Signing off…' : 'Signoff'}
                           </button>
                         )}
                       </div>
@@ -230,7 +230,13 @@ export function PipelineRunsPanel() {
                 Close
               </button>
             </div>
-            <iframe className="report-modal__iframe" src={reportUrl} title="Pipeline Report" />
+            <iframe
+              className="report-modal__iframe"
+              src={reportUrl}
+              title="Pipeline Report"
+              // Backend-generated HTML: render it, but never run its scripts.
+              sandbox=""
+            />
           </div>
         </div>
       )}

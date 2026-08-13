@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTemporalStore } from '../store/temporalStore'
 import { PipelineInbox, BatchBrowser } from '../components/temporal'
+import { StageTabView } from '../components/common'
 
 type TabKey = 'inbox' | 'active' | 'archive'
 
@@ -50,29 +51,33 @@ export function TemporalPipelineView() {
     else if (archiveBatches.some(b => b.batch_id === selectedBatchId)) setTab('archive')
   }, [batches.items.length, selectedBatchId, activeBatches, archiveBatches])
 
-  const tabs: { key: TabKey; label: string; count: number }[] = [
-    { key: 'inbox', label: 'Inbox', count: inbox.items.length },
-    { key: 'active', label: 'Active', count: activeBatches.length },
-    { key: 'archive', label: 'Archive', count: archiveBatches.length }
-  ]
-
   return (
     <div className="temporal-pipeline-view" data-testid="temporal-pipeline-view">
-      <nav className="temporal-tabs" data-testid="temporal-tabs">
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            type="button"
-            className="temporal-tabs__tab"
-            data-testid={`temporal-tab-${t.key}`}
-            data-active={tab === t.key}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-            <span className="temporal-tabs__count">{t.count}</span>
-          </button>
-        ))}
-      </nav>
+      <StageTabView
+        testId="temporal-tabs"
+        stages={[
+          {
+            id: 'inbox',
+            label: 'Inbox',
+            getCount: () => inbox.items.length,
+            testId: 'temporal-tab-inbox'
+          },
+          {
+            id: 'active',
+            label: 'Active',
+            getCount: () => activeBatches.length,
+            testId: 'temporal-tab-active'
+          },
+          {
+            id: 'archive',
+            label: 'Archive',
+            getCount: () => archiveBatches.length,
+            testId: 'temporal-tab-archive'
+          }
+        ]}
+        activeId={tab}
+        onChange={id => setTab(id as TabKey)}
+      />
 
       <div className="temporal-pipeline-view__body">
         {tab === 'inbox' && <PipelineInbox />}

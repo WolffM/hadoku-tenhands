@@ -22,7 +22,7 @@ export function RunningNow({ running }: RunningNowProps) {
         <EmptyState
           icon="💤"
           title="No agent is working"
-          description="The scheduler sweeps every 15 minutes. An idle pipeline here is normal."
+          description="Agents pick up work on a schedule — a quiet moment here is normal."
         />
       ) : (
         <ul className="taskauto-list">

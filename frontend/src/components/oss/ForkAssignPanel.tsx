@@ -98,14 +98,14 @@ export function ForkAssignPanel() {
   }
 
   if (ossStage2.loading && ossStage2.items.length === 0) {
-    return <LoadingState text="Loading scored issues..." />
+    return <LoadingState text="Loading scored issues…" />
   }
 
   if (ossStage2.items.length === 0) {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="\u{1F4CB}"
+          icon="📋"
           title="No scored issues"
           description="Add target repos in Repo Health first — issues will appear here once scored."
         />
@@ -134,7 +134,7 @@ export function ForkAssignPanel() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '30px' }}></th>
+                  <th className="data-table__col-check"></th>
                   <th>Repo</th>
                   <th>#</th>
                   <th>Title</th>
@@ -167,7 +167,7 @@ export function ForkAssignPanel() {
                         title={issue.title}
                       >
                         {issue.title.length > 60
-                          ? issue.title.substring(0, 60) + '...'
+                          ? issue.title.substring(0, 60) + '…'
                           : issue.title}
                       </a>
                     </td>
@@ -234,11 +234,11 @@ export function ForkAssignPanel() {
 
       {/* Issues Table */}
       <div className="stage-section">
-        <SectionHeader icon={'\u{1F4CB}'} title="All Issues" count={filteredIssues.length} />
+        <SectionHeader icon={'📋'} title="All Issues" count={filteredIssues.length} />
 
         {filteredIssues.length === 0 ? (
           <EmptyState
-            icon="\u{1F50D}"
+            icon="🔍"
             title="No matching issues"
             description="Try adjusting your filters or enabling more repos."
           />
@@ -262,7 +262,7 @@ export function ForkAssignPanel() {
                 <tbody>
                   {visibleIssues.map((issue: ScoredIssue) => {
                     const displayTitle =
-                      issue.title.length > 50 ? issue.title.substring(0, 50) + '...' : issue.title
+                      issue.title.length > 50 ? issue.title.substring(0, 50) + '…' : issue.title
 
                     return (
                       <tr key={issue.id}>
@@ -281,10 +281,7 @@ export function ForkAssignPanel() {
                             {displayTitle}
                           </a>
                           {issue.dataCompleteness === 'partial' && (
-                            <span
-                              className="badge badge--secondary"
-                              style={{ marginLeft: '0.5rem' }}
-                            >
+                            <span className="badge badge--secondary u-ml-md">
                               partial
                             </span>
                           )}
@@ -318,7 +315,7 @@ export function ForkAssignPanel() {
               </table>
             </div>
             {visibleCount < filteredIssues.length && (
-              <div style={{ textAlign: 'center', padding: '1rem' }}>
+              <div className="u-center-pad">
                 <button
                   className="btn btn--secondary btn--sm"
                   onClick={() => setVisibleCount(prev => prev + PAGE_SIZE)}

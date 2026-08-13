@@ -46,7 +46,7 @@ async function navigateToOSSTab(page: Page, tabLabel: string): Promise<void> {
 
   // Wait for the refresh button to appear (either state — loading may be in progress)
   const refreshAllBtn = page.getByRole('button', { name: 'Refresh All' })
-  const refreshingBtn = page.getByRole('button', { name: 'Refreshing...' })
+  const refreshingBtn = page.getByRole('button', { name: 'Refreshing…' })
   await expect(refreshAllBtn.or(refreshingBtn)).toBeVisible({ timeout: LOAD_TIMEOUT })
 
   // If still refreshing, wait for it to finish (can take 45s+ with many repos)
@@ -184,8 +184,8 @@ test.describe('Prod: OSS Navigation', () => {
     await expect(refreshBtn).toBeVisible()
     await refreshBtn.click()
 
-    // Should show "Refreshing..." then go back to "Refresh All"
-    await expect(page.getByRole('button', { name: 'Refreshing...' })).toBeVisible({
+    // Should show "Refreshing…" then go back to "Refresh All"
+    await expect(page.getByRole('button', { name: 'Refreshing…' })).toBeVisible({
       timeout: 5000
     })
     await expect(page.getByRole('button', { name: 'Refresh All' })).toBeVisible({
@@ -250,7 +250,7 @@ test.describe('Prod: Tab 1 — Repo Health', () => {
       page,
       '.repo-health-card',
       'No target repos',
-      'Loading repos...'
+      'Loading repos…'
     )
 
     if (state === 'data') {
@@ -268,7 +268,7 @@ test.describe('Prod: Tab 1 — Repo Health', () => {
       page,
       '.repo-health-card',
       'No target repos',
-      'Loading repos...'
+      'Loading repos…'
     )
     if (state !== 'data') return
 
@@ -283,7 +283,7 @@ test.describe('Prod: Tab 1 — Repo Health', () => {
       page,
       '.repo-health-card',
       'No target repos',
-      'Loading repos...'
+      'Loading repos…'
     )
     if (state !== 'data') return
 
@@ -308,7 +308,7 @@ test.describe('Prod: Tab 1 — Repo Health', () => {
       page,
       '.repo-health-card',
       'No target repos',
-      'Loading repos...'
+      'Loading repos…'
     )
     if (state !== 'data') return
 
@@ -331,7 +331,7 @@ test.describe('Prod: Tab 1 — Repo Health', () => {
       page,
       '.repo-health-card',
       'No target repos',
-      'Loading repos...'
+      'Loading repos…'
     )
     if (state !== 'data') return
 
@@ -358,7 +358,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
 
     if (state === 'data') {
@@ -375,7 +375,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -397,7 +397,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -429,7 +429,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -454,7 +454,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -474,7 +474,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -501,7 +501,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -522,7 +522,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -547,7 +547,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -575,7 +575,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -627,7 +627,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -649,7 +649,7 @@ test.describe('Prod: Tab 2 — Fork & Assign', () => {
       page,
       '.data-table',
       'No scored issues',
-      'Loading scored issues...'
+      'Loading scored issues…'
     )
     if (state !== 'data') return
 
@@ -688,7 +688,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
 
     if (state === 'data') {
@@ -703,7 +703,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -721,7 +721,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -739,7 +739,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -765,7 +765,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -786,7 +786,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -808,7 +808,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -831,7 +831,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -854,7 +854,7 @@ test.describe('Prod: Tab 3 — Pipeline Runs', () => {
       page,
       '.metric-card',
       'No pipeline runs',
-      'Loading pipeline runs...'
+      'Loading pipeline runs…'
     )
     if (state !== 'data') return
 
@@ -880,7 +880,7 @@ test.describe('Prod: Tab 4 — Review', () => {
       page,
       '.metric-card',
       'No submitted PRs',
-      'Polling upstream PR statuses...'
+      'Polling upstream PR statuses…'
     )
 
     if (state === 'data') {
@@ -895,7 +895,7 @@ test.describe('Prod: Tab 4 — Review', () => {
       page,
       '.metric-card',
       'No submitted PRs',
-      'Polling upstream PR statuses...'
+      'Polling upstream PR statuses…'
     )
     if (state !== 'data') return
 
@@ -912,7 +912,7 @@ test.describe('Prod: Tab 4 — Review', () => {
       page,
       '.metric-card',
       'No submitted PRs',
-      'Polling upstream PR statuses...'
+      'Polling upstream PR statuses…'
     )
     if (state !== 'data') return
 
@@ -934,7 +934,7 @@ test.describe('Prod: Tab 4 — Review', () => {
       page,
       '.metric-card',
       'No submitted PRs',
-      'Polling upstream PR statuses...'
+      'Polling upstream PR statuses…'
     )
     if (state !== 'data') return
 
@@ -970,7 +970,7 @@ test.describe('Prod: Tab 4 — Review', () => {
       page,
       '.metric-card',
       'No submitted PRs',
-      'Polling upstream PR statuses...'
+      'Polling upstream PR statuses…'
     )
     if (state !== 'data') return
 
@@ -1195,7 +1195,7 @@ test.describe('Prod: Health View', () => {
     await expect(refreshBtn).toBeEnabled({ timeout: LOAD_TIMEOUT })
 
     await refreshBtn.click()
-    // Should show "Refreshing..." then go back to "Refresh"
+    // Should show "Refreshing…" then go back to "Refresh"
     await expect(
       page.locator('.health-view').getByRole('button', { name: /Refreshing/i })
     ).toBeVisible({ timeout: 5000 })
