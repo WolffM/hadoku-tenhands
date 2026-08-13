@@ -40,6 +40,14 @@ class IssueInput:
     # string means "schedule on the workflow's own task queue" — tests
     # rely on that default so they don't need a second worker.
     copilot_task_queue: str = ""
+    # Preview/demo brake. When False, the workflow still runs the full
+    # pipeline and still parks at awaiting_signoff (so the inbox/signoff
+    # UI is exercised), but an operator "approve" records a terminal
+    # awaiting_signoff → submittable transition INSTEAD of opening an
+    # upstream PR. Demo batches force this False server-side; the submit
+    # activity also refuses when it is False, as defense in depth. Default
+    # True preserves normal production behavior.
+    submit_to_upstream: bool = True
 
 
 @dataclass
