@@ -50,7 +50,16 @@ callouts, 49% never reached upstream).
 
 | Doc | Purpose |
 |---|---|
-| [phase-5-plan.md](phase-5-plan.md) | What's left between today and "ready to actually ship upstream PRs at batch scale" — five sub-phases ordered by blocking-ness |
+| [phase-5-plan.md](phase-5-plan.md) | What's left between today and "ready to actually ship upstream PRs at batch scale" — five sub-phases ordered by blocking-ness (all shipped 2026-04-27) |
+
+### Field reports (what actually happened)
+
+| Doc | Purpose |
+|---|---|
+| [smoke-phase3-observation-report.md](smoke-phase3-observation-report.md) | Per-issue observation of the first full smoke batch — 0/5 submitted, and why that was the correct outcome |
+| [smoke-phase3-surprise-log.md](smoke-phase3-surprise-log.md) | Every behavior the operator did not expect during Phase 3, S1–S13, each with root cause and disposition |
+| [phase3-final-report.md](phase3-final-report.md) | Phase 3 close-out: the r5-vs-r9 PR-title proof that brief plumbing works, all 17 fixes shipped |
+| [phase4-retrospective.md](phase4-retrospective.md) | The Phase 4 bug catalog — event-loop starvation, GitHub eventual consistency, deployment drift, each with root cause and lesson |
 
 ## Status (2026-04-27)
 
@@ -81,5 +90,5 @@ and the judge calibration harness ships with 20 hand-scored fixtures
 the operator can re-run after any rubric edit
 (`python -m temporal.calibration`).
 
-Phase 4 retrospective: B1–B26 documented in
-[state/crimson-kitty/phase4-retrospective.md](../../state/crimson-kitty/phase4-retrospective.md).
+Phase 4 retrospective: the bug catalog from the first two dispatch
+attempts is in [phase4-retrospective.md](phase4-retrospective.md).
