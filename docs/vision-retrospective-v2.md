@@ -165,7 +165,12 @@ Batch tabs: last 5 visible, 6th = "Older ▾" dropdown.
 
 ---
 
-## CLI Skills (Phase 3 — not yet implemented)
+## CLI Skills (Phase 3 — shipped)
+
+> **Update:** this section was written before Phase 3 landed. Everything below
+> exists today — `scripts/retro_report.py` and both skill wrappers
+> (`.claude/commands/retro-pr.md`, `.claude/commands/retro-batch.md`) are in the
+> tree and in daily use.
 
 `scripts/retro_report.py` — Markdown generator, two modes:
 

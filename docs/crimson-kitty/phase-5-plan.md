@@ -1,5 +1,9 @@
 # Phase 5 plan — from "operator-signoff works" to "shippable upstream"
 
+> **Shipped 2026-04-27.** Every sub-phase below (5.1–5.5) landed — see the status
+> table in [README.md](README.md). Kept as the design record for what each
+> sub-phase was protecting against.
+
 Phase 4 closed with an operator who can review + approve a fork-internal
 preview PR and have its content cleanly mirrored to a real upstream PR.
 But shipping at that boundary today would still be irresponsible: the
