@@ -1,9 +1,13 @@
 .demo-badge {
+  /* Self-defined so it resolves outside .tenhands-container (where the app's
+     --th-z-* ladder is scoped); sits above the modal overlay (1001). */
+  --th-z-demo-badge: 1100;
+
   position: fixed;
   bottom: var(--hdk-space-md, 12px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 9999;
+  z-index: var(--th-z-demo-badge);
   display: flex;
   align-items: center;
   gap: var(--hdk-space-sm, 8px);
