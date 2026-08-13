@@ -5,10 +5,11 @@
  * Includes stats cards, filters, and workflow runs table.
  */
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, type ReactNode } from 'react'
 import { getGlobalWorkflowRuns, getHealthCheck } from '../api/endpoints'
 import type { WorkflowRun, HealthCheckResponse } from '../api/types'
 import { getErrorMessage, formatTimeAgo } from '../utils'
+import { Icon } from '@wolffm/themes'
 
 interface WorkflowRunWithRepo extends WorkflowRun {
   repo: string
@@ -99,20 +100,22 @@ export function HealthCheckView() {
     setStatusFilter('failure')
   }
 
-  const getStatusIcon = (run: WorkflowRun): string => {
+  // Returns a node, not a string: these are icons, and an <Icon> cannot live in
+  // a `string` return type.
+  const getStatusIcon = (run: WorkflowRun): ReactNode => {
     if (run.status === 'in_progress' || run.status === 'queued') {
-      return '🔄'
+      return <Icon name="refresh" />
     }
     if (run.conclusion === 'success') {
-      return '✅'
+      return <Icon name="check" />
     }
     if (run.conclusion === 'failure') {
-      return '❌'
+      return <Icon name="error" />
     }
     if (run.conclusion === 'cancelled') {
-      return '⚪'
+      return <Icon name="circle" />
     }
-    return '⏳'
+    return <Icon name="hourglass" />
   }
 
   const getStatusClass = (run: WorkflowRun): string => {
@@ -164,7 +167,9 @@ export function HealthCheckView() {
       {/* Filters */}
       <div className="filter-card">
         <div className="filter-card__header">
-          <span>🔍 Filters</span>
+          <span>
+            <Icon name="magnifier" /> Filters
+          </span>
         </div>
         <div className="filter-card__body">
           <div className="filter-row">
@@ -211,7 +216,7 @@ export function HealthCheckView() {
             <div className="filter-group">
               <label className="filter-label">Quick Filters</label>
               <button className="btn btn--danger btn--sm" onClick={showOnlyFailed}>
-                ⚠️ Show Failed
+                <Icon name="warning" /> Show Failed
               </button>
             </div>
           </div>
@@ -222,7 +227,8 @@ export function HealthCheckView() {
       {health && (
         <div className="health-status-card">
           <div className={`health-indicator health-indicator--${health.status}`}>
-            {health.status === 'healthy' ? '✅' : '⚠️'} {health.status}
+            {health.status === 'healthy' ? <Icon name="check" /> : <Icon name="warning" />}{' '}
+            {health.status}
           </div>
           <div className="health-details">
             <span>Owner: {health.owner}</span>
@@ -236,7 +242,9 @@ export function HealthCheckView() {
       {/* Workflow Runs Table */}
       <div className="workflow-card">
         <div className="workflow-card__header">
-          <span>▶️ Recent Workflow Runs</span>
+          <span>
+            <Icon name="play" /> Recent Workflow Runs
+          </span>
           <span className="badge badge--secondary">{filteredRuns.length}</span>
         </div>
         <div className="workflow-card__body">
@@ -288,9 +296,13 @@ export function HealthCheckView() {
                       </td>
                       <td>
                         {run.vibecheck_installed ? (
-                          <span title="VibeCheck installed">✅</span>
+                          <span title="VibeCheck installed">
+                            <Icon name="check" />
+                          </span>
                         ) : (
-                          <span title="VibeCheck not installed">➖</span>
+                          <span title="VibeCheck not installed">
+                            <Icon name="minus" />
+                          </span>
                         )}
                       </td>
                       <td className="text-secondary">
@@ -314,7 +326,7 @@ export function HealthCheckView() {
                               className="btn btn--ghost btn--sm"
                               title="View on GitHub"
                             >
-                              🔗
+                              <Icon name="link" />
                             </a>
                           ) : null
                         })()}

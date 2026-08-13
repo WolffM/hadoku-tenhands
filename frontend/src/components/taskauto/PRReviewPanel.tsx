@@ -49,13 +49,13 @@ interface PRReviewPanelProps {
 export function PRReviewPanel({ prs, merging, mergeError, onMerge }: PRReviewPanelProps) {
   return (
     <section className="taskauto-section" data-testid="taskauto-prs">
-      <SectionHeader icon="🔀" title="PRs awaiting you" count={prs.length} />
+      <SectionHeader icon="shuffle" title="PRs awaiting you" count={prs.length} />
 
       {mergeError && <p className="taskauto-error">{mergeError}</p>}
 
       {prs.length === 0 ? (
         <EmptyState
-          icon="✅"
+          icon="check"
           title="Nothing waiting on a merge"
           description="Approved tasks become pull requests here once an agent implements them."
         />

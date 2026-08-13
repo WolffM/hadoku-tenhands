@@ -51,7 +51,7 @@ export function BatchBrowser({ batches, emptyText }: BatchBrowserProps) {
   }, [batchDetail.data, selectedBatchId, selectedIssueId, selectIssue])
 
   if (batches.length === 0) {
-    return <EmptyState icon="📦" title={emptyText} testId="temporal-browser-empty" />
+    return <EmptyState icon="package" title={emptyText} testId="temporal-browser-empty" />
   }
 
   const detail = batchDetail.data

@@ -8,7 +8,8 @@
 import type { ReactNode } from 'react'
 
 interface SectionHeaderProps {
-  icon?: string
+  /** ReactNode, not string, so callers pass <Icon name="..."/> rather than an emoji. */
+  icon?: ReactNode
   title: string
   count?: number
   children?: ReactNode

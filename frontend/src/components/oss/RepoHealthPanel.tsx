@@ -101,7 +101,7 @@ export function RepoHealthPanel() {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="📭"
+          icon="inbox"
           title="No target repos"
           description="Repos appear here from the aggregator's scored issues."
         />
