@@ -143,12 +143,22 @@ def api_root():
 # gating at edge-router is not enough — every non-public route must gate
 # itself. TenHands holds no key arrays; it delegates tier resolution to the
 # platform's /session/whoami, exactly like the other tunnel backends (scrape,
-# dataplatform, watchpart2). Anything but public is admitted; the debug routes
-# keep their own stricter admin gate on top.
+# dataplatform, watchpart2).
+#
+# Two-tier access, by HTTP method:
+#   - reading the dashboard (safe methods) needs friend+; there is nothing here
+#     a friend shouldn't see, but the anonymous public still gets nothing;
+#   - operating the pipeline (any mutating method) needs service+, so a friend
+#     can look but not dispatch/merge/approve/signal.
+# The debug routes keep their own stricter admin gate on top of this.
 try:
-    from .middleware.whoami import resolve_tier_from_key
+    from .middleware.whoami import resolve_tier_from_key, tier_rank
 except ImportError:
-    from middleware.whoami import resolve_tier_from_key
+    from middleware.whoami import resolve_tier_from_key, tier_rank
+
+_SAFE_METHODS = frozenset({"GET", "HEAD"})
+_READ_MIN_TIER = "friend"
+_WRITE_MIN_TIER = "service"
 
 # Unauthenticated by design:
 #   - the API-info root and the health endpoint are hit directly by the
@@ -175,13 +185,16 @@ def _enforce_tier():
     if request.path in _PUBLIC_PATHS:
         return None
     key = (request.headers.get("X-User-Key") or "").strip() or None
-    if resolve_tier_from_key(key) != "public":
+    tier = resolve_tier_from_key(key)
+    required = _READ_MIN_TIER if request.method in _SAFE_METHODS else _WRITE_MIN_TIER
+    if tier_rank(tier) >= tier_rank(required):
         return None
-    # No key → 401 (you're signed out); recognised-but-unprivileged or bad key
-    # → 403. Mirrors edge-router's authGate status shaping.
+    # No key → 401 (you're signed out). A recognised key that simply doesn't
+    # reach the required tier (public reading, or friend writing) → 403. Mirrors
+    # edge-router's authGate status shaping.
     if not key:
         return jsonify({"error": "unauthorized"}), 401
-    return jsonify({"error": "forbidden"}), 403
+    return jsonify({"error": "forbidden", "required_tier": required}), 403
 
 
 # Register blueprint with URL prefix
