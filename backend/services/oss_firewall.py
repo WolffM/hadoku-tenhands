@@ -1,9 +1,12 @@
 """
 OSSFirewallMixin — Copilot coding agent firewall management.
 
-Handles disabling the Copilot firewall via REST API or patchright browser
-automation as a fallback. The _PATCHRIGHT_LOCK semaphore limits concurrent
-Chromium launches to prevent OOM crashes on resource-constrained hosts.
+Disables the Copilot firewall on the operator's OWN fork so the coding agent
+can reach the package registries its tests need. It acts only on repos the
+running account owns — never on a third-party or upstream repo. Prefers the
+REST API; falls back to patchright browser automation of the operator's own
+settings UI when REST is unavailable. The _PATCHRIGHT_LOCK semaphore limits
+concurrent Chromium launches to prevent OOM crashes on constrained hosts.
 
 Extracted from oss_fork.py for clarity.
 """

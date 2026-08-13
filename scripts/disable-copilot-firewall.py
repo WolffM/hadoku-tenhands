@@ -1,9 +1,13 @@
 """
-Disable the Copilot coding agent firewall on a GitHub repository.
+Disable the Copilot coding agent firewall on one of YOUR OWN repositories.
 
-Uses patchright (Playwright fork) to automate the UI toggle since
-GitHub provides no API for this setting. Required for self-hosted
-runners to work with the Copilot coding agent.
+Scope note: this only ever targets forks/repos the running account owns —
+the pipeline creates a fork under the operator's account and needs the
+Copilot coding agent to reach the package registries its tests require. It
+never touches a third-party or upstream repository; there is no cross-account
+action here. GitHub exposes this setting only in the repo-settings UI and not
+via any API, so the toggle is driven through patchright (a Playwright fork)
+against the operator's own authenticated session.
 
 Usage:
     python scripts/disable-copilot-firewall.py login          # one-time GitHub login

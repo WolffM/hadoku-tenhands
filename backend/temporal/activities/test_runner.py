@@ -15,9 +15,8 @@ committed test source files but no test_output.txt). Splitting
 a sandbox" (this activity's job) gives each component a single
 crisp responsibility.
 
-Sandbox: a systemd-managed Flask service on `claw-3` (claw fleet,
-Debian Trixie), reachable from the Windows worker host over
-Tailscale at `http://claw-3:5500`. If the runner is unavailable or
+Sandbox: a systemd-managed Flask service on the sandbox host (a dedicated sandbox host), reachable from the Windows worker host over
+the private network at `http://sandbox-host:5500`. If the runner is unavailable or
 the runner-side execution fails, this activity returns
 `{ok: False, ...}` non-fatally — the workflow proceeds with
 text-only verification (the synthesized `verify_notes.md` + the
@@ -25,7 +24,7 @@ existing `_extract_verification` fallback path).
 
 Auth: `Authorization: Bearer <CKTEST_RUNNER_BEARER>` on every call.
 Worker reads the secret from env (populated by the wrapper's vault
-fetch); claw-3 reads the same secret from /run/cktest-runner/env
+fetch); the sandbox host reads the same secret from /run/cktest-runner/env
 (populated by `fetch-bearer.sh`). Mismatch → 401 → `ok=False`.
 
 Concurrency: the runner gates concurrent jobs with a semaphore (1 by
@@ -36,8 +35,8 @@ back to text-only verify. Other errors (timeouts, connection refused,
 
 Configuration:
   TEST_RUNNER_URL  env var, default `http://localhost:5500` (overridden
-                   in the prod wrapper to `http://claw-3:5500` once the
-                   claw-3 service is up)
+                   in the prod wrapper to `http://sandbox-host:5500` once the
+                   sandbox service is up)
   CKTEST_RUNNER_BEARER  env var, the shared bearer secret. Empty in
                         local/test environments — the worker still
                         sends `Authorization: Bearer ` (empty) and the

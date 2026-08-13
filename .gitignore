@@ -95,7 +95,15 @@ pipeline-report.html
 # `state/*/` so any future batch-naming convention is protected by
 # default. Files at the root of state/ remain visible unless explicitly
 # tracked; existing tracked files under any state subdir keep tracking.
-state/*/
+#
+# 2026-08: broadened to all of state/ (was state/*/) so nothing under the
+# runtime evidence tree is tracked — the showcase-worthy reports were
+# promoted into docs/ instead. This also covers files at the root of
+# state/ (e.g. legacy-forks-backup.jsonl).
+state/
+
+# Machine-generated judge verdicts (kept on disk for the operator, never tracked).
+scripts/backfill_output/
 
 # Temporary
 .tmp/
@@ -104,3 +112,6 @@ state/*/
 # per-repo vault key (Phase 2 of per-key ACL plan; never commit)
 .devvault.local.json
 .playwright-mcp/
+
+# Operator-local Claude instructions (host paths, vault ops — never commit)
+CLAUDE.local.md

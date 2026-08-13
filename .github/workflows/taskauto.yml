@@ -42,7 +42,7 @@ on:
     # expression — so `*/15` here is aspirational, not a guarantee.
     #
     # The real 15-minute backstop is a HOST cron on the self-hosted runner box
-    # (`scripts/taskauto-cron.sh`, installed in hokon's crontab), which fires
+    # (`scripts/taskauto-cron.sh`, installed in the runner host's crontab), which fires
     # `gh workflow run` on a timer we own and GitHub does not get a vote on.
     # See that script's header for why this one stays anyway.
     - cron: '*/15 * * * *'
@@ -122,7 +122,8 @@ jobs:
       # "green because nothing ran" failure the test workflow exists to stop.
       GH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
       # claude and gh live in ~/.local/bin, which is not on the runner's PATH.
-      TASKAUTO_CLAUDE_BIN: /home/hadoku/.local/bin/claude
+      # Overridable via the CLAUDE_BIN repo variable (mirrors vars.CI_RUNNER).
+      TASKAUTO_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || '/home/hadoku/.local/bin/claude' }}
 
     steps:
       - name: Report the PREVIOUS run, because a dead run cannot report itself
@@ -212,8 +213,8 @@ jobs:
           #
           # Measured 2026-08-06 on the three shapes:
           #   never dispatched  31126318586 → runner_name "",             steps 0
-          #   died mid-job      31120917042 → runner_name "hokon-tenhands", steps 11
-          #   healthy           31126553517 → runner_name "hokon-tenhands", steps 11
+          #   died mid-job      31120917042 → runner_name "<self-hosted>", steps 11
+          #   healthy           31126553517 → runner_name "<self-hosted>", steps 11
           # so "no runner claimed it AND no step ran" separates the case where
           # nothing of ours executed from the case where our job ran and died.
           # A superseded waiter has an empty `.jobs` array and lands here too,
