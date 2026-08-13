@@ -1,5 +1,13 @@
 # Stage 6 — Upstream PR Monitoring & Retrospective
 
+> **Superseded by the crimson-kitty Temporal pipeline (post-submission lifecycle).**
+> The problems this stage was designed for — watching the upstream PR after
+> submission, remediating CI failures and review comments on the fork, never
+> auto-responding to humans — shipped as crimson-kitty phase 5.1
+> ([docs/crimson-kitty/phase-5-plan.md](../crimson-kitty/phase-5-plan.md),
+> `backend/temporal/workflows/issue_workflow_post.py`). Kept as the design record
+> for the legacy stage-based pipeline, which never grew a Stage 6.
+
 ## Goals (from spec)
 
 After upstream PR submission, Stage 6 handles three recurring situations:

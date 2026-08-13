@@ -1,8 +1,16 @@
 # Dispatch Readiness Overhaul
 
-**Status:** Planning — not started
 **Owner:** WolffM (drafted 2026-05-24, revised after consultant review)
 **Scope:** spans `hadoku-scrape` → `hadoku-aggregator` → `tenhands`
+
+> **Shipped 2026-05-24–27.** The tenhands side of this overhaul landed within days of
+> drafting: the outcome snapshot activity (upstream PR status polling per dispatch),
+> structured operator override capture at signoff, the baseline snapshot CLI
+> (`scripts/snapshot_outcomes.py`), per-gate decision telemetry, and the
+> `actionability_v1` rubric + gate (`backend/temporal/gates/actionability.py`,
+> "judge in the middle"). The body below is kept as the historical design record —
+> the outcome taxonomy and the why are still the reference for reading the data
+> those pieces now produce.
 
 ## Why
 

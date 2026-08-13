@@ -1,12 +1,31 @@
 # Cross-reference isolation
 
-The single biggest structural fix in crimson-kitty: **the agent never sees the
-real upstream issue identifier**. We strip every URL, slash-form short ref,
-and bare issue number from the brief before passing it to Copilot. The agent
-fixes the bug without knowing what number to write back. With the input
-sanitized, the only remaining leak surface is anything the agent *invents*
-from training data — and invented refs that don't correspond to a real
-upstream issue can't fire a cross-reference.
+## Why this exists
+
+GitHub auto-generates a cross-reference **notification** to upstream maintainers
+the instant any public artifact mentions their issue — a full URL, an
+`owner/repo#N` short ref, or a `Fixes #N` keyword is all it takes. A fork is
+public and permanently linked to its parent, so every commit message, PR title,
+and issue body an agent writes on our fork is one stray reference away from
+pinging a maintainer about work that may still be half-finished, wrong, or
+destined to be aborted by a gate.
+
+That's the failure mode this design removes. Maintainers should hear from this
+pipeline exactly once: when a human operator has reviewed the finished work and
+explicitly submitted it. **No notification reaches a maintainer until the
+operator submits.** The point is courtesy — don't spam maintainers with
+unfinished agent work — not concealment: the forks are public, the branches are
+readable, and the submitted PR says exactly what it is.
+
+In jade-hare, three of these accidental notifications fired (the leak vectors
+below). The structural fix in crimson-kitty: **the agent never sees the real
+upstream issue identifier**. We strip every URL, slash-form short ref, and bare
+issue number from the brief before passing it to Copilot. The agent fixes the
+bug without knowing what number to write back. With the input sanitized, the
+only remaining leak surface is anything the agent *invents* from training
+data — and invented refs that don't correspond to a real upstream issue can't
+fire a cross-reference. Upstream is linked in exactly one place: the PR the
+operator approves at submission.
 
 This is the "untrust the agent" principle made concrete.
 
