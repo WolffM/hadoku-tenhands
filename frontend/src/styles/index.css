@@ -18,7 +18,6 @@
 @import './activity-log.css';
 
 /* Feature areas. */
-@import './pipeline.css';
 @import './review.css';
 @import './vibecheck.css';
 @import './pr-modal.css';

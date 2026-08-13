@@ -15,15 +15,10 @@ import type {
   Stage2Response,
   Stage3Response,
   Stage4Response,
-  WorkflowStatusResponse,
   OSSStage1Response,
   OSSStage2Response,
-  OSSStage3Response,
-  OSSStage4Response,
-  OSSStage5Response,
   OSSStage5TrackingResponse,
   OSSForkAssignResponse,
-  OSSSubmitResponse,
   OSSBaseResponse,
   OSSDossierResponse,
   PipelineStatusResponse,
@@ -32,13 +27,10 @@ import type {
   BatchListResponse,
   BatchDetailResponse,
   PrCommit,
-  TemporalHealth,
   TemporalBatchSummary,
   TemporalBatchDetail,
   TemporalIssueDetail,
   TemporalInboxItem,
-  TemporalDispatchIssueInput,
-  TemporalDispatchResult,
   TemporalSignalDecision,
   TemporalReasonCode,
   TemporalSignalResult,
@@ -172,19 +164,6 @@ export async function getPRDetails(
   })
 }
 
-/**
- * Get the status of the latest vibecheck workflow run
- */
-export async function getWorkflowStatus(
-  owner: string,
-  repo: string
-): Promise<WorkflowStatusResponse> {
-  return apiClient.post<WorkflowStatusResponse>('/api/workflow-status', {
-    owner,
-    repo
-  })
-}
-
 // ============ Health & Monitoring ============
 
 /**
@@ -206,15 +185,6 @@ export async function getHealthCheck(): Promise<HealthCheckResponse> {
  */
 export async function getGlobalWorkflowRuns(): Promise<GlobalWorkflowRunsResponse> {
   return apiClient.get<GlobalWorkflowRunsResponse>('/api/global-workflow-runs')
-}
-
-// ============ Cache Management ============
-
-/**
- * Clear the vibecheck status cache
- */
-export async function clearCache(): Promise<ActionResponse> {
-  return apiClient.post<ActionResponse>('/api/clear-cache')
 }
 
 // ============ Batch Operations ============
@@ -307,10 +277,6 @@ export async function refreshOSSTarget(
 
 // --- Stage 3: Fork & Assign ---
 
-export async function getOSSAssigned(): Promise<OSSStage3Response> {
-  return apiClient.get<OSSStage3Response>('/api/oss/stage3-assigned')
-}
-
 export async function selectOSSIssue(
   originOwner: string,
   repo: string,
@@ -345,71 +311,7 @@ export async function forkAndAssign(
 
 // --- Stage 4: Review on Fork ---
 
-export async function getOSSForkPRs(): Promise<OSSStage4Response> {
-  return apiClient.get<OSSStage4Response>('/api/oss/stage4-fork-prs')
-}
-
-export async function getOSSForkPRDetails(
-  repo: string,
-  prNumber: number
-): Promise<PRDetailsResponse & { owner: string }> {
-  return apiClient.post<PRDetailsResponse & { owner: string }>('/api/oss/fork-pr-details', {
-    repo,
-    pr_number: prNumber
-  })
-}
-
-export async function approveOSSForkPR(
-  repo: string,
-  prNumber: number
-): Promise<OSSBaseResponse & { message?: string; error?: string }> {
-  return apiClient.post<OSSBaseResponse & { message?: string; error?: string }>(
-    '/api/oss/approve-fork-pr',
-    {
-      repo,
-      pr_number: prNumber
-    }
-  )
-}
-
-export async function mergeOSSForkPR(
-  repo: string,
-  prNumber: number,
-  originSlug: string
-): Promise<OSSBaseResponse & { message?: string; error?: string }> {
-  return apiClient.post<OSSBaseResponse & { message?: string; error?: string }>(
-    '/api/oss/merge-fork-pr',
-    {
-      repo,
-      pr_number: prNumber,
-      origin_slug: originSlug
-    }
-  )
-}
-
 // --- Stage 5: Submit Upstream ---
-
-export async function getOSSReadyToSubmit(): Promise<OSSStage5Response> {
-  return apiClient.get<OSSStage5Response>('/api/oss/stage5-submit')
-}
-
-export async function submitToOrigin(
-  originSlug: string,
-  repo: string,
-  branch: string,
-  title: string,
-  body: string,
-  baseBranch?: string
-): Promise<OSSSubmitResponse> {
-  return apiClient.post<OSSSubmitResponse>('/api/oss/submit-to-origin', {
-    origin_slug: originSlug,
-    repo,
-    branch,
-    title,
-    body,
-    base_branch: baseBranch || 'main'
-  })
-}
 
 export async function pollSubmittedPRs(): Promise<OSSStage5TrackingResponse> {
   return apiClient.post<OSSStage5TrackingResponse>('/api/oss/poll-submitted-prs', {})
@@ -504,10 +406,6 @@ function assertOk<T extends FlatBody>(body: T): T {
   return body
 }
 
-export async function getTemporalHealth(): Promise<TemporalHealth> {
-  return assertOk(await apiClient.get<TemporalHealth & FlatBody>('/api/temporal/health'))
-}
-
 export async function getTemporalBatches(): Promise<TemporalBatchSummary[]> {
   const body = assertOk(
     await apiClient.get<{ batches: TemporalBatchSummary[] } & FlatBody>('/api/temporal/batches')
@@ -565,18 +463,6 @@ export async function getTemporalInbox(): Promise<{
     await apiClient.get<{ items: TemporalInboxItem[]; count: number } & FlatBody>(
       '/api/temporal/inbox'
     )
-  )
-}
-
-export async function dispatchTemporalBatch(
-  batchId: string,
-  issues: TemporalDispatchIssueInput[]
-): Promise<TemporalDispatchResult> {
-  return assertOk(
-    await apiClient.post<TemporalDispatchResult & FlatBody>('/api/temporal/dispatch', {
-      batch_id: batchId,
-      issues
-    })
   )
 }
 

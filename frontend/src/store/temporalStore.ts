@@ -3,8 +3,8 @@
  *
  * Standalone Zustand store for the crimson-kitty pipeline. Kept separate
  * from the composite `usePipelineStore` because the temporal pipeline has
- * its own data shape (batches / issues / inbox / evidence) that does not
- * fit the `PipelineItem` derivation model used by vibecheck + oss.
+ * its own data shape (batches / issues / inbox / evidence) distinct from
+ * the stage-based model used by vibecheck + oss.
  *
  * Mirrors the async-action + error-handling pattern from `ossStore.ts`.
  */

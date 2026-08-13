@@ -85,18 +85,4 @@
   .tenhands {
     padding: 1rem;
   }
-
-  .pipeline-row__header {
-    grid-template-columns: auto auto 1fr auto;
-    gap: 0.5rem;
-  }
-
-  .pipeline-row__progress {
-    display: none;
-  }
-
-  .pipeline-list__toolbar {
-    flex-direction: column;
-    gap: 0.75rem;
-  }
 }

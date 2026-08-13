@@ -1,8 +1,8 @@
 /**
  * useReviewActions - Shared hook for PR approve/merge operations
  *
- * Extracts the common approve/merge try-catch-log pattern used across
- * Stage4Review, StageDetails, and ReviewCarousel.
+ * Extracts the common approve/merge try-catch-log pattern used by
+ * Stage4Review.
  */
 
 import { useState, useCallback } from 'react'

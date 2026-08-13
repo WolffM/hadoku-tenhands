@@ -1,5 +1,9 @@
 /* ============ Health View ============ */
 
+.health-view {
+  padding: 1rem;
+}
+
 .health-header {
   display: flex;
   justify-content: space-between;
