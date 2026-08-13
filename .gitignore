@@ -115,3 +115,6 @@ scripts/backfill_output/
 
 # Operator-local Claude instructions (host paths, vault ops — never commit)
 CLAUDE.local.md
+
+# Demo teardown evidence tarballs
+demo/archive/
