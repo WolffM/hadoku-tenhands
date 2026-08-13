@@ -1,7 +1,7 @@
 [Unit]
-# cktest-runner — Phase 0 of the claw fleet migration. Sandbox HTTP service
+# cktest-runner — Phase 0 of the the sandbox host migration. Sandbox HTTP service
 # that the tenhands worker (running on the Windows main host) calls
-# over Tailscale to execute crimson-kitty verify-phase test commands.
+# over the private network to execute crimson-kitty verify-phase test commands.
 #
 # Bring-up: see /srv/tenhands/scripts/cktest-runner/README.md.
 # Wired into the per-host service-key + per-key ACL pattern documented in

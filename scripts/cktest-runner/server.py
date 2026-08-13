@@ -2,9 +2,8 @@
 
 Single-endpoint HTTP service that runs a test command on a freshly-cloned
 fork branch in an isolated tmp directory, capturing stdout+stderr and
-returning to the caller. Runs as a systemd service on `claw-3` (claw fleet,
-Debian Trixie); called by `temporal/activities/test_runner.py`'s
-`run_test_command` over Tailscale (`http://claw-3:5500`).
+returning to the caller. Runs as a systemd service on the sandbox host (a dedicated sandbox host); called by `temporal/activities/test_runner.py`'s
+`run_test_command` over the private network (`http://sandbox-host:5500`).
 
 Why this exists: in the v4 batch every workflow's verify phase failed
 to produce `06-verified/test_output.txt` because Copilot is bad at
@@ -34,7 +33,7 @@ remains unauth'd so monitoring can probe liveness without the secret.
 The command-allowlist downstream is a hygiene check, not the auth boundary.
 
 Concurrency: `threading.Semaphore(CKTEST_MAX_CONCURRENT)` (default 1) gates
-`/run`. claw-3's 16 GB RAM ceiling + Ollama co-tenancy makes >1 concurrent
+`/run`. the sandbox host's memory ceiling and co-tenant workloads makes >1 concurrent
 job genuinely risky for big-monorepo cases. Worker retries 503 with
 exponential backoff before falling back to text-only verify.
 
@@ -95,7 +94,7 @@ _SLUG_RE = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
 # avoid `-foo` flags being interpreted as command options.
 _BRANCH_RE = re.compile(r"^[a-zA-Z0-9._/][a-zA-Z0-9._/-]*$")
 
-# Concurrency gate — claw-3's 16 GB RAM ceiling + Ollama co-tenancy
+# Concurrency gate — the sandbox host's memory ceiling and co-tenant workloads
 # makes >1 concurrent job risky for big-monorepo cases. Sized via env so
 # a beefier replacement host can lift the ceiling without code change.
 _MAX_CONCURRENT = int(os.environ.get("CKTEST_MAX_CONCURRENT", "1"))
@@ -398,7 +397,7 @@ if __name__ == "__main__":
         # restart loop in journald rather than a silently-open service.
         raise SystemExit(
             "cktest-runner: refusing to start — CKTEST_RUNNER_BEARER unset. "
-            "On claw-3 this means fetch-bearer.sh did not populate "
+            "On the sandbox host this means fetch-bearer.sh did not populate "
             "/run/cktest-runner/env (vault sealed? service-key invalid?)."
         )
     logger.info(

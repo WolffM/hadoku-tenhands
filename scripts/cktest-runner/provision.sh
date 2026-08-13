@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# provision.sh — bake toolchains + system deps for cktest-runner on claw-3.
+# provision.sh — bake toolchains + system deps for cktest-runner on the sandbox host.
 #
 # Idempotent. Runs as root (sudo). Re-running is safe — every step
 # either checks-then-skips or uses idempotent install commands.
 #
 # Source of truth for the runner's required toolchains. New language /
-# new test command first-token = PR to this script + re-run on claw-3:
-#   ssh claw3-admin 'sudo bash /srv/tenhands/scripts/cktest-runner/provision.sh'
+# new test command first-token = PR to this script + re-run on the sandbox host:
+#   ssh sandbox-admin 'sudo bash /srv/tenhands/scripts/cktest-runner/provision.sh'
 #
 # Layout:
 #   /srv/tenhands              — git clone, owned by cktest:cktest
@@ -194,4 +194,4 @@ echo "         chmod 0600 /etc/cktest-runner/service.key"
 echo "         chown cktest:cktest /etc/cktest-runner/service.key"
 echo "      2. systemctl enable --now cktest-runner"
 echo "      3. journalctl -u cktest-runner -f --since '1 min ago'"
-echo "      4. From main host: curl -H \"Authorization: Bearer \$K\" http://claw-3:5500/health"
+echo "      4. From main host: curl -H \"Authorization: Bearer \$K\" http://sandbox-host:5500/health"

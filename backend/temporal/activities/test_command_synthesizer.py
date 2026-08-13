@@ -121,7 +121,7 @@ def _build_command(language: str, test_file: str) -> Optional[str]:
       - Always run from the repo root (the sandbox `cd`s into the
         clone before exec).
       - Prefer a single-test-file invocation over the full suite to
-        keep wall time + RAM usage in budget for claw-3.
+        keep wall time + RAM usage in budget for the sandbox host.
       - Use `-v` / equivalent verbose flags so the captured output is
         useful even on a passing test.
     """

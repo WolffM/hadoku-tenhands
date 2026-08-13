@@ -1,6 +1,0 @@
-{
-  "ai_policy": "unknown",
-  "dco_required": false,
-  "license_check_required": false,
-  "raw_excerpt": "# Contributing to Hadoku Task Manager\r\n\r\n## Getting Started\r\n\r\n```bash\r\ngit clone https://github.com/YOUR_USERNAME/hadoku-task.git\r\ncd hadoku-task\r\npnpm install\r\npnpm run dev\r\n```\r\n\r\n## Development Workflow\r\n\r\n1. **Create a feature branch**: `git checkout -b feature/your-feature`\r\n2. **Make changes** following guidelines below\r\n3. **Test** - user types, themes, drag & drop, localStorage, cross-tab sync\r\n4. **Build**: `pnpm run build:all`\r\n5. **Commit** - pre-commit hooks auto-lint and bump versi"
-}

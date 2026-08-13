@@ -31,8 +31,17 @@ concurrency:
 jobs:
   backend:
     name: backend pytest
-    # hokon (the pm2 host) via its tenhands registration. The `taskauto` label
-    # is deliberately opt-in: the claw fleet (`hadoku-builder`) still serves
+    # SECURITY: never let a fork PR reach the self-hosted host. Same-repo
+    # branches (the normal path, and everything the automation lander opens)
+    # run here; a pull_request from a fork skips this job entirely and gets its
+    # signal from `backend-fork` below on a GitHub-hosted runner instead. This
+    # is belt-and-suspenders with the repo's "require approval for outside
+    # collaborators" Actions setting.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    # The pm2 host via its tenhands registration. The `taskauto` label is
+    # deliberately opt-in: the builder fleet (`hadoku-builder`) still serves
     # deploy/publish, and only workflows that ask for `taskauto` land here.
     runs-on: [self-hosted, pm2-host, taskauto]
     timeout-minutes: 20
@@ -88,8 +97,39 @@ jobs:
           # broker, so CI needs no vault access at all.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # claude lives in ~/.local/bin, which is not on the runner's PATH.
-          # Same override taskauto.yml sets, for the same reason.
-          CRIMSON_CLAUDE_BIN: /home/hadoku/.local/bin/claude
+          # Same override taskauto.yml sets, for the same reason; overridable via
+          # the CLAUDE_BIN repo variable.
+          CRIMSON_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || '/home/hadoku/.local/bin/claude' }}
         # The suite runs with zero skips. A skip appearing here is a regression
         # to investigate, not the normal state.
         run: ../.venv-ci/bin/python -m pytest tests/ -q
+
+  backend-fork:
+    name: backend pytest (fork)
+    # The signal for pull requests opened from a fork, which the self-hosted
+    # `backend` job deliberately refuses to run. GitHub-hosted, zero secrets, so
+    # untrusted code never touches the production host or a live credential.
+    # One test is deselected: test_score_integration_real_cli is the only
+    # unmocked coverage of the LLM judge and needs CLAUDE_CODE_OAUTH_TOKEN,
+    # which a fork PR has no way to obtain — the rest of the suite is fully
+    # mocked and runs green here. A maintainer who wants the full gate re-pushes
+    # the branch inside this repo, where the `backend` job runs it.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -r backend/requirements.txt \
+            -r backend/requirements-dev.txt
+      - name: Run tests (mocked subset)
+        working-directory: backend
+        run: python -m pytest tests/ -q --deselect tests/temporal/test_judge.py::test_score_integration_real_cli
