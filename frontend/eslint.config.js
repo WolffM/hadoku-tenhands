@@ -13,7 +13,8 @@ export default [
       '**/coverage/**',
       '**/*.test.ts',
       '**/*.test.tsx',
-      '**/vite.config.ts'
+      '**/vite.config.ts',
+      '**/vite.demo.config.ts'
     ]
   },
 

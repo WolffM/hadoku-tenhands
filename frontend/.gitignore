@@ -1,0 +1,2 @@
+# Static demo build output (produced by `pnpm build:demo`)
+dist-demo/

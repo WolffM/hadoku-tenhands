@@ -24,6 +24,8 @@
     "predev": "node scripts/kill-port.cjs 5184",
     "dev": "vite",
     "build": "vite build && tsc -p tsconfig.build.json",
+    "build:demo": "vite build -c vite.demo.config.ts",
+    "preview:demo": "vite preview -c vite.demo.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
