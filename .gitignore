@@ -121,3 +121,7 @@ demo/archive/
 
 # git worktrees for concurrent agents (local only)
 .claude/worktrees/
+
+# vibeCompact audit working artifacts (regenerable; ledger + trends stay tracked)
+.vibecompact/audit.md
+.vibecompact/out/
