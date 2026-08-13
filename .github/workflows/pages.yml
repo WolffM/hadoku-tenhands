@@ -1,0 +1,80 @@
+name: Deploy demo to Pages
+
+# Publishes the static, fixture-backed demo (frontend/dist-demo) to GitHub
+# Pages. This is the PUBLIC window into the UI — real app, canned data, no
+# backend and no credentials. It only becomes reachable once the repo is public
+# and Pages is enabled (Settings → Pages → Source: GitHub Actions).
+#
+# SECURITY: runs-on is hardcoded to a GitHub-HOSTED runner, never the
+# self-hosted `vars.CI_RUNNER` the other workflows use. This workflow builds on
+# a public-repo push trigger; a self-hosted runner must never execute that. The
+# token below is a read-only packages PAT (DEMO_PACKAGES_TOKEN), deliberately
+# NOT HADOKU_SITE_TOKEN — that admin PAT must not travel to a hosted runner.
+
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**']
+  workflow_dispatch:
+
+# One in-flight deploy at a time; let a newer commit supersede an older build.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: https://npm.pkg.github.com
+          scope: '@wolffm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.5.0 --activate
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+        env:
+          # Read-only packages PAT scoped to @wolffm reads. NOT HADOKU_SITE_TOKEN.
+          NODE_AUTH_TOKEN: ${{ secrets.DEMO_PACKAGES_TOKEN }}
+
+      - name: Build the demo bundle
+        working-directory: frontend
+        run: pnpm run build:demo
+
+      - name: Serve the demo at the site root
+        # The Rollup input is demo.html, so the build emits dist-demo/demo.html.
+        # Pages serves index.html at the site root; copy it so wolffm.github.io/
+        # tenhands/ loads the demo directly. Asset refs use the /tenhands/ base,
+        # so the copy needs no rewriting.
+        working-directory: frontend
+        run: cp dist-demo/demo.html dist-demo/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist-demo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

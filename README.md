@@ -14,6 +14,10 @@ gated on the full test suite passing against the merge result).
 > **North star:** every PR we submit, we'd be willing to defend in a public
 > thread.
 
+**[Try the live demo →](https://wolffm.github.io/tenhands/)** — the real UI over
+canned data (no backend, no login): click through all four pipeline generations,
+inspect a crimson-kitty batch's gates and evidence, and approve a preview PR.
+
 ## The story
 
 The full arc is in [docs/HISTORY.md](docs/HISTORY.md). The short version:
