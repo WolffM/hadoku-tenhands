@@ -20,8 +20,11 @@ presses; it takes an explicit repo and number and does exactly one PR. The
 whole point of the `pr` mode the pipeline runs in is that a human decides.
 """
 
+import json as _json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 from flask import jsonify, request
 
@@ -122,6 +125,176 @@ def _prs_for(repo: str) -> list[dict]:
             "updatedAt": pr.get("updatedAt") or "",
         })
     return out
+
+
+# ── Actionable open work (issues + PRs) for the "automate open items" button ──
+#
+# GET /api/taskauto/actionable?board=<handle> returns the repo's open issues and
+# PRs that a person could turn into automation tasks. hadoku-task calls it on
+# board load to decide whether to show its button, and on click to seed one
+# "Address #N" task per item. The consumer dedups against its own board and has
+# a 4s timeout with no caching of its own, so this stays cheap: two gh calls fan
+# out in parallel, and results are cached per-repo for a short window.
+
+#: Longest body preview we hand back — enough for the task notes to carry
+#: context, short enough that a novel-length issue body doesn't bloat the board.
+_BODY_SNIPPET_MAX = 280
+
+#: Authors whose open work is machinery, not a request to act on. `is_bot` from
+#: gh covers these already; the set is a belt-and-suspenders for accounts gh
+#: doesn't flag. copilot-swe-agent is the pipeline's own coding agent.
+_KNOWN_BOTS = frozenset({
+    "dependabot", "dependabot[bot]", "github-actions", "github-actions[bot]",
+    "copilot-swe-agent", "copilot-swe-agent[bot]",
+})
+
+#: Per-repo cache of the enumeration. The button fires on every board load, so
+#: repeated loads of the same board must not each cost two gh calls. Short TTL:
+#: a just-opened issue appears within the window, and the consumer's own dedup
+#: means a slightly-stale list can only ever offer to re-create something it
+#: will then skip.
+_ACTIONABLE_TTL_S = 30.0
+_actionable_cache: dict[str, tuple[float, list[dict]]] = {}
+_actionable_lock = Lock()
+
+
+def _snippet(text: str) -> str:
+    """A one-line, length-capped preview of an issue/PR body."""
+    collapsed = " ".join((text or "").split())
+    if len(collapsed) <= _BODY_SNIPPET_MAX:
+        return collapsed
+    return collapsed[:_BODY_SNIPPET_MAX].rstrip() + "…"
+
+
+def _is_bot(author: dict) -> bool:
+    if author.get("is_bot"):
+        return True
+    return (author.get("login") or "").lower() in _KNOWN_BOTS
+
+
+def _open_issues(repo: str) -> list[dict]:
+    """Open issues on a repo, bots dropped. `gh issue list` never returns PRs,
+    so no pull_request filtering is needed here."""
+    res = run_gh_command([
+        "issue", "list", "--repo", repo, "--state", "open", "--limit", "100",
+        "--json", "number,title,url,author,body",
+    ], timeout=25)
+    if not res.get("success"):
+        logger.warning("taskauto actionable: issue list failed for %s: %s",
+                       repo, res.get("error", "")[:200])
+        return []
+    try:
+        issues = _json.loads(res.get("output") or "[]")
+    except ValueError:
+        return []
+    out = []
+    for it in issues:
+        author = it.get("author") or {}
+        if _is_bot(author):
+            continue
+        number = it.get("number")
+        out.append({
+            "kind": "issue",
+            "number": number,
+            "title": it.get("title") or "",
+            "url": it.get("url") or "",
+            "author": author.get("login") or "",
+            "suggested_title": f"Address #{number}",
+            "body_snippet": _snippet(it.get("body") or ""),
+        })
+    return out
+
+
+def _open_prs_actionable(repo: str) -> list[dict]:
+    """Open PRs on a repo a human might want to continue — the pipeline's own
+    `taskauto/*` landing PRs and bot PRs are dropped so the button can never
+    offer to address its own output."""
+    res = run_gh_command([
+        "pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
+        "--json", "number,title,url,author,headRefName,body",
+    ], timeout=25)
+    if not res.get("success"):
+        logger.warning("taskauto actionable: pr list failed for %s: %s",
+                       repo, res.get("error", "")[:200])
+        return []
+    try:
+        prs = _json.loads(res.get("output") or "[]")
+    except ValueError:
+        return []
+    out = []
+    for pr in prs:
+        head = str(pr.get("headRefName") or "")
+        if head.startswith(BRANCH_PREFIX):
+            continue
+        author = pr.get("author") or {}
+        if _is_bot(author):
+            continue
+        number = pr.get("number")
+        out.append({
+            "kind": "pr",
+            "number": number,
+            "title": pr.get("title") or "",
+            "url": pr.get("url") or "",
+            "author": author.get("login") or "",
+            "head_ref": head,
+            "suggested_title": f"Address PR #{number}",
+            "body_snippet": _snippet(pr.get("body") or ""),
+        })
+    return out
+
+
+def _actionable_items(repo: str) -> list[dict]:
+    """Open issues + continuable PRs for a repo, cached briefly. Issues first,
+    then PRs, each already sorted newest-first by gh's default order."""
+    now = time.monotonic()
+    with _actionable_lock:
+        hit = _actionable_cache.get(repo)
+        if hit is not None and hit[0] > now:
+            return hit[1]
+
+    # Two independent gh calls; run them together so the button's board-load
+    # cost is one round-trip, not two.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        issues_f = pool.submit(_open_issues, repo)
+        prs_f = pool.submit(_open_prs_actionable, repo)
+        items = issues_f.result() + prs_f.result()
+
+    with _actionable_lock:
+        _actionable_cache[repo] = (now + _ACTIONABLE_TTL_S, items)
+    return items
+
+
+@bp.route("/api/taskauto/actionable", methods=["GET"])
+@limiter.limit("60 per minute")
+def taskauto_actionable():
+    """Open issues + PRs on a board's repo, ready to become automation tasks.
+
+    Query: `board=<handle>` — the board handle `/api/taskauto/status` reports,
+    not a slug. Resolves the board to its repo, enumerates open work, and drops
+    the pipeline's own `taskauto/*` PRs and bot authors so the consumer can
+    trust every item. Dedup against existing tasks is the consumer's job.
+    """
+    board = (request.args.get("board") or "").strip()
+    if not board:
+        return jsonify({"success": False, "error": "board handle is required"}), 400
+
+    try:
+        client = TaskBoardClient()
+        snapshot = client.get_board(board)
+    except TaskBoardError as e:
+        logger.error("taskauto actionable %s: %s", board, e)
+        return jsonify({"success": False, "error": str(e)}), 503
+
+    repo = snapshot.repo
+    if not repo:
+        return jsonify({"success": False,
+                        "error": f"board {board} has no linked repo"}), 404
+
+    return jsonify({
+        "success": True,
+        "repo": repo,
+        "items": _actionable_items(repo),
+    })
 
 
 @bp.route("/api/taskauto/status", methods=["GET"])

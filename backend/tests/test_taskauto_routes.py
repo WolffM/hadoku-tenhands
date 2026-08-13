@@ -227,3 +227,108 @@ class TestMerge:
 
         assert resp.status_code == 403
         assert mock_gh.call_count == 1
+
+
+class TestActionable:
+    """GET /api/taskauto/actionable — open issues + PRs for a board's repo,
+    with the pipeline's own taskauto/* PRs and bot authors filtered out."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        # The route caches per repo; tests reuse WolffM/tenhands, so a stale
+        # entry would leak one test's gh payload into the next.
+        import routes.taskauto_routes as tr
+        tr._actionable_cache.clear()
+        yield
+        tr._actionable_cache.clear()
+
+    @staticmethod
+    def _gh(issues, prs):
+        """A run_gh_command side_effect that answers issue-list vs pr-list."""
+        def _side(cmd, timeout=None):
+            if cmd[0] == "issue":
+                return {"success": True, "output": json.dumps(issues)}
+            if cmd[0] == "pr":
+                return {"success": True, "output": json.dumps(prs)}
+            return {"success": False, "error": f"unexpected {cmd[0]}"}
+        return _side
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_returns_issues_and_prs_filtered(self, mock_client_cls, mock_gh, client):
+        mock_client_cls.return_value.get_board.return_value = _snapshot([])
+        mock_gh.side_effect = self._gh(
+            issues=[
+                {"number": 42, "title": "Fix the thing",
+                 "url": "https://github.com/WolffM/tenhands/issues/42",
+                 "author": {"login": "someone", "is_bot": False},
+                 "body": "line one\n\nline two " + "x" * 400},
+                {"number": 9, "title": "dep bump",
+                 "url": "https://github.com/WolffM/tenhands/issues/9",
+                 "author": {"login": "dependabot", "is_bot": True}, "body": ""},
+            ],
+            prs=[
+                {"number": 17, "title": "WIP feature",
+                 "url": "https://github.com/WolffM/tenhands/pull/17",
+                 "author": {"login": "someone", "is_bot": False},
+                 "headRefName": "feature-x", "body": "continue me"},
+                {"number": 88, "title": "landing",
+                 "url": "https://github.com/WolffM/tenhands/pull/88",
+                 "author": {"login": "someone", "is_bot": False},
+                 "headRefName": "taskauto/01kyjnff5x7g", "body": "our own PR"},
+            ],
+        )
+
+        data = client.get(
+            f"{PREFIX}/api/taskauto/actionable?board={BOARD}").get_json()
+
+        assert data["success"] is True
+        assert data["repo"] == "WolffM/tenhands"
+        # bot issue #9 and taskauto PR #88 are dropped; #42 and #17 remain.
+        by_kind = {(i["kind"], i["number"]): i for i in data["items"]}
+        assert set(by_kind) == {("issue", 42), ("pr", 17)}
+
+        issue = by_kind[("issue", 42)]
+        assert issue["suggested_title"] == "Address #42"
+        assert issue["author"] == "someone"
+        # body collapsed to one line and capped with an ellipsis.
+        assert issue["body_snippet"].startswith("line one line two")
+        assert issue["body_snippet"].endswith("…")
+        assert len(issue["body_snippet"]) <= 281
+
+        pr = by_kind[("pr", 17)]
+        assert pr["suggested_title"] == "Address PR #17"
+        assert pr["head_ref"] == "feature-x"
+
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_missing_board_param_is_400(self, mock_client_cls, client):
+        resp = client.get(f"{PREFIX}/api/taskauto/actionable")
+        assert resp.status_code == 400
+        assert resp.get_json()["success"] is False
+
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_board_without_repo_is_404(self, mock_client_cls, client):
+        snap = _snapshot([])
+        object.__setattr__(snap, "repo", "")
+        mock_client_cls.return_value.get_board.return_value = snap
+        resp = client.get(f"{PREFIX}/api/taskauto/actionable?board={BOARD}")
+        assert resp.status_code == 404
+
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_board_api_failure_is_503(self, mock_client_cls, client):
+        mock_client_cls.return_value.get_board.side_effect = \
+            TaskBoardUnavailable("board api down")
+        resp = client.get(f"{PREFIX}/api/taskauto/actionable?board={BOARD}")
+        assert resp.status_code == 503
+        assert resp.get_json()["success"] is False
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_gh_failure_degrades_to_empty(self, mock_client_cls, mock_gh, client):
+        """One unreachable gh call blanks that source, not the whole response."""
+        mock_client_cls.return_value.get_board.return_value = _snapshot([])
+        mock_gh.return_value = {"success": False, "error": "gh boom"}
+        data = client.get(
+            f"{PREFIX}/api/taskauto/actionable?board={BOARD}").get_json()
+        assert data["success"] is True
+        assert data["items"] == []
