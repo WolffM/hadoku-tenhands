@@ -70,6 +70,15 @@ export function Stage3Assign() {
     })
   }, [filteredIssues, reposWithCopilotPRs])
 
+  // Everything not already surfaced in "Recommended". Each issue is rendered in
+  // exactly one section so the shared selection set can't check the same issue
+  // in both places (the recommended list is a subset of filteredIssues by
+  // reference, and selection is keyed by repo:number).
+  const otherIssues = useMemo(() => {
+    const recommendedIds = new Set(recommended.map(i => `${i.repo}:${i.number}`))
+    return filteredIssues.filter(i => !recommendedIds.has(`${i.repo}:${i.number}`))
+  }, [filteredIssues, recommended])
+
   // Available labels for filter (excluding severity/confidence/vibeCheck)
   const availableLabels = labels.filter(
     label =>
@@ -197,14 +206,17 @@ export function Stage3Assign() {
       {/* Divider */}
       {recommended.length > 0 && <hr className="stage-divider" />}
 
-      {/* All Issues Section */}
+      {/* Other Issues Section — everything not in Recommended, rendered once.
+          Hidden when every issue is already in Recommended, so it never shows a
+          "no issues" message while issues exist above it. */}
+      {(otherIssues.length > 0 || recommended.length === 0) && (
       <div className="stage-section">
-        <SectionHeader title="All Issues">
+        <SectionHeader title={recommended.length > 0 ? 'Other Issues' : 'All Issues'}>
           <BatchActionBar
-            onSelectAll={() => selectAll(filteredIssues)}
+            onSelectAll={() => selectAll(otherIssues)}
             onSelectNone={selectNone}
             onProcess={() => {
-              void processSelected(filteredIssues)
+              void processSelected(otherIssues)
             }}
             selectedCount={selectedCount}
             processLabel="Assign Selected"
@@ -212,7 +224,7 @@ export function Stage3Assign() {
           />
         </SectionHeader>
 
-        {filteredIssues.length === 0 ? (
+        {otherIssues.length === 0 ? (
           <p className="text-secondary text-center">No issues found matching filters</p>
         ) : (
           <div className="table-container">
@@ -229,7 +241,7 @@ export function Stage3Assign() {
                 </tr>
               </thead>
               <tbody>
-                {filteredIssues.map(issue => (
+                {otherIssues.map(issue => (
                   <IssueRow
                     key={`${issue.repo}:${issue.number}`}
                     issue={issue}
@@ -244,6 +256,7 @@ export function Stage3Assign() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

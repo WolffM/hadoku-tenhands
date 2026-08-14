@@ -11,6 +11,11 @@
 
 import * as d from '../../e2e/fixtures/data'
 import { ok, type Table, type ResponseBody } from '../../e2e/fixtures/table'
+// The real pipeline report, straight from the backend generator (fetched from
+// prod), with the third-party repo/issue identifiers rewritten to the demo's
+// acme-corp/widget-api #1234 so it's authentic but demo-consistent and safe to
+// share. Served for the OSS "Report" modal (rendered inline via srcdoc).
+import issueReportHtml from './issue-report.html?raw'
 
 const OWNER = 'WolffM'
 
@@ -61,6 +66,86 @@ const retroBatches: ResponseBody = [
 ]
 
 /**
+ * A realistic 6-section dossier for the OSS Contributions view. Each section is
+ * rendered as markdown, so these read like the aggregator's real output rather
+ * than the one-line placeholders the default fixture carries. Subject is the
+ * demo's target repo (acme-corp/widget-api).
+ */
+const dossier: ResponseBody = {
+  slug: 'acme-corp-widget-api',
+  generatedAt: new Date(Date.now() - 3600000).toISOString(),
+  sections: {
+    overview: [
+      '**acme-corp/widget-api** is a mid-sized TypeScript HTTP framework — ~48k',
+      'lines across 320 files, 6.1k stars, 214 contributors. It ships roughly',
+      'every three weeks and the maintainers are responsive: median time-to-first',
+      'review on a PR is **under 48 hours**.',
+      '',
+      '- **Health:** actively maintained (last release 9 days ago)',
+      '- **Test suite:** Vitest, ~92% line coverage, green on `main`',
+      '- **CI:** lint + typecheck + unit + a contract-test matrix on Node 18/20/22',
+      '- **Review culture:** small PRs land fast; large refactors are asked to',
+      '  open a discussion first.'
+    ].join('\n'),
+    contributionRules: [
+      '### From CONTRIBUTING.md',
+      '',
+      '1. **One change per PR.** Unrelated fixes get asked to split.',
+      '2. **Conventional commits** are required (`fix:`, `feat:`, `docs:` …); the',
+      '   title becomes the squash-merge subject.',
+      '3. **DCO sign-off** (`git commit -s`) is enforced by a bot check.',
+      '4. Every bug fix ships **with the test that would have caught it**.',
+      '5. Run `pnpm verify` (lint + typecheck + test) before pushing — CI runs the',
+      '   same three gates and a red one blocks review.'
+    ].join('\n'),
+    successPatterns: [
+      'What recently-merged PRs had in common:',
+      '',
+      '- A **failing test added first**, then the fix — reviewers merged these',
+      '  fastest.',
+      '- A one-paragraph problem statement linking the issue, not just a diff.',
+      '- Touching **one module**. `middleware/` and `router/` fixes with a focused',
+      '  diff (< 80 lines) had a ~70% merge rate.',
+      '- Matching the surrounding style exactly; no drive-by reformatting.'
+    ].join('\n'),
+    antiPatterns: [
+      'What got PRs closed or stalled:',
+      '',
+      '- **Large refactors** opened cold, with no prior issue or discussion.',
+      '- Bumping dependencies alongside a behavior fix (split these).',
+      '- Reformatting whole files — the diff drowns the actual change.',
+      '- Fixing the symptom in the caller instead of the root cause in the module.',
+      '- No test, or a test that passes with and without the change.'
+    ].join('\n'),
+    issueBoard: [
+      '### Candidate issues (scored)',
+      '',
+      '| # | Title | Signal | Difficulty |',
+      '| --- | --- | --- | --- |',
+      '| 1234 | Merged cells dropped in table renderer | `good first issue`, 8 👍 | Low |',
+      '| 1198 | Pagination off-by-one on the final page | reproducible, has repro | Low |',
+      '| 1150 | Timeout not propagated to sub-requests | `help wanted` | Medium |',
+      '',
+      'The top two are self-contained bugs with clear repro steps and an obvious',
+      'test — the profile the pipeline dispatches best against.'
+    ].join('\n'),
+    environmentSetup: [
+      'Node 20 + pnpm. Clone the fork, install, and run the suite:',
+      '',
+      '    pnpm install --frozen-lockfile',
+      '    pnpm build',
+      '    pnpm test',
+      '',
+      'Single-file iteration while fixing:',
+      '',
+      '    pnpm vitest run src/router/match.test.ts',
+      '',
+      'No services or containers are needed — the suite is fully in-process.'
+    ].join('\n')
+  }
+}
+
+/**
  * The overrides table. Keys and shapes match `defaultRoutes`; only the values
  * that need rebranding or reconciling to the real story are present here.
  */
@@ -85,6 +170,12 @@ export const overrides: Table = {
 
   // ---- OSS pipeline: rebrand fork-issue links ----------------------------
   'GET /api/oss/pipeline-status': ok({ statuses: pipelineStatuses }),
+
+  // ---- OSS dossier: a realistic 6-section brief, not the placeholder ------
+  'GET /api/oss/dossier/*': ok({ dossier }),
+
+  // ---- OSS issue report: a real-looking report for the Report modal ------
+  'GET /api/oss/issue-report/*': issueReportHtml,
 
   // ---- retrospectives: the headline batch numbers, reconciled ------------
   'GET /api/oss/retro/batches': ok({ batches: retroBatches })

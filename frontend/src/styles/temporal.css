@@ -186,7 +186,11 @@
   cursor: pointer;
 }
 
-.temporal-inbox__actions button:hover:not(:disabled) {
+/* Plain (unvariant) action buttons get a primary-tinted hover. Buttons that
+   already carry a semantic color (Approve = success, Abort = danger) keep their
+   own hover — without this exclusion the descendant selector out-specifies the
+   .btn--success/.btn--danger hover and flips green/red buttons to primary. */
+.temporal-inbox__actions button:not(.btn--success):not(.btn--danger):not(.btn--warning):hover:not(:disabled) {
   border-color: var(--color-primary);
   color: var(--color-primary);
 }
@@ -194,6 +198,59 @@
 .temporal-inbox__actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Reason picker (judge-defer override capture) ──────────────────
+   The reason <select> was a bare native control: with no themed background,
+   border, or color it rendered as an OS-default widget, which on dark surfaces
+   drew a light box with a mismatched hover. Style it (and the surrounding
+   label/textarea) from the same tokens the rest of the app uses, and set
+   color-scheme so the native option list follows the active theme. */
+.temporal-inbox__reason-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hdk-space-md);
+}
+
+.temporal-inbox__reason-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hdk-space-sm);
+  font-size: var(--hdk-text-xs);
+  color: var(--color-text-secondary);
+}
+
+.temporal-inbox__reason-label select,
+.temporal-inbox__reason-text {
+  padding: var(--hdk-space-sm) var(--hdk-space-md);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius-sm);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--hdk-text-sm);
+  color-scheme: light dark;
+}
+
+.temporal-inbox__reason-label select:hover:not(:disabled),
+.temporal-inbox__reason-text:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+
+.temporal-inbox__reason-label select:focus-visible,
+.temporal-inbox__reason-text:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--hdk-shadow-focus-sm);
+}
+
+.temporal-inbox__reason-text {
+  resize: vertical;
+}
+
+.temporal-inbox__reason-actions {
+  display: flex;
+  gap: var(--hdk-space-md);
 }
 
 /* ── Phase 5.4: signoff card ───────────────────────────────────── */

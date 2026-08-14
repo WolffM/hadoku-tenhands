@@ -66,6 +66,11 @@ function jsonResponse(payload: ResponseBody, status = 200): Response {
  * `./overrides.ts`.
  */
 export function installDemoFetch(overrides: Table = {}): void {
+  // Marks the running app as the fixture-backed demo. A few surfaces that would
+  // otherwise do a real same-origin navigation the stub can't intercept (e.g.
+  // the OSS report iframe) read this to render fixture content inline instead.
+  ;(window as unknown as { __TENHANDS_DEMO__?: boolean }).__TENHANDS_DEMO__ = true
+
   const table: Table = { ...defaultRoutes, ...overrides }
   const originalFetch = window.fetch.bind(window)
 

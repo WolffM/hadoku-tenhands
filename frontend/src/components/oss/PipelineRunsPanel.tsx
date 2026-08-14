@@ -54,6 +54,8 @@ export function PipelineRunsPanel() {
   const addLog = usePipelineStore(state => state.addLog)
   const excludedRepos = usePipelineStore(state => state.ossExcludedRepos)
   const [reportUrl, setReportUrl] = useState<string | null>(null)
+  // Demo-only: the report HTML rendered inline via srcdoc (see handleOpenReport).
+  const [reportDoc, setReportDoc] = useState<string | null>(null)
 
   const assignments = useMemo(
     () => ossPipelineRuns.items.filter(a => !excludedRepos.has(a.originSlug)),
@@ -100,6 +102,17 @@ export function PipelineRunsPanel() {
     // Build URL for the backend-generated HTML report
     const baseUrl = window.location.origin
     const url = `${baseUrl}/tenhands/api/oss/issue-report/${a.repo}/${a.issueNumber}`
+    const isDemo = (window as unknown as { __TENHANDS_DEMO__?: boolean }).__TENHANDS_DEMO__
+    if (isDemo) {
+      // The demo has no backend, and an iframe `src` navigation doesn't route
+      // through the demo's fetch stub — so fetch the report HTML (the stub
+      // answers it) and render it inline via srcdoc. Prod keeps the `src` path.
+      void fetch(url)
+        .then(r => r.text())
+        .then(html => setReportDoc(html))
+        .catch(() => setReportDoc('<p style="font:14px sans-serif;padding:1rem">Report unavailable in the demo.</p>'))
+      return
+    }
     setReportUrl(url)
   }
 
@@ -221,21 +234,29 @@ export function PipelineRunsPanel() {
       </div>
 
       {/* Report Modal */}
-      {reportUrl && (
-        <div className="report-modal" onClick={() => setReportUrl(null)}>
+      {(reportUrl || reportDoc) && (
+        <div className="report-modal" onClick={() => { setReportUrl(null); setReportDoc(null) }}>
           <div className="report-modal__content" onClick={e => e.stopPropagation()}>
             <div className="report-modal__header">
               <h3>Pipeline Report</h3>
-              <button className="btn btn--secondary btn--sm" onClick={() => setReportUrl(null)}>
+              <button
+                className="btn btn--secondary btn--sm"
+                onClick={() => { setReportUrl(null); setReportDoc(null) }}
+              >
                 Close
               </button>
             </div>
             <iframe
               className="report-modal__iframe"
-              src={reportUrl}
+              // Prod loads the backend URL directly; the demo renders the
+              // fixture HTML inline. The report is our own generated HTML that
+              // builds itself from embedded data via a script, so it needs
+              // `allow-scripts` to render at all — WITHOUT `allow-same-origin`,
+              // so it stays a null-origin sandbox that can't reach the parent,
+              // its cookies, or same-origin resources.
+              {...(reportDoc ? { srcDoc: reportDoc } : { src: reportUrl ?? undefined })}
               title="Pipeline Report"
-              // Backend-generated HTML: render it, but never run its scripts.
-              sandbox=""
+              sandbox="allow-scripts"
             />
           </div>
         </div>
