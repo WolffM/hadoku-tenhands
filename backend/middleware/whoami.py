@@ -5,7 +5,7 @@ Its dashboard calls the API **directly** at the tunnel origin (cross-origin
 from ``hadoku.me/tenhands``), so requests do not carry a trustworthy
 ``X-Edge-Auth`` stamp — the edge-stamp pattern used by the CF Workers doesn't
 apply. Instead we **delegate**, exactly like the other tunnel backends
-(``hadoku-scrape``, ``personal-dataplatform``, ``watchpart2``): take whatever
+(``hadoku-scraper``, ``hadoku-dataplatform``, ``hadoku-watchparty``): take whatever
 ``X-User-Key`` is present and ask the platform's authoritative whoami endpoint
 what tier it represents. This works on ANY inbound path — service keys aren't
 self-describing, and TenHands holds no key arrays of its own.
