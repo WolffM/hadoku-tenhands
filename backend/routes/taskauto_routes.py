@@ -135,6 +135,15 @@ def _prs_for(repo: str) -> list[dict]:
 # "Address #N" task per item. The consumer dedups against its own board and has
 # a 4s timeout with no caching of its own, so this stays cheap: two gh calls fan
 # out in parallel, and results are cached per-repo for a short window.
+#
+# **An empty list here means "nothing open", and only that.** A gh failure — an
+# expired PAT above all — is a 503, never `success: true, items: []`. The two
+# read identically to the consumer, which hides its button on both, so a silent
+# degrade turns a dead credential into "you're all caught up" and there is no
+# symptom left to notice — which is how the last GITHUB_TOKEN expiry stayed
+# invisible until someone went looking. `_prs_for` above degrades on purpose:
+# its caller is a status page listing many repos and one bad repo must not blank
+# the others; here there is one repo and no page to keep alive.
 
 #: Longest body preview we hand back — enough for the task notes to carry
 #: context, short enough that a novel-length issue body doesn't bloat the board.
@@ -158,6 +167,14 @@ _actionable_cache: dict[str, tuple[float, list[dict]]] = {}
 _actionable_lock = Lock()
 
 
+class ActionableUnavailable(RuntimeError):
+    """A gh enumeration failed, so we do not know what is open on the repo.
+
+    Distinct from "nothing is open" — see the note above. Carries the gh error
+    so the 503 body names the cause; an expired token says so in as many words.
+    """
+
+
 def _snippet(text: str) -> str:
     """A one-line, length-capped preview of an issue/PR body."""
     collapsed = " ".join((text or "").split())
@@ -174,19 +191,21 @@ def _is_bot(author: dict) -> bool:
 
 def _open_issues(repo: str) -> list[dict]:
     """Open issues on a repo, bots dropped. `gh issue list` never returns PRs,
-    so no pull_request filtering is needed here."""
+    so no pull_request filtering is needed here.
+
+    Raises ActionableUnavailable if gh could not answer."""
     res = run_gh_command([
         "issue", "list", "--repo", repo, "--state", "open", "--limit", "100",
         "--json", "number,title,url,author,body",
     ], timeout=25)
     if not res.get("success"):
-        logger.warning("taskauto actionable: issue list failed for %s: %s",
-                       repo, res.get("error", "")[:200])
-        return []
+        raise ActionableUnavailable(
+            f"gh issue list failed for {repo}: {res.get('error', '')[:200]}")
     try:
         issues = _json.loads(res.get("output") or "[]")
     except ValueError:
-        return []
+        raise ActionableUnavailable(
+            f"gh issue list returned unparseable JSON for {repo}") from None
     out = []
     for it in issues:
         author = it.get("author") or {}
@@ -208,19 +227,21 @@ def _open_issues(repo: str) -> list[dict]:
 def _open_prs_actionable(repo: str) -> list[dict]:
     """Open PRs on a repo a human might want to continue — the pipeline's own
     `taskauto/*` landing PRs and bot PRs are dropped so the button can never
-    offer to address its own output."""
+    offer to address its own output.
+
+    Raises ActionableUnavailable if gh could not answer."""
     res = run_gh_command([
         "pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
         "--json", "number,title,url,author,headRefName,body",
     ], timeout=25)
     if not res.get("success"):
-        logger.warning("taskauto actionable: pr list failed for %s: %s",
-                       repo, res.get("error", "")[:200])
-        return []
+        raise ActionableUnavailable(
+            f"gh pr list failed for {repo}: {res.get('error', '')[:200]}")
     try:
         prs = _json.loads(res.get("output") or "[]")
     except ValueError:
-        return []
+        raise ActionableUnavailable(
+            f"gh pr list returned unparseable JSON for {repo}") from None
     out = []
     for pr in prs:
         head = str(pr.get("headRefName") or "")
@@ -245,7 +266,12 @@ def _open_prs_actionable(repo: str) -> list[dict]:
 
 def _actionable_items(repo: str) -> list[dict]:
     """Open issues + continuable PRs for a repo, cached briefly. Issues first,
-    then PRs, each already sorted newest-first by gh's default order."""
+    then PRs, each already sorted newest-first by gh's default order.
+
+    Raises ActionableUnavailable if either enumeration failed — a partial answer
+    is indistinguishable from a short one, so we return neither. Nothing is
+    cached in that case, so the next board load retries rather than serving a
+    30-second-old outage."""
     now = time.monotonic()
     with _actionable_lock:
         hit = _actionable_cache.get(repo)
@@ -257,7 +283,19 @@ def _actionable_items(repo: str) -> list[dict]:
     with ThreadPoolExecutor(max_workers=2) as pool:
         issues_f = pool.submit(_open_issues, repo)
         prs_f = pool.submit(_open_prs_actionable, repo)
-        items = issues_f.result() + prs_f.result()
+        # Both are resolved before either is raised, so the second call is never
+        # left running against a pool the `with` is trying to shut down, and the
+        # error we surface is the first one in list order rather than whichever
+        # thread happened to finish first.
+        results, failure = [], None
+        for fut in (issues_f, prs_f):
+            try:
+                results.append(fut.result())
+            except ActionableUnavailable as e:
+                failure = failure or e
+        if failure is not None:
+            raise failure
+        items = results[0] + results[1]
 
     with _actionable_lock:
         _actionable_cache[repo] = (now + _ACTIONABLE_TTL_S, items)
@@ -273,6 +311,9 @@ def taskauto_actionable():
     not a slug. Resolves the board to its repo, enumerates open work, and drops
     the pipeline's own `taskauto/*` PRs and bot authors so the consumer can
     trust every item. Dedup against existing tasks is the consumer's job.
+
+    `success: true` with an empty `items` means the repo has nothing open. If we
+    could not find out, that is a 503 naming the reason — never an empty list.
     """
     board = (request.args.get("board") or "").strip()
     if not board:
@@ -290,11 +331,16 @@ def taskauto_actionable():
         return jsonify({"success": False,
                         "error": f"board {board} has no linked repo"}), 404
 
-    return jsonify({
-        "success": True,
-        "repo": repo,
-        "items": _actionable_items(repo),
-    })
+    try:
+        items = _actionable_items(repo)
+    except ActionableUnavailable as e:
+        # Same shape the board-API failure above returns: an operator problem,
+        # reported as one, so the consumer records provider_503 instead of
+        # rendering "nothing to automate" over a broken credential.
+        logger.error("taskauto actionable %s: %s", board, e)
+        return jsonify({"success": False, "error": str(e)}), 503
+
+    return jsonify({"success": True, "repo": repo, "items": items})
 
 
 @bp.route("/api/taskauto/status", methods=["GET"])

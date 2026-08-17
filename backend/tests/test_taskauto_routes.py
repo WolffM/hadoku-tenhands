@@ -324,11 +324,68 @@ class TestActionable:
 
     @patch("routes.taskauto_routes.run_gh_command")
     @patch("routes.taskauto_routes.TaskBoardClient")
-    def test_gh_failure_degrades_to_empty(self, mock_client_cls, mock_gh, client):
-        """One unreachable gh call blanks that source, not the whole response."""
+    def test_gh_failure_is_503_not_an_empty_list(self, mock_client_cls, mock_gh,
+                                                 client):
+        """A dead token must not read as "nothing open".
+
+        Both answers hide the consumer's button, so degrading to empty leaves an
+        expired credential with no symptom at all.
+        """
+        mock_client_cls.return_value.get_board.return_value = _snapshot([])
+        mock_gh.return_value = {
+            "success": False, "error": "gh: Bad credentials (HTTP 401)"}
+        resp = client.get(f"{PREFIX}/api/taskauto/actionable?board={BOARD}")
+        assert resp.status_code == 503
+        body = resp.get_json()
+        assert body["success"] is False
+        # The 503 names the cause, or the next investigation starts from zero.
+        assert "Bad credentials" in body["error"]
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_one_failing_source_fails_the_whole_scan(self, mock_client_cls,
+                                                     mock_gh, client):
+        """Issues fine, PRs broken — a partial list is not a short list."""
+        mock_client_cls.return_value.get_board.return_value = _snapshot([])
+
+        def _side(cmd, timeout=None):
+            if cmd[0] == "issue":
+                return {"success": True, "output": json.dumps([
+                    {"number": 42, "title": "Fix the thing",
+                     "url": "https://github.com/WolffM/tenhands/issues/42",
+                     "author": {"login": "someone", "is_bot": False},
+                     "body": ""},
+                ])}
+            return {"success": False, "error": "gh pr list exploded"}
+
+        mock_gh.side_effect = _side
+        resp = client.get(f"{PREFIX}/api/taskauto/actionable?board={BOARD}")
+        assert resp.status_code == 503
+        assert "exploded" in resp.get_json()["error"]
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_failure_is_not_cached(self, mock_client_cls, mock_gh, client):
+        """A recovered token takes effect now, not in 30 seconds."""
         mock_client_cls.return_value.get_board.return_value = _snapshot([])
         mock_gh.return_value = {"success": False, "error": "gh boom"}
-        data = client.get(
-            f"{PREFIX}/api/taskauto/actionable?board={BOARD}").get_json()
-        assert data["success"] is True
-        assert data["items"] == []
+        assert client.get(
+            f"{PREFIX}/api/taskauto/actionable?board={BOARD}").status_code == 503
+
+        mock_gh.side_effect = self._gh(issues=[], prs=[])
+        mock_gh.return_value = None
+        resp = client.get(f"{PREFIX}/api/taskauto/actionable?board={BOARD}")
+        assert resp.status_code == 200
+        assert resp.get_json() == {
+            "success": True, "repo": "WolffM/tenhands", "items": []}
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_empty_repo_is_a_success(self, mock_client_cls, mock_gh, client):
+        """The other half of the contract: nothing open really is `items: []`."""
+        mock_client_cls.return_value.get_board.return_value = _snapshot([])
+        mock_gh.side_effect = self._gh(issues=[], prs=[])
+        resp = client.get(f"{PREFIX}/api/taskauto/actionable?board={BOARD}")
+        assert resp.status_code == 200
+        assert resp.get_json()["success"] is True
+        assert resp.get_json()["items"] == []
