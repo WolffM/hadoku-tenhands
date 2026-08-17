@@ -676,6 +676,63 @@ export const mockTaskAutoDetail = {
   prs: [{ ...mockTaskAutoPRs[0], state: 'OPEN', mergedAt: '', createdAt: '2026-07-28T01:52:51Z' }]
 }
 
+// A short, believable unified diff per PR, so the in-app review modal
+// (TaskAutoReviewModal) renders a real diff rather than "No diff available".
+const TASKAUTO_DIFFS: Record<number, string> = {
+  72: `diff --git a/src/boards/dragHandler.ts b/src/boards/dragHandler.ts
+index 8a1c2f0..b3d4e19 100644
+--- a/src/boards/dragHandler.ts
++++ b/src/boards/dragHandler.ts
+@@ -42,7 +42,9 @@ export function onDragStart(e: DragEvent, card: Card) {
+-  if (mode === 'edit') return
++  if (mode === 'edit') {
++    e.dataTransfer?.setData('card-id', card.id)
++  }
+   startDrag(card)
+ }`,
+  73: `diff --git a/src/theme/defaults.ts b/src/theme/defaults.ts
+index 1f2a3b4..c5d6e7f 100644
+--- a/src/theme/defaults.ts
++++ b/src/theme/defaults.ts
+@@ -3,4 +3,4 @@ export const DEFAULT_THEME = {
+-  name: 'midnight',
++  name: 'coffee',
+ }`
+}
+
+/** One taskauto PR's review payload — the flat envelope the pr-details route
+ *  serves, assembled from the PR row and the plan the board holds. */
+export function mockTaskAutoPRDetail(repo: string, number: number) {
+  const pr = mockTaskAutoPRs.find(p => p.repo === repo && p.number === number) ?? mockTaskAutoPRs[0]
+  const task = mockTaskAutoStatus.boards
+    .flatMap(b => Object.values(b.lanes).flat())
+    .find(t => t.id === pr.taskId)
+  return {
+    success: true,
+    number: pr.number,
+    title: pr.title,
+    author: { login: 'copilot-swe-agent' },
+    createdAt: pr.updatedAt,
+    headRefName: pr.branch,
+    baseRefName: 'main',
+    commits: 2,
+    state: 'OPEN',
+    url: pr.url,
+    isDraft: pr.isDraft,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    changedFiles: pr.changedFiles,
+    diff: TASKAUTO_DIFFS[number] ?? TASKAUTO_DIFFS[72],
+    repo: pr.repo,
+    taskId: pr.taskId.slice(0, 12).toLowerCase(),
+    taskTitle: task?.title ?? pr.title,
+    taskNotes:
+      '## What I think you want\n\n' +
+      'Continue the task the way its plan describes.\n\n' +
+      '## Plan\n\n1. reproduce\n2. fix\n3. add a regression test\n'
+  }
+}
+
 declare global {
   interface Window {
     __taskautoMerges?: { repo: string; number: number; auto?: boolean }[]

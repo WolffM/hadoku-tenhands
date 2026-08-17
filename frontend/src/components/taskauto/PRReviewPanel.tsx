@@ -44,9 +44,11 @@ interface PRReviewPanelProps {
   merging: string | null
   mergeError: string | null
   onMerge: (repo: string, number: number, auto: boolean) => void
+  /** Open the in-app review modal — the diff next to the approved plan. */
+  onReview: (pr: TaskAutoPR) => void
 }
 
-export function PRReviewPanel({ prs, merging, mergeError, onMerge }: PRReviewPanelProps) {
+export function PRReviewPanel({ prs, merging, mergeError, onMerge, onReview }: PRReviewPanelProps) {
   return (
     <section className="taskauto-section" data-testid="taskauto-prs">
       <SectionHeader icon="shuffle" title="PRs awaiting you" count={prs.length} />
@@ -86,14 +88,13 @@ export function PRReviewPanel({ prs, merging, mergeError, onMerge }: PRReviewPan
                 </div>
 
                 <div className="taskauto-pr__actions">
-                  <a
+                  <button
+                    type="button"
                     className="btn btn--secondary btn--sm"
-                    href={`${pr.url}/files`}
-                    target="_blank"
-                    rel="noreferrer"
+                    onClick={() => onReview(pr)}
                   >
                     Review diff
-                  </a>
+                  </button>
                   <button
                     type="button"
                     className="btn btn--primary btn--sm"

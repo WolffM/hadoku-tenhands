@@ -14,7 +14,13 @@ import pytest
 
 from app import app
 from extensions import limiter
-from services.task_board import BoardSnapshot, BoardTask, Lane, TaskBoardUnavailable
+from services.task_board import (
+    BoardSnapshot,
+    BoardTask,
+    ClaimHeld,
+    Lane,
+    TaskBoardUnavailable,
+)
 
 PREFIX = "/tenhands"
 BOARD = "MBOARDHANDLE00000000000000"
@@ -227,6 +233,147 @@ class TestMerge:
 
         assert resp.status_code == 403
         assert mock_gh.call_count == 1
+
+
+class TestPRDetails:
+    """GET /api/taskauto/pr-details — one PR's diff next to its approved plan.
+
+    The pairing GitHub can't show is the whole point, so the tests cover the
+    two joins that make it: branch → task id (a 12-char prefix of the ULID, not
+    the whole thing) and the flat envelope every taskauto route serves.
+    """
+
+    def _view(self, branch="taskauto/01kyjnff5x7g"):
+        return {"success": True, "output": json.dumps({
+            "number": 88, "title": "Do the thing", "headRefName": branch,
+            "baseRefName": "main", "author": {"login": "copilot-swe-agent"},
+            "createdAt": "2026-07-28T01:52:52Z",
+            "commits": [{"oid": "a"}, {"oid": "b"}], "state": "OPEN",
+            "url": "https://github.com/WolffM/tenhands/pull/88",
+            "isDraft": True, "additions": 12, "deletions": 3, "changedFiles": 2,
+        })}
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_pairs_diff_with_the_task_plan(self, mock_client_cls, mock_gh, client):
+        mock_gh.side_effect = [self._view(),
+                               {"success": True, "output": "diff --git a b\n+x"}]
+        snap = _snapshot([_task()])
+        inst = mock_client_cls.return_value
+        inst.automation_boards.return_value = [snap]
+        inst.get_board.return_value = snap
+
+        resp = client.get(f"{PREFIX}/api/taskauto/pr-details",
+                          query_string={"repo": "WolffM/tenhands", "number": 88})
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        # Flat envelope — the PR fields sit next to `success`, never under `data`.
+        assert "data" not in body
+        assert body["success"] is True
+        assert body["diff"].startswith("diff --git")
+        assert body["taskTitle"] == "review taskauto PRs"
+        assert body["taskNotes"].startswith("## Plan")
+        # gh returns commits as an array; the route reduces it to a count.
+        assert body["commits"] == 2
+        # The branch carries only the first 12 chars of the ULID.
+        assert body["taskId"] == "01kyjnff5x7g"
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    def test_refuses_a_non_pipeline_branch(self, mock_gh, client):
+        mock_gh.side_effect = [self._view(branch="feature/by-hand")]
+        resp = client.get(f"{PREFIX}/api/taskauto/pr-details",
+                          query_string={"repo": "WolffM/tenhands", "number": 88})
+        assert resp.status_code == 403
+        # No diff fetch once the branch is rejected.
+        assert mock_gh.call_count == 1
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_task_lookup_failure_still_returns_the_diff(
+            self, mock_client_cls, mock_gh, client):
+        """The diff is the part that matters; a board hiccup must not lose it."""
+        mock_gh.side_effect = [self._view(),
+                               {"success": True, "output": "the diff"}]
+        inst = mock_client_cls.return_value
+        inst.automation_boards.side_effect = TaskBoardUnavailable("board down")
+
+        resp = client.get(f"{PREFIX}/api/taskauto/pr-details",
+                          query_string={"repo": "WolffM/tenhands", "number": 88})
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["diff"] == "the diff"
+        assert body["taskTitle"] == ""
+
+    def test_missing_number_is_400(self, client):
+        resp = client.get(f"{PREFIX}/api/taskauto/pr-details",
+                          query_string={"repo": "WolffM/tenhands"})
+        assert resp.status_code == 400
+
+
+class TestSendBack:
+    """POST /api/taskauto/send-back — a board move, not a GitHub action.
+
+    Claims the task and releases it into `stalled`; the PR is untouched. The
+    cases that matter are a live claim (someone picked the task back up) and a
+    branch that isn't the pipeline's to move.
+    """
+
+    def _view(self, branch="taskauto/01kyjnff5x7g"):
+        return {"success": True, "output": json.dumps({"headRefName": branch})}
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_claims_then_releases_to_stalled(self, mock_client_cls, mock_gh, client):
+        mock_gh.side_effect = [self._view()]
+        snap = _snapshot([_task()])
+        inst = mock_client_cls.return_value
+        inst.automation_boards.return_value = [snap]
+        inst.get_board.return_value = snap
+        inst.claim.return_value = "lease-token"
+
+        resp = client.post(f"{PREFIX}/api/taskauto/send-back",
+                           json={"repo": "WolffM/tenhands", "number": 88,
+                                 "reason": "diff is empty"})
+
+        assert resp.status_code == 200
+        # Resolves the branch's 12-char id back to the full board task.
+        assert resp.get_json()["taskId"] == TASK_ID
+        inst.claim.assert_called_once_with(BOARD, TASK_ID)
+        _, kwargs = inst.release.call_args
+        assert kwargs["lane"] == "stalled"
+        assert kwargs["notes"] == "diff is empty"
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    @patch("routes.taskauto_routes.TaskBoardClient")
+    def test_live_claim_is_409(self, mock_client_cls, mock_gh, client):
+        mock_gh.side_effect = [self._view()]
+        snap = _snapshot([_task()])
+        inst = mock_client_cls.return_value
+        inst.automation_boards.return_value = [snap]
+        inst.get_board.return_value = snap
+        inst.claim.side_effect = ClaimHeld("held", body={"holder": "a runner"})
+
+        resp = client.post(f"{PREFIX}/api/taskauto/send-back",
+                           json={"repo": "WolffM/tenhands", "number": 88,
+                                 "reason": "nope"})
+
+        assert resp.status_code == 409
+        assert "a runner" in resp.get_json()["error"]
+
+    @patch("routes.taskauto_routes.run_gh_command")
+    def test_refuses_a_non_pipeline_branch(self, mock_gh, client):
+        mock_gh.side_effect = [self._view(branch="feature/by-hand")]
+        resp = client.post(f"{PREFIX}/api/taskauto/send-back",
+                           json={"repo": "WolffM/tenhands", "number": 88,
+                                 "reason": "x"})
+        assert resp.status_code == 403
+
+    def test_missing_reason_is_400(self, client):
+        resp = client.post(f"{PREFIX}/api/taskauto/send-back",
+                           json={"repo": "WolffM/tenhands", "number": 88})
+        assert resp.status_code == 400
 
 
 class TestActionable:

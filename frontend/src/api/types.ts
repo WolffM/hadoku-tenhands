@@ -708,3 +708,31 @@ export interface TaskAutoStatus {
   laneOrder: string[]
   prCount: number
 }
+
+/** One taskauto PR's diff, plus the task it came from — for in-app review.
+ *  Flat envelope: the fields sit alongside `success`, like every taskauto route. */
+export interface TaskAutoPRDetails {
+  success: boolean
+  number: number
+  title: string
+  body?: string
+  author: User | null
+  createdAt: string
+  headRefName: string
+  baseRefName: string
+  files?: PRFile[]
+  commits?: number
+  state: string
+  url: string
+  isDraft: boolean
+  additions: number
+  deletions: number
+  changedFiles: number
+  diff: string
+  repo: string
+  /** First 12 chars of the ULID of the task this PR was generated from. */
+  taskId: string
+  taskTitle: string
+  /** The task's `notes` — the plan the human approved, in the pipeline's own markdown. */
+  taskNotes: string
+}

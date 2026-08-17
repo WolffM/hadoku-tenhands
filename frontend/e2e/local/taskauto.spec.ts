@@ -96,6 +96,45 @@ test.describe('review queue', () => {
   })
 })
 
+test.describe('in-app PR review', () => {
+  test('Review diff opens the modal with the diff beside the approved plan', async ({ page }) => {
+    const target = mockTaskAutoPRs[0]
+    await page
+      .getByTestId(`taskauto-pr-${target.number}`)
+      .getByRole('button', { name: /review diff/i })
+      .click()
+
+    const modal = page.getByTestId('taskauto-review-modal')
+    await expect(modal).toBeVisible()
+    await expect(modal).toContainText(target.title)
+    // The diff the pr-details fixture serves for this PR.
+    await expect(modal).toContainText('dragHandler')
+    // The plan section rides alongside the diff — the pairing GitHub can't show.
+    await expect(modal).toContainText('Plan')
+  })
+
+  test('Send back posts the reason and closes the modal', async ({ page, api }) => {
+    const target = mockTaskAutoPRs[0]
+    await page
+      .getByTestId(`taskauto-pr-${target.number}`)
+      .getByRole('button', { name: /review diff/i })
+      .click()
+
+    const modal = page.getByTestId('taskauto-review-modal')
+    await modal.getByRole('button', { name: /^send back$/i }).click()
+    await modal.getByRole('textbox').fill('diff is empty')
+    await modal.getByRole('button', { name: /confirm send back/i }).click()
+
+    await expect(modal).toBeHidden()
+    const sent = api.posts.find(p => p.key === 'POST /api/taskauto/send-back')
+    expect(sent?.body).toMatchObject({
+      repo: target.repo,
+      number: target.number,
+      reason: 'diff is empty'
+    })
+  })
+})
+
 test.describe('task detail', () => {
   test('a lane card opens the task modal headed with its title', async ({ page }) => {
     await page.getByTestId('taskauto-tab-boards').click()

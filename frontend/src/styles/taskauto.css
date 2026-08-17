@@ -443,6 +443,29 @@
   color: var(--color-text-secondary);
 }
 
+/* ── In-app PR review modal (TaskAutoReviewModal) ────────────────────── */
+
+.taskauto-review__plan {
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.taskauto-review__github-link {
+  width: 100%;
+}
+
+.taskauto-review__reason {
+  width: 22rem;
+  max-width: 60vw;
+  padding: var(--hdk-space-sm) var(--hdk-space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--hdk-radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  resize: vertical;
+}
+
 @media (max-width: 640px) {
   .taskauto-lanes {
     grid-template-columns: 1fr;

@@ -12,8 +12,15 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTaskAutoStore } from '../store/taskautoStore'
-import { BoardPanel, PRReviewPanel, RunningNow, TaskDetailModal } from '../components/taskauto'
+import {
+  BoardPanel,
+  PRReviewPanel,
+  RunningNow,
+  TaskAutoReviewModal,
+  TaskDetailModal
+} from '../components/taskauto'
 import { EmptyState, LoadingState, StageTabView } from '../components/common'
+import type { TaskAutoPR } from '../api/types'
 
 type TabKey = 'review' | 'boards'
 
@@ -34,6 +41,7 @@ export function TaskAutoView() {
   const hideTask = useTaskAutoStore(s => s.hideTask)
 
   const [tab, setTab] = useState<TabKey>('review')
+  const [reviewing, setReviewing] = useState<TaskAutoPR | null>(null)
 
   useEffect(() => {
     void loadStatus()
@@ -110,6 +118,7 @@ export function TaskAutoView() {
               onMerge={(repo, number, auto) => {
                 void merge(repo, number, auto)
               }}
+              onReview={setReviewing}
             />
           </>
         )}
@@ -144,6 +153,16 @@ export function TaskAutoView() {
           error={taskError}
           fallbackTitle={openTitle}
           onClose={hideTask}
+        />
+      )}
+
+      {reviewing && (
+        <TaskAutoReviewModal
+          pr={reviewing}
+          onClose={() => setReviewing(null)}
+          onChanged={() => {
+            void loadStatus()
+          }}
         />
       )}
     </div>

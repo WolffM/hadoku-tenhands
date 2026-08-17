@@ -145,6 +145,11 @@ export const defaultRoutes: Table = {
     }
   },
   'POST /api/taskauto/merge': ok({ message: 'Merged' }),
+  // The in-app review modal fetches one PR's diff + its plan by repo+number.
+  // Like status, this IS the response — flat, not nested under `data`.
+  'GET /api/taskauto/pr-details': ({ query }) =>
+    d.mockTaskAutoPRDetail(query.get('repo') ?? '', Number(query.get('number') ?? 0)),
+  'POST /api/taskauto/send-back': ok({ message: 'Sent back to stalled' }),
 
   // ---- temporal ----------------------------------------------------------
   'GET /api/temporal/batches': ok({ batches: d.mockTemporalBatches }),

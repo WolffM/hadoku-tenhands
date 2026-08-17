@@ -35,7 +35,8 @@ import type {
   TemporalReasonCode,
   TemporalSignalResult,
   TaskAutoStatus,
-  TaskAutoTaskDetail
+  TaskAutoTaskDetail,
+  TaskAutoPRDetails
 } from './types'
 
 // ============ Stage APIs ============
@@ -507,4 +508,27 @@ export async function mergeTaskAutoPR(
   auto = false
 ): Promise<{ success: boolean; error?: string; scheduled?: boolean }> {
   return apiClient.post('/api/taskauto/merge', { repo, number, auto })
+}
+
+/** One PR's diff plus the task it came from — the in-app review, no GitHub tab. */
+export async function getTaskAutoPRDetails(
+  repo: string,
+  number: number
+): Promise<TaskAutoPRDetails> {
+  const res = await apiClient.get<TaskAutoPRDetails>(
+    `/api/taskauto/pr-details?repo=${encodeURIComponent(repo)}&number=${number}`
+  )
+  if (!res.success) {
+    throw new Error('Failed to load PR details')
+  }
+  return res
+}
+
+/** Send a PR's task back to `stalled` with a reason a human can read later. */
+export async function sendTaskAutoPRBack(
+  repo: string,
+  number: number,
+  reason: string
+): Promise<{ success: boolean; error?: string }> {
+  return apiClient.post('/api/taskauto/send-back', { repo, number, reason })
 }
