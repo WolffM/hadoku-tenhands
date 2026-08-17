@@ -161,6 +161,14 @@ jobs:
           # at install; the fix is a read:packages PAT, never HADOKU_SITE_TOKEN.
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Prettier drift is not cosmetic in a repo whose pre-commit hook runs
+      # `format --write`: seven files had drifted, so the next person to commit
+      # anything picked up their reformatting as unrelated churn in the diff.
+      # Checking it here keeps that from rebuilding.
+      - name: Format check
+        working-directory: frontend
+        run: pnpm run format:check
+
       - name: Typecheck
         working-directory: frontend
         run: pnpm run typecheck

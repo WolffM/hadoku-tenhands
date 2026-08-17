@@ -111,7 +111,11 @@ export function PipelineRunsPanel() {
       void fetch(url)
         .then(r => r.text())
         .then(html => setReportDoc(html))
-        .catch(() => setReportDoc('<p style="font:14px sans-serif;padding:1rem">Report unavailable in the demo.</p>'))
+        .catch(() =>
+          setReportDoc(
+            '<p style="font:14px sans-serif;padding:1rem">Report unavailable in the demo.</p>'
+          )
+        )
       return
     }
     setReportUrl(url)
@@ -236,13 +240,22 @@ export function PipelineRunsPanel() {
 
       {/* Report Modal */}
       {(reportUrl || reportDoc) && (
-        <div className="report-modal" onClick={() => { setReportUrl(null); setReportDoc(null) }}>
+        <div
+          className="report-modal"
+          onClick={() => {
+            setReportUrl(null)
+            setReportDoc(null)
+          }}
+        >
           <div className="report-modal__content" onClick={e => e.stopPropagation()}>
             <div className="report-modal__header">
               <h3>Pipeline Report</h3>
               <button
                 className="btn btn--secondary btn--sm"
-                onClick={() => { setReportUrl(null); setReportDoc(null) }}
+                onClick={() => {
+                  setReportUrl(null)
+                  setReportDoc(null)
+                }}
               >
                 Close
               </button>

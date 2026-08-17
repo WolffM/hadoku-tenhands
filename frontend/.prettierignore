@@ -1,0 +1,18 @@
+# Prettier's default ignore list is node_modules and nothing else, so without
+# this `pnpm run format` rewrote build output — dist/*.d.ts, the demo bundle,
+# and test-results/.last-run.json — on every run. Two problems with that: the
+# pre-commit hook calls `format --write`, so every commit churned generated
+# files; and `format:check` (now a CI step) would fail against a tree that had
+# been built, because tsc's .d.ts output is not written in Prettier's style.
+#
+# Everything here is generated or vendored. Nothing here is edited by hand.
+dist/
+dist-demo/
+test-results/
+playwright-report/
+coverage/
+
+# Generated from backend/helpers/report_generator.py's HTML_TEMPLATE — edit the
+# template, not this. (Not matched by the format glob today, but it is exactly
+# the kind of file that should never be reformatted in place.)
+src/demo/issue-report.html

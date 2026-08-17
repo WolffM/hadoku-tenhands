@@ -190,7 +190,8 @@
    already carry a semantic color (Approve = success, Abort = danger) keep their
    own hover — without this exclusion the descendant selector out-specifies the
    .btn--success/.btn--danger hover and flips green/red buttons to primary. */
-.temporal-inbox__actions button:not(.btn--success):not(.btn--danger):not(.btn--warning):hover:not(:disabled) {
+.temporal-inbox__actions
+  button:not(.btn--success):not(.btn--danger):not(.btn--warning):hover:not(:disabled) {
   border-color: var(--color-primary);
   color: var(--color-primary);
 }

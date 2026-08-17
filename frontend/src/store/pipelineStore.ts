@@ -18,7 +18,8 @@ export type { ViewType, LogEntry } from './uiStore'
 
 // ============ Combined State ============
 
-interface PipelineState extends VibeCheckSliceState, OSSSliceState, UISliceState, FilterSliceState {}
+interface PipelineState
+  extends VibeCheckSliceState, OSSSliceState, UISliceState, FilterSliceState {}
 
 // ============ Store ============
 

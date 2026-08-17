@@ -237,10 +237,7 @@ function TemporalRetroTab() {
       </div>
 
       {!selectedBatchId && (
-        <p
-          className="retro-empty u-center-pad"
-          data-testid="retro-temporal-no-selection"
-        >
+        <p className="retro-empty u-center-pad" data-testid="retro-temporal-no-selection">
           Select a batch above to see its issues.
         </p>
       )}

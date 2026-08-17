@@ -137,9 +137,7 @@ export function IssueDetail({ batchId, issueId }: IssueDetailProps) {
           <ul className="temporal-issue-detail__events">
             {issue.events.slice(-20).map((e, i) => (
               <li key={i} data-testid="temporal-event">
-                <pre className="temporal-event__json">
-                  {JSON.stringify(e, null, 2)}
-                </pre>
+                <pre className="temporal-event__json">{JSON.stringify(e, null, 2)}</pre>
               </li>
             ))}
           </ul>

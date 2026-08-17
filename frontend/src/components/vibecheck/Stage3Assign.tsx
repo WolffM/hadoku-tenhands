@@ -210,52 +210,52 @@ export function Stage3Assign() {
           Hidden when every issue is already in Recommended, so it never shows a
           "no issues" message while issues exist above it. */}
       {(otherIssues.length > 0 || recommended.length === 0) && (
-      <div className="stage-section">
-        <SectionHeader title={recommended.length > 0 ? 'Other Issues' : 'All Issues'}>
-          <BatchActionBar
-            onSelectAll={() => selectAll(otherIssues)}
-            onSelectNone={selectNone}
-            onProcess={() => {
-              void processSelected(otherIssues)
-            }}
-            selectedCount={selectedCount}
-            processLabel="Assign Selected"
-            processing={assigning}
-          />
-        </SectionHeader>
+        <div className="stage-section">
+          <SectionHeader title={recommended.length > 0 ? 'Other Issues' : 'All Issues'}>
+            <BatchActionBar
+              onSelectAll={() => selectAll(otherIssues)}
+              onSelectNone={selectNone}
+              onProcess={() => {
+                void processSelected(otherIssues)
+              }}
+              selectedCount={selectedCount}
+              processLabel="Assign Selected"
+              processing={assigning}
+            />
+          </SectionHeader>
 
-        {otherIssues.length === 0 ? (
-          <p className="text-secondary text-center">No issues found matching filters</p>
-        ) : (
-          <div className="table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th className="data-table__col-check"></th>
-                  <th>Repo</th>
-                  <th>#</th>
-                  <th>Title</th>
-                  <th>Severity</th>
-                  <th>Created Date</th>
-                  <th>Labels</th>
-                </tr>
-              </thead>
-              <tbody>
-                {otherIssues.map(issue => (
-                  <IssueRow
-                    key={`${issue.repo}:${issue.number}`}
-                    issue={issue}
-                    checked={isSelected(issue)}
-                    onChange={() => toggleItem(issue)}
-                    disabled={assigning}
-                    showLabels
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+          {otherIssues.length === 0 ? (
+            <p className="text-secondary text-center">No issues found matching filters</p>
+          ) : (
+            <div className="table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th className="data-table__col-check"></th>
+                    <th>Repo</th>
+                    <th>#</th>
+                    <th>Title</th>
+                    <th>Severity</th>
+                    <th>Created Date</th>
+                    <th>Labels</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {otherIssues.map(issue => (
+                    <IssueRow
+                      key={`${issue.repo}:${issue.number}`}
+                      issue={issue}
+                      checked={isSelected(issue)}
+                      onChange={() => toggleItem(issue)}
+                      disabled={assigning}
+                      showLabels
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
