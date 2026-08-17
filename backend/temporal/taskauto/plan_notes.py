@@ -32,6 +32,7 @@ from typing import Optional
 #: a fourth round of questions.
 MAX_PASSES = 3
 
+H_OUTCOME = "Outcome"
 H_UNDERSTANDING = "What I think you want"
 H_PLAN = "Plan"
 H_QUESTIONS = "Questions"
@@ -40,7 +41,8 @@ H_ACCEPTANCE = "How we'll know it worked"
 H_BLAST = "Blast radius"
 
 _KNOWN_HEADINGS = (
-    H_UNDERSTANDING, H_PLAN, H_QUESTIONS, H_SETTLED, H_ACCEPTANCE, H_BLAST,
+    H_OUTCOME, H_UNDERSTANDING, H_PLAN, H_QUESTIONS, H_SETTLED, H_ACCEPTANCE,
+    H_BLAST,
 )
 
 _HEADING_RE = re.compile(r"^##\s+(?P<title>.+?)\s*$", re.MULTILINE)
@@ -59,6 +61,12 @@ _BULLET_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+(?P<text>.+?)\s*$")
 class PlanDoc:
     """One pass of the planning conversation."""
 
+    #: What happened *to* the task — merged, opened as a PR, verified-not-pushed.
+    #: Distinct from `understanding` (what the task is *for*): a status line under
+    #: "What I think you want" reads as nonsense once a task is done, so a
+    #: terminal/in-flight state gets its own heading and the understanding is
+    #: free to keep meaning what it says.
+    outcome: str = ""
     understanding: str = ""
     plan: list[str] = field(default_factory=list)
     questions: list[str] = field(default_factory=list)
@@ -104,6 +112,11 @@ def render(doc: PlanDoc) -> str:
     wants to know, and its absence would be ambiguous with a truncated doc.
     """
     parts: list[str] = []
+
+    # Outcome first: on a done or in-flight task it is the one thing the reader
+    # wants at a glance, above the plan that produced it.
+    if doc.outcome:
+        parts.append(f"## {H_OUTCOME}\n\n{doc.outcome.strip()}")
 
     if doc.understanding:
         parts.append(f"## {H_UNDERSTANDING}\n\n{doc.understanding.strip()}")
@@ -235,6 +248,7 @@ def parse(text: str) -> PlanDoc:
             residues.append(residue)
         return items
 
+    doc.outcome = sections.get(H_OUTCOME, "").strip()
     doc.understanding = sections.get(H_UNDERSTANDING, "").strip()
     doc.plan = section(H_PLAN)
     doc.acceptance = section(H_ACCEPTANCE)

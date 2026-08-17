@@ -404,7 +404,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             # check below. Whether it still needs a human is the one thing the
             # note must get right; reconciliation archives it either way once
             # the PR actually merges.
-            understanding = (
+            status = (
                 "Implemented and pushed as a pull request. NOT merged yet — "
                 "auto-merge is armed, so GitHub lands it when the required "
                 f"checks go green.\n\n{res.pr_url}\n\n"
@@ -414,9 +414,12 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 "Implemented and pushed as a pull request. NOT merged — this "
                 f"is waiting on you.\n\n{res.pr_url}\n\n"
                 "Merge it if the checks are green and the diff reads right.")
+            # Status goes under Outcome; the understanding the human approved is
+            # carried through unchanged, and the execution log stays under Plan
+            # while the task is in flight (reconciliation drops it on merge).
             return (pr_lane,
                     plan_notes.render(PlanDoc(
-                        understanding=understanding,
+                        outcome=status, understanding=doc.understanding,
                         plan=res.checks, acceptance=doc.acceptance,
                         blast_radius=outcome.changed_files, pass_number=1)),
                     f"pr-open:{res.pr_url.rsplit('/', 1)[-1]}")
@@ -424,7 +427,8 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         if not res.pushed:
             return (selection.LANE_PLAN_REVIEW,
                     plan_notes.render(PlanDoc(
-                        understanding="Verified but NOT pushed (dry run).",
+                        outcome="Verified but NOT pushed (dry run).",
+                        understanding=doc.understanding,
                         plan=res.checks, acceptance=doc.acceptance,
                         blast_radius=outcome.changed_files, pass_number=1)),
                     "dry-run")
@@ -445,9 +449,10 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                                   "this change was NOT taken back")
                     return (selection.LANE_STALLED,
                             plan_notes.render(PlanDoc(
-                                understanding="Landed, then production went "
-                                              "red — and could not be "
-                                              "reverted automatically.",
+                                outcome="Landed, then production went red — "
+                                        "and could not be reverted "
+                                        "automatically.",
+                                understanding=doc.understanding,
                                 plan=checks, pass_number=1)),
                             "landed:unwatched-red")
                 rev = reverter.revert(checkout, res.commit_sha,
@@ -455,8 +460,9 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 checks.append(f"REVERTED as {rev[:8]}")
                 return (selection.LANE_STALLED,
                         plan_notes.render(PlanDoc(
-                            understanding=("Landed, production went red, and "
-                                           "the change was reverted."),
+                            outcome=("Landed, production went red, and the "
+                                     "change was reverted."),
+                            understanding=doc.understanding,
                             plan=checks,
                             questions=[verdict.reason],
                             blast_radius=outcome.changed_files,
@@ -467,8 +473,9 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
 
         return (selection.LANE_LANDED,
                 plan_notes.render(PlanDoc(
-                    understanding="Landed and production stayed healthy."
-                                  if watcher and health_url else "Landed.",
+                    outcome="Landed and production stayed healthy."
+                            if watcher and health_url else "Landed.",
+                    understanding=doc.understanding,
                     plan=checks, acceptance=doc.acceptance,
                     blast_radius=outcome.changed_files, pass_number=1)),
                 f"landed:{res.commit_sha[:8]}")

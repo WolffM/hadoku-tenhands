@@ -177,14 +177,24 @@ def _merged_notes(task: BoardTask, pr: PRRef) -> str:
     """Notes for a task being archived because its PR merged.
 
     Still rendered rather than blanked: the task is archived, not deleted, and
-    the plan is the only record of why the change looks the way it does.
+    this is the only reader-facing record of what shipped.
+
+    The merge outcome is the headline, under its own heading — not stuffed into
+    "What I think you want", where a status line reads as nonsense. The prior
+    `plan` is dropped on purpose: by landing time it holds the pipeline's own
+    execution log (committed / pushed / opened-PR), which is bookkeeping the
+    claim log already keeps and no reader of an archived task wants. The changed
+    files carry over as the summary of what actually shipped.
     """
     prior = plan_notes.parse(task.notes or "")
+    files = prior.blast_radius
+    summary = f"Merged via {pr.url}."
+    if files:
+        summary += f"\n\n{len(files)} file(s) changed."
     return plan_notes.render(PlanDoc(
-        understanding=f"Merged. {pr.url}",
-        plan=prior.plan,
+        outcome=summary,
         acceptance=prior.acceptance,
-        blast_radius=prior.blast_radius,
+        blast_radius=files,
         pass_number=1,
     ))
 

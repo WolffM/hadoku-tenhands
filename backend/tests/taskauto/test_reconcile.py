@@ -177,14 +177,26 @@ def test_replan_resets_to_pass_one_so_a_retry_cannot_start_at_the_cap():
     assert not doc.at_pass_cap
 
 
-def test_merged_notes_record_the_merge_and_keep_the_plan():
-    prior = plan_notes.render(PlanDoc(understanding="u", plan=["step one"]))
+def test_merged_notes_record_the_merge_under_outcome_and_summarise_files():
+    # By landing time the plan section holds the execution log, not the plan —
+    # blast_radius holds the files that actually changed.
+    prior = plan_notes.render(PlanDoc(
+        understanding="u",
+        plan=["committed on taskauto/abc", "opened pull request"],
+        blast_radius=["src/a.py", "src/b.py"]))
+    pr = PRRef("WolffM/x", 8)
     v = reconcile.decide(task(notes=prior + f"\n\n{PR_URL}"),
-                         PRRef("WolffM/x", 8),
+                         pr,
                          PRState(state="MERGED", merged=True))
     doc = plan_notes.parse(v.notes)
-    assert "Merged." in doc.understanding
-    assert doc.plan == ["step one"]
+    # The merge is the headline, under Outcome — never mislabelled as the want.
+    assert "Merged via" in doc.outcome
+    assert pr.url in doc.outcome
+    assert "2 file(s) changed" in doc.outcome
+    assert doc.understanding == ""
+    # The execution log is dropped; the changed files remain as the summary.
+    assert doc.plan == []
+    assert doc.blast_radius == ["src/a.py", "src/b.py"]
 
 
 # ── the sweep-level behaviour ─────────────────────────────────────────────
