@@ -22,8 +22,13 @@ wheels/
 *.egg
 
 # Virtual Environment
-.venv/
-venv/
+# No trailing slash: a worktree shares the main checkout's env by SYMLINKING it
+# (playwright.config.ts resolves ../.venv relative to the worktree), and `.venv/`
+# matches directories only — so the symlink showed up as untracked and a
+# `git add -A` would commit it. CLAUDE.md tells everyone to use worktrees, so
+# this is the normal case, not an edge one.
+.venv
+venv
 ENV/
 env/
 
