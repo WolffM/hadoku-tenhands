@@ -60,7 +60,7 @@ jobs:
       - name: Serve the demo at the site root
         # The Rollup input is demo.html, so the build emits dist-demo/demo.html.
         # Pages serves index.html at the site root; copy it so wolffm.github.io/
-        # tenhands/ loads the demo directly. Asset refs use the /tenhands/ base,
+        # hadoku-tenhands/ loads the demo directly. Asset refs use the /hadoku-tenhands/ base,
         # so the copy needs no rewriting.
         working-directory: frontend
         run: cp dist-demo/demo.html dist-demo/index.html

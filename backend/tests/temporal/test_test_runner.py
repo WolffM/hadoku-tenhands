@@ -290,7 +290,7 @@ def test_default_dispatch_sends_bearer_header(monkeypatch):
     monkeypatch.setattr(requests, "post", fake_post)
 
     result = _default_dispatch_test(
-        runner_url="http://claw-3:5500",
+        runner_url="http://sandbox-host:5500",
         fork_slug="WolffM/x",
         branch="b",
         command="pytest",
@@ -298,7 +298,7 @@ def test_default_dispatch_sends_bearer_header(monkeypatch):
     )
 
     assert result["exit_code"] == 0
-    assert captured["url"] == "http://claw-3:5500/run"
+    assert captured["url"] == "http://sandbox-host:5500/run"
     assert captured["headers"] == {"Authorization": "Bearer deadbeefcafe"}
     assert captured["json"] == {"fork_slug": "WolffM/x", "branch": "b", "command": "pytest"}
 

@@ -340,8 +340,7 @@ checks* — rather than a person looking at the final diff.
 That is a real reduction in safety, taken deliberately for velocity, and it is only defensible
 because of the middle term. The moment a repo's required checks stop being meaningful, or a plan
 gets approved without being read, this becomes exactly the unattended-merge pipeline §4 was written
-to argue against. The one hard floor is
-[pr-gate-invariant.md](pr-gate-invariant.md): a repo whose base branch requires **no** checks does
+to argue against. The one hard floor: a repo whose base branch requires **no** checks does
 not get auto-merge at all, because `--auto` there means "merge now, unreviewed" rather than "merge
 on green". Those PRs hold for a human, which is the old behaviour, kept for exactly the case where
 the new argument doesn't hold.
@@ -477,28 +476,24 @@ lock only needs to span the shorter plan-through-PR cycle.
 That's acceptable at these volumes — the work arrives at human-typing rates, and tasks on
 *different* repos run concurrently.
 
-### 4.3 The unmitigated risk is where the agent runs, not what it merges
+### 4.3 The risk that matters is where the agent runs, not what it merges
 
-Everything above is about the change. The bigger exposure is the **process**: `ClaudeCodeAgent` runs
-headless `claude -p` on the production host, which is the same box as the vault key, the `gh` token,
-the pm2 services, and every other repo's checkout. That is arbitrary code execution next to the
-credentials, and no gate on this page constrains it — gates inspect the *diff*, and by then the
-process has already run.
+Everything above is about the change. The subtler exposure is the **process**: a local
+`ClaudeCodeAgent` running headless `claude -p` is code execution, and gates only inspect the *diff*
+— by then the process has already run. crimson-kitty never had this problem because its agent was
+Copilot, executing on GitHub's infrastructure; moving to a local agent is a genuine escalation that
+"same engine, different ends" otherwise disguises, because the *pipeline* looks unchanged.
 
-crimson-kitty never had this problem: its agent was Copilot, executing on GitHub's infrastructure.
-Moving to a local agent is a genuine escalation that the swap to "same engine, different ends"
-otherwise disguises, because the *pipeline* looks unchanged.
+So the local-agent execution surface has to be constrained independently of the gates. The
+containment principle, in order of strength:
 
-This is unresolved and it should be resolved before the agent runs unattended. The options, roughly
-in order of cost:
-
-- **Scope the credentials.** A dedicated GitHub token limited to the repos with auto-land boards,
-  not the ambient user token. Cheap and worth doing regardless.
-- **Deny the agent the vault.** It has no legitimate need for `.devvault.local.json`; the worktree
-  should not be able to read it.
+- **Scope the credentials** — a dedicated token limited to the auto-land repos, never an ambient
+  broad-scope token.
+- **Deny the agent the vault** — it has no legitimate need for secret material; the worktree it runs
+  in must not be able to read one.
 - **Containerise the agent** — its own filesystem namespace with just the worktree mounted.
-- **Move it off the prod host** to a disposable runner, which also neatly solves the ephemeral
-  per-task environment from §4.1.
+- **Run it on a disposable runner** off any host that holds credentials, which also gives the
+  ephemeral per-task environment from §4.1.
 
 The last two overlap heavily with work we want anyway, which is an argument for doing them properly
 rather than bolting on a restriction.

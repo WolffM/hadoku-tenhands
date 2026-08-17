@@ -29,8 +29,7 @@ cannot be skipped, so it is what got built first.
 
 **The push half now exists, and it is not a webhook to this process.**
 hadoku-task fires a GitHub `repository_dispatch` when a human writes a task
-into a `user` lane, which starts the workflow in seconds — see
-`docs/hadoku-task-automation/ask-dispatch-on-lane-change.md`. Routing the wake
+into a `user` lane, which starts the workflow in seconds. Routing the wake
 through GitHub rather than an inbound endpoint here is deliberate: an endpoint
 that can be poked from outside to make a service that merges to `main` start
 working is a security posture change, and this way tenhands still only makes

@@ -107,8 +107,8 @@ with `Date.now` pushed past your TTL so the revalidation path runs for real.
 ```
 
 > **Follow-up, 2026-07-26:** activation reads the contract once, so a board goes stale the next time
-> we change a lane — and only its owner can re-activate. [ask-preset-sync.md](ask-preset-sync.md)
-> asks hadoku-task to surface that on the board read.
+> we change a lane — and only its owner can re-activate. A follow-up asks the task board to surface
+> that staleness on the board read.
 
 ## 6. The contract, machine-readable
 

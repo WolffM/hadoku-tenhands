@@ -14,7 +14,7 @@ import react from '@vitejs/plugin-react'
  */
 export default defineConfig({
   plugins: [react()],
-  base: process.env.DEMO_BASE ?? '/tenhands/',
+  base: process.env.DEMO_BASE ?? '/hadoku-tenhands/',
   build: {
     outDir: 'dist-demo',
     target: 'es2022',

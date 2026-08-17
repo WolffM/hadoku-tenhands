@@ -14,10 +14,6 @@ gated on the full test suite passing against the merge result).
 > **North star:** every PR we submit, we'd be willing to defend in a public
 > thread.
 
-**[Try the live demo →](https://wolffm.github.io/tenhands/)** — the real UI over
-canned data (no backend, no login): click through all four pipeline generations,
-inspect a crimson-kitty batch's gates and evidence, and approve a preview PR.
-
 ## The story
 
 The full arc is in [docs/HISTORY.md](docs/HISTORY.md). The short version:
@@ -74,12 +70,8 @@ The documents worth reading, in the order they earn it:
   abort was correct.
 - [taskauto day-one run report](docs/hadoku-task-automation/run-report-2026-07-25.md)
   — 7 unattended commits to `main`, and the autonomy proof.
-- The engineering-process letters — cross-repo design review conducted in
-  writing: [board-contract.md](docs/hadoku-task-automation/board-contract.md),
-  [ask-share-by-name.md](docs/hadoku-task-automation/ask-share-by-name.md),
-  [ask-preset-sync.md](docs/hadoku-task-automation/ask-preset-sync.md),
-  [ask-api-doc-drift.md](docs/hadoku-task-automation/ask-api-doc-drift.md),
-  [ask-dispatch-on-lane-change.md](docs/hadoku-task-automation/ask-dispatch-on-lane-change.md).
+- The [board contract](docs/hadoku-task-automation/board-contract.md) — the
+  negotiated API between this pipeline and the task board, worked out in writing.
 
 The failure numbers are part of the record, on purpose: 55 dispatched / 1
 merged at jade-hare; 0/5 submitted in crimson-kitty's first smoke batch (all
@@ -191,7 +183,7 @@ approval -- are upstream cross-references (e.g., `Fixes #N`) included.
 ### Prerequisites
 
 - Python 3.8+
-- Node.js 18+ and pnpm
+- Node.js 20+ and pnpm
 - [GitHub CLI (`gh`)](https://cli.github.com/) authenticated via `gh auth login`
 
 ### Backend

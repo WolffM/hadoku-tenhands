@@ -5,8 +5,7 @@
 
 > **Superseded 2026-07-24 — everything in §4 shipped the same day.** Kept as the design review and
 > the record of what was asked. §1 has been updated with the as-shipped API and is the part still
-> worth reading; §4's asks are annotated with what landed. The one outstanding request has moved to
-> [ask-share-by-name.md](ask-share-by-name.md), and current build state is in
+> worth reading; §4's asks are annotated with what landed. Current build state is in
 > [README.md](README.md) §7.
 
 We read your code before writing this, not just the doc — findings in §1, and several of the

@@ -1,6 +1,6 @@
 import './demo.css'
 
-const REPO_URL = 'https://github.com/WolffM/tenhands'
+const REPO_URL = 'https://github.com/WolffM/hadoku-tenhands'
 
 /**
  * A fixed banner that makes the fiction explicit: every view is real, the data

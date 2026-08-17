@@ -292,7 +292,7 @@ class IssueWorkflow:
             # cktest sandbox clones `inp.branch_name` (the crimson-kitty-N
             # operator branch), and that branch doesn't exist on the fork
             # remote until replicate force-pushes it here. Putting
-            # run_test_command first meant claw-3 was clone-failing 100%
+            # run_test_command first meant the sandbox host was clone-failing 100%
             # of the time because the ref it wanted was created seconds
             # later by replicate. See docker/compose#13772 verify run
             # (2026-05-13 18:51): 5 retry attempts spanning 31s all

@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run vibeCompact
-        uses: WolffM/vibecheck@main
+        uses: WolffM/vibecheck@cdfe59779dc6df23a6d546120d51fdd331c45efa  # main
         with:
           mode: audit
           github_token: ${{ secrets.GITHUB_TOKEN }}
