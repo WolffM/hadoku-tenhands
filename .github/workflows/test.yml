@@ -33,13 +33,19 @@ jobs:
     name: backend pytest
     # SECURITY: never let a fork PR reach the self-hosted host. Same-repo
     # branches (the normal path, and everything the automation lander opens)
-    # run here; a pull_request from a fork skips this job entirely and gets its
-    # signal from `backend-fork` below on a GitHub-hosted runner instead. This
-    # is belt-and-suspenders with the repo's "require approval for outside
-    # collaborators" Actions setting.
+    # run here. Gated on author_association, NOT on head.repo.full_name: the
+    # latter asks "is this a fork?", which also pushed our OWN collaborators off
+    # the self-hosted suite whenever they worked from a fork — a normal way to
+    # work, and not the question we mean to ask. What matters is whether the
+    # author is authorized on this repo, which is exactly what
+    # author_association answers, and GitHub computes it rather than the
+    # submitter supplying it. An unauthorized author gets its signal from
+    # `backend-fork` below instead. This is belt-and-suspenders with the repo's
+    # "require approval for outside collaborators" Actions setting.
     if: >-
       github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+               github.event.pull_request.author_association)
     # The pm2 host via its tenhands registration. The `taskauto` label is
     # deliberately opt-in: the builder fleet (`hadoku-builder`) still serves
     # deploy/publish, and only workflows that ask for `taskauto` land here.
@@ -106,8 +112,10 @@ jobs:
 
   backend-fork:
     name: backend pytest (fork)
-    # The signal for pull requests opened from a fork, which the self-hosted
-    # `backend` job deliberately refuses to run. GitHub-hosted, zero secrets, so
+    # The signal for pull requests from an UNAUTHORIZED author, which the
+    # self-hosted `backend` job deliberately refuses to run. Kept exactly
+    # inverse to that job's condition so the two can never both fire, and never
+    # both skip. GitHub-hosted, zero secrets, so
     # untrusted code never touches the production host or a live credential.
     # One test is deselected: test_score_integration_real_cli is the only
     # unmocked coverage of the LLM judge and needs CLAUDE_CODE_OAUTH_TOKEN,
@@ -116,7 +124,8 @@ jobs:
     # the branch inside this repo, where the `backend` job runs it.
     if: >-
       github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name != github.repository
+      !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
