@@ -118,17 +118,22 @@ jobs:
     # green, "green" meant the backend suite passed and nothing had read a line
     # of TypeScript. This is what makes it mean the frontend too.
     #
-    # Same author_association gate as `backend`, for a different reason: the
-    # @wolffm/* packages come from GitHub Packages, so `pnpm install` needs
-    # DEMO_PACKAGES_TOKEN. A fork PR gets no secrets and therefore cannot install
-    # dependencies at all — there is no fork counterpart to write. Stated plainly
-    # rather than papered over with a job that would only ever fail.
+    # Same author_association gate as `backend`, but NOT for the same reason —
+    # this job is GitHub-hosted and takes no privileged secret, so it is not a
+    # self-hosted exposure. It is gated because a fork PR's GITHUB_TOKEN cannot
+    # read this org's packages, so `pnpm install` could not resolve @wolffm/*
+    # and the job would only ever fail. Stated plainly rather than papered over.
     if: >-
       github.event_name != 'pull_request' ||
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
                github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Job-scoped so the backend jobs keep the workflow's default token. `packages`
+    # is what the @wolffm/* install below reads.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v6
 
@@ -148,9 +153,13 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
         env:
-          # Read-only packages PAT scoped to @wolffm reads, same as pages.yml.
-          # NOT HADOKU_SITE_TOKEN.
-          NODE_AUTH_TOKEN: ${{ secrets.DEMO_PACKAGES_TOKEN }}
+          # Built-in, repo-scoped, read-only for packages — same choice pages.yml
+          # made in 721d5e7, and it works here for the same reason: every
+          # @wolffm package this tree installs (themes, task-ui-components,
+          # logger) is PUBLIC. No PAT to mint, rotate, or leak on a hosted
+          # runner. If a private package ever enters the tree this breaks loudly
+          # at install; the fix is a read:packages PAT, never HADOKU_SITE_TOKEN.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
         working-directory: frontend
