@@ -36,6 +36,21 @@ if ! pnpm run lint:css; then
   exit 1
 fi
 
+# Icon gate — fails on a raw emoji in an icon position, or an <Icon name>/
+# getIconSvg() name that is not in the @wolffm/themes registry.
+#
+# Chained into `lint` it ran nowhere: this hook calls `lint:fix` (eslint alone),
+# and no workflow called `lint` either, so the checker existed and never
+# executed. It gets its own step here for the same reason typecheck and
+# stylelint do.
+echo "🖼️  Running the icon gate..."
+if ! pnpm run lint:icons; then
+  echo "❌ Raw emoji or an unknown icon name — each finding prints its own fix."
+  echo "💡 An emoji that must stay (terminal/Discord/GitHub output, .textContent,"
+  echo "   a text-only attribute) waives with /* check-icons-disable-next-line */."
+  exit 1
+fi
+
 # Re-stage only the originally-staged files so eslint --fix / prettier edits
 # land in the commit — never sweep unrelated worktree changes.
 # Version bumping + publishing is owned by CI (.github/workflows/publish.yml):

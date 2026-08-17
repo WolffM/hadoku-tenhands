@@ -110,6 +110,65 @@ jobs:
         # to investigate, not the normal state.
         run: ../.venv-ci/bin/python -m pytest tests/ -q
 
+  frontend:
+    name: frontend lint + typecheck
+    # The frontend had no CI at all: eslint, tsc and the icon gate ran only in a
+    # local pre-commit hook, which `--no-verify` skips and which never runs for a
+    # PR opened by the automation lander. Since that lander arms auto-merge on
+    # green, "green" meant the backend suite passed and nothing had read a line
+    # of TypeScript. This is what makes it mean the frontend too.
+    #
+    # Same author_association gate as `backend`, for a different reason: the
+    # @wolffm/* packages come from GitHub Packages, so `pnpm install` needs
+    # DEMO_PACKAGES_TOKEN. A fork PR gets no secrets and therefore cannot install
+    # dependencies at all — there is no fork counterpart to write. Stated plainly
+    # rather than papered over with a job that would only ever fail.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+               github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: https://npm.pkg.github.com
+          scope: '@wolffm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.5.0 --activate
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+        env:
+          # Read-only packages PAT scoped to @wolffm reads, same as pages.yml.
+          # NOT HADOKU_SITE_TOKEN.
+          NODE_AUTH_TOKEN: ${{ secrets.DEMO_PACKAGES_TOKEN }}
+
+      - name: Typecheck
+        working-directory: frontend
+        run: pnpm run typecheck
+
+      # `lint` is eslint followed by lint:icons (the @wolffm/themes icon gate).
+      - name: Lint
+        working-directory: frontend
+        run: pnpm run lint
+
+      # The gate is a worklist, not proof. Two of this migration's defects were
+      # invisible to both eslint and the checker and only showed up in a build:
+      # an icon name written as a \uXXXX escape is ASCII in source and a
+      # pictograph in the bundle.
+      - name: Build
+        working-directory: frontend
+        run: pnpm run build
+
   backend-fork:
     name: backend pytest (fork)
     # The signal for pull requests from an UNAUTHORIZED author, which the
