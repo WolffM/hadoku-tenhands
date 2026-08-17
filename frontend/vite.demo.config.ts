@@ -21,5 +21,14 @@ export default defineConfig({
     rollupOptions: {
       input: 'demo.html'
     }
+  },
+  // Local preview port, recorded in hadoku-registry as `tenhands-demo-preview`.
+  // 5185 sits next to the vite dev server (5184) and is deliberately off the
+  // vite default (4173) to avoid colliding with other repos' previews. The
+  // public copy of this demo is served from GitHub Pages, not here.
+  preview: {
+    host: '127.0.0.1',
+    port: 5185,
+    strictPort: true
   }
 })
