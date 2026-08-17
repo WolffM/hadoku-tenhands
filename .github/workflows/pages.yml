@@ -7,9 +7,15 @@ name: Deploy demo to Pages
 #
 # SECURITY: runs-on is hardcoded to a GitHub-HOSTED runner, never the
 # self-hosted `vars.CI_RUNNER` the other workflows use. This workflow builds on
-# a public-repo push trigger; a self-hosted runner must never execute that. The
-# token below is a read-only packages PAT (DEMO_PACKAGES_TOKEN), deliberately
-# NOT HADOKU_SITE_TOKEN — that admin PAT must not travel to a hosted runner.
+# a public-repo push trigger; a self-hosted runner must never execute that.
+#
+# Package auth is the built-in GITHUB_TOKEN with `packages: read` — no PAT to
+# mint, rotate, or leak on a hosted runner. It works because every @wolffm
+# package this demo installs (themes, task-ui-components, logger) is PUBLIC;
+# the private @wolffm/tenhands is not a demo dependency. If a private package
+# ever enters the demo's tree, this breaks loudly at install and the fix is a
+# read:packages PAT in a secret, never HADOKU_SITE_TOKEN (an admin PAT must
+# not travel to a hosted runner).
 
 on:
   push:
@@ -24,6 +30,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
   pages: write
   id-token: write
 
@@ -50,8 +57,9 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
         env:
-          # Read-only packages PAT scoped to @wolffm reads. NOT HADOKU_SITE_TOKEN.
-          NODE_AUTH_TOKEN: ${{ secrets.DEMO_PACKAGES_TOKEN }}
+          # Built-in, repo-scoped, read-only for packages (see permissions above).
+          # Reads the public @wolffm packages the demo needs; no PAT required.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build the demo bundle
         working-directory: frontend
