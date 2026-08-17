@@ -1,9 +1,11 @@
 """
 GitHub API Service - Wrapper functions for GitHub CLI commands
 
-Token routing: When a command targets a SAML-protected org (e.g., microsoft),
-the SAML_ORG_TOKEN PAT is injected via GH_TOKEN env var. The token is looked up
-lazily at call time (not import time) so dotenv has time to load.
+Token routing: When a command targets a SAML-protected org, a SAML-authorized
+PAT is injected via the GH_TOKEN env var. Which orgs need this, and which env
+var holds each org's token, is configured out-of-band via the SAML_ORG_TOKENS
+env var (JSON) so no specific org or token is named in the code. The token is
+looked up lazily at call time (not import time) so dotenv has time to load.
 """
 
 import os
@@ -16,16 +18,35 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 logger = logging.getLogger(__name__)
 from .cache import get_cached_vibecheck_status, set_cached_vibecheck_status
 
-# Orgs that require SAML-authorized tokens.
-# Maps org name → env var holding the SAML-authorized PAT.
-_SAML_ORG_TOKENS = {
-    "microsoft": "SAML_ORG_TOKEN",
-}
+
+def _load_saml_org_tokens() -> dict:
+    """Map of {org: env-var-name-holding-a-SAML-authorized-token}, configured
+    out-of-band via the SAML_ORG_TOKENS env var (JSON). Empty by default so
+    the public code names no specific org or token.
+
+    Example (set on the host, never committed):
+        SAML_ORG_TOKENS='{"some-org": "SOME_ORG_TOKEN"}'
+    """
+    raw = os.environ.get("SAML_ORG_TOKENS", "")
+    try:
+        parsed = json.loads(raw) if raw else {}
+        return {
+            k.lower(): v
+            for k, v in parsed.items()
+            if isinstance(k, str) and isinstance(v, str)
+        }
+    except (ValueError, TypeError):
+        return {}
+
+
+# Orgs that require SAML-authorized tokens, keyed by lowercased org name →
+# env var holding that org's SAML-authorized PAT. Loaded from SAML_ORG_TOKENS.
+_SAML_ORG_TOKENS = _load_saml_org_tokens()
 
 # Thread-local-ish override: when set, ALL gh commands use this token.
 # Used during pipeline runs that target SAML orgs — the fork (WolffM/repo)
 # inherits SAML enforcement from the upstream org, so every command in the
-# pipeline needs the SAML token, not just the ones targeting microsoft/*.
+# pipeline needs the SAML token, not just the ones targeting the SAML org's repos.
 _force_token = None
 
 
@@ -63,7 +84,7 @@ def _get_saml_token_for_org(org):
 
     Reads from os.environ at call time (lazy) so dotenv has loaded by then.
     """
-    env_var = _SAML_ORG_TOKENS.get(org)
+    env_var = _SAML_ORG_TOKENS.get((org or "").lower())
     if not env_var:
         return None
     return os.environ.get(env_var) or None
@@ -84,7 +105,7 @@ def _extract_org_from_args(args):
             parts = arg.lstrip("/").split("/")
             if len(parts) >= 2:
                 return parts[1].lower()
-        # Positional owner/repo (e.g., "repo fork microsoft/PowerToys")
+        # Positional owner/repo (e.g., "repo fork some-org/SomeRepo")
         if "/" in arg and not arg.startswith("-") and not arg.startswith("repos/") and not arg.startswith("/repos/"):
             owner = arg.split("/")[0].lower()
             if owner in _SAML_ORG_TOKENS:

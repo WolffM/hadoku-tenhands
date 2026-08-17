@@ -47,7 +47,7 @@ def agent(status="", diff="", run=None):
 SECRETS = {
     "HADOKU_SERVICE_KEY": "board-key",
     "TENHANDS_ADMIN_KEY": "admin-key",
-    "SAML_ORG_TOKEN": "sso",
+    "SAML_ORG_TOKEN": "saml-token",
     "HADOKU_SITE_TOKEN": "site",
     "GH_TOKEN": "gh",
     "GITHUB_TOKEN": "gh2",

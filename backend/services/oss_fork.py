@@ -171,7 +171,7 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
         self._disable_upstream_workflows(my_user, repo)
 
         # 4-5. Self-hosted runner setup — only for non-SAML orgs.
-        # SAML-protected orgs (e.g. Microsoft) force COPILOT_AGENT_FIREWALL_ENABLED=true
+        # SAML-protected orgs force COPILOT_AGENT_FIREWALL_ENABLED=true
         # on forks, which blocks self-hosted runners. Those forks use github-hosted.
         if is_saml_org(origin_owner):
             logger.info(
@@ -754,7 +754,7 @@ class OSSForkMixin(OSSRunnerSetupMixin, OSSFirewallMixin):
             language: Primary repo language (for setup steps).
             use_self_hosted: If True, use self-hosted runner (requires firewall
                 disabled). If False, use ubuntu-latest (GitHub-hosted). Forks of
-                SAML-protected orgs (e.g. Microsoft) force firewall ON, so they
+                SAML-protected orgs force firewall ON, so they
                 must use GitHub-hosted runners.
         """
         lang = (language or "").lower()

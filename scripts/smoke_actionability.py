@@ -28,24 +28,28 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 from temporal.judge import score, JudgeUnreachable, JudgeParseError  # noqa: E402
 
 
-# SAML token for Microsoft org — fetched via vault since smoke test runs
-# from the operator workstation, not the prod pm2 env.
-def _fetch_msft_sso() -> str | None:
-    """Fetch SAML_ORG_TOKEN from the vault using tenhands's service-tier key."""
+# SAML-authorized token for a SAML-protected org — fetched via vault since the
+# smoke test runs from the operator workstation, not the prod pm2 env. The vault
+# key name is configurable so no specific org or token is named here.
+SAML_TOKEN_VAULT_KEY = os.environ.get("SAML_ORG_TOKEN_VAULT_KEY", "SAML_ORG_TOKEN")
+
+
+def _fetch_saml_token() -> str | None:
+    """Fetch the SAML-org token from the vault using tenhands's service-tier key."""
     try:
         vkey = json.loads((REPO_ROOT / ".devvault.local.json").read_text())["key"]
         req = urllib.request.Request(
-            "https://hadoku.me/mgmt/api/secrets/get/SAML_ORG_TOKEN",
+            f"https://hadoku.me/mgmt/api/secrets/get/{SAML_TOKEN_VAULT_KEY}",
             headers={"X-User-Key": vkey, "User-Agent": "curl/8.5.0"},
         )
         body = json.loads(urllib.request.urlopen(req, timeout=15).read())
         return body.get("value")
     except Exception as e:
-        print(f"  ! could not fetch SAML_ORG_TOKEN: {e}", file=sys.stderr)
+        print(f"  ! could not fetch SAML-org token: {e}", file=sys.stderr)
         return None
 
 
-_MSFT_TOKEN = None
+_SAML_TOKEN = None
 
 
 # 5 hand-picked smoke targets, with the operator's expected verdict noted
@@ -92,16 +96,16 @@ SMOKE_TARGETS = [
 def _gh(args: list[str], saml_org: bool = False) -> dict | list | None:
     """Run gh api and parse JSON. Returns None on failure.
 
-    When `saml_org=True`, injects GH_TOKEN=SAML_ORG_TOKEN so SAML-required orgs
-    (Microsoft) work. This mirrors tenhands's prod routing in
+    When `saml_org=True`, injects a SAML-authorized token as GH_TOKEN so
+    SAML-required orgs work. This mirrors tenhands's prod routing in
     services/github_api.py."""
     env = os.environ.copy()
     if saml_org:
-        global _MSFT_TOKEN
-        if _MSFT_TOKEN is None:
-            _MSFT_TOKEN = _fetch_msft_sso()
-        if _MSFT_TOKEN:
-            env["GH_TOKEN"] = _MSFT_TOKEN
+        global _SAML_TOKEN
+        if _SAML_TOKEN is None:
+            _SAML_TOKEN = _fetch_saml_token()
+        if _SAML_TOKEN:
+            env["GH_TOKEN"] = _SAML_TOKEN
 
     r = subprocess.run(["gh", "api"] + args, capture_output=True, text=True, timeout=30, env=env)
     if r.returncode != 0:
@@ -128,11 +132,11 @@ def _gh_paginated(endpoint: str, saml_org: bool = False, max_pages: int = 10) ->
     headers is worse — fail loudly via the empty list)."""
     env = os.environ.copy()
     if saml_org:
-        global _MSFT_TOKEN
-        if _MSFT_TOKEN is None:
-            _MSFT_TOKEN = _fetch_msft_sso()
-        if _MSFT_TOKEN:
-            env["GH_TOKEN"] = _MSFT_TOKEN
+        global _SAML_TOKEN
+        if _SAML_TOKEN is None:
+            _SAML_TOKEN = _fetch_saml_token()
+        if _SAML_TOKEN:
+            env["GH_TOKEN"] = _SAML_TOKEN
 
     per_page = 100
     base = endpoint

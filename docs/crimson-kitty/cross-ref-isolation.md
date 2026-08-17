@@ -227,9 +227,10 @@ not sufficient. Both layers ship in Phase 1.
 
 ## Token strategy
 
-No new PAT. The pipeline uses the existing `gh` user token (and `SAML_ORG_TOKEN`
-for SAML-protected upstreams via the existing routing in
-`services/github_api.py`). All work happens in `WolffM/{repo}` forks the
+No new PAT. The pipeline uses the existing `gh` user token (and a SAML-org
+token for SAML-protected upstreams via the existing routing in
+`services/github_api.py`, configured out-of-band through the `SAML_ORG_TOKENS`
+env var so no specific org or token is named in the code). All work happens in `WolffM/{repo}` forks the
 operator already controls.
 
 ## Public fork lifecycle

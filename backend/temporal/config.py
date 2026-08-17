@@ -20,8 +20,8 @@ Env vars:
     TEMPORAL_COPILOT_CONCURRENCY  max concurrent activities on the
                                copilot queue (default: 2)
 
-Auth: the pipeline reuses the existing `gh` user token plus `SAML_ORG_TOKEN`
-routing in `services/github_api.py` for GitHub side. The judge (`judge.py`)
+Auth: the pipeline reuses the existing `gh` user token plus the SAML-org
+token routing in `services/github_api.py` for the GitHub side. The judge (`judge.py`)
 reads `CLAUDE_CODE_OAUTH_TOKEN` from the environment at subprocess-spawn
 time. See `validate_judge_credentials()` below for the precondition check.
 

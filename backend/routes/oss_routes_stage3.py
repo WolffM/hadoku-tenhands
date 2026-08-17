@@ -267,7 +267,7 @@ def _do_fork_and_assign(data, origin_owner, repo, issue_number, issue_title,
 
             # 3b. Configure fork settings (issues, Actions, disable upstream workflows)
             # For non-SAML orgs this also starts the async Copilot firewall disable.
-            # SAML orgs (e.g. Microsoft) keep the firewall ON — Copilot runs on
+            # SAML orgs keep the firewall ON — Copilot runs on
             # github-hosted runners where the firewall is required and expected.
             with StepTimer("stage3", "configure", origin_slug, issue_number) as t:
                 svc.configure_fork_settings(my_user, repo, origin_owner=origin_owner)
