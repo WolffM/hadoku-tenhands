@@ -15,6 +15,7 @@ import type { BatchIssue, PrComment, PrCommit, UpstreamIssueMention } from '../.
 import { formatTimeAgo } from '../../utils'
 import { getRetroPRCommits } from '../../api/endpoints'
 import { ContextPanel } from './ContextPanel'
+import { Icon } from '@wolffm/themes'
 
 const BOT_LOGINS = new Set([
   'copilot-swe-agent',
@@ -147,7 +148,8 @@ export function IssueRetroCard({ item }: Props) {
           )}
           {totalHumanComments > 0 && (
             <span className="retro-badge retro-badge--comments">
-              💬 {totalHumanComments} human comment{totalHumanComments !== 1 ? 's' : ''}
+              <Icon name="chat" /> {totalHumanComments} human comment
+              {totalHumanComments !== 1 ? 's' : ''}
             </span>
           )}
           <span className="retro-card__chevron">{expanded ? '▲' : '▼'}</span>
@@ -222,7 +224,7 @@ export function IssueRetroCard({ item }: Props) {
                     })
                   }
                 >
-                  📄 Context brief (fork issue)
+                  <Icon name="document" /> Context brief (fork issue)
                 </button>
               ) : (
                 <span className="retro-artifact-missing">Context brief unavailable</span>
@@ -234,7 +236,7 @@ export function IssueRetroCard({ item }: Props) {
                     setContextPanel({ title: 'Upstream PR body', body: retro.upstream_pr_body! })
                   }
                 >
-                  📤 Upstream PR body
+                  <Icon name="upload" /> Upstream PR body
                 </button>
               ) : (
                 <span className="retro-artifact-missing">Upstream PR body unavailable</span>
@@ -273,7 +275,7 @@ function RetroSection({
   return (
     <div className={`retro-section ${accent ? 'retro-section--accent' : ''}`}>
       <button className="retro-section__toggle" onClick={() => setOpen(v => !v)}>
-        <span>{open ? '▼' : '▶'}</span>
+        <span>{open ? <Icon name="chevron-down" /> : <Icon name="chevron-right" />}</span>
         <span className="retro-section__title">{title}</span>
       </button>
       {open && <div className="retro-section__body">{children}</div>}

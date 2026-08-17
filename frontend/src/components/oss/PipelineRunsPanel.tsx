@@ -15,6 +15,7 @@ import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
 import { Badge, getStage4BadgeVariant } from '../common/Badge'
 import { SectionHeader } from '../common/SectionHeader'
+import { Icon } from '@wolffm/themes'
 
 /** Map stage4Status to progress bar segments (0-5 filled). */
 const STAGE_PROGRESS: Record<Stage4Status, number> = {
@@ -124,7 +125,7 @@ export function PipelineRunsPanel() {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="⚙️"
+          icon="gear"
           title="No pipeline runs"
           description="Assign issues in the Fork & Assign tab to start the pipeline."
         />
@@ -153,7 +154,7 @@ export function PipelineRunsPanel() {
       {/* Assignments Table */}
       <div className="stage-section">
         <SectionHeader
-          icon={'⚙️'}
+          icon={<Icon name="gear" />}
           title="Pipeline Assignments"
           count={assignments.length}
         />

@@ -13,6 +13,7 @@ import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
 import { Badge, getSubmittedPRBadge } from '../common/Badge'
 import { SectionHeader } from '../common/SectionHeader'
+import { Icon } from '@wolffm/themes'
 
 export function ProductionReviewPanel() {
   const ossSubmittedPRs = usePipelineStore(state => state.ossSubmittedPRs)
@@ -60,7 +61,7 @@ export function ProductionReviewPanel() {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="📤"
+          icon="upload"
           title="No submitted PRs"
           description="Sign off on completed pipeline runs to create upstream PRs."
         />
@@ -92,7 +93,7 @@ export function ProductionReviewPanel() {
 
       {/* Submitted PRs Table */}
       <div className="stage-section">
-        <SectionHeader icon={'📊'} title="Upstream PRs" count={submitted.length}>
+        <SectionHeader icon={<Icon name="chart" />} title="Upstream PRs" count={submitted.length}>
           <button
             className="btn btn--secondary btn--sm"
             onClick={() => {

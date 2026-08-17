@@ -6,6 +6,10 @@ import App from './App'
 // so bundle it here — otherwise the unified header + theme picker render
 // unstyled wherever this app is mounted. (These previously lived in index.html,
 // which only applies to the dev server, never the published library bundle.)
+// Icon sizing + accent tiles. Bundled here for the same reason the component CSS
+// below is: it is NOT part of the parent's global token layer, so without it the
+// icons render at whatever size the surrounding text is not.
+import '@wolffm/themes/icons.css'
 import '@wolffm/task-ui-components/theme-picker.css'
 import '@wolffm/task-ui-components/app-header.css'
 import './styles/index.css'

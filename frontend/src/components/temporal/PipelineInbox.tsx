@@ -349,7 +349,7 @@ export function PipelineInbox() {
         <LoadingState text="Loading inbox…" testId="temporal-inbox-loading" />
       ) : inbox.items.length === 0 ? (
         <EmptyState
-          icon="📭"
+          icon="inbox"
           title="Inbox is empty"
           description="Nothing needs your decision right now."
           testId="temporal-inbox-empty"

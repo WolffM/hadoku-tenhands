@@ -10,6 +10,7 @@ import { useBatchAction } from '../../hooks'
 import type { Stage1Repo } from '../../api/types'
 import { LoadingState } from '../common/LoadingState'
 import { EmptyState } from '../common/EmptyState'
+import { Icon } from '@wolffm/themes'
 
 export function Stage1Install() {
   const stage1 = usePipelineStore(state => state.stage1)
@@ -47,7 +48,7 @@ export function Stage1Install() {
   if (repos.length === 0) {
     return (
       <EmptyState
-        icon="✅"
+        icon="check"
         title="All repos have VibeCheck installed!"
         description="There are no repos that need VibeCheck installed."
       />
@@ -103,7 +104,11 @@ function RepoCheckbox({ repo, checked, onChange, disabled }: RepoCheckboxProps) 
     <label className={`repo-checkbox ${disabled ? 'repo-checkbox--disabled' : ''}`}>
       <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} />
       <span className="repo-checkbox__name">{repo.name}</span>
-      {repo.isPrivate && <span className="repo-checkbox__private">🔒</span>}
+      {repo.isPrivate && (
+        <span className="repo-checkbox__private">
+          <Icon name="lock" />
+        </span>
+      )}
     </label>
   )
 }

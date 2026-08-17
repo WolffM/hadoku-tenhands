@@ -17,10 +17,10 @@ interface RunningNowProps {
 export function RunningNow({ running }: RunningNowProps) {
   return (
     <section className="taskauto-section" data-testid="taskauto-running">
-      <SectionHeader icon="⚙️" title="Running now" count={running.length} />
+      <SectionHeader icon="gear" title="Running now" count={running.length} />
       {running.length === 0 ? (
         <EmptyState
-          icon="💤"
+          icon="sleep"
           title="No agent is working"
           description="Agents pick up work on a schedule — a quiet moment here is normal."
         />

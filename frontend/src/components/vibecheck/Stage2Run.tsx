@@ -16,6 +16,7 @@ import { EmptyState } from '../common/EmptyState'
 import { Badge, WORKFLOW_STATUS_VARIANT } from '../common/Badge'
 import { SectionHeader } from '../common/SectionHeader'
 import { BatchActionBar } from '../common/BatchActionBar'
+import { Icon } from '@wolffm/themes'
 
 export function Stage2Run() {
   const stage2 = usePipelineStore(state => state.stage2)
@@ -101,7 +102,7 @@ export function Stage2Run() {
   if (repos.length === 0) {
     return (
       <EmptyState
-        icon="📭"
+        icon="inbox"
         title="No repos with VibeCheck installed"
         description="Install VibeCheck on repos in Stage 1 first."
       />
@@ -121,7 +122,13 @@ export function Stage2Run() {
             disabled={updating || running || repos.length === 0}
             title="Update all repos to latest vibecheck workflow"
           >
-            {updating ? 'Updating…' : `🔄 Refresh Workflows (${repos.length})`}
+            {updating ? (
+              'Updating…'
+            ) : (
+              <>
+                <Icon name="refresh" /> Refresh Workflows ({repos.length})
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -129,7 +136,7 @@ export function Stage2Run() {
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section stage-section--recommended">
-          <SectionHeader icon="⭐" title="Recommended" count={recommended.length}>
+          <SectionHeader icon="star" title="Recommended" count={recommended.length}>
             <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
               Select All
             </button>
@@ -140,7 +147,7 @@ export function Stage2Run() {
               }}
               disabled={running || updating || selectedCount === 0}
             >
-              ▶️ Run Selected ({selectedCount})
+              <Icon name="play" /> Run Selected ({selectedCount})
             </button>
           </SectionHeader>
 
@@ -266,7 +273,7 @@ function RecommendedRow({ repo, checked, onChange, onRun, disabled }: Recommende
           disabled={disabled}
           title="Run VibeCheck"
         >
-          ▶️
+          <Icon name="play" />
         </button>
       </td>
     </tr>
@@ -322,7 +329,7 @@ function RepoRow({ repo, checked, onChange, onRun, disabled }: RepoRowProps) {
           disabled={disabled || !canRun}
           title={!canRun ? (isRunning ? 'Already running' : 'No new commits') : 'Run VibeCheck'}
         >
-          {isRunning ? '🔄' : '▶️'}
+          {isRunning ? <Icon name="refresh" /> : <Icon name="play" />}
         </button>
       </td>
     </tr>

@@ -72,14 +72,14 @@ export function TaskAutoView() {
           {
             id: 'review',
             label: 'Review',
-            icon: '🔀',
+            icon: 'shuffle',
             getCount: () => prs.length,
             testId: 'taskauto-tab-review'
           },
           {
             id: 'boards',
             label: 'Boards',
-            icon: '📋',
+            icon: 'clipboard',
             getCount: () => boards.length,
             testId: 'taskauto-tab-boards'
           }
@@ -117,7 +117,7 @@ export function TaskAutoView() {
         {tab === 'boards' &&
           (boards.length === 0 ? (
             <EmptyState
-              icon="📋"
+              icon="clipboard"
               title="No automation boards"
               description="Boards appear here once they're connected to the automation account."
             />

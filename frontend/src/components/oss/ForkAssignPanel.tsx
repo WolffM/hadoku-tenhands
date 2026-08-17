@@ -18,6 +18,7 @@ import { SectionHeader } from '../common/SectionHeader'
 import { FilterBar, type FilterDefinition } from '../common/FilterBar'
 import { BatchActionBar } from '../common/BatchActionBar'
 import { OSSDossierPanel } from './OSSDossierPanel'
+import { Icon } from '@wolffm/themes'
 
 export function ForkAssignPanel() {
   const ossStage2 = usePipelineStore(state => state.ossStage2)
@@ -105,7 +106,7 @@ export function ForkAssignPanel() {
     return (
       <div className="stage-panel">
         <EmptyState
-          icon="📋"
+          icon="clipboard"
           title="No scored issues"
           description="Add target repos in Repo Health first — issues will appear here once scored."
         />
@@ -166,9 +167,7 @@ export function ForkAssignPanel() {
                         className="issue-link"
                         title={issue.title}
                       >
-                        {issue.title.length > 60
-                          ? issue.title.substring(0, 60) + '…'
-                          : issue.title}
+                        {issue.title.length > 60 ? issue.title.substring(0, 60) + '…' : issue.title}
                       </a>
                     </td>
                     <td>
@@ -234,11 +233,15 @@ export function ForkAssignPanel() {
 
       {/* Issues Table */}
       <div className="stage-section">
-        <SectionHeader icon={'📋'} title="All Issues" count={filteredIssues.length} />
+        <SectionHeader
+          icon={<Icon name="clipboard" />}
+          title="All Issues"
+          count={filteredIssues.length}
+        />
 
         {filteredIssues.length === 0 ? (
           <EmptyState
-            icon="🔍"
+            icon="magnifier"
             title="No matching issues"
             description="Try adjusting your filters or enabling more repos."
           />
@@ -281,9 +284,7 @@ export function ForkAssignPanel() {
                             {displayTitle}
                           </a>
                           {issue.dataCompleteness === 'partial' && (
-                            <span className="badge badge--secondary u-ml-md">
-                              partial
-                            </span>
+                            <span className="badge badge--secondary u-ml-md">partial</span>
                           )}
                         </td>
                         <td>

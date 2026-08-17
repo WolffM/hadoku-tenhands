@@ -1,6 +1,7 @@
 import type { PRDetails } from '../../api/types'
 import { formatTimeAgo, escapeHtml } from '../../utils'
 import { DiffViewer } from './DiffViewer'
+import { Icon } from '@wolffm/themes'
 
 export interface PRModalProps {
   pr: PRDetails | null
@@ -83,9 +84,15 @@ export function PRModal({
                   </div>
 
                   <div className="pr-info__meta">
-                    <div>👤 {pr.author?.login ?? 'unknown'}</div>
-                    <div>🕐 {formatTimeAgo(pr.createdAt)}</div>
-                    <div>📝 {pr.commits ?? 0} commits</div>
+                    <div>
+                      <Icon name="user" /> {pr.author?.login ?? 'unknown'}
+                    </div>
+                    <div>
+                      <Icon name="clock" /> {formatTimeAgo(pr.createdAt)}
+                    </div>
+                    <div>
+                      <Icon name="note" /> {pr.commits ?? 0} commits
+                    </div>
                   </div>
 
                   <div className="pr-info__description">

@@ -17,6 +17,7 @@ import { EmptyState } from '../common/EmptyState'
 import { SectionHeader } from '../common/SectionHeader'
 import { PRRow } from '../review/PRRow'
 import { PRModal } from '../review/PRModal'
+import { Icon } from '@wolffm/themes'
 
 export function Stage4Review() {
   const stage4 = usePipelineStore(state => state.stage4)
@@ -138,7 +139,7 @@ export function Stage4Review() {
   if (prs.length === 0) {
     return (
       <EmptyState
-        icon="📭"
+        icon="inbox"
         title="No open pull requests"
         description="Assign Copilot to issues in Stage 3 to generate PRs."
       />
@@ -150,7 +151,7 @@ export function Stage4Review() {
       {/* Ready for Review Section */}
       {readyPRs.length > 0 ? (
         <div className="stage-section stage-section--ready">
-          <SectionHeader icon="✅" title="Ready for Review" count={readyPRs.length} />
+          <SectionHeader icon="check" title="Ready for Review" count={readyPRs.length} />
 
           <div className="table-container">
             <table className="data-table">
@@ -188,7 +189,9 @@ export function Stage4Review() {
           </div>
         </div>
       ) : (
-        <p className="text-secondary stage-section">ℹ️ No PRs ready for review</p>
+        <p className="text-secondary stage-section">
+          <Icon name="info" /> No PRs ready for review
+        </p>
       )}
 
       {/* In Progress Section */}
@@ -196,7 +199,11 @@ export function Stage4Review() {
         <>
           <hr className="stage-divider" />
           <div className="stage-section">
-            <SectionHeader icon="⏳" title="In Progress / Draft" count={inProgressPRs.length} />
+            <SectionHeader
+              icon="hourglass"
+              title="In Progress / Draft"
+              count={inProgressPRs.length}
+            />
 
             <div className="table-container">
               <table className="data-table">

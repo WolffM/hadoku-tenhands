@@ -40,7 +40,7 @@ export function OSSView() {
     {
       id: 'health',
       label: 'Repo Health',
-      icon: '🏥',
+      icon: 'hospital',
       component: RepoHealthPanel,
       getCount: () =>
         ossStage1.items.filter(
@@ -50,7 +50,7 @@ export function OSSView() {
     {
       id: 'assign',
       label: 'Fork & Assign',
-      icon: '🔱',
+      icon: 'layers',
       component: ForkAssignPanel,
       getCount: () =>
         ossStage2.items.filter(i => !excludedRepos.has((i as { repo: string }).repo)).length
@@ -58,7 +58,7 @@ export function OSSView() {
     {
       id: 'pipeline',
       label: 'Pipeline Runs',
-      icon: '⚙️',
+      icon: 'gear',
       component: PipelineRunsPanel,
       getCount: () =>
         ossPipelineRuns.items.filter(
@@ -68,7 +68,7 @@ export function OSSView() {
     {
       id: 'review',
       label: 'Review',
-      icon: '📊',
+      icon: 'chart',
       component: ProductionReviewPanel,
       getCount: () =>
         ossSubmittedPRs.items.filter(

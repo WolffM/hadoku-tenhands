@@ -14,7 +14,7 @@ const pipelines = [
     era: 'Gen 1 · Vibecheck',
     description: 'Install, run, assign, and review vibecheck across your repos',
     stages: ['Install VibeCheck', 'Run VibeCheck', 'Assign Copilot', 'Review & Merge'],
-    icon: '🔍'
+    icon: 'magnifier'
   },
   {
     id: 'oss' as const,
@@ -22,7 +22,7 @@ const pipelines = [
     era: 'Gen 2 · OSS Recon',
     description: 'Repo health, issue selection, pipeline runs, upstream review',
     stages: ['Repo Health', 'Fork & Assign', 'Pipeline Runs', 'Review'],
-    icon: '🌐'
+    icon: 'globe'
   },
   {
     id: 'temporal' as const,
@@ -31,7 +31,7 @@ const pipelines = [
     description:
       'Contributions that show their work: every step leaves evidence, and you approve from an inbox',
     stages: ['Inbox', 'Active', 'Archive'],
-    icon: '🐈'
+    icon: 'cat'
   },
   {
     id: 'taskauto' as const,
@@ -40,7 +40,7 @@ const pipelines = [
     description:
       'Board-driven: a task typed on a phone becomes a plan you approve, then a pull request you merge',
     stages: ['Review', 'Boards'],
-    icon: '📋'
+    icon: 'clipboard'
   }
 ]
 

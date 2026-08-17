@@ -118,7 +118,7 @@ export function Stage3Assign() {
   if (allIssues.length === 0) {
     return (
       <EmptyState
-        icon="📭"
+        icon="inbox"
         title="No issues to assign"
         description="Run VibeCheck on repos in Stage 2 to create issues."
       />
@@ -159,7 +159,7 @@ export function Stage3Assign() {
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section stage-section--recommended">
-          <SectionHeader icon="⭐" title="Recommended" count={recommended.length}>
+          <SectionHeader icon="star" title="Recommended" count={recommended.length}>
             <button className="btn btn--secondary btn--sm" onClick={() => selectAll(recommended)}>
               Select All
             </button>

@@ -1,6 +1,7 @@
 import { type ReactElement } from 'react'
 import type { PullRequest } from '../../api/types'
 import { formatTimeAgo, escapeHtml } from '../../utils'
+import { Icon } from '@wolffm/themes'
 
 export interface PRRowProps {
   pr: PullRequest
@@ -82,7 +83,7 @@ export function PRRow({
         </code>
       </td>
       <td>
-        {isCopilot ? '🤖' : '👤'}{' '}
+        {isCopilot ? <Icon name="robot" /> : <Icon name="user" />}{' '}
         <span className="text-secondary">{author.replace('app/', '')}</span>
       </td>
       {showReviewStatus && <td>{getReviewBadge()}</td>}
@@ -90,15 +91,15 @@ export function PRRow({
       <td>
         <div className="pr-actions">
           <button className="btn btn--ghost btn--sm" onClick={onView} title="View Details">
-            👁️
+            <Icon name="eye" />
           </button>
           {isReady ? (
             <>
               <button className="btn btn--ghost btn--sm" onClick={onApprove} title="Approve">
-                ✅
+                <Icon name="check" />
               </button>
               <button className="btn btn--ghost btn--sm" onClick={onMerge} title="Merge">
-                🔀
+                <Icon name="shuffle" />
               </button>
             </>
           ) : (
@@ -108,7 +109,7 @@ export function PRRow({
               title="Mark Ready"
               disabled={!pr.isDraft}
             >
-              ⏳
+              <Icon name="hourglass" />
             </button>
           )}
         </div>
