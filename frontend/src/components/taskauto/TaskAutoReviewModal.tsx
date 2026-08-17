@@ -15,6 +15,7 @@ import { getTaskAutoPRDetails, mergeTaskAutoPR, sendTaskAutoPRBack } from '../..
 import type { TaskAutoPR, TaskAutoPRDetails } from '../../api/types'
 import { formatTimeAgo, renderMarkdown } from '../../utils'
 import { DiffViewer } from '../review/DiffViewer'
+import { Icon } from '@wolffm/themes'
 
 export interface TaskAutoReviewModalProps {
   pr: TaskAutoPR
@@ -138,9 +139,15 @@ export function TaskAutoReviewModal({
                   </div>
 
                   <div className="pr-info__meta">
-                    <div>👤 {details?.author?.login ?? 'unknown'}</div>
-                    <div>🕐 {details ? formatTimeAgo(details.createdAt) : ''}</div>
-                    <div>📝 {details?.commits ?? 0} commits</div>
+                    <div>
+                      <Icon name="user" /> {details?.author?.login ?? 'unknown'}
+                    </div>
+                    <div>
+                      <Icon name="clock" /> {details ? formatTimeAgo(details.createdAt) : ''}
+                    </div>
+                    <div>
+                      <Icon name="note" /> {details?.commits ?? 0} commits
+                    </div>
                   </div>
 
                   {(taskTitle || details?.taskTitle) && (
