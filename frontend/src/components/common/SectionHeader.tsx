@@ -5,11 +5,16 @@
  * and optional action buttons passed as children.
  */
 
-import type { ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
+import { Icon, type IconName } from '@wolffm/themes'
 
 interface SectionHeaderProps {
-  /** ReactNode, not string, so callers pass <Icon name="..."/> rather than an emoji. */
-  icon?: ReactNode
+  /**
+   * A registry name (`"star"`) or a built element (`<Icon name="star" />`).
+   * Deliberately NOT `ReactNode`: that accepted any string, so the icon
+   * migration's `icon="star"` typechecked and rendered the word "star".
+   */
+  icon?: IconName | ReactElement
   title: string
   count?: number
   children?: ReactNode
@@ -19,7 +24,11 @@ export function SectionHeader({ icon, title, count, children }: SectionHeaderPro
   return (
     <div className="stage-section__header">
       <h3 className="stage-section__title">
-        {icon && <span className="stage-section__icon">{icon}</span>}
+        {icon && (
+          <span className="stage-section__icon">
+            {typeof icon === 'string' ? <Icon name={icon} /> : icon}
+          </span>
+        )}
         {title}
         {count !== undefined && ` (${count})`}
       </h3>

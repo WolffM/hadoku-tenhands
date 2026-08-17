@@ -14,11 +14,17 @@
  */
 
 import { useState, type ComponentType, type ReactNode } from 'react'
+import { Icon, type IconName } from '@wolffm/themes'
 
 export interface StageTabConfig {
   id: string
   label: string
-  icon?: string
+  /**
+   * A registry name, NOT a glyph. Typed so a name outside the registry fails the
+   * build: as a plain `string` this rendered its own value, and the icon
+   * migration shipped tab strips reading "download" and "robot" as literal text.
+   */
+  icon?: IconName
   component?: ComponentType
   getCount?: () => number
   /** Per-tab data-testid, e.g. `temporal-tab-inbox`. */
@@ -73,7 +79,11 @@ export function StageTabView({
             data-testid={stage.testId}
             onClick={() => selectStage(stage.id)}
           >
-            {stage.icon && <span className="stage-tab__icon">{stage.icon}</span>}
+            {stage.icon && (
+              <span className="stage-tab__icon">
+                <Icon name={stage.icon} />
+              </span>
+            )}
             <span className="stage-tab__label">{stage.label}</span>
             {stage.getCount && <span className="stage-tab__count">{stage.getCount()}</span>}
           </button>

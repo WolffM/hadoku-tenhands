@@ -5,11 +5,22 @@
  * Renders horizontal row cards for each available pipeline.
  */
 
-import { usePipelineStore } from '../store'
+import { Icon, type IconName } from '@wolffm/themes'
+import { usePipelineStore, type ViewType } from '../store'
 
-const pipelines = [
+interface PipelineCard {
+  id: ViewType
+  title: string
+  era: string
+  description: string
+  stages: string[]
+  /** Registry name, so a typo fails the build rather than rendering as text. */
+  icon: IconName
+}
+
+const pipelines: PipelineCard[] = [
   {
-    id: 'list' as const,
+    id: 'list',
     title: 'Vibecheck Pipeline',
     era: 'Gen 1 · Vibecheck',
     description: 'Install, run, assign, and review vibecheck across your repos',
@@ -17,7 +28,7 @@ const pipelines = [
     icon: 'magnifier'
   },
   {
-    id: 'oss' as const,
+    id: 'oss',
     title: 'OSS Contribution Pipeline',
     era: 'Gen 2 · OSS Recon',
     description: 'Repo health, issue selection, pipeline runs, upstream review',
@@ -25,7 +36,7 @@ const pipelines = [
     icon: 'globe'
   },
   {
-    id: 'temporal' as const,
+    id: 'temporal',
     title: 'Crimson-Kitty (Temporal)',
     era: 'Gen 3 · Crimson-Kitty',
     description:
@@ -34,7 +45,7 @@ const pipelines = [
     icon: 'cat'
   },
   {
-    id: 'taskauto' as const,
+    id: 'taskauto',
     title: 'Task Automation',
     era: 'Gen 4 · Task Automation',
     description:
@@ -59,7 +70,9 @@ export function PipelineSelectView() {
             className="pipeline-select-card"
             onClick={() => setActiveView(pipeline.id)}
           >
-            <div className="pipeline-select-card__icon">{pipeline.icon}</div>
+            <div className="pipeline-select-card__icon">
+              <Icon name={pipeline.icon} />
+            </div>
             <div className="pipeline-select-card__content">
               <div className="pipeline-select-card__heading">
                 <h3 className="pipeline-select-card__title">{pipeline.title}</h3>

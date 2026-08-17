@@ -119,7 +119,7 @@ export function ForkAssignPanel() {
       {/* Recommended Section */}
       {recommended.length > 0 && (
         <div className="stage-section">
-          <SectionHeader icon={'\u2B50'} title="Recommended" count={recommended.length}>
+          <SectionHeader icon="star" title="Recommended" count={recommended.length}>
             <BatchActionBar
               onSelectAll={() => selectAll(recommended)}
               onSelectNone={selectNone}

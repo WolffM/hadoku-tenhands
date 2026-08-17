@@ -6,6 +6,7 @@
  */
 
 import { useState, useMemo } from 'react'
+import { Icon } from '@wolffm/themes'
 import { usePipelineStore } from '../../store'
 import { useAsyncAction } from '../../hooks'
 import { refreshOSSTarget, computeOSSTarget } from '../../api/endpoints'
@@ -50,7 +51,7 @@ function DossierSectionsView({ sections }: { sections: DossierSections }) {
               onClick={() => setExpandedSection(isExpanded ? null : key)}
             >
               <span>{DOSSIER_SECTION_LABELS[key]}</span>
-              <span>{isExpanded ? '\u25B2' : '\u25BC'}</span>
+              <Icon name={isExpanded ? 'chevron-up' : 'chevron-down'} />
             </button>
             {isExpanded && (
               <div

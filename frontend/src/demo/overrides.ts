@@ -122,6 +122,10 @@ const dossier: ResponseBody = {
       '',
       '| # | Title | Signal | Difficulty |',
       '| --- | --- | --- | --- |',
+      /* check-icons-disable-next-line — a GitHub reaction count reproduced in the
+         aggregator's dossier markdown. The emoji IS the datum here (it names which
+         reaction was counted), it renders through the markdown pipeline, and no
+         registry icon can stand in for it. */
       '| 1234 | Merged cells dropped in table renderer | `good first issue`, 8 👍 | Low |',
       '| 1198 | Pagination off-by-one on the final page | reproducible, has repro | Low |',
       '| 1150 | Timeout not propagated to sub-requests | `help wanted` | Medium |',

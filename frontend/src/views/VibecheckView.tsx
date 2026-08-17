@@ -42,7 +42,7 @@ export function VibecheckView() {
     {
       id: 'stage2',
       label: 'Run VibeCheck',
-      icon: '\u25B6\uFE0F',
+      icon: 'play',
       component: Stage2Run,
       getCount: () => stage2.items.length
     },

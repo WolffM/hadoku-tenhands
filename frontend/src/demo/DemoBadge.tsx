@@ -1,3 +1,5 @@
+import { Icon } from '@wolffm/themes'
+
 import './demo.css'
 
 const REPO_URL = 'https://github.com/WolffM/hadoku-tenhands'
@@ -15,7 +17,7 @@ export function DemoBadge() {
         runs behind auth at hadoku.me.
       </span>
       <a className="demo-badge__link" href={REPO_URL} target="_blank" rel="noreferrer noopener">
-        Repo ↗
+        Repo <Icon name="arrow-up-right" />
       </a>
     </div>
   )

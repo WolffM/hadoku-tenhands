@@ -386,7 +386,15 @@ function renderContent() {
   const tierColor = dq.context_tier === 1 ? 'green' : dq.context_tier === 2 ? 'yellow' : 'red';
   const tierLabel = dq.context_tier === 1 ? 'Tier 1 \u2014 Issue Brief' : dq.context_tier === 2 ? 'Tier 2 \u2014 Dossier Only' : 'Tier 3 \u2014 Fallback';
   const dossierScore = (dc.score != null ? dc.score : '?') + '/' + (dc.total != null ? dc.total : '6');
-  const ck = (v) => v ? '\u2705' : '\u274c';
+  // Inlined registry SVG rather than an emoji pair. This report is a standalone
+  // file with no bundler, so getIconSvg() cannot run here - the markup for
+  // `check` and `error` is pasted literally. Both reach the DOM through the
+  // innerHTML assignment below, and both are constants: nothing is interpolated
+  // into them, so this adds no injection surface.
+  const SVG = 'xmlns="http://www.w3.org/2000/svg" class="hdk-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"';
+  const ICON_OK = `<svg ${SVG} style="vertical-align:-0.125em;color:var(--green)"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></svg>`;
+  const ICON_NO = `<svg ${SVG} style="vertical-align:-0.125em;color:var(--red)"><circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></svg>`;
+  const ck = (v) => v ? ICON_OK : ICON_NO;
   html += `<div class="stage-card s2">
     <div class="stage-label">Stage 2 \u2014 Scored Issues</div>
     <div class="stage-title">${n} Issues Selected</div>
