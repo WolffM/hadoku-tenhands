@@ -183,6 +183,15 @@ planning agent re-emits one canonical document each time:
 
 Full history stays in the evidence store and the board's claim log; `notes` stays legible.
 
+**Once a task leaves planning, `notes` becomes a different document.** The same field carries the
+planning conversation *while planning*, then a status record once work starts: a `## Outcome`
+heading appears (`Merged via <url>`, "pushed as a PR, auto-merge armed…", "Landed"), the `## Plan`
+section is replaced by the pipeline's execution log, and on merge the whole thing collapses to the
+outcome, the acceptance criteria, and the files that changed. So what you see depends on *when* you
+look — that is expected, not corruption. If a task's notes read oddly, or you need its real state,
+the checks it was gated on, or whether it deployed, start at
+[the taskauto debugging runbook](../runbooks/taskauto-debugging.md).
+
 **You answer however you like.** Inline under Questions, or a sentence dumped at the top — the
 planning agent reads the whole field and works out what changed. Requiring a format from someone
 typing on a bus would defeat the point.

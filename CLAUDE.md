@@ -75,6 +75,8 @@ This has regressed before — treat a cross-reference reaching upstream as a rea
 - **Local:** backend `python3 app.py` (port 5024, prefix `/tenhands`); frontend `pnpm dev` (proxies to the backend).
 - **Tests:** `cd backend && python3 -m pytest tests/ -v`. Install `backend/requirements-dev.txt` too (pytest + the schema validators that keep `docs/hadoku-task-automation/openapi.json` honest); those are test-only.
 - **Zero skips.** A plain `cd backend && python3 -m pytest tests/ -q` runs the whole suite with **0 skipped**. If a test needs a secret, it fetches it rather than gating on the environment — a `skipif` on a missing credential is indistinguishable from a passing test in the output.
+- **This checkout is production.** The pm2 services run *from this working directory*, and a deploy runs `git reset --hard origin/main` against it — which **eats any uncommitted work in the tree** (recoverable only from the lint-staged stash). Do not leave edits uncommitted here, and do not assume the branch you left checked out is still there: concurrent agents and deploys move it. For any real change, work in a git worktree (`git worktree add .claude/worktrees/<task> -b <branch>`), which deploys don't touch, and commit + push promptly.
+- **Debugging a taskauto task** (odd notes, gating, deploy, editing a task): [`docs/runbooks/taskauto-debugging.md`](docs/runbooks/taskauto-debugging.md). The board API is reachable from here with the `.devvault.local.json` `key` exported as `HADOKU_SERVICE_KEY` (service tier, shares on every board) — no vault unlock needed for reads.
 
 ## Secrets
 

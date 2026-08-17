@@ -13,6 +13,10 @@ github.com.
     POST /api/taskauto/merge            merge one taskauto PR
     POST /api/taskauto/send-back        move a PR's task to `stalled` with a reason
 
+`status` and `task/<b>/<id>` are the telemetry surface: when a task is confusing
+after the fact, start there, or with `docs/runbooks/taskauto-debugging.md` when
+this backend isn't running (it goes straight to the board API instead).
+
 **Repos are discovered, never listed.** A board carries its own `repo`, and
 `run_taskauto.py` drives whatever is shared with the service key — so a
 hardcoded repo list here would go stale the first time a board is added, and
