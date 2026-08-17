@@ -27,7 +27,7 @@
     "build:demo": "vite build -c vite.demo.config.ts",
     "preview:demo": "vite preview -c vite.demo.config.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . && pnpm run lint:icons",
     "lint:fix": "eslint . --fix",
     "lint:css": "stylelint \"src/**/*.css\"",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
@@ -40,7 +40,8 @@
     "test:prod": "pw-isolated playwright test --project=prod",
     "test:prod:ui": "pw-isolated playwright test --project=prod --ui",
     "test:prod:headed": "pw-isolated playwright test --project=prod --headed",
-    "test:prod:debug": "pw-isolated playwright test --project=prod --debug"
+    "test:prod:debug": "pw-isolated playwright test --project=prod --debug",
+    "lint:icons": "hadoku-check-icons ."
   },
   "peerDependencies": {
     "@wolffm/logger": ">=1.0.0",
@@ -65,7 +66,7 @@
     "@vitejs/plugin-react": "^6.0.5",
     "@wolffm/logger": "^1.3.1",
     "@wolffm/task-ui-components": "^4.6.2",
-    "@wolffm/themes": "^5.6.2",
+    "@wolffm/themes": "^5.7.0",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
