@@ -112,9 +112,14 @@ test.describe('route table', () => {
     const src = readFileSync(new URL('../../src/api/endpoints.ts', import.meta.url), 'utf8')
 
     // Pull '/api/...' literals, including the static prefix of template literals.
+    // The query string goes with them: an endpoint written
+    // `/api/taskauto/pr-details?repo=${repo}&number=${n}` yields the prefix
+    // '/api/taskauto/pr-details?repo=', and the router splits the query off
+    // before it looks a path up — so comparing the path WITH its query against
+    // the table reported a mocked route as missing.
     const referenced = new Set(
       [...src.matchAll(/['"`](\/api\/[^'"`$)]*)/g)]
-        .map(m => m[1].replace(/\/$/, ''))
+        .map(m => m[1].replace(/\?.*$/, '').replace(/\/$/, ''))
         .filter(p => p.length > '/api/'.length)
     )
 
