@@ -114,7 +114,7 @@ New modules introduced by crimson-kitty.
 | Module | Purpose |
 |---|---|
 | `tests/temporal/test_workflows.py` | Unit tests for workflow logic using Temporal's `WorkflowEnvironment` |
-| `tests/temporal/test_activities.py` | Activity tests (mocked external deps) |
+| `tests/temporal/test_activities_*.py` | Activity tests, one module per activity (mocked external deps) |
 | `tests/temporal/test_gates.py` | Gate tests — pure functions, easy to test |
 | `tests/temporal/test_sanitizer.py` | Sanitizer rewriting tests |
 | `tests/temporal/test_evidence_store.py` | Evidence store I/O tests |

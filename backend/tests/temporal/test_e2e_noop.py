@@ -268,7 +268,8 @@ async def real_replicate(inp: ReplicateInput) -> dict:
     """E2E stub: pretend the squash + fork-preview-PR + draft close all
     succeeded. Rewrites 05-fixed/commits.json to the new single commit
     so downstream no_upstream_refs gate scans the right thing. A full
-    real test of `replicate_fix_as_operator` lives in test_activities.py
+    real test of `replicate_fix_as_operator` lives in
+    test_activities_replicate.py
     with a fully-scripted fake_gh."""
     ev = _ev(inp.state_root)
     if ev.exists("05-fixed/commits.json"):

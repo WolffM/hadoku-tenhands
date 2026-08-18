@@ -23,7 +23,6 @@ CONTRIBUTING_MD_MAX_CHARS = 3000
 # VibeCheck source repo — override with VIBECHECK_REPO env var (owner/repo format)
 VIBECHECK_REPO = os.environ.get("VIBECHECK_REPO", "WolffM/vibecheck")
 VIBECHECK_WORKFLOW_FILE = "vibecheck.yml"
-VIBECHECK_WORKFLOW_NAME = "vibeCheck"
 
 # Dispatch guardrails — override via env vars
 MAX_REPO_SIZE_KB = int(os.environ.get("MAX_REPO_SIZE_KB", 500_000))

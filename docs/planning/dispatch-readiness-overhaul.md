@@ -106,7 +106,7 @@ is unanswerable.
 **(a) Upstream PR outcome tracking — historical + ongoing.**
 
 tenhands already polls dispatched PR state via `watch_upstream_pr_state`
-(test coverage in `backend/tests/temporal/test_activities.py`:
+(test coverage in `backend/tests/temporal/test_activities_watcher.py`:
 open / merged / closed-unmerged / blocking-review / review-dedupe). The
 extension: a **standalone cron-driven activity** that crawls every recorded
 upstream PR URL across all evidence dirs, classifies state, and writes back
