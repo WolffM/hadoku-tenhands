@@ -34,6 +34,7 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "prepare": "husky",
     "test": "pw-isolated playwright test --project=local",
+    "test:unit": "playwright test -c playwright.unit.config.ts",
     "test:ui": "pw-isolated playwright test --project=local --ui",
     "test:headed": "pw-isolated playwright test --project=local --headed",
     "test:debug": "pw-isolated playwright test --project=local --debug",

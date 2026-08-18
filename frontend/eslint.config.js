@@ -19,10 +19,12 @@ export default [
   },
 
   // -------------------------------------------------------------
-  // E2E tests and Playwright config (Node.js environment)
+  // Playwright tests and configs (Node.js environment)
+  //   e2e/    — browser specs against a running app
+  //   tests/  — unit specs over the pure modules, no browser, no server
   // -------------------------------------------------------------
   {
-    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    files: ['e2e/**/*.ts', 'tests/**/*.ts', 'playwright.config.ts', 'playwright.unit.config.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

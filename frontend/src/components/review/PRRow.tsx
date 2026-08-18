@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { PullRequest } from '../../api/types'
-import { formatTimeAgo, escapeHtml } from '../../utils'
+import { formatTimeAgo } from '../../utils'
 import { Icon } from '@wolffm/themes'
 
 export interface PRRowProps {
@@ -73,7 +73,7 @@ export function PRRow({
           className="pr-link"
           title={pr.title}
         >
-          {escapeHtml(displayTitle)}
+          {displayTitle}
         </a>
         {badges.length > 0 && <span className="badge-group">{badges}</span>}
       </td>

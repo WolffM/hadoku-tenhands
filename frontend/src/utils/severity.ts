@@ -14,7 +14,7 @@ export function getSeverity(issue: Issue): SeverityLevel {
 /**
  * Extract severity level from labels
  */
-export function getSeverityFromLabels(labels: Label[]): SeverityLevel {
+function getSeverityFromLabels(labels: Label[]): SeverityLevel {
   const labelNames = labels.map(l => l.name.toLowerCase())
 
   if (labelNames.some(l => l.includes('severity:critical'))) return 'critical'
@@ -40,41 +40,5 @@ export function getSeverityClass(severity: SeverityLevel): string {
       return 'severity-low'
     default:
       return 'severity-unknown'
-  }
-}
-
-/**
- * Get color for severity level (for inline styles)
- */
-export function getSeverityColor(severity: SeverityLevel): string {
-  switch (severity) {
-    case 'critical':
-      return 'var(--color-danger)'
-    case 'high':
-      return 'var(--color-warning)'
-    case 'medium':
-      return 'var(--color-primary)'
-    case 'low':
-      return 'var(--color-success)'
-    default:
-      return 'var(--color-text-secondary)'
-  }
-}
-
-/**
- * Get display label for severity level
- */
-export function getSeverityLabel(severity: SeverityLevel): string {
-  switch (severity) {
-    case 'critical':
-      return 'Critical'
-    case 'high':
-      return 'High'
-    case 'medium':
-      return 'Medium'
-    case 'low':
-      return 'Low'
-    default:
-      return 'Unknown'
   }
 }

@@ -1,5 +1,5 @@
 import type { PRDetails } from '../../api/types'
-import { formatTimeAgo, escapeHtml } from '../../utils'
+import { formatTimeAgo } from '../../utils'
 import { DiffViewer } from './DiffViewer'
 import { Icon } from '@wolffm/themes'
 
@@ -98,7 +98,7 @@ export function PRModal({
                   <div className="pr-info__description">
                     <h4>Description</h4>
                     <div className="pr-description">
-                      {pr.body ? escapeHtml(pr.body.substring(0, 500)) : 'No description'}
+                      {pr.body ? pr.body.substring(0, 500) : 'No description'}
                       {pr.body && pr.body.length > 500 && '…'}
                     </div>
                   </div>

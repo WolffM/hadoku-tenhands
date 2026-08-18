@@ -65,12 +65,33 @@ export function formatTimestamp(dateString: string | null | undefined): string {
 }
 
 /**
- * Escape HTML special characters to prevent XSS
+ * Escape HTML special characters to prevent XSS.
+ *
+ * Deliberately a string substitution rather than the `div.textContent →
+ * div.innerHTML` trick this used to be. Two reasons, in order:
+ *
+ *  1. That trick needs a live DOM, which made every module that touched it —
+ *     `diffRenderer` included — impossible to test outside a browser. This is
+ *     pure string work and has no business requiring one.
+ *  2. It allocates a DOM element per call, and `diffRenderer` calls it once
+ *     per line of a diff.
+ *
+ * The quote entities are the one deliberate difference from the old output:
+ * the serializer left `"` and `'` alone because it only ever produced element
+ * content, where they are harmless. Escaping them costs nothing there (the
+ * browser renders `&quot;` as `"`) and makes the result safe to interpolate
+ * into an attribute, which the old one silently was not.
  */
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}
+
 export function escapeHtml(text: string): string {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
+  return text.replace(/[&<>"']/g, char => HTML_ESCAPES[char])
 }
 
 /**

@@ -6,14 +6,14 @@
 
 import { escapeHtml } from './formatters'
 
-export interface DiffFile {
+interface DiffFile {
   filename: string
   additions: number
   deletions: number
   lines: DiffLine[]
 }
 
-export interface DiffLine {
+interface DiffLine {
   type: 'addition' | 'deletion' | 'context' | 'header' | 'hunk'
   content: string
   oldLineNumber?: number
@@ -23,7 +23,7 @@ export interface DiffLine {
 /**
  * Parse a git diff string into structured data
  */
-export function parseDiff(diffText: string): DiffFile[] {
+function parseDiff(diffText: string): DiffFile[] {
   const files: DiffFile[] = []
   const lines = diffText.split('\n')
 

@@ -199,6 +199,14 @@ jobs:
         working-directory: frontend
         run: pnpm run typecheck
 
+      # The pure modules under src/utils had no test whose import path reached
+      # them, so `tsc` was their only gate and every change to the diff parser
+      # arrived unverified. These need no browser and no server, so they run
+      # here in the cheap job rather than alongside the e2e suite.
+      - name: Unit tests
+        working-directory: frontend
+        run: pnpm run test:unit
+
       # `lint` is eslint followed by lint:icons (the @wolffm/themes icon gate).
       - name: Lint
         working-directory: frontend
