@@ -15,18 +15,44 @@ name: Tests
 # not the branch tip, so this verifies the branch against current `main`
 # automatically — the same merge-result property the automation lander
 # enforces before it pushes.
+#
+# ALSO ON PUSH TO MAIN, because `pull_request` alone verifies a path this repo
+# does not exclusively use. Work lands here by direct push too — and a squash
+# merge is itself a push whose result no `pull_request` run ever sees — so a
+# PR-only trigger left those commits checked by NOTHING. `e2b7a07` is the
+# worked example: its PR was green, it squashed onto main, and no run ever
+# executed against what main actually became.
+#
+# This is DETECTION, not prevention: the commit has already landed by the time
+# these jobs report, so a failure is a red main to fix forward rather than a
+# blocked merge. That is the honest ceiling for a direct-push workflow, and it
+# is still the difference between a visible red X and silence. Note what it
+# does NOT weaken: `backend pytest` stays a required check on `main`, so the
+# PR gate in front of an automation-lander merge is exactly as strict as before.
+#
+# Every job below already short-circuits its author_association gate with
+# `github.event_name != 'pull_request'`, so a push runs the three real jobs
+# unfiltered. `backend-fork` is the deliberate exception — it requires
+# `pull_request`, so it stays skipped here rather than duplicating `backend`.
 
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
   workflow_dispatch:
 
 # A new push to a PR makes the in-flight run obsolete. Cancel it — this runs
 # on a self-hosted box and there is no reason to hold a slot for a result
 # nobody will read.
+#
+# NOT on main. There, cancelling is how a commit ends up with no verdict at
+# all: the run for HEAD~1 dies the moment the next commit lands, and the whole
+# point of the push trigger is that every landed commit gets one. Two commits
+# in quick succession are worth two runs on a box that has the capacity.
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
