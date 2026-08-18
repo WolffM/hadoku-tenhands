@@ -70,7 +70,8 @@ GH_TIMEOUT_S = 25
 
 ISSUE_FIELDS = "number,title,url,state,author,body,labels,comments"
 PR_FIELDS = ("number,title,url,state,isDraft,author,body,headRefName,"
-             "baseRefName,reviewDecision,statusCheckRollup,comments,reviews")
+             "baseRefName,reviewDecision,statusCheckRollup,comments,reviews,"
+             "mergeable,mergeStateStatus")
 
 
 class ItemUnavailable(RuntimeError):
@@ -230,6 +231,37 @@ def _render_issue(repo: str, d: dict) -> str:
     ])
 
 
+def _mergeable_block(mergeable: str, state_status: str) -> str:
+    """Whether the PR can merge at all — the first thing `Address PR #N` means.
+
+    GitHub computes this lazily, so a PR read soon after it is opened answers
+    `UNKNOWN`, and `UNKNOWN` is reported as "not computed" rather than folded
+    in with "no conflict". Those are opposite facts and only one of them means
+    the branch is fine.
+
+    This line exists because PR #21 was `CONFLICTING`, and a conflicted PR
+    never gets a merge ref — so its `pull_request` CI never fires and its
+    required checks can never report. Without it the item block said "no
+    checks have run" and the plan read that as "nothing is blocking me",
+    when the truth was that nothing *could* run until someone rebased.
+    """
+    mergeable = (mergeable or "UNKNOWN").upper()
+    status = (state_status or "").upper()
+    if mergeable == "CONFLICTING":
+        return (f"mergeable: NO — this PR CONFLICTS with its base branch "
+                f"(mergeStateStatus: {status or 'DIRTY'}). It cannot merge, and "
+                f"GitHub builds no merge ref for it, so its pull_request CI "
+                f"cannot run and any required check will never report. It has "
+                f"to be rebased or merged with the base before anything else "
+                f"about it is true.")
+    if mergeable == "MERGEABLE":
+        return f"mergeable: yes (mergeStateStatus: {status or 'unknown'})"
+    return (f"mergeable: NOT COMPUTED YET — GitHub answered {mergeable}. This "
+            f"is not a statement that the branch is clean; it means the answer "
+            f"was not ready. Check the branch against its base yourself before "
+            f"planning to merge.")
+
+
 def _render_pr(repo: str, d: dict, review_comments: Optional[list]) -> str:
     draft = "DRAFT" if d.get("isDraft") else "not a draft"
     return "\n".join([
@@ -239,6 +271,8 @@ def _render_pr(repo: str, d: dict, review_comments: Optional[list]) -> str:
         f"state:  {d.get('state') or '?'} ({draft}), "
         f"opened by {_login(d.get('author'))}",
         f"branch: {d.get('headRefName') or '?'} → {d.get('baseRefName') or '?'}",
+        _mergeable_block(d.get("mergeable") or "",
+                         d.get("mergeStateStatus") or ""),
         "",
         "body (in full):",
         _capped(d.get("body"), MAX_ITEM_CHARS),

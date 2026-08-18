@@ -26,7 +26,8 @@ PR = {
     "url": "https://github.com/WolffM/r/pull/21", "isDraft": False,
     "author": {"login": "WolffM"}, "headRefName": "icons/wire-gate",
     "baseRefName": "main", "reviewDecision": "", "statusCheckRollup": [],
-    "comments": [], "reviews": [],
+    "comments": [], "reviews": [], "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
     "body": "waive with /* check-icons-disable-next-line */ and a reason",
 }
 
@@ -154,6 +155,31 @@ def test_reviews_are_listed_with_their_verdicts():
          "body": "not yet"}])
     out = gi.hydrate("WolffM/r", "Address PR #21", run=fake_gh(pr=pr))
     assert "[octo] CHANGES_REQUESTED not yet" in out
+
+
+def test_a_conflicting_pr_says_its_checks_can_never_report():
+    """PR #21 was CONFLICTING, so GitHub built no merge ref, so its
+    pull_request CI never fired. "no checks have run" then reads as "nothing
+    blocks me" when the truth is that nothing *can* run until a rebase."""
+    pr = dict(PR, mergeable="CONFLICTING", mergeStateStatus="DIRTY")
+    out = gi.hydrate("WolffM/r", "Address PR #21", run=fake_gh(pr=pr))
+    assert "mergeable: NO" in out
+    assert "CONFLICTS with its base branch" in out
+    assert "rebased" in out
+
+
+def test_an_uncomputed_mergeability_is_not_reported_as_clean():
+    """GitHub answers UNKNOWN for a while after a PR is opened. "not computed"
+    and "no conflict" are opposite facts."""
+    pr = dict(PR, mergeable="UNKNOWN", mergeStateStatus="UNKNOWN")
+    out = gi.hydrate("WolffM/r", "Address PR #21", run=fake_gh(pr=pr))
+    assert "NOT COMPUTED YET" in out
+    assert "not a statement that the branch is clean" in out
+
+
+def test_a_clean_pr_says_so_plainly():
+    out = gi.hydrate("WolffM/r", "Address PR #21", run=fake_gh())
+    assert "mergeable: yes (mergeStateStatus: CLEAN)" in out
 
 
 # ── failure is announced, never silent ────────────────────────────────────
