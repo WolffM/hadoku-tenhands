@@ -161,8 +161,17 @@ def _prs_for(repo: str) -> list[dict]:
 # its caller is a status page listing many repos and one bad repo must not blank
 # the others; here there is one repo and no page to keep alive.
 
-#: Longest body preview we hand back — enough for the task notes to carry
-#: context, short enough that a novel-length issue body doesn't bloat the board.
+#: Longest body preview we hand back — enough for a board card to say what the
+#: item is, short enough that a novel-length issue body doesn't bloat the board.
+#:
+#: **This is a card preview, and nothing may plan against it.** It used to be
+#: the only account of the item that reached the planning agent, which sees the
+#: task notes and cannot fetch anything itself. Issue #19 on hadoku-aggregator
+#: is 3,783 characters, so the planner got 7% of it and asked a human to paste
+#: back the rest. Planning now re-fetches the item in full on the trusted side
+#: — `temporal/taskauto/github_item.py` — so raising this number is not the fix
+#: for a planner that seems under-informed, and lowering it costs only card
+#: legibility.
 _BODY_SNIPPET_MAX = 280
 
 #: Authors whose open work is machinery, not a request to act on. `is_bot` from

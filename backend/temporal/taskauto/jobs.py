@@ -15,9 +15,9 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
-from . import plan_notes, selection
+from . import github_item, plan_notes, selection
 from .agent import AgentError, ClaudeCodeAgent
 from .checkout import CheckoutManager
 from .landing import Lander, LandingRefused
@@ -35,7 +35,7 @@ what they meant and write a plan — you must NOT edit any files.
 
 TASK TITLE: {title}
 KIND: {kind}
-{notes_block}
+{item_block}{notes_block}
 Read enough of the repo to be concrete. Then reply with EXACTLY this markdown
 and nothing else:
 
@@ -66,6 +66,11 @@ Rules:
 - If the task appears ALREADY DONE, say so in "What I think you want" and put
   the evidence in "How we'll know it worked", with no plan steps.
 - Keep the blast radius as small as honestly possible.
+- Do not invent a reason for the task. If no review feedback, failing check or
+  complaint is shown above, none exists — plan for what IS there, and never
+  write a step or an acceptance check about something you have not been shown.
+- If a GitHub item is quoted above, that is its full text. Do not ask a human
+  to paste back what is already in front of you.
 """
 
 IMPLEMENT_PROMPT = """\
@@ -170,8 +175,17 @@ def _task_ref(pickup, board, policy: Optional[RepoPolicy] = None) -> TaskRef:
 
 
 def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
-                  *, base_branch: str = "main"):
-    """A `plan` job bound to a specific agent and checkout manager."""
+                  *, base_branch: str = "main",
+                  hydrate: Callable[[str, str], str] = github_item.hydrate):
+    """A `plan` job bound to a specific agent and checkout manager.
+
+    `hydrate(repo, title)` re-fetches the GitHub issue or PR a task was seeded
+    from and returns it as prompt text — "" when the task has no item behind
+    it. It runs HERE, in the trusted parent, precisely because the agent it
+    feeds cannot do it: planning holds no `gh` and no token by design
+    (`agent.py`), and the board notes it would otherwise rely on carry a
+    280-character preview of the item. See `github_item` for what that cost.
+    """
 
     def plan_job(pickup, board, sink):
         checkout = checkouts.reset_to(board.repo, base_branch)
@@ -192,6 +206,14 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                     )) + "\n_Planning hit its pass cap — this needs a laptop._\n",
                     "plan:cap-reached")
 
+        # Before the notes, not after: the notes' preview of a seeded item is
+        # a lossy copy of what this returns, and the prompt tells the agent to
+        # prefer this one.
+        item_block = hydrate(board.repo, pickup.task.title)
+        if item_block:
+            item_block = f"\n{item_block}\n"
+        sink.heartbeat()
+
         notes_block = ""
         if pickup.task.notes.strip():
             notes_block = (
@@ -203,6 +225,7 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             title=pickup.task.title,
             kind="a bug report — it claims something is broken"
                  if kind.is_bug else "a change request",
+            item_block=item_block,
             notes_block=notes_block,
             verify_hint="For a bug, this is what shows it is broken TODAY."
                         if kind.is_bug else

@@ -111,6 +111,35 @@ def test_a_clean_plan_goes_to_plan_review_for_a_human():
     assert "coffee" in notes.lower()
 
 
+def test_the_seeded_github_item_reaches_the_planning_prompt():
+    """The whole fix. Planning holds no `gh` and no token by design, so the
+    item it was seeded from has to be fetched by the parent and handed over —
+    otherwise all it ever sees is the board's 280-character preview."""
+    agent = FakeAgent(answer=GOOD_PLAN)
+    job = make_plan_job(agent, FakeCheckouts(),
+                        hydrate=lambda repo, title: f"ITEM({repo}/{title})")
+    job(pickup("Address PR #21"), board(), FakeSink())
+    assert "ITEM(WolffM/tenhands/Address PR #21)" in agent.asked[0]
+
+
+def test_a_task_with_no_github_item_gets_no_item_block():
+    agent = FakeAgent(answer=GOOD_PLAN)
+    job = make_plan_job(agent, FakeCheckouts(), hydrate=lambda repo, title: "")
+    job(pickup(), board(), FakeSink())
+    assert "SEEDED FROM" not in agent.asked[0]
+
+
+def test_planning_is_told_not_to_invent_a_reason_for_the_task():
+    """A bare `Address PR #21` states no intent, and an agent handed a bare
+    imperative supplies one — it wrote plan steps against a review backlog
+    that did not exist."""
+    agent = FakeAgent(answer=GOOD_PLAN)
+    make_plan_job(agent, FakeCheckouts(), hydrate=lambda r, t: "")(
+        pickup("Address PR #21"), board(), FakeSink())
+    assert "Do not invent a reason" in agent.asked[0]
+    assert "paste back what is already in front of you" in agent.asked[0]
+
+
 def test_open_questions_go_to_plan_review():
     agent = FakeAgent(answer=GOOD_PLAN.replace(
         "_No open questions._", "1. Which shade of coffee?"))

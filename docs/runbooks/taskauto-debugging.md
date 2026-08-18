@@ -53,6 +53,32 @@ from temporal.taskauto.reconcile import PRRef
 print(reconcile._merged_notes(task, PRRef("WolffM/<repo>", <pr_number>)))
 ```
 
+### The notes are not what the planner read
+
+A task seeded by the board's **"automate open items"** button — titled
+`Address #19` or `Address PR #21` — carries only a **280-character preview** of
+the GitHub item in its notes (`_BODY_SNIPPET_MAX`, `routes/taskauto_routes.py`).
+Do not read those notes as the planner's input.
+
+Since 2026-08-18 the planner is handed the item **re-fetched in full** by the
+parent process ([`github_item.py`](../../backend/temporal/taskauto/github_item.py)),
+because the agent itself holds no `gh` and no token by design (`agent.py`,
+containments 1–2) and never can. To see what it actually read:
+
+```python
+# from backend/
+from temporal.taskauto import github_item
+print(github_item.hydrate("WolffM/<repo>", "<task title>"))
+```
+
+Empty output means the title is not a seeded one and no item was involved. A
+block reading **`COULD NOT BE FETCHED`** means `gh` failed and the planner was
+told so explicitly — that is the designed behaviour, not a bug: an omitted
+block would have read to the agent as "the preview is the whole story", which
+is the failure this replaced. If a plan invents review comments or failing
+checks that don't exist, check this output first; the item block states absent
+status as absent (`checks: NONE REPORTED`) precisely to prevent it.
+
 ---
 
 ## 2. Fetching a task's real state
