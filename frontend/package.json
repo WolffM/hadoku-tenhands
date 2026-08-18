@@ -44,9 +44,9 @@
     "lint:icons": "hadoku-check-icons src ../backend ../scripts ../demo"
   },
   "peerDependencies": {
-    "@wolffm/logger": ">=1.0.0",
-    "@wolffm/task-ui-components": ">=3.0.0",
-    "@wolffm/themes": "^5.5.1",
+    "@wolffm/logger": "^1.3.2",
+    "@wolffm/task-ui-components": "^4.7.3",
+    "@wolffm/themes": "^5.7.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
