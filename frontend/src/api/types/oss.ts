@@ -1,0 +1,244 @@
+/**
+ * OSS contribution pipeline: targets, scored issues, assignments, dossiers,
+ * and the stage responses that carry them.
+ */
+
+// ============ OSS Pipeline Types ============
+
+export interface OSSTarget {
+  slug: string
+  health?: {
+    maintainerHealthScore: number
+    mergeAccessibilityScore: number
+    availabilityScore: number
+    overallViability: number
+  }
+  meta?: {
+    stars: number
+    language: string
+    license: string
+    openIssueCount: number
+    hasContributing: boolean
+  }
+}
+
+export interface ScoredIssue {
+  id: string
+  repo: string
+  number: number
+  title: string
+  url: string
+  cvs: number
+  cvsTier: 'go' | 'likely' | 'maybe' | 'risky' | 'skip'
+  lifecycleStage: string
+  complexity: string
+  labels: string[]
+  commentCount: number
+  assignees: string[]
+  claimStatus: string
+  createdAt: string
+  dataCompleteness: 'full' | 'partial'
+  repoKilled: boolean
+}
+
+export interface OSSAssignment {
+  originSlug: string
+  repo: string
+  issueNumber: number
+  forkIssueNumber: number
+  forkIssueUrl: string
+  assignedAt: string
+}
+
+export interface SubmittedPR {
+  originSlug: string
+  prUrl: string
+  prNumber?: number
+  title: string
+  state: string
+  reviewDecision?: string
+  mergedAt?: string
+  closedAt?: string
+  lastPolledAt?: string
+  submittedAt: string
+}
+
+// ============ OSS API Response Types ============
+
+export interface OSSBaseResponse {
+  success: boolean
+  owner: string
+}
+
+export interface OSSStage1Response extends OSSBaseResponse {
+  targets: OSSTarget[]
+}
+
+export interface OSSStage2Response extends OSSBaseResponse {
+  issues: ScoredIssue[]
+}
+
+export interface OSSStage5TrackingResponse extends OSSBaseResponse {
+  submitted: SubmittedPR[]
+}
+
+export interface OSSForkAssignResponse extends OSSBaseResponse {
+  fork_issue_url?: string
+  already_assigned?: boolean
+  error?: string
+}
+
+// ============ Dossier Types ============
+
+export interface DossierSections {
+  overview: string
+  contributionRules: string
+  successPatterns: string
+  antiPatterns: string
+  issueBoard: string
+  environmentSetup: string
+}
+
+export interface Dossier {
+  slug: string
+  generatedAt: string
+  sections: DossierSections
+}
+
+export interface OSSDossierResponse extends OSSBaseResponse {
+  dossier: Dossier | null
+}
+
+// ============ OSS Pipeline Redesign Types ============
+
+export type Stage4Status =
+  | 'swe_agent_working'
+  | 'swe_agent_done'
+  | 'static_analysis_running'
+  | 'static_analysis_done'
+  | 'review_in_progress'
+  | 'review_complete'
+  | 'remediation_running'
+  | 'remediation_done'
+  | 'retrospective_complete'
+
+export interface PipelineAssignment extends OSSAssignment {
+  stage4Status: Stage4Status
+  stage4PrNumber: number | null
+  stage4PrBranch: string | null
+  stage4ReviewRequested: boolean
+  stage4SweDoneAt: string | null
+  stage4SaRunId: string | null
+  stage4SaConclusion: string | null
+  stage4SaDoneAt: string | null
+  stage4ReviewDoneAt: string | null
+  stage4dSkipped: boolean | null
+  stage4dPreCommitCount: number | null
+  stage4dDoneAt: string | null
+  language: string | null
+  contextTier: number | null
+  contextSources: string[] | null
+  dossierCompleteness: Record<string, boolean> | null
+}
+
+export interface RetrospectiveEntry {
+  repo: string
+  issue_number: number
+  created_at: string
+  swe?: {
+    pr_number?: number
+    title?: string
+    pr_branch?: string
+    additions?: number
+    deletions?: number
+    changed_files?: number
+    commit_count?: number
+  }
+  static_analysis?: {
+    conclusion?: string
+    run_id?: string
+    jobs?: {
+      name: string
+      conclusion: string
+      annotations?: {
+        path: string
+        line: number
+        level: string
+        message: string
+      }[]
+    }[]
+    total_annotations?: number
+  }
+  review?: {
+    inline_comment_count?: number
+    actionable?: boolean
+  }
+  remediation?: {
+    skipped?: boolean
+    new_commits?: number
+    additions?: number
+    deletions?: number
+    changed_files?: number
+  }
+  workflow?: {
+    reproduced?: boolean
+    verified?: boolean
+    self_corrected?: boolean
+    codeql?: boolean
+    code_review?: boolean
+    tool_installed?: boolean
+    step_count?: number
+    tools_used?: string[]
+  }
+  timing?: {
+    assigned_at?: string
+    swe_done_at?: string
+    sa_done_at?: string
+    review_done_at?: string
+    remediation_done_at?: string
+    completed_at?: string
+  }
+  data_quality?: {
+    context_tier?: number
+    dossier_completeness?: Record<string, boolean | number>
+  }
+  pipeline?: {
+    language?: string
+    swe_agent?: string
+    review_agent?: string
+    static_analysis?: string
+    remediation_agent?: string
+  }
+}
+
+export interface RepoHealthTarget extends OSSTarget {
+  health?: OSSTarget['health'] & {
+    prPatterns?: Record<string, unknown>
+    detectedQuirks?: string[]
+    analyzedAt?: string
+  }
+  dossier?: {
+    sections?: DossierSections
+    completeness?: Record<string, boolean | number>
+    _meta?: Record<string, unknown>
+  }
+  _meta?: Record<string, unknown>
+}
+
+// ============ OSS Pipeline Redesign Response Types ============
+
+export interface PipelineStatusResponse extends OSSBaseResponse {
+  statuses: PipelineAssignment[]
+}
+
+export interface RetrospectiveLogsResponse extends OSSBaseResponse {
+  logs: RetrospectiveEntry[]
+}
+
+export interface SignoffResponse extends OSSBaseResponse {
+  pr_url?: string
+  clean_branch?: string
+  steps?: Record<string, unknown>
+  conflict_warnings?: { number: number; title: string; mergeable: string }[]
+  error?: string
+}
