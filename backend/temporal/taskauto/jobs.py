@@ -110,11 +110,17 @@ def _refusal_advice(reason: str) -> str:
     change themselves, or to reword the task so it does not need those paths.
     """
     r = reason.lower()
+    if "manifest change refused" in r:
+        return ("A version bump or a range move on a dependency that is "
+                "already there lands on its own. This one did something a "
+                "revert does not undo cheaply — introduced a dependency, "
+                "pointed one outside the registry, or added a script that "
+                "runs on every install — so it needs a human.")
     if "protected path" in r or "allow-protected" in r:
-        return ("These paths — CI, secrets, migrations, lockfiles, and this "
-                "pipeline's own code — are the ones a bad merge cannot be "
-                "undone by a revert, so nothing automated may touch them. "
-                "This part needs a human.")
+        return ("These paths — CI, secrets, migrations, and this pipeline's "
+                "own code — are the ones a bad merge cannot be undone by a "
+                "revert, so nothing automated may touch them. This part "
+                "needs a human.")
     if "blast radius" in r:
         return ("A correct fix this wide is still an unreviewable one. Split "
                 "the task, or raise `max_files_changed` for this repo.")
@@ -407,6 +413,9 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 base=base_branch,
                 test_command=test_command,
                 test_cwd=test_cwd,
+                # The manifest rule reads this when the checkout cannot be
+                # consulted; with a checkout the exact form wins anyway.
+                diff_text=outcome.diff,
             )
         except LandingRefused as e:
             return (selection.LANE_STALLED,
