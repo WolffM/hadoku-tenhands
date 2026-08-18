@@ -41,6 +41,7 @@ from typing import Callable, Optional, Sequence
 
 from ..gates.taskauto.protected_paths import protected_hits
 from . import proc
+from .manifests import ManifestVerdict, classify_diff, classify_files
 from .refs import RepoPolicy, TaskRef
 from .task_text import extract_allow_protected
 
@@ -116,8 +117,17 @@ class Lander:
     # ── gates that run before anything is committed ───────────────────────
 
     def preflight(self, task: TaskRef, changed_files: Sequence[str],
-                  policy: Optional[RepoPolicy] = None) -> list[str]:
-        """Refuse anything that must not land. Returns the checks that passed."""
+                  policy: Optional[RepoPolicy] = None, *,
+                  checkout: Optional[Path] = None,
+                  diff_text: Optional[str] = None) -> list[str]:
+        """Refuse anything that must not land. Returns the checks that passed.
+
+        `checkout` and `diff_text` are what the manifest rule reads. With a
+        checkout it is exact — both sides of every manifest, parsed — and with
+        only a diff it is the conservative form. With neither, a touched
+        manifest is a refusal: this is the last thing between the diff and
+        `main`, so "a manifest changed and I could not see how" cannot pass.
+        """
         policy = policy or task.policy
         checks: list[str] = []
 
@@ -153,7 +163,53 @@ class Lander:
                 f"protected paths touched: {', '.join(sorted(unauthorised))}")
         checks.append("protected_paths: clean"
                       + (f" ({len(hits)} authorised)" if hits else ""))
+
+        # Manifests are judged by content, not by being touched — see
+        # `manifests` for why the path rule was the wrong question. The
+        # `allow-protected:` override still applies, and is still the only way
+        # a genuine new dependency lands unattended.
+        manifests = [p for p, _ in protected_hits(changed_files,
+                                                  policy.manifest_paths)]
+        to_judge = [p for p in manifests
+                    if not any(_glob_ok(p, a) for a in allowed)]
+        if to_judge:
+            verdict = self._judge_manifests(to_judge, checkout, diff_text)
+            if not verdict.ok:
+                raise LandingRefused(f"manifest change refused: {verdict.reason}")
+            checks.append(f"manifests: {verdict.reason}")
+        elif manifests:
+            checks.append(f"manifests: {len(manifests)} authorised")
         return checks
+
+    def _judge_manifests(self, paths: Sequence[str], checkout: Optional[Path],
+                         diff_text: Optional[str]) -> ManifestVerdict:
+        """Exact from a checkout, conservative from a diff, refuse from
+        neither."""
+        if checkout is not None:
+            sides: dict[str, tuple[Optional[str], Optional[str]]] = {}
+            for path in paths:
+                # HEAD is the "before": preflight runs before `checkout -B`,
+                # so the working tree holds the agent's edits and HEAD holds
+                # what the branch was cut from.
+                shown = self.run(
+                    ["git", "-C", str(checkout), "show", f"HEAD:{path}"],
+                    checkout, 60)
+                old_text = shown.out if shown.ok else None
+                disk = Path(checkout) / path
+                try:
+                    new_text = disk.read_text(encoding="utf-8")
+                except OSError:
+                    new_text = None
+                sides[path] = (old_text, new_text)
+            return classify_files(sides)
+        if diff_text is not None:
+            return classify_diff(diff_text, paths)
+        return ManifestVerdict(
+            ok=False,
+            reason=(f"{len(paths)} manifest(s) changed with neither a checkout "
+                    f"nor a diff to judge them by"),
+            refusals=tuple(f"{p}: nothing to read" for p in paths),
+        )
 
     # ── the sequence ──────────────────────────────────────────────────────
 
@@ -161,9 +217,11 @@ class Lander:
              message: str, changed_files: Sequence[str],
              base: str = "main", test_command: Optional[Sequence[str]] = None,
              policy: Optional[RepoPolicy] = None, test_cwd: str = ".",
-             test_timeout: int = 1800) -> LandResult:
+             test_timeout: int = 1800,
+             diff_text: Optional[str] = None) -> LandResult:
         policy = policy or task.policy
-        checks = self.preflight(task, changed_files, policy)
+        checks = self.preflight(task, changed_files, policy,
+                                checkout=checkout, diff_text=diff_text)
 
         def git(*args, timeout=300) -> CmdResult:
             return self.run(["git", "-C", str(checkout), *args], checkout, timeout)

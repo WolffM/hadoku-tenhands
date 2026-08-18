@@ -65,15 +65,30 @@ def test_ordinary_source_changes_pass():
     "config/app_secrets.ts",
     "certs/server.pem",
     "db/migrations/0004_add_column.sql",
-    "package.json",
-    "pnpm-lock.yaml",
-    "requirements.txt",
     "backend/temporal/gates/taskauto/protected_paths.py",
 ])
 def test_protected_paths_are_blocked(path):
     r = verdict([path])
     assert r.verdict == "fail"
     assert path in r.reason
+
+
+@pytest.mark.parametrize("path", [
+    "package.json",
+    "apps/ui/package.json",
+    "pnpm-lock.yaml",
+    "requirements.txt",
+])
+def test_manifests_are_no_longer_blocked_by_path(path):
+    """They moved to `manifest_paths`, judged by content in
+    `dependencies_unchanged` (G6b) and in `Lander.preflight`.
+
+    A path rule could only ever answer "was it touched", and these are touched
+    on nearly every task by a version bump — so it stalled almost everything
+    and caught almost nothing. This gate must now let them by; the content
+    rule is what refuses a dependency.
+    """
+    assert verdict([path]).verdict == "pass"
 
 
 def test_the_gate_blocks_edits_to_its_own_gates():

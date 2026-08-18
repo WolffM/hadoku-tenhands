@@ -47,11 +47,30 @@ class RepoPolicy:
         "**/*secret*", "**/*.pem",
         # Destructive and irreversible.
         "**/migrations/**",
-        # New dependencies are new supply chain.
-        "package.json", "pnpm-lock.yaml", "requirements.txt",
         # The pipeline's own code. An agent that can edit its own gates is
         # not gated.
         "backend/temporal/**",
+    )
+
+    #: Manifests, which are judged by CONTENT rather than by being touched.
+    #:
+    #: These were in `protected_paths` under "new dependencies are new supply
+    #: chain". The risk is real, but the path was the wrong question to ask
+    #: about it: in this ecosystem the pre-commit hook bumps a version and the
+    #: auto-update bot moves `@wolffm/*` ranges, so these files change on
+    #: nearly every task. The rule fired on the mechanical part of almost every
+    #: diff and essentially never on a dependency actually being introduced,
+    #: which made "stalled" the normal outcome and taught nobody anything.
+    #:
+    #: `temporal.taskauto.manifests` asks the narrower question instead — a new
+    #: dependency, a non-registry target, a lifecycle script, a lockfile
+    #: gaining a package — and refuses exactly those. A path listed here is
+    #: NOT exempt: it is checked harder, by something that can read it.
+    manifest_paths: tuple[str, ...] = (
+        "package.json", "**/package.json",
+        "pnpm-lock.yaml", "**/pnpm-lock.yaml",
+        "package-lock.json", "**/package-lock.json",
+        "requirements.txt", "**/requirements.txt",
     )
 
     #: Hard cap on how far one task may reach, enforced in `Lander.preflight`.

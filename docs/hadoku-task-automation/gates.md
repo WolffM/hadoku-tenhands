@@ -34,6 +34,7 @@ filed the issue, so crimson-kitty's gate set transfers; only the gates that are 
 | 3 | Empty or no-op change | `diff_non_empty` (G4) | **reuse** `gates/fix.py` unchanged |
 | 4 | Agent helpfully refactored 40 unrelated files | `blast_radius_respected` (G5) | **extend** `gates/fix.py` relevance check |
 | 5 | Agent edited CI, secrets, migrations, or its own gates | `protected_paths_untouched` (G6) | **new** |
+| 5 | Agent introduced a dependency, or a script that runs on install | `dependencies_unchanged` (G6b) | **new** |
 | 6 | Credential committed | `no_secrets_in_diff` (G7) | **new** |
 | 7 | Fix doesn't actually fix it | `acceptance_met` (G8) | **reuse** `gates/verify.py` |
 | 8 | Fix breaks something else, or `main` moved underneath | `suite_green_on_merge_result` (G9) | **extend** `activities/test_runner.py` |
@@ -147,9 +148,12 @@ A per-repo deny-list that never auto-merges. Defaults:
 Dockerfile, docker-compose*, deploy/**, infra/**
 .devvault.json, .env*, **/*secret*, **/*.pem
 **/migrations/**            destructive and irreversible
-package.json, pnpm-lock.yaml, requirements.txt   new dependencies = new supply chain
 backend/temporal/**         (tenhands only) the pipeline's own gates
 ```
+
+`package.json`, `pnpm-lock.yaml` and `requirements.txt` were on this list under *"new dependencies
+= new supply chain"*. They now live in `manifest_paths` and are judged by G6b instead — see below
+for why a path rule was the wrong question for them.
 
 That last line matters: an agent that can edit its own gates is not gated. The first four matter
 because they're the paths where "reversible by a follow-up commit" stops being true — a broken
@@ -185,6 +189,48 @@ Two mechanical fixes, and we want both:
 The general rule this is an instance of: **no gate may read its own authorisation from a field the
 agent can write.** Worth checking every future gate against, because this one looked completely
 reasonable until it didn't.
+
+### G6b · `dependencies_unchanged` — mechanical
+
+The sibling of G6, for the three paths that gate could only ever answer wrongly.
+
+The risk it guards is real: a new dependency is new supply chain. But *"was this path touched"* is
+not that question, and in this ecosystem the two barely correlate. The pre-commit hook bumps a
+version on every commit and the auto-update bot moves `@wolffm/*` ranges continuously, so
+`package.json` and `pnpm-lock.yaml` change on nearly every task. The deny-list fired on the
+mechanical part of almost every diff and essentially never on a dependency actually arriving.
+
+Measured on WolffM/hadoku-watchparty#139: a version bump, one range bump on a dependency already
+present, a lockfile touching only packages it already had, and a new **non-lifecycle** script.
+Refused; the task stalled; the fix was then written by hand. That is the failure mode — not a bad
+merge prevented, but the pipeline made useless for the repos it was built for.
+
+So G6b asks the narrower question, and refuses exactly:
+
+- a dependency key **added or removed**
+- a dependency **retargeted** at `git:` / `file:` / `http:` / `link:` / `portal:`
+- a **lifecycle script** (`preinstall`, `install`, `postinstall`, `prepare`, `prepack`,
+  `prepublish[Only]`, …) added or changed — these run on every install, so an agent that can add
+  one has arbitrary code execution on anyone who pulls
+- `overrides`, `resolutions`, `pnpm.patchedDependencies`, `pnpm.onlyBuiltDependencies`,
+  `packageManager` — they retarget or execute without the dependency list moving at all
+- a **lockfile gaining a package** it did not have (first-party `@wolffm/*` excepted — that is the
+  auto-update bot, not a third party arriving)
+- anything it **cannot read**: unparseable JSON, a diff line in an unrecognised form, a manifest
+  reported as touched but absent from the diff
+
+A version bump, and a range move on a dependency that is already there, land.
+
+**Two entry points, because the two callers see different things.** `Lander.preflight` has the
+checkout, so it reads both whole manifests and knows exactly which section every key sits in. The
+gate has only `05-fixed/diff.patch`, whose hunks routinely omit the enclosing `"scripts": {`, so it
+judges by the shape of the *value* — a dependency's is a version specifier, a script's is a command
+line — and refuses what it cannot parse. Both fail closed, for the same reason G6 fails closed on
+unreadable evidence.
+
+`allow-protected:` still applies, read from the title or the claim snapshot only, exactly as in G6.
+It is how a genuine dependency addition lands unattended: a human names the file, having decided to
+accept it.
 
 ### G7 · `no_secrets_in_diff` — mechanical
 
