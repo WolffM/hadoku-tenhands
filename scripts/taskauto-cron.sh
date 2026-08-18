@@ -54,14 +54,22 @@
 #
 # INSTALL (on the runner host, as the runner user):
 #
-#     crontab -l | { cat; echo '*/15 * * * * /home/hadoku/repos/tenhands/scripts/taskauto-cron.sh >> /home/hadoku/logs/taskauto-cron.log 2>&1'; } | crontab -
+#     crontab -l | { cat; echo '*/15 * * * * /home/hadoku/repos/hadoku-tenhands/scripts/taskauto-cron.sh >> /home/hadoku/logs/taskauto-cron.log 2>&1'; } | crontab -
+#
+# The path is the repo's REAL directory name. It was `repos/tenhands` here for
+# long enough that a crontab installed from this comment pointed at nothing
+# after the repo took the fleet-wide `hadoku-` prefix; cron then logged
+# "not found" every 15 minutes and the backstop was simply gone. Nothing
+# noticed, because layer 3 is the layer nothing else watches.
 #
 # Verify it is firing:  tail -f ~/logs/taskauto-cron.log
 # Verify runs land:     gh run list --workflow=taskauto.yml --limit 10
 
 set -uo pipefail
 
-REPO="WolffM/tenhands"
+#: GitHub redirects the old name, so `WolffM/tenhands` still resolved after the
+#: rename — which is precisely why this sat wrong without failing.
+REPO="WolffM/hadoku-tenhands"
 VAULT="/home/hadoku/repos/hadoku_site/scripts/secrets/dev-vault.mjs"
 STATE="$HOME/.taskauto/cron-state"
 #: A run sitting queued longer than this means nothing is picking work up —
