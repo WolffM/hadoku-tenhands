@@ -5,37 +5,34 @@
 
 // ============ Temporal (crimson-kitty) Types ============
 
-export type TemporalState =
-  | 'candidate'
-  | 'eligible'
-  | 'forked'
-  | 'environment_ready'
-  | 'reproduced'
-  | 'fixed'
-  | 'verified'
-  | 'reviewed'
-  | 'remediated'
-  | 'submittable'
-  | 'submitted'
-  | 'merged'
-  | 'closed_by_upstream'
-  | 'aborted'
-  | 'awaiting_human_review'
+// Note on the wire format: `current_state` and `verdict` below are `string`,
+// not closed unions, and deliberately so.
+//
+// There used to be a `TemporalState` union and a `TemporalGateVerdict` union
+// here. Nothing consumed either — and `TemporalState` had drifted: the
+// workflow emits `replicated` and `awaiting_signoff`, neither of which the
+// union listed, while the union listed states (`eligible`, `environment_ready`,
+// `reproduced`, `verified`, `merged`, …) the workflow never sets. Typing the
+// field against it would have rejected real data.
+//
+// These values cross a Python/TypeScript boundary with no shared schema, so
+// the frontend treats them as open strings and falls back on an unrecognised
+// one (`GateResultRow`'s `|| 'secondary'`). Reintroduce a closed union only
+// alongside something that keeps it honest against the backend.
 
-export type TemporalGateVerdict = 'pass' | 'fail' | 'defer'
 export type TemporalSignalDecision = 'approve' | 'abort' | 'retry'
 
 /** Structured override reason codes — Phase 0 / M0.2. Backend enforces
  *  that codes are scoped to their decision; `abort_other` requires a
  *  non-empty reason_text. */
-export type TemporalApproveReasonCode = 'approve_clean' | 'approve_after_edit'
-export type TemporalAbortReasonCode =
+type TemporalApproveReasonCode = 'approve_clean' | 'approve_after_edit'
+type TemporalAbortReasonCode =
   | 'abort_scope_mismatch'
   | 'abort_quality'
   | 'abort_active_upstream'
   | 'abort_stale_issue'
   | 'abort_other'
-export type TemporalRetryReasonCode = 'retry_transient' | 'retry_with_changes'
+type TemporalRetryReasonCode = 'retry_transient' | 'retry_with_changes'
 export type TemporalReasonCode =
   TemporalApproveReasonCode | TemporalAbortReasonCode | TemporalRetryReasonCode
 
@@ -49,7 +46,7 @@ export interface TemporalBatchSummary {
   active?: boolean
 }
 
-export interface TemporalIssueSummary {
+interface TemporalIssueSummary {
   batch_id: string
   issue_id: string
   current_state: string
@@ -68,7 +65,7 @@ export interface TemporalIssueSummary {
   gate_count: number
 }
 
-export interface TemporalTransition {
+interface TemporalTransition {
   from: string
   to: string
   reason: string
@@ -84,7 +81,7 @@ export interface TemporalGateRecord {
   ts: string
 }
 
-export interface TemporalEventRecord {
+interface TemporalEventRecord {
   ts?: string
   type?: string
   [key: string]: unknown
