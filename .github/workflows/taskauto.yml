@@ -121,6 +121,21 @@ jobs:
       # every PR this job opened would sit with no checks at all — the exact
       # "green because nothing ran" failure the test workflow exists to stop.
       GH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+      # The SAME secret again, under its own name, because ~/.npmrc on the
+      # runner host authenticates @wolffm/* against GitHub Packages with
+      # `_authToken=${HADOKU_SITE_TOKEN}` and npm/pnpm expand that from the
+      # environment by that exact name — GH_TOKEN does not satisfy it.
+      #
+      # The host resolves it from the vault in ~/.bashrc, but that export sits
+      # after the interactive guard at the top of the file, so a non-interactive
+      # shell returns before ever reaching it. Every pnpm the agent runs inside
+      # a target repo therefore printed
+      #     WARN Failed to replace env in config: ${HADOKU_SITE_TOKEN}
+      # and authenticated to GitHub Packages as nobody. A task whose repo has a
+      # pre-commit hook that installs or lints then fails at the landing gate
+      # with the work already done — which is how hadoku-meet's
+      # taskauto/msvcsm99xq3e ended as "NOT LANDED".
+      HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
       # claude and gh live in ~/.local/bin, which is not on the runner's PATH.
       # Overridable via the CLAUDE_BIN repo variable (mirrors vars.CI_RUNNER).
       TASKAUTO_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || '/home/hadoku/.local/bin/claude' }}
