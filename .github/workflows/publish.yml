@@ -45,7 +45,7 @@ jobs:
         working-directory: frontend
         run: pnpm --config.store-dir=${{ runner.tool_cache }}/pnpm-store install --frozen-lockfile
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
 
       - name: Runtime deps must clear hadoku_site's supply-chain cooldown
         # A PUBLISH THAT SUCCEEDS IS NOT A PUBLISH THE PARENT CAN TAKE.
@@ -232,7 +232,7 @@ jobs:
             echo "✓ Version $current_version is not published yet, ready to publish"
           fi
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
 
       - name: Publish package
         if: steps.package_changed.outputs.changed == 'true'
