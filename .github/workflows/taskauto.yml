@@ -135,7 +135,7 @@ jobs:
       # pre-commit hook that installs or lints then fails at the landing gate
       # with the work already done — which is how hadoku-meet's
       # taskauto/msvcsm99xq3e ended as "NOT LANDED".
-      HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+      HADOKU_NPM_READ_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
       # claude and gh live in ~/.local/bin, which is not on the runner's PATH.
       # Overridable via the CLAUDE_BIN repo variable (mirrors vars.CI_RUNNER).
       TASKAUTO_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || '/home/hadoku/.local/bin/claude' }}
