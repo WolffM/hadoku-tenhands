@@ -80,7 +80,15 @@ def gh(args: list[str], *, check: bool = True, json_out: bool = False):
         ["gh", *args], capture_output=True, text=True
     )
     if check and result.returncode != 0:
-        raise RuntimeError(f"gh {' '.join(args)} failed: {result.stderr.strip()}")
+        # `gh api` splits its failure across both streams: stderr carries the
+# category ("gh: Validation Failed (HTTP 422)") and stdout carries the
+# response body naming the offending field. Quoting stderr alone keeps the
+# half you cannot act on.
+        body = " ".join(result.stdout.split())  # flatten the pretty-printed JSON
+        detail = " ".join(
+            part for part in (result.stderr.strip(), body[:500]) if part
+        ) or "no output on either stream"
+        raise RuntimeError(f"gh {' '.join(args)} failed: {detail}")
     if json_out:
         return json.loads(result.stdout or "null")
     return result.stdout.strip()

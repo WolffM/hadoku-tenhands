@@ -93,6 +93,20 @@ SMOKE_TARGETS = [
 ]
 
 
+def _gh_detail(r: subprocess.CompletedProcess) -> str:
+    """Both streams of a failed `gh` run.
+
+    `gh api` splits its failure: stderr carries the category ("gh: Validation
+    Failed (HTTP 422)") and stdout carries the response body naming the
+    offending field, or the rate-limit reset. Quoting stderr alone keeps only
+    the half you cannot act on.
+    """
+    body = " ".join(r.stdout.split())  # the JSON body is pretty-printed; flatten it
+    return " ".join(
+        part for part in (r.stderr.strip()[:160], body[:240]) if part
+    ) or "no output on either stream"
+
+
 def _gh(args: list[str], saml_org: bool = False) -> dict | list | None:
     """Run gh api and parse JSON. Returns None on failure.
 
@@ -109,7 +123,7 @@ def _gh(args: list[str], saml_org: bool = False) -> dict | list | None:
 
     r = subprocess.run(["gh", "api"] + args, capture_output=True, text=True, timeout=30, env=env)
     if r.returncode != 0:
-        print(f"  ! gh {args[0]} failed: {r.stderr[:120]}", file=sys.stderr)
+        print(f"  ! gh {args[0]} failed: {_gh_detail(r)}", file=sys.stderr)
         return None
     try:
         return json.loads(r.stdout)
@@ -148,7 +162,7 @@ def _gh_paginated(endpoint: str, saml_org: bool = False, max_pages: int = 10) ->
             ["gh", "api", url], capture_output=True, text=True, timeout=30, env=env,
         )
         if r.returncode != 0:
-            print(f"  ! gh paginated page {page} failed: {r.stderr[:120]}", file=sys.stderr)
+            print(f"  ! gh paginated page {page} failed: {_gh_detail(r)}", file=sys.stderr)
             break
         try:
             chunk = json.loads(r.stdout)
