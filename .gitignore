@@ -39,7 +39,7 @@ instance/
 .webassets-cache
 
 # Node/JS Dependencies
-node_modules/
+node_modules
 
 # Build outputs
 dist/
