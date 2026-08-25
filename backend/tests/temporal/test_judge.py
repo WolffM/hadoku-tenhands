@@ -36,6 +36,29 @@ def test_canary_raises_unreachable_on_nonzero_exit(monkeypatch):
         J._canary_or_raise()
 
 
+def test_canary_reports_stdout_when_stderr_is_empty(monkeypatch):
+    """The real-world shape: `claude -p` puts its reason on stdout.
+
+    The test above hands the canary stderr="auth failed", which is the opposite
+    of how the CLI actually reports, and is why nothing caught that a genuine
+    outage surfaced as a bare "canary exit 1:" with no reason attached.
+    """
+    fake = MagicMock(returncode=1, stdout="Credit balance is too low", stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
+
+    with pytest.raises(J.JudgeUnreachable, match="Credit balance is too low"):
+        J._canary_or_raise()
+
+
+def test_canary_says_so_when_both_streams_are_empty(monkeypatch):
+    """Never raise a message whose reason half is blank."""
+    fake = MagicMock(returncode=1, stdout="", stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
+
+    with pytest.raises(J.JudgeUnreachable, match="no output on either stream"):
+        J._canary_or_raise()
+
+
 def test_canary_raises_unreachable_on_timeout(monkeypatch):
     def boom(args, timeout, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["claude"], timeout=timeout)

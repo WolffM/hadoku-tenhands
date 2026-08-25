@@ -111,6 +111,19 @@ def _run_claude(
     )
 
 
+def _failure_detail(result: subprocess.CompletedProcess) -> str:
+    """Why a non-zero `claude` run failed, from whichever stream carried it.
+
+    `claude -p` reports its own errors on STDOUT, so quoting stderr alone is how
+    a real outage arrives as a bare "canary exit 1:" with nothing after the
+    colon. That is exactly what CI showed on 2026-08-25: four consecutive runs
+    failed identically, the run passed untouched on retry 45 minutes later, and
+    the message had thrown away every clue as to what the CLI had objected to.
+    """
+    detail = result.stderr.strip() or result.stdout.strip() or "no output on either stream"
+    return detail[:200]
+
+
 # ── Canary ────────────────────────────────────────────────────────────────
 
 
@@ -133,7 +146,7 @@ def _canary_or_raise() -> None:
 
     if result.returncode != 0:
         raise JudgeUnreachable(
-            f"canary exit {result.returncode}: {result.stderr.strip()[:200]}"
+            f"canary exit {result.returncode}: {_failure_detail(result)}"
         )
     if "OK" not in result.stdout:
         raise JudgeUnreachable(
@@ -260,7 +273,7 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
 
         if result.returncode != 0:
             raise JudgeUnreachable(
-                f"judge exit {result.returncode}: {result.stderr.strip()[:200]}"
+                f"judge exit {result.returncode}: {_failure_detail(result)}"
             )
 
         parsed = _extract_json(result.stdout)
@@ -337,7 +350,7 @@ def generate_title(issue_title: str, fix_summary: str, files_touched: list[str])
 
     if result.returncode != 0:
         raise JudgeUnreachable(
-            f"title judge exit {result.returncode}: {result.stderr.strip()[:200]}"
+            f"title judge exit {result.returncode}: {_failure_detail(result)}"
         )
 
     parsed = _extract_json(result.stdout)
