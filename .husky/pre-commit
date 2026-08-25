@@ -8,20 +8,22 @@
 # non-zero exit. core.hooksPath now points at .husky itself, which is tracked.
 [ "${HUSKY-}" = "0" ] && exit 0
 
-# Firing the hook is only half of it: a fresh worktree has no frontend/node_modules and
-# the gates below need one. pnpm lays node_modules out as a symlink farm over
-# its own .pnpm store, so a worktree on the same dependency set can borrow the
-# main checkout's. A branch that genuinely CHANGES dependencies fails loudly on
-# the missing package instead, and `pnpm install` here fixes that.
+# Firing the hook is only half of it. A fresh worktree is missing everything
+# .gitignore excludes, and the gates below read some of it. Borrow those from
+# the main checkout rather than skipping the gate: same repo, and in the normal
+# case the same artifacts. A branch that genuinely CHANGES dependencies fails
+# loudly on the missing package instead, which is the outcome we want.
+common_dir=$(git rev-parse --git-common-dir)
+case "$common_dir" in /*) ;; *) common_dir="$PWD/$common_dir" ;; esac
+main_checkout=$(dirname "$common_dir")
+
 if [ ! -e frontend/node_modules ]; then
-  common_dir=$(git rev-parse --git-common-dir)
-  case "$common_dir" in /*) ;; *) common_dir="$PWD/$common_dir" ;; esac
-  main_checkout=$(dirname "$common_dir")
   if [ "$main_checkout" != "$PWD" ] && [ -d "$main_checkout/frontend/node_modules" ]; then
-    echo "🔗 No frontend/node_modules in this worktree — linking $main_checkout's"
-    # A pnpm workspace keeps a node_modules PER PACKAGE, and a gate that shells
-    # into one (themes/, worker/, ...) fails on a missing devDependency if only
-    # the root is linked. So link every one the main checkout has.
+    echo "🔗 No frontend/node_modules in this worktree — linking the main checkout's"
+    # pnpm lays node_modules out as a symlink farm over its own .pnpm store, so
+    # pointing at it works. A workspace keeps one PER PACKAGE, and a gate that
+    # shells into one (themes/, worker/, frontend/) fails on a missing
+    # devDependency if only the root is linked — so link every one it has.
     for nm in $(cd "$main_checkout" && find . -maxdepth 4 -name node_modules -prune | sed 's|^\./||'); do
       [ -e "$nm" ] && continue
       [ -d "$(dirname "$nm")" ] || continue
