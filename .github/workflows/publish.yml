@@ -338,45 +338,12 @@ jobs:
           fi
 
       - name: Report the outcome so a silent failure can't hide
-        # Nothing polls this repo's workflows — monitoring-api's ci-check list
-        # covers hadoku_site and watchparty only — so a red run here is seen by
-        # exactly nobody unless it says so itself. A publish that fails leaves
-        # the site serving the previous UI bundle, with no sign it is stale.
-        #
-        # `POST /health/api/jobs` is the fleet's one alerting path: monitoring-api
-        # turns the outcome into a Discord alert AND into the `crons` domain of
-        # `GET /health/api/sitrep`, so this repo goes red where the operator
-        # already looks. Routing is hadoku_site's business; ours is to be honest
-        # about our own state. Full rationale in taskauto.yml.
+        # Why a job reports, and why this action is vendored rather than
+        # shared, are both in .github/actions/report-job/action.yml.
         if: always()
-        env:
-          HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
-          OUTCOME: ${{ job.status }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          case "$OUTCOME" in
-            success) status=succeeded ;;
-            failure) status=failed ;;
-            *) echo "outcome=$OUTCOME — not reported"; exit 0 ;;
-          esac
-
-          started=${JOB_STARTED_AT:-}
-          if [ -n "$started" ]; then
-            duration_ms=$(( ($(date -u +%s) - started) * 1000 ))
-          else
-            duration_ms=0
-          fi
-
-          jq -n --arg st "$status" --arg run "gha_$RUN_ID" \
-                --arg err "tenhands:publish failed — $RUN_URL" \
-                --argjson d "$duration_ms" \
-            '{job_name: "tenhands:publish", status: $st, run_id: $run, duration_ms: $d}
-             + (if $st == "failed" then {error: $err} else {} end)' > /tmp/tenhands-publish-outcome.json
-
-          # A monitoring blip must never turn a healthy run red.
-          curl -sS -f -X POST https://hadoku.me/health/api/jobs \
-            -H "X-User-Key: $HADOKU_SERVICE_KEY" \
-            -H 'Content-Type: application/json' \
-            --data @/tmp/tenhands-publish-outcome.json \
-            || echo "::warning::could not report outcome to monitoring-api"
+        uses: ./.github/actions/report-job
+        with:
+          job-name: tenhands:publish
+          service-key: ${{ secrets.KEY_SERVICE_TENHANDS }}
+          started-at: ${{ env.JOB_STARTED_AT }}
+          error-message: tenhands:publish failed — $RUN_URL
