@@ -404,7 +404,7 @@ jobs:
         # fires. That case is covered from outside, by the "Report the PREVIOUS
         # run" step at the top of this job, running in the NEXT run.
         if: always()
-        uses: ./.github/actions/report-job
+        uses: WolffM/hadoku-actions/report-job@v1
         with:
           job-name: tenhands:taskauto
           service-key: ${{ secrets.KEY_SERVICE_TENHANDS }}

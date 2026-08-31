@@ -184,10 +184,10 @@ jobs:
           exit 1
 
       - name: Report the outcome so a silent failure can't hide
-        # Why a job reports, and why this action is vendored rather than
-        # shared, are both in .github/actions/report-job/action.yml.
+        # Why a job reports at all, and why this is referenced rather than
+        # vendored, are both in WolffM/hadoku-actions.
         if: always()
-        uses: ./.github/actions/report-job
+        uses: WolffM/hadoku-actions/report-job@v1
         with:
           job-name: tenhands:update-wolffm
           service-key: ${{ secrets.KEY_SERVICE_TENHANDS }}
