@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -123,10 +123,60 @@ jobs:
         working-directory: frontend
         run: pnpm run build
 
+      # What this PUSH introduced, as a diff range.
+      #
+      # `HEAD~1 HEAD` is the last COMMIT, and a push is not one commit. Push
+      # three commits where the source changes in the first and a chore lands
+      # last, and the publish is silently skipped — a green run that shipped
+      # nothing, because the gate, the version walk and the dispatch below all
+      # read the same wrong answer and therefore agree with each other.
+      #
+      # `github.event.before` is the tip before the push, the only base that
+      # covers every commit in it. hadoku-meet hit this on 2026-08-18 and
+      # hadoku-hopper on 2026-09-01, where a two-commit push stranded
+      # @wolffm/hopper-worker 0.1.8 and the site ran a new client against a
+      # month-old worker. hadoku_site's check:repo-policy has held every fleet
+      # publish workflow to this since 2026-09-02.
+      - name: Resolve the range this push introduced
+        id: range
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # A manual dispatch is an explicit "publish now". It exists to recover
+          # a publish that was skipped, so the change check must never veto it:
+          # diffing HEAD~1 here would skip the same thing the stranded push
+          # skipped, and the only way out would be a no-op commit.
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "Manual dispatch: publishing unconditionally"
+            echo "publish_all=true" >> $GITHUB_OUTPUT
+            echo "base=HEAD~1" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "publish_all=false" >> $GITHUB_OUTPUT
+
+          base="$BEFORE"
+          # A branch's first push sends the all-zero sha; a force-push can name
+          # a commit that is no longer reachable. Fall back to the last commit
+          # in both cases — a narrower range than the truth, but never a broken
+          # one.
+          if [ -z "$base" ] \
+            || [ "$base" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "No usable push base ('$base'); falling back to HEAD~1"
+            base="HEAD~1"
+          fi
+          echo "base=$base" >> $GITHUB_OUTPUT
+          echo "Comparing ${base}..HEAD:"
+          git diff --name-only "$base" HEAD
+
       - name: Check if package changed
         id: package_changed
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          PUBLISH_ALL: ${{ steps.range.outputs.publish_all }}
         run: |
-          if git diff --name-only HEAD~1 HEAD | grep -q .; then
+          if [ "$PUBLISH_ALL" = "true" ] || git diff --name-only "$BASE" HEAD | grep -q .; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "✓ Package has changes"
           else
