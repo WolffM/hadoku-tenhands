@@ -7,11 +7,13 @@ name: Task automation
 # poll to find work. This shape holds its credentials only for the length of a
 # run, gets a clean checkout by construction, and costs nothing when idle.
 #
-# TWO TRIGGERS, DOING DIFFERENT JOBS.
+# EVENT-DRIVEN, WITH ONE RARE BACKSTOP. That split is the whole design, and it
+# was not always this way — see "WHY THE 15-MINUTE POLL IS GONE" below.
 #
-# `repository_dispatch` is the fast path. hadoku-task fires it on ANY human
-# write to a task on an automation board — including a brand-new capture into
-# the Inbox — the spec is docs/hadoku-task-automation/ask-dispatch-on-lane-change.md.
+# `repository_dispatch` is the primary trigger. hadoku-task fires it on ANY
+# human write to a task on an automation board — including a brand-new capture
+# into the Inbox — the spec is
+# docs/hadoku-task-automation/ask-dispatch-on-lane-change.md.
 # Its payload is logged and otherwise ignored: the run does its normal board
 # sweep, so the dispatch carries no authority. It says "look now", never "do
 # this". That is what makes an untrusted, duplicated or malformed payload
@@ -20,32 +22,59 @@ name: Task automation
 # It used to fire only on a write into a `user` lane, and a fresh capture was
 # deliberately excluded to protect the settle window. That made creating a task
 # — the single most common thing a person does here — the ONE action with no
-# fast path, so it fell through to a cron that is not a cron (below) and sat
-# for a median 45 minutes. The settle window is now honoured by waiting a
-# minute inside the run instead of by declining to start one.
+# fast path, so it sat for a median 45 minutes. The settle window is now
+# honoured by waiting a minute inside the run instead of by declining to start
+# one.
 #
-# The cron is the backstop, and it is not redundant. Crash recovery fires on
-# *lease expiry* — the absence of a heartbeat, which nothing can push. It also
-# covers dispatches lost while these services restart mid-deploy: the act of
-# working creates those gaps, and a missed push means a task sits forever with
-# nobody noticing. Silence is the worst failure mode this system has.
+# WHY THE 15-MINUTE POLL IS GONE (2026-09-04)
 #
-# An idle run is one board-API call and an exit, so the cron is cheap.
+# This job ran every 15 minutes and became ~25% of every job the fleet reported
+# — 840 runs since 2026-08-25 — to sweep boards that are empty almost all of
+# the time. The cost was entirely in the polling: an idle sweep is one board-API
+# call and a ~21s runner slot, which is cheap once and absurd 96 times a day.
+#
+# The event path was the obvious replacement, and the obvious worry was that it
+# had never once been observed firing: 300 consecutive runs to 2026-09-01 were
+# `workflow_dispatch` (the host cron) and `schedule`, with ZERO
+# `repository_dispatch`. That is not a dead fast path — it is an empty board.
+# Verified end to end on 2026-09-04 by POSTing a task to the tenhands board:
+# GitHub had a `repository_dispatch` run queued 3 seconds later. The path
+# works; nobody had been creating tasks.
+#
+# WHY A BACKSTOP STILL HAS TO EXIST — do not delete the host cron.
+#
+# Two things advance with no human write to push them, so an events-only
+# pipeline strands both:
+#
+#   - **Completion.** `reconcile.py` is the pipeline's MAIN completion path:
+#     a task reaches `landed`, GitHub auto-merges the PR on green, and only a
+#     sweep ever notices and archives it. Nothing pushes "your PR merged". Cut
+#     the sweep entirely and you reproduce the exact bug that module was
+#     written for — measured 2026-08-04, 13 of 14 tasks holding a PR link
+#     disagreed with their PR.
+#   - **Crash recovery.** It fires on *lease expiry* — the ABSENCE of a
+#     heartbeat (`CLAIM_LEASE_SECONDS = 900`), which by construction nobody can
+#     push. Same for dispatches lost while these services restart mid-deploy.
+#
+# Neither is latency-sensitive. A merged PR archived an hour late costs
+# nothing, so the backstop is HOURLY, in the runner host's crontab
+# (`scripts/taskauto-cron.sh`) — a timer we own, that fires on time, and that
+# is also the only witness to "no run happened at all". Silence is the worst
+# failure mode this system has; 96 sweeps a day was never what bought us
+# against it.
 
+# NO `schedule:` BLOCK, deliberately. There used to be a `*/15 * * * *` here
+# and it was never a 15-minute timer: GitHub deprioritises `schedule` and drops
+# most ticks — measured across 73 consecutive delivered runs of this workflow,
+# the shortest gap was 24 minutes, the mean ~45, the max 86, and not one sample
+# under 24 min. So it was a second unreliable timer sitting beside a reliable
+# host cron, firing sweeps at random and reporting each one to the fleet ledger.
+#
+# Re-adding it does not buy a backstop. The backstop is the host crontab, and
+# if what you actually want is "survive the runner host being reimaged", say
+# that out loud first — the honest fix is an off-host timer, not a trigger that
+# admits in its own comment that it cannot keep time.
 on:
-  schedule:
-    # NOT the real backstop, and do not treat it as one. GitHub deprioritises
-    # `schedule` and drops most ticks: measured across 73 consecutive delivered
-    # runs on this workflow, the SHORTEST gap was 24 minutes, the mean ~45 and
-    # the max 86. Not one gap under 24 min in 73 samples. Tightening the
-    # expression cannot fix that — the throttle is on delivery, not on the
-    # expression — so `*/15` here is aspirational, not a guarantee.
-    #
-    # The real 15-minute backstop is a HOST cron on the self-hosted runner box
-    # (`scripts/taskauto-cron.sh`, installed in the runner host's crontab), which fires
-    # `gh workflow run` on a timer we own and GitHub does not get a vote on.
-    # See that script's header for why this one stays anyway.
-    - cron: '*/15 * * * *'
   repository_dispatch:
     # Must equal the `event_type` the worker sends. Note repository_dispatch
     # only triggers a workflow present on the DEFAULT branch — the usual reason
@@ -151,11 +180,18 @@ jobs:
         # process dies. No in-run condition can ever cover that.
         #
         # So the observer has to be OUTSIDE the run, and the cheapest correct
-        # observer is the NEXT run: the host cron guarantees one every 15
-        # minutes, it already holds the credential, and it is a different
-        # process on a different lease. Each run judges exactly its immediate
-        # predecessor, so every run is judged exactly once and no state file is
-        # needed to dedupe.
+        # observer is the NEXT run: the host cron guarantees one every hour, it
+        # already holds the credential, and it is a different process on a
+        # different lease. Each run judges exactly its immediate predecessor, so
+        # every run is judged exactly once and no state file is needed to dedupe.
+        #
+        # Dropping the poll from 15 minutes to hourly (2026-09-04) stretched
+        # this reporter's worst-case latency to match — a run killed with the
+        # board otherwise quiet is now reported within the hour rather than the
+        # quarter. That is the cost of the change, stated rather than
+        # discovered: it delays the ALERT, never the WORK, because any human
+        # write dispatches a run immediately and that run reports the corpse on
+        # its way past.
         #
         # FIRST step on purpose. Whatever kills this job later, this has
         # already spoken for the run before it.

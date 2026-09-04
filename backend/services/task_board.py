@@ -49,8 +49,8 @@ DEFAULT_BASE_URL = "https://hadoku.me/task/api"
 DEFAULT_LEASE_SECONDS = 1800  # 30 min
 MAX_LEASE_SECONDS = 3600  # 1 h
 
-# In-run retry for reads only — see the comment in `_call`. Kept small: the
-# sweep runs every 15 minutes, so riding out a long outage is the schedule's
+# In-run retry for reads only — see the comment in `_call`. Kept small: another
+# sweep is always coming, so riding out a long outage is the backstop cron's
 # job, not this loop's. Three attempts with a 1s/2s backoff covers the
 # single-blip case (which is what `GET /boards → 502` was on 2026-08-10) and
 # adds at most ~3s to a run that was going to die anyway.
@@ -539,7 +539,9 @@ class TaskBoardClient:
         #
         # Worth doing because the sweep dies on its FIRST call. On 2026-08-10 a
         # single `GET /boards → HTTP 502` killed the whole run and burned the
-        # 15-minute cycle; the board was fine on the next attempt. Alerting
+        # cycle; the board was fine on the next attempt. That got more
+        # expensive, not less, when the poll dropped to hourly (2026-09-04):
+        # the next tick used to be 15 minutes away. Alerting
         # already debounces taskauto (monitoring-api ALERT_AFTER_CONSECUTIVE),
         # so this is about not throwing away a cycle, not about silencing pages.
         attempts = _GET_ATTEMPTS if method.upper() == "GET" else 1

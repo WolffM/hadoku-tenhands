@@ -567,8 +567,8 @@ def test_discovery_skips_boards_that_are_not_drivable():
 
 def test_a_transient_5xx_on_a_read_is_retried():
     """The sweep dies on its first call. On 2026-08-10 a single
-    `GET /boards → 502` killed the run and burned the 15-minute cycle; the
-    board answered fine moments later."""
+    `GET /boards → 502` killed the run and burned the cycle; the board answered
+    fine moments later."""
     c = client(FakeResponse(502, {}), FakeResponse(200, BOARD_PAYLOAD))
     b = c.get_board("h1")
     assert b.version == 7
@@ -576,8 +576,8 @@ def test_a_transient_5xx_on_a_read_is_retried():
 
 
 def test_a_read_gives_up_after_the_attempt_budget():
-    """Riding out a long outage is the 15-minute schedule's job, not this
-    loop's — so the failure must still surface."""
+    """Riding out a long outage is the backstop cron's job, not this loop's —
+    so the failure must still surface."""
     c = client(*[FakeResponse(502, {})] * 3)
     with pytest.raises(TaskBoardUnavailable, match="502"):
         c.get_board("h1")

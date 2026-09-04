@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 #
-# The taskauto backstop sweep, on a timer we actually own — and the outermost
-# of three layers of "did that work?".
+# The taskauto backstop sweep — HOURLY, not the pipeline's clock — and the
+# outermost of three layers of "did that work?".
+#
+# THIS IS NOT HOW WORK ARRIVES. Read that first, because this file used to be
+# the answer to "what makes taskauto run" and is not any more. A human writing
+# a task fires a `repository_dispatch` from hadoku-task and a run is queued
+# within seconds (verified end to end 2026-09-04). This script exists for the
+# things no write can push, and for nothing else.
 #
 # ALERTING LAYERS, and why one is not enough:
 #
@@ -9,7 +15,7 @@
 #      Covers success and failure. Cannot cover its own death: when the runner
 #      process disappears, no condition is ever evaluated.
 #   2. The NEXT run reports its predecessor (taskauto.yml, FIRST step). Covers
-#      layer 1's blind spot — a killed or cancelled run — within ~15 minutes.
+#      layer 1's blind spot — a killed or cancelled run — within the hour.
 #      Needs a run to happen.
 #   3. THIS script. Covers the case where no run happens at all: the dispatch
 #      is refused, or it succeeds and nothing ever picks the work up. Neither
@@ -19,42 +25,49 @@
 # That case is covered from off-site by monitoring-api's 5-minute edge
 # heartbeat, which lists `tenhands` in CRITICAL_SERVICES.
 #
-# WHY THIS EXISTS
+# WHY THIS EXISTS AT ALL, NOW THAT THE EVENT PATH WORKS
 #
-# `.github/workflows/taskauto.yml` declares `schedule: '*/15 * * * *'`, and
-# GitHub does not honour it. Measured across 73 consecutive delivered runs of
-# that workflow:
+# Two things advance with no human write behind them, so events alone strand
+# both:
 #
-#     configured                15 min
-#     shortest gap observed     24 min   <- not one sample under this
-#     mean gap                  ~45 min
-#     max gap                   86 min
+#   - **Completion.** `reconcile.py` is the pipeline's main completion path. A
+#     task sits in `landed`, GitHub auto-merges the PR on green, and only a
+#     sweep notices and archives it. Nothing sends us "your PR merged".
+#   - **Crash recovery.** It fires on lease expiry — the ABSENCE of a heartbeat
+#     (`CLAIM_LEASE_SECONDS = 900`) — which by construction nothing can push.
+#     Same for a dispatch lost while these services restart mid-deploy.
 #
-# GitHub deprioritises the `schedule` trigger and drops roughly two ticks in
-# three. Tightening the expression does nothing, because the throttle is on
-# delivery rather than on the expression. So the workflow's own backstop is,
-# in practice, a ~45-minute timer that occasionally takes an hour and a half.
+# WHY HOURLY, AND WHY IT USED TO BE EVERY 15 MINUTES
 #
-# We do not have to accept that. The runner is SELF-HOSTED — this box — so the
-# only reason the schedule ever lived at GitHub is that the job happens to run
-# in Actions. A crontab entry here fires on time, every time, and costs one
-# `gh workflow run` call.
+# It was `*/15` because this was the pipeline's real clock: the fast path only
+# fired on a lane change, so a freshly captured task waited for a sweep. It
+# does not wait any more. What `*/15` bought after that was 96 runs a day to
+# archive merged PRs a bit sooner, and it cost ~25% of every job the fleet
+# reported (840 runs from 2026-08-25). Neither thing this script still covers
+# is latency-sensitive to the quarter hour: an hour-late archive is invisible,
+# and a crashed claim's 15-minute lease has to expire anyway.
 #
-# The GitHub `schedule` block stays in the workflow deliberately. It is free,
-# it is occasionally faster than us, and it is the one thing that still fires
-# if this box's crontab is wiped by a reimage — which is exactly the failure
-# this script would otherwise hide. Two unreliable timers beat one.
+# The GitHub `schedule` block that used to sit alongside this is GONE (see
+# taskauto.yml). It was a second unreliable timer — measured across 73
+# consecutive delivered runs, shortest gap 24 min, mean ~45, max 86 — and its
+# one remaining argument was "it still fires if this box's crontab is wiped by
+# a reimage". That is a real gap and this does not close it; an off-host timer
+# would, and a trigger that cannot keep time is not one.
 #
 # WHY IT IS SAFE TO OVERLAP
 #
 # The workflow's `concurrency: taskauto` group serialises runs, so a tick that
 # lands while a run is in flight queues rather than doubling up, and GitHub
 # keeps only the newest pending run per group. An idle sweep is one board-API
-# call and an exit, ~18 seconds, so an unnecessary tick costs nothing.
+# call and an exit, ~21 seconds, so an unnecessary tick costs nothing.
 #
 # INSTALL (on the runner host, as the runner user):
 #
-#     crontab -l | { cat; echo '*/15 * * * * /home/hadoku/repos/hadoku-tenhands/scripts/taskauto-cron.sh >> /home/hadoku/logs/taskauto-cron.log 2>&1'; } | crontab -
+#     crontab -l | { cat; echo '17 * * * * /home/hadoku/repos/hadoku-tenhands/scripts/taskauto-cron.sh >> /home/hadoku/logs/taskauto-cron.log 2>&1'; } | crontab -
+#
+# Minute 17 rather than 0: nothing else needs to happen exactly on the hour,
+# and the top of the hour is where every other cron on this box already piles
+# up.
 #
 # The path is the repo's REAL directory name. It was `repos/tenhands` here for
 # long enough that a crontab installed from this comment pointed at nothing

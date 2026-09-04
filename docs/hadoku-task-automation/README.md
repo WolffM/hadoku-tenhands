@@ -607,8 +607,11 @@ service key at `contributor`, activate it with
 [our preset endpoint](preset-endpoint.md), pick *TenHands · Autoland* from their picker
 and skip the paste — and it gets driven.
 
-Normally you do not run it at all: `.github/workflows/taskauto.yml` fires every
-15 minutes on the `taskauto` runner, and manual dispatch takes `live` and
+Normally you do not run it at all. `.github/workflows/taskauto.yml` is woken by
+a `repository_dispatch` from hadoku-task the moment anyone writes a task, which
+is how essentially all work arrives; an hourly host cron sweeps behind it for
+the two things no write can push (archiving a PR that auto-merged, and
+recovering a claim whose lease expired). Manual dispatch takes `live` and
 `mode` inputs. By hand:
 
 ```
