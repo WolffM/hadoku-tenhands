@@ -192,4 +192,3 @@ jobs:
           job-name: tenhands:update-wolffm
           service-key: ${{ secrets.KEY_SERVICE_TENHANDS }}
           started-at: ${{ env.JOB_STARTED_AT }}
-          error-message: tenhands:update-wolffm failed — $RUN_URL

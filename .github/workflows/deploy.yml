@@ -108,4 +108,3 @@ jobs:
           job-name: tenhands:deploy
           service-key: ${{ secrets.KEY_SERVICE_TENHANDS }}
           started-at: ${{ env.JOB_STARTED_AT }}
-          error-message: tenhands:deploy failed — $RUN_URL

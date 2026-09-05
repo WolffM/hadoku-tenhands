@@ -396,4 +396,3 @@ jobs:
           job-name: tenhands:publish
           service-key: ${{ secrets.KEY_SERVICE_TENHANDS }}
           started-at: ${{ env.JOB_STARTED_AT }}
-          error-message: tenhands:publish failed — $RUN_URL
