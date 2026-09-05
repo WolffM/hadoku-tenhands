@@ -43,6 +43,13 @@ jobs:
         working-directory: frontend
     steps:
       - name: Mark the start, so the reported duration is real
+        # NOT the job's default working directory. This step runs BEFORE
+        # checkout, so that directory does not exist yet and the runner cannot
+        # start bash in it — the job dies here with "No such file or directory".
+        # It only ever worked because a standing runner reuses its workspace
+        # between jobs and left the directory behind from the previous run; a
+        # JIT slot is built fresh and has no such leftovers (2026-09-05).
+        working-directory: ${{ github.workspace }}
         run: echo "JOB_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v6
