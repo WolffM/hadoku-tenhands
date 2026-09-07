@@ -8,6 +8,25 @@
 # non-zero exit. core.hooksPath now points at .husky itself, which is tracked.
 [ "${HUSKY-}" = "0" ] && exit 0
 
+# Not in CI. This hook is the developer loop: it bumps the version, runs
+# lint/format/stylelint and typechecks before a LOCAL commit. CI runs every one
+# of those as its own job, and publish.yml does not depend on the bump — it
+# walks from the registry's latest to the first unpublished version, precisely
+# because "CI bumps are published but never committed back, so the committed
+# version only falls behind". Nothing here is load-bearing in CI.
+#
+# It is actively harmful there. The auto-update workflow's "Commit and push if
+# changed" step fires this hook, whose gates shell out to pnpm with no
+# NODE_AUTH_TOKEN in that step, so the install dies on ERR_PNPM_FETCH_401
+# against a private @wolffm package. It hides for months: the step above
+# installs WITH the token, so the store is warm and nothing has to be fetched —
+# until the one package published minutes earlier, which is exactly what this
+# workflow exists to pick up. hadoku-jobplatform hit it on 2026-09-05.
+if [ -n "${CI-}" ] || [ -n "${GITHUB_ACTIONS-}" ]; then
+  echo "CI detected — skipping pre-commit hook (CI runs these gates as their own jobs)"
+  exit 0
+fi
+
 # Firing the hook is only half of it. A fresh worktree is missing everything
 # .gitignore excludes, and the gates below read some of it. Borrow those from
 # the main checkout rather than skipping the gate: same repo, and in the normal
