@@ -144,16 +144,29 @@ jobs:
     # green, "green" meant the backend suite passed and nothing had read a line
     # of TypeScript. This is what makes it mean the frontend too.
     #
-    # Same author_association gate as `backend`, but NOT for the same reason —
-    # this job is GitHub-hosted and takes no privileged secret, so it is not a
-    # self-hosted exposure. It is gated because a fork PR's GITHUB_TOKEN cannot
-    # read this org's packages, so `pnpm install` could not resolve @wolffm/*
-    # and the job would only ever fail. Stated plainly rather than papered over.
+    # Same author_association gate as `backend`, and as of 2026-09-10 it now
+    # carries BOTH reasons rather than one. It was always gated because a fork
+    # PR's GITHUB_TOKEN cannot read this org's packages, so `pnpm install` could
+    # not resolve @wolffm/* and the job would only ever fail. Now that the job
+    # runs self-hosted it is also a genuine exposure gate: this repo is PUBLIC,
+    # and a fork PR must never execute on the claws.
+    #
+    # ON THE FLEET since 2026-09-10. The note that kept it hosted claimed the
+    # job-scoped GITHUB_TOKEN was "a hosted-shaped auth path" — it is not. That
+    # token is minted per job by GitHub and works identically on a self-hosted
+    # runner; nothing about `packages: read` depends on where the job runs. The
+    # `if:` above already keeps untrusted forks off, so this takes the BARE
+    # fleet form and skipping is safe: `backend pytest` is this repo's only
+    # required context, so a skipped `frontend` cannot pin a PR unmergeable.
+    #
+    # These two jobs are why runner-health paged "QUEUED 122m — NO online
+    # runner matches its labels" on 2026-09-10: they were hosted, and the
+    # monitor measured `ubuntu-latest` against a self-hosted census.
     if: >-
       github.event_name != 'pull_request' ||
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
                github.event.pull_request.author_association)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNNER) }}
     timeout-minutes: 15
     # Job-scoped so the backend jobs keep the workflow's default token. `packages`
     # is what the @wolffm/* install below reads.
@@ -227,12 +240,20 @@ jobs:
     # by hand, and had been since the in-app PR review landed, because the only
     # frontend gate was a pre-commit hook that does not invoke playwright.
     #
-    # Same gate and reason as `frontend` — a fork's token cannot read @wolffm/*.
+    # Same gate and reasons as `frontend` — a fork's token cannot read @wolffm/*,
+    # and since 2026-09-10 this runs self-hosted on a PUBLIC repo, so the gate
+    # is an exposure control too.
+    #
+    # ON THE FLEET since 2026-09-10. Playwright is a declared TOOLCHAIN
+    # capability of every managed node, not a routing label, precisely because
+    # hadoku_site's e2e-canary.yml already runs a browser on the general claw
+    # pool — so this is a proven path rather than a new one. `--with-deps`
+    # below shells out to apt and needs sudo, which `hadoku` has NOPASSWD.
     if: >-
       github.event_name != 'pull_request' ||
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
                github.event.pull_request.author_association)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_RUNNER) }}
     timeout-minutes: 20
     permissions:
       contents: read
