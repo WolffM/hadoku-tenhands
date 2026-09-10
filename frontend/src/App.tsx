@@ -135,7 +135,11 @@ function AppInner(props: TenHandsProps & { containerRef: RefObject<HTMLDivElemen
       data-dark-theme={isDarkTheme ? 'true' : 'false'}
     >
       <div className="tenhands">
-        <AppHeader title="TenHands" />
+        {/* DERIVED, never written here: `appName` is the platform's answer from
+            spec/categories.json (registry props -> mount), and __HADOKU_APP_NAME__ is
+            the standalone fallback vite fills in from @wolffm/catalogue. Do not put a
+            string back. */}
+        <AppHeader title={props.appName ?? __HADOKU_APP_NAME__} />
 
         <Navigation />
 
