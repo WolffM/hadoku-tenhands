@@ -43,8 +43,8 @@ importers:
         specifier: ^6.0.5
         version: 6.0.5(vite@8.2.0(@types/node@26.1.2))
       '@wolffm/catalogue':
-        specifier: ^1.0.0
-        version: 1.0.0
+        specifier: ^1.0.1
+        version: 1.0.1
       '@wolffm/logger':
         specifier: ^1.4.1
         version: 1.4.1
@@ -503,8 +503,8 @@ packages:
       babel-plugin-react-compiler:
         optional: true
 
-  '@wolffm/catalogue@1.0.0':
-    resolution: {integrity: sha512-C7APPvTe7Lr5J8NJh6YktwhTDJFq99g2HZZBe39KKckHZLqDee4EkCJ0rAGe42CEj39tjW5xRyjkX6Sa7IHtUw==, tarball: https://npm.pkg.github.com/download/@wolffm/catalogue/1.0.0/17516b6f494556bc5b9a90ea08c61f51ad4d7ac3}
+  '@wolffm/catalogue@1.0.1':
+    resolution: {integrity: sha512-KaTfuei9qiygQHBtI8TzBOT60HlTFFRmhKyRY/6aQsJWtdfQtlBqERmkFQR3BRXQ8d28IJPDQ7NpKcpaTqzrWA==, tarball: https://npm.pkg.github.com/download/@wolffm/catalogue/1.0.1/35c4ff454baafb497b91a3c9fac6b250a3e099bb}
     engines: {node: '>=18'}
 
   '@wolffm/logger@1.4.1':
@@ -1424,8 +1424,8 @@ packages:
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
-  zod@4.5.4:
-    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+  zod@4.6.1:
+    resolution: {integrity: sha512-341aRWQsve0rvronKNTqZpjmzdbUDlFuzHaI/XLg/Ej82qffDJRRfBTCuv7+9q/rMjB6LSLyEBnW4InJeMtt/Q==}
 
   zustand@5.0.14:
     resolution: {integrity: sha512-/8tAspM5LMPr28b3fwLYrtdj77ECpfZviaP75CMTnwO8ISyaE4GDIG/9rDDYq/cH9D2Xw2A2RXglLInmVBQB/g==}
@@ -1845,14 +1845,14 @@ snapshots:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.2.0(@types/node@26.1.2)
 
-  '@wolffm/catalogue@1.0.0': {}
+  '@wolffm/catalogue@1.0.1': {}
 
   '@wolffm/logger@1.4.1': {}
 
-  '@wolffm/prefs-client@1.0.12(react@19.2.8)(zod@4.5.4)':
+  '@wolffm/prefs-client@1.0.12(react@19.2.8)(zod@4.6.1)':
     dependencies:
       react: 19.2.8
-      zod: 4.5.4
+      zod: 4.6.1
 
   '@wolffm/task-ui-components@4.8.1(@wolffm/themes@5.8.3(react@19.2.8))(react@19.2.8)':
     dependencies:
@@ -1861,9 +1861,9 @@ snapshots:
 
   '@wolffm/themes@5.8.3(react@19.2.8)':
     dependencies:
-      '@wolffm/prefs-client': 1.0.12(react@19.2.8)(zod@4.5.4)
+      '@wolffm/prefs-client': 1.0.12(react@19.2.8)(zod@4.6.1)
       react: 19.2.8
-      zod: 4.5.4
+      zod: 4.6.1
 
   acorn-jsx@5.3.2(acorn@8.18.0):
     dependencies:
@@ -2653,7 +2653,7 @@ snapshots:
 
   zod@4.4.3: {}
 
-  zod@4.5.4: {}
+  zod@4.6.1: {}
 
   zustand@5.0.14(@types/react@19.2.18)(react@19.2.8):
     optionalDependencies:
