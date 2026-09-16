@@ -74,7 +74,7 @@ a phone is miserable; reading a plan and answering three questions is not.
 
 Eight lanes, three of them `agent`. The board is [hadoku-task](https://hadoku.me/task); the
 contract is [board-contract.md](board-contract.md); the activation payload is
-[schemas/autoland-v1.json](schemas/autoland-v1.json), which we also publish for hadoku-task to
+[schemas/autoland.json](schemas/autoland.json), which we also publish for hadoku-task to
 fetch ([preset-endpoint.md](preset-endpoint.md)) so nobody keeps a pasted copy of it.
 Intake is §1.1, the planning loop §1.2.
 
@@ -610,7 +610,7 @@ were wrong, for reasons worth keeping:
 
 **How to run it.** Boards are discovered, not configured: share a board with the
 service key at `contributor`, activate it with
-[schemas/autoland-v1.json](schemas/autoland-v1.json) — or, once hadoku-task points at
+[schemas/autoland.json](schemas/autoland.json) — or, once hadoku-task points at
 [our preset endpoint](preset-endpoint.md), pick *TenHands · Autoland* from their picker
 and skip the paste — and it gets driven.
 

@@ -1,0 +1,24 @@
+{
+  "schemaId": "autoland",
+  "schemaVersion": 3,
+  "label": "Autoland",
+  "laneKind": "repo",
+  "description": "TenHands' hadoku-task-automation pipeline. ONE board, one lane per repo. Spitball thoughts land untagged in the Inbox; the pipeline works out which repo they belong to and files them there. It then plans the work and writes the plan into notes, ending with `- [ ] Approve this plan`. Tick that box and the rest runs unattended: the change is implemented, gated, and arrives as a pull request. Pipeline state is the status chip on the card, not the lane — the lane only ever says which repo. You are asked for two things and no more: sign off the plan before the work, and merge the pull request after it.",
+  "statusKinds": [
+    { "kind": "working", "means": "The pipeline owns this right now." },
+    { "kind": "waiting", "means": "Your move — a plan to sign off, or a pull request to merge." },
+    { "kind": "blocked", "means": "Stuck in a way the pipeline cannot resolve. The reason is in notes." },
+    { "kind": "done", "means": "Merged. The task is archived and leaves the board." }
+  ],
+  "lanes": [
+    {
+      "tag": "hadoku-tenhands",
+      "label": "TenHands",
+      "order": 0,
+      "editableBy": "user",
+      "repo": "WolffM/hadoku-tenhands",
+      "description": "Work targeting this repo. Drag a card here to re-file it."
+    }
+  ],
+  "_lanes": "The lane set above is an EXAMPLE OF THE SHAPE, not a vocabulary to activate verbatim — `laneKind: \"repo\"` means the real lanes are the operator's repo list, built at activation time. One lane per repo, `editableBy: user` (a human must be able to re-file a card), and `repo` as `owner/name`. hadoku-task preserves unknown lane keys verbatim, so `repo` round-trips without their validator knowing it exists. A single lane is carried because `validateLaneSet` requires a non-empty array on BOTH sides and a preset that fails its own validator would be dropped from the picker; see autoland-v3.md §10 for the `lanes`-optional-on-a-preset resolution that removes this."
+}

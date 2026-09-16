@@ -329,10 +329,22 @@ class Lane:
     label: str
     order: int
     editable_by: str  # "user" | "agent"
+    #: `owner/name` for a v3 repo lane, empty otherwise.
+    #:
+    #: Carried as an unknown key on the lane object in the activation payload.
+    #: `validateLaneSet` preserves what it doesn't interpret ("we validate the
+    #: four we interpret and keep the rest"), so this round-trips without
+    #: hadoku-task knowing it exists — which is why multi-repo needed no server
+    #: change. `boards.repo` remains the single-repo fallback.
+    repo: str = ""
 
     @property
     def is_agent(self) -> bool:
         return self.editable_by == "agent"
+
+    @property
+    def is_repo_lane(self) -> bool:
+        return bool(self.repo)
 
 
 #: The chip's closed vocabulary, mirroring `TASK_STATUS_KINDS` in hadoku-task's
@@ -510,6 +522,23 @@ class BoardSnapshot:
         return bool(self.lanes)
 
     @property
+    def repo_lanes(self) -> list[Lane]:
+        """The v3 lanes — one per repo, in declared order.
+
+        Empty on a v1/v2 board, whose lanes are pipeline states and carry no
+        `repo`. That emptiness is the version check: anything driving repo
+        lanes finds nothing to do rather than misreading `planning` as a repo.
+        """
+        return sorted((ln for ln in self.lanes if ln.is_repo_lane),
+                      key=lambda ln: ln.order)
+
+    def repo_for(self, lane_tag: str) -> str:
+        for ln in self.lanes:
+            if ln.tag == lane_tag:
+                return ln.repo
+        return ""
+
+    @property
     def active_tasks(self) -> list[BoardTask]:
         """Tasks that still exist as work.
 
@@ -557,6 +586,7 @@ def _lane_from(d: dict) -> Lane:
         label=d.get("label", ""),
         order=int(d.get("order", 0)),
         editable_by=d.get("editableBy", "user"),
+        repo=(d.get("repo") or "").strip(),
     )
 
 

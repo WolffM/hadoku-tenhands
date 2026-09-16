@@ -52,18 +52,32 @@ try:
     from ..services import run_gh_command
     from ..services.task_board import ClaimHeld, TaskBoardClient, TaskBoardError
     from ..extensions import limiter
+    from ..temporal.taskauto import plan_notes
 except ImportError:
     from services import run_gh_command
     from services.task_board import ClaimHeld, TaskBoardClient, TaskBoardError
     from extensions import limiter
+    from temporal.taskauto import plan_notes
 
 #: Branch prefix the pipeline pushes. Anything else in the repo is a human's.
 BRANCH_PREFIX = "taskauto/"
 
-#: Lanes in board order, so the UI doesn't have to know the vocabulary. The
-#: inbox is a lane the board never names — a task with no tag is in it.
-LANE_ORDER = ["(inbox)", "planning", "plan-review", "replan", "approved",
-              "working", "landing", "landed", "stalled"]
+#: The Inbox is a lane the board never names — a task with no tag is in it.
+#: Under v3 it is also the only lane whose name is knowable in advance: every
+#: other one is a repo, and which repos a board carries is the operator's
+#: business, read off the board rather than hardcoded here.
+INBOX = "(inbox)"
+
+
+def _lane_order(board) -> list[str]:
+    """Lane tags in board order, Inbox first.
+
+    v2 had a fixed vocabulary this file could hardcode, and did. v3's lanes
+    are a repo list that changes without a deploy, so hardcoding it now would
+    mean a repo added this morning renders in no column at all — the failure
+    would be a task vanishing from the dashboard, not an error.
+    """
+    return [INBOX] + [ln.tag for ln in board.repo_lanes]
 
 
 #: PR fields every view here needs. One list so the status page and the task
@@ -396,15 +410,26 @@ def taskauto_status():
             out_boards.append({"handle": b.handle, "name": b.name,
                                "repo": b.repo, "error": str(e), "lanes": {}})
             continue
-        lanes: dict[str, list] = {k: [] for k in LANE_ORDER}
+        lane_order = _lane_order(full)
+        lanes: dict[str, list] = {k: [] for k in lane_order}
         for t in full.active_tasks:
-            lane = t.lane(full.lanes) or "(inbox)"
+            lane = t.lane(full.lanes) or INBOX
             entry = {
                 "id": t.id,
                 "title": t.title,
                 "claimed": bool(t.claimed),
                 "updatedAt": t.last_touched or "",
                 "hasPlan": "## Plan" in (t.notes or ""),
+                # The chip, which is where pipeline state lives now. `kind`
+                # is the closed set the UI styles; `label` is ours and is
+                # never parsed.
+                "status": ({"kind": t.status.kind, "label": t.status.label,
+                            "href": t.status.href} if t.status else None),
+                # What the card's badge shows: how many things this task is
+                # waiting on a human for, and whether one of them is a
+                # signature. Same predicates hadoku-task renders from.
+                "openQuestions": plan_notes.open_question_count(t.notes or ""),
+                "needsApproval": plan_notes.pending_approval(t.notes) is not None,
                 # A task carrying two lane tags resolves to no lane and is
                 # invisible to the scheduler. Surfacing it is the whole
                 # reason a status page beats reading the board.
@@ -421,6 +446,10 @@ def taskauto_status():
             "handle": b.handle, "name": b.name, "repo": b.repo,
             "schemaId": b.schema_id, "schemaVersion": b.schema_version,
             "lanes": lanes,
+            "laneOrder": lane_order,
+            # tag -> owner/name, so the UI can label a repo column without
+            # re-deriving it from the tag.
+            "laneRepos": {ln.tag: ln.repo for ln in full.repo_lanes},
             "counts": {k: len(v) for k, v in lanes.items()},
             "prs": pr_by_repo.get(b.repo, []),
         })
@@ -434,7 +463,11 @@ def taskauto_status():
         "success": True,
         "boards": out_boards,
         "running": running,
-        "laneOrder": LANE_ORDER,
+        # Kept at the top level for compatibility, but it is now the union
+        # across boards — each board carries its own `laneOrder`, because two
+        # boards need not cover the same repos.
+        "laneOrder": list(dict.fromkeys(
+            [INBOX] + [t for b in out_boards for t in b.get("laneOrder", [])])),
         "prCount": sum(len(v) for v in pr_by_repo.values()),
         "totals": {
             "completed": len(agent_s),

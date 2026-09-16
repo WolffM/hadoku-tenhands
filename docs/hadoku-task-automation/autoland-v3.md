@@ -1,13 +1,14 @@
 # Autoland v3 — one board, repo lanes
 
-**Date:** 2026-09-15. **From:** TenHands. **Status:** design, not built.
-**Supersedes the lane model in** [`schemas/autoland-v1.json`](schemas/autoland-v1.json) (`schemaVersion` 2).
+**Date:** 2026-09-15. **From:** TenHands. **Status:** built on both sides;
+awaiting hadoku-task's deploy (§11).
+**Supersedes the lane model in** [`schemas/autoland.json`](schemas/autoland.json) (`schemaVersion` 2).
 **Companion:** [`board-contract.md`](board-contract.md) is the v1/v2 design review and still the
 reference for the claim protocol, which **does not change**.
 
 > **On the version number.** This is `schemaVersion` **3**, not 2. The payload has been at 2 since
 > `3afc6f7` ("the pipeline opens a pull request, it does not merge"); the filename
-> `autoland-v1.json` never followed and has been wrong ever since — the schema is loaded by glob
+> `autoland.json` never followed and has been wrong ever since — the schema is loaded by glob
 > and keyed by `schemaId`, so nothing depended on the name and nothing caught it.
 >
 > Rename it to `autoland.json` when v3 lands: the version belongs in the payload, encoding it in
@@ -142,9 +143,15 @@ unticked, which is already `questionsAnswered && has_open_questions`.
 
 ## 5. What we need from hadoku-task
 
+> **All shipped, 2026-09-15**, in hadoku-task's `autoland-v3` branch
+> (`@wolffm/task@5.13.0`), and matched on this side. Two came back different
+> from the ask and both are improvements — §5.3 on the status vocabulary, §5.4
+> on the semantic change we had to mirror. One defect found in §5.1 afterwards
+> is in §11.
+
 In priority order. One blocking, the rest ranked by how much they improve the result.
 
-### 5.1 Fire the wake when a notes write closes an open question — **highest leverage**
+### 5.1 Fire the wake when a notes write closes an open question — ✅ shipped, ⚠ see §11
 
 `notifyLaneWrite` is only reached when the update carries a tag: `tasks.ts:221` builds `laneOpts`
 from `'tag' in input`, so a **notes-only edit dispatches nothing**. Today that's invisible, because
@@ -156,7 +163,7 @@ without this it waits on our backstop cron — a ~15 minute median — instead o
 **closes an open question**, which is a predicate you already own: `questionsAnswered` in
 `src/domain/planNotes.ts`. Zero new vocabulary, and it is exactly the semantic event.
 
-### 5.2 `ifNotesHash` on release — **blocking**
+### 5.2 `ifNotesHash` on release — ✅ shipped
 
 `ifCurrentLane` exists because a human can retag a task out from under a live claim, and a release
 that overwrote their change would be a silent data loss. In v3 the same hazard moves to `notes`: no
@@ -171,7 +178,7 @@ Without it, we can only hash-compare-then-write, which is a race rather than a g
 blocking because losing the human's reply is a failure mode with no recovery path — the text is
 simply gone.
 
-### 5.3 `status` on the task, and the chip that renders it
+### 5.3 `status` on the task, and the chip that renders it — ✅ shipped
 
 Per §3.1. Server-side it slots into the same UPDATE-builder in `releaseClaim` that already handles
 `notes` / `metadata` / `complete`, on the same authorisation (the claim, not the lane). Also worth
@@ -182,13 +189,13 @@ accepting on `set-lane`, so a long job can report progress without releasing.
 pasted copy going stale (`backend/services/automation_presets.py`). The status vocabulary belongs
 in the same document, and the chip styling should key off data you fetched.
 
-### 5.4 Checkbox rendering and the Approve control
+### 5.4 Checkbox rendering and the Approve control — ✅ shipped
 
 Per §4. `planNotes.ts` already has `LIST_ITEM`; this adds `- [ ]` / `- [x]` recognition and makes
 those rows tappable in `NotesPopout` / `PlanMarkdown`, plus one primary button when an unticked
 approval item exists. The write is an ordinary notes update, so it inherits §5.1's wake for free.
 
-### 5.5 Surface `claimed` on the card
+### 5.5 Surface `claimed` on the card — ✅ shipped
 
 Nothing in the UI renders it — we grepped `src/components`, `src/hooks` and `src/domain/types.ts`
 and the only hit is the `CLAIM_HELD` error string. The board read has carried a per-task `claimed`
@@ -196,7 +203,7 @@ boolean since v1 and we rely on it heavily for selection, but a human looking at
 way to see "the agent is on this one right now". With state leaving the lanes, that gap stops being
 cosmetic.
 
-### 5.6 Bless a per-lane `repo`
+### 5.6 Bless a per-lane `repo` — not needed, as expected
 
 Not required. `validateLaneSet` preserves unknown keys verbatim ("we validate the four we interpret
 and keep the rest"), so we can hang `"repo": "WolffM/hadoku-conjure"` on each lane object today and
@@ -228,6 +235,7 @@ expected to read the board, the grant needs a home.
 ## 7. What changes on our side
 
 Recorded here so the split of work is explicit; none of it needs review from hadoku-task.
+**All landed 2026-09-15.** 1662 tests, 0 skipped.
 
 | Module | Change |
 |---|---|
@@ -239,7 +247,7 @@ Recorded here so the split of work is explicit; none of it needs review from had
 | `taskauto/progress.py` | `ProgressSink.lane()` becomes `ProgressSink.status()`. A rename — **not** a second channel alongside it. |
 | `taskauto/plan_notes.py` | Render the approval checkbox; parse ticked / unticked. |
 | `services/task_board.py` | `status` on `BoardTask`; `ifNotesHash` on release; fix the `lane_tags` docstring (§2). |
-| `schemas/autoland-v1.json` → `autoland.json` | `schemaVersion: 3`, lanes generated per repo, status vocabulary published alongside. See §10. |
+| `schemas/autoland.json` → `autoland.json` | `schemaVersion: 3`, lanes generated per repo, status vocabulary published alongside. See §10. |
 
 ---
 
@@ -257,7 +265,7 @@ Worth recording, because "one board for everything" sounds like it should cost m
 
 ---
 
-## 9. Open: lock ordering for unrouted tasks
+## 9. Resolved: lock ordering for unrouted tasks
 
 `Runner.turn()` takes the checkout lock **before** claiming, deliberately — losing that race costs
 nothing, because we hold no claim and so leave no task pinned in a lane waiting out a lease. Claim
@@ -272,9 +280,13 @@ there is no checkout to lock first. Two ways out:
    Planning then starts on the next turn with the ordering intact.
 
 (2) is more code and one extra turn of latency; (1) weakens an invariant that was chosen carefully.
-Leaning (2), undecided.
 
-## 10. Open: what a "preset" means when lanes are per-board
+**Resolved: (2), and hadoku-task agreed independently** — *"'briefly pins a task' is exactly the kind
+of exception that stops being brief once something in the routing path starts doing IO."* Built as
+`make_route_job`, which runs the agent in an empty scratch directory against the lane list alone. A
+router that could read repos would be a router that sometimes reads the wrong one for ten minutes.
+
+## 10. Resolved: what a "preset" means when lanes are per-board
 
 `automation_presets.py` publishes a **lane vocabulary** and strips `repo` specifically because it is
 per-board (`_BOARD_SPECIFIC_KEYS`). In v3 the *entire lane set* is per-board — your repos, not
@@ -284,7 +296,74 @@ The preset has to become a **shape**: `schemaId`, `schemaVersion`, a declared `l
 and the `status.kind` vocabulary, with activation filling in the lanes from an operator's repo list.
 
 Concretely blocking that: our own `validate_lane_set` requires a non-empty `lanes` array, and so
-does theirs. A shape-preset with `lanes: []` fails both. So either the preset carries an example
-lane set that nobody activates verbatim, or `laneKind` becomes a recognised alternative to `lanes`
-on both sides. Undecided, and worth settling before any code is written — it is the one part of
-this that changes what an existing endpoint *means*.
+does theirs. A shape-preset with `lanes: []` fails both.
+
+**Resolved — and neither of the two options above.** hadoku-task split it at a seam we had missed:
+the *contract a provider publishes* and the *lane set a board is activated with* are the same
+document today and genuinely diverge under v3. So `validateLaneSet` keeps requiring a non-empty
+`lanes` (it guards **activation**, and a board with an empty tag vocabulary is meaningless), and
+`lanes` becomes **optional on a PRESET**, where its absence plus `laneKind: "repo"` means "generate
+these at activation time". The relaxation lives in the preset reader, not the validator.
+
+They also killed our option (a) with a fact we did not have: `detectPresetUpdate` calls
+`countStranded(preset.lanes, taskTags)` on every hydrated board read (`preset-update.ts:78`), so an
+example lane set nobody activates verbatim would make every v3 board report every one of its tasks
+as about to be stranded, and offer a migration that looks catastrophic and is fiction.
+
+**Not blocking v3, by their recommendation and ours:** `laneKind` needs a new activation flow — the
+panel has to collect a repo list and build the lane set before it can preview a digest — which is
+real design, not a footnote. Until it exists, an operator activates one lane set by hand.
+`schemas/autoland.json` carries `laneKind: "repo"` and one example lane today, with a `_lanes` note
+saying exactly that.
+
+---
+
+## 11. A defect in §5.1, found after it shipped
+
+`parsePlanNotes` has no concept of our `— pass N` footer, so it lands **inside
+`## Questions`** whenever that is the last section — which it is for every plan
+that proposes no acceptance criteria. `parseQuestionsBody` then reads it as the
+human's trailing reply. Measured against their branch:
+
+```
+ANSWERED n=0  prose question, Questions last        ← wrong
+open     n=1  prose question, Acceptance after      ← fine
+open     n=1  unticked approval, Questions last     ← fine
+open     n=1  prose + unticked approval             ← fine
+ANSWERED n=0  sentinel, Questions last              ← wrong
+
+wake fires on the human's reply: false
+```
+
+That last line is the consequence, and it defeats the whole point of §5.1:
+`notesWriteClosesQuestions` needs a `false → true` transition, the footer makes
+it already true when we render, so when the human actually answers there is no
+transition and **no dispatch fires**. The ~15-minute cron tail comes back
+silently, for exactly the case §5.1 was built to fix.
+
+The blast radius is limited by luck: an unticked box short-circuits before the
+reply check, so the **approval flow — the primary path — is safe**. It is
+prose-question plans and the `_No open questions._` sentinel that break.
+
+**Suggested fix, mirroring what our `parse` has always done:** strip a trailing
+`/^—\s*pass\s+\S+(\s*·\s*confidence\s+\S+)?$/m` line before sectioning.
+
+Our side is immune: `plan_notes._questions_section` strips the footer before
+either predicate runs. It was found because a test transcribed from their own
+fixtures failed on a document *we* render, which is the argument for
+transcribing fixtures rather than paraphrasing them.
+
+---
+
+## 12. Deploy order
+
+**Migration 0007 must be applied to production D1 BEFORE hadoku-task's worker
+ships.** `status` is in the `SELECT` list of every task read, so a worker
+carrying it against a pre-0007 database answers **500 on `GET /boards` and the
+app does not load at all** — measured, not inferred. Nothing in CI runs those
+migrations and the worker does not self-migrate.
+
+Our side is ordered the other way and is safe either way round: `_status_from`
+degrades an unreadable or absent status to `None`, and a board with no repo
+lanes is declined rather than misread, so this code running against a v2 board
+does nothing rather than doing something wrong.

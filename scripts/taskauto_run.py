@@ -27,10 +27,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from services.task_board import TaskBoardClient, _ambient_key  # noqa: E402
 from temporal.taskauto.agent import AgentUnavailable, ClaudeCodeAgent  # noqa: E402
 from temporal.taskauto.checkout import CheckoutManager  # noqa: E402
-from temporal.taskauto.jobs import make_implement_job, make_plan_job  # noqa: E402
+from temporal.taskauto import reconcile  # noqa: E402
+from temporal.taskauto.jobs import (  # noqa: E402
+    make_implement_job,
+    make_plan_job,
+    make_route_job,
+)
 from temporal.taskauto.landing import Lander  # noqa: E402
 from temporal.taskauto.refs import RepoPolicy  # noqa: E402
-from temporal.taskauto.runner import Runner  # noqa: E402
+from temporal.taskauto.runner import BoardRunner, LaneRunner  # noqa: E402
 from temporal.taskauto.scheduler import Scheduler  # noqa: E402
 from temporal.taskauto.watch import ProdWatcher, Reverter  # noqa: E402
 
@@ -68,6 +73,10 @@ def main() -> int:
     ap.add_argument("handle")
     ap.add_argument("--live", action="store_true",
                     help="actually push to main (default: stop before the push)")
+    ap.add_argument("--lane", default=None,
+                    help="drive ONE repo lane instead of the whole board — "
+                         "skips routing and reconciliation, which are "
+                         "board-wide")
     ap.add_argument("--turns", type=int, default=1)
     ap.add_argument("--serve", action="store_true",
                     help="run the scheduler loop instead of a fixed number of "
@@ -91,6 +100,15 @@ def main() -> int:
 
     client = TaskBoardClient()
     board = client.get_board(args.handle)
+    if not board.repo_lanes:
+        print(f"board {args.handle} carries no repo lanes — not a v3 board. "
+              "See docs/hadoku-task-automation/autoland-v3.md", file=sys.stderr)
+        return 2
+    if args.lane and args.lane not in {ln.tag for ln in board.repo_lanes}:
+        print(f"--lane {args.lane!r} is not a repo lane on this board. "
+              f"Choose one of: {', '.join(ln.tag for ln in board.repo_lanes)}",
+              file=sys.stderr)
+        return 2
     if not board.repo:
         print(f"board {args.handle} has no `repo` set; cannot map to a checkout.",
               file=sys.stderr)
@@ -126,18 +144,39 @@ def main() -> int:
         from datetime import timedelta
         kw["settle"] = timedelta(seconds=args.settle_seconds)
 
-    runner = Runner(client, args.handle, jobs={
-        "plan": make_plan_job(agent, checkouts,
-                              base_branch=policy.base_branch),
-        "implement": make_implement_job(
-            agent, checkouts, lander, base_branch=policy.base_branch,
-            test_command=list(policy.test_command) or None,
-            test_cwd=policy.test_cwd, policy=policy,
-            watcher=watcher, reverter=reverter, health_url=health_url,
-            watch_window_s=args.watch_seconds),
-    }, **kw)
+    def _jobs_for(repo):
+        p = POLICIES.get(repo, RepoPolicy())
+        hu, _ = HEALTH.get(repo, ("", ""))
+        return {
+            "plan": make_plan_job(agent, checkouts, base_branch=p.base_branch),
+            "implement": make_implement_job(
+                agent, checkouts, lander, base_branch=p.base_branch,
+                test_command=list(p.test_command) or None,
+                test_cwd=p.test_cwd, policy=p,
+                watcher=ProdWatcher(run=_gh, http=_http) if hu else None,
+                reverter=reverter, health_url=hu,
+                watch_window_s=args.watch_seconds),
+        }
 
-    print(f"board  : {board.name} ({board.repo})")
+    def _lane_runner(tag):
+        return LaneRunner(client, args.handle, tag,
+                          jobs=_jobs_for(board.repo_for(tag)), **kw)
+
+    # `--lane` drives one repo; without it the BoardRunner drives them all,
+    # plus routing and reconciliation — the same shape production runs.
+    if args.lane:
+        runner = _lane_runner(args.lane)
+        turn = lambda: runner.turn(client.get_board(args.handle))
+    else:
+        runner = BoardRunner(client, args.handle,
+                             lane_runner_for=_lane_runner,
+                             route_job=make_route_job(agent),
+                             pr_lookup=reconcile.gh_lookup(_gh), **kw)
+        turn = runner.turn
+
+    print(f"board  : {board.name}")
+    print("repos  : " + (args.lane or ", ".join(
+        f"{ln.tag}→{ln.repo}" for ln in board.repo_lanes)))
     print(f"mode   : {'LIVE — will push to main' if args.live else 'dry run'}")
     print(f"suite  : {' '.join(policy.test_command) or '(none configured)'}")
     print(f"health : {health_url or 'NONE — nothing will watch a landing'}")
@@ -159,7 +198,7 @@ def main() -> int:
     for i in range(args.turns):
         started = time.time()
         try:
-            result = runner.turn()
+            result = turn()
         except AgentUnavailable as e:
             # A traceback would be honest but unhelpful: the cause is almost
             # always a dead CLAUDE_CODE_OAUTH_TOKEN, and the fix is one line.

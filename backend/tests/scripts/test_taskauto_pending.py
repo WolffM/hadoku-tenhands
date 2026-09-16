@@ -24,6 +24,8 @@ from pathlib import Path
 import pytest
 
 from services.task_board import BoardSnapshot, BoardTask, Lane
+from temporal.taskauto import plan_notes, selection
+from temporal.taskauto.plan_notes import PlanDoc
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _GATE_PATH = _REPO_ROOT / "scripts" / "taskauto_pending.py"
@@ -42,28 +44,30 @@ def gate():
     return _load_gate()
 
 
+CONJURE = "hadoku-conjure"
+
 LANES = [
-    Lane(tag="planning", label="Planning", order=0, editable_by="agent"),
-    Lane(tag="plan-review", label="Plan review", order=1, editable_by="user"),
-    Lane(tag="replan", label="Replan", order=2, editable_by="user"),
-    Lane(tag="approved", label="Approved", order=3, editable_by="user"),
-    Lane(tag="working", label="Working", order=4, editable_by="agent"),
-    Lane(tag="landing", label="Landing", order=5, editable_by="agent"),
-    Lane(tag="landed", label="Landed", order=6, editable_by="user"),
-    Lane(tag="stalled", label="Stalled", order=7, editable_by="user"),
+    Lane(tag=CONJURE, label="Conjure", order=0, editable_by="user",
+         repo="WolffM/hadoku-conjure"),
 ]
 
+SIGNED_OFF = plan_notes.render(PlanDoc(
+    understanding="u", plan=["s"], needs_approval=True)).replace(
+        plan_notes.APPROVAL_ITEM, "- [x] Approve this plan")
+AWAITING_SIGNOFF = plan_notes.render(PlanDoc(
+    understanding="u", plan=["s"], needs_approval=True))
 
-def task(task_id: str, tag: str, *, claimed: bool = False,
-         state: str = "Active") -> BoardTask:
-    return BoardTask(id=task_id, title=task_id, notes="", tag=tag,
-                     metadata={}, claimed=claimed, state=state)
+
+def task(task_id: str, tag: str = CONJURE, *, claimed: bool = False,
+         state: str = "Active", status=None, notes: str = "") -> BoardTask:
+    return BoardTask(id=task_id, title=task_id, notes=notes, tag=tag,
+                     metadata={}, claimed=claimed, state=state, status=status)
 
 
 def board(*tasks: BoardTask) -> BoardSnapshot:
     return BoardSnapshot(
         id="b1", name="board", handle="H1", repo="WolffM/x", mode="automation",
-        lanes=LANES, tasks=list(tasks), schema_id="autoland-v1",
+        lanes=LANES, tasks=list(tasks), schema_id="autoland",
         schema_version=1, access="contributor", version=1)
 
 
@@ -103,13 +107,35 @@ def test_the_inbox_is_pending(gate):
     assert gate.pending_tasks(board(task("t1", ""))) == ["t1"]
 
 
-def test_plan_review_and_stalled_are_not_pending(gate):
-    """The only two lanes that suppress. Both are resting places where a human
-    is expected to act, and that action is a board write, which dispatches. A
-    task can sit in either for a week; sweeping hourly to re-read a lane whose
-    meaning is "waiting for a person" would rebuild the poll this replaces."""
-    assert gate.pending_tasks(
-        board(task("t1", "plan-review"), task("t2", "stalled"))) == []
+def test_terminal_chips_and_an_untouched_plan_are_not_pending(gate):
+    """The resting cases. All three are waiting on a person, and a person
+    acting on any of them is a board write, which dispatches. A task can sit
+    like this for a week; sweeping hourly to re-read them would rebuild the
+    poll this replaces."""
+    assert gate.pending_tasks(board(
+        task("t1", status=selection.blocked("a gate said no")),
+        task("t2", status=selection.done("merged")),
+        task("t3", status=selection.waiting("sign it off"),
+             notes=AWAITING_SIGNOFF),
+    )) == []
+
+
+def test_a_signed_off_plan_is_pending(gate):
+    """The case that makes `waiting` NOT a resting kind. Ticking the box is a
+    notes write, and a gate that assumed the dispatch always arrives would
+    delete the backstop for the single most important human action."""
+    assert gate.pending_tasks(board(
+        task("t1", status=selection.waiting("sign it off"),
+             notes=SIGNED_OFF))) == ["t1"]
+
+
+def test_an_answered_question_is_pending(gate):
+    """The other half of `human_verdict`: they replied without signing off, so
+    a sweep has a re-planning pass to run."""
+    replied = AWAITING_SIGNOFF.replace("— pass 1", "use a 5m TTL\n\n— pass 1")
+    assert gate.pending_tasks(board(
+        task("t1", status=selection.waiting("sign it off"),
+             notes=replied))) == ["t1"]
 
 
 def test_a_live_claim_is_pending_even_in_a_resting_lane(gate):
