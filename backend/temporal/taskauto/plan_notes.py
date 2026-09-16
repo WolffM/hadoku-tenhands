@@ -381,6 +381,21 @@ def _questions_section(text: str) -> str:
 
     `parse` has stripped the footer first since it was written, for this exact
     reason. The predicates have to do it too.
+
+    **`sub`, so it strips wherever the footer stands, not only when trailing.**
+    hadoku-task's `appendAnswerToNotes` inserts a reply before the next `##`
+    heading — and when `## Questions` is the last section, which is precisely
+    the shape at issue, there is no next heading and the reply lands *after*
+    our footer.
+
+    Honest about what that buys HERE: nothing observable, today. This
+    function's `reply` is only ever read as a boolean, so a footer folded into
+    it still reads as "someone replied", which is the right answer anyway. The
+    position-independence genuinely matters one caller over, in `parse`, whose
+    strip feeds `human_text` to the planning agent — there a trailing anchor
+    hands it our own bookkeeping as the human's words, and two tests pin it.
+    Same spelling in both places because the difference is not worth a reader
+    having to work out which one is load-bearing.
     """
     sections, _ = _sections(_FOOTER_RE.sub("", text or ""))
     return sections.get(H_QUESTIONS, "")
@@ -514,11 +529,22 @@ def parse(text: str) -> PlanDoc:
 
     doc = PlanDoc()
 
-    # Pull the footer out FIRST. It trails the last section, so sectioning
-    # first would fold it into that section's body and then surface it as
-    # residue in `human_text` — the planning agent would read our own
-    # bookkeeping back as if the human had typed it.
-    m = _FOOTER_RE.search(text)
+    # Pull the footer out FIRST. Sectioning first would fold it into a
+    # section's body and then surface it as residue in `human_text` — the
+    # planning agent would read our own bookkeeping back as if the human had
+    # typed it. (hadoku-task shipped exactly that bug in their copy of this
+    # format, 2026-09-15; ours has stripped first since it was written.)
+    #
+    # The LAST footer, not the first. Two can be present — `with_trailing_note`
+    # has always said so ("a human may have pasted an older one above") — and
+    # the two functions disagreed about which one was authoritative, which is
+    # a silent regression of the pass counter: a pasted `— pass 1` above ours
+    # made `parse` report pass 1 on a third pass, uncapping the planning loop.
+    # That is the same failure the permissive `\S+` above exists to prevent,
+    # arrived at from the other direction.
+    m = None
+    for m in _FOOTER_RE.finditer(text):
+        pass
     if m:
         try:
             doc.pass_number = int(m.group("pass"))

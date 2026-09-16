@@ -189,3 +189,98 @@ class TestRoundTrip:
         which mattered once the wake started firing on their reading."""
         assert open_question_count("## Open questions\n\n- Which branch?\n") == 1
         assert questions_answered("## Questions:\n\n- [x] Approve this\n") is True
+
+
+# ── The footer, and the reply that lands after it ─────────────────────────
+#
+# hadoku-task shipped this defect in their copy of the format on 2026-09-15:
+# `parsePlanNotes` had no concept of our `— pass N` footer, so on any plan
+# whose last section is `## Questions` it read the footer as the human's
+# reply, and the wake for an actual reply then never fired. Fixed their side
+# in 13b862a.
+#
+# They asked us to check the mirror image, and they were right to: their
+# `appendAnswerToNotes` puts a reply AFTER our footer when Questions is last,
+# so a strip anchored to the final line would stop working at exactly the
+# moment someone answers. Ours is a `sub`, so it holds — these pin that, using
+# their fixture verbatim.
+
+#: What a Questions-last plan looks like once answered through their UI.
+REPLY_AFTER_FOOTER = (
+    "## Questions\n\n- Which branch should this land on?\n\n"
+    "— pass 2 · confidence 0.8\n\nLand it on main.\n")
+
+
+class TestTheFooterIsNeverTheHumansReply:
+    def test_a_reply_after_the_footer_still_reads_as_a_reply(self):
+        assert questions_answered(REPLY_AFTER_FOOTER) is True
+        assert open_question_count(REPLY_AFTER_FOOTER) == 0
+
+    def test_the_footer_does_not_reach_the_planner_as_human_text(self):
+        doc = plan_notes.parse(REPLY_AFTER_FOOTER)
+        assert doc.human_text == "Land it on main."
+        assert "pass 2" not in doc.human_text
+
+    def test_a_footer_that_is_not_last_is_still_read(self):
+        doc = plan_notes.parse(REPLY_AFTER_FOOTER)
+        assert doc.pass_number == 2 and doc.confidence == 0.8
+
+    def test_an_unanswered_questions_last_plan_is_not_answered(self):
+        """The defect itself, from their side. Our own footer must not close
+        our own question."""
+        notes = render(PlanDoc(questions=["Which branch?"], pass_number=1))
+        assert notes.rstrip().endswith("— pass 1")
+        assert questions_answered(notes) is False
+        assert open_question_count(notes) == 1
+
+    def test_the_sentinel_survives_its_own_footer(self):
+        notes = render(PlanDoc(understanding="u", pass_number=1))
+        assert "_No open questions._" in notes
+        assert questions_answered(notes) is False
+        assert open_question_count(notes) == 0
+
+
+class TestTheFooterPatternIsTightOnStructureNotValues:
+    """Permissive on the VALUES on purpose — a strict `[0-9.]+` once made the
+    whole footer fail to match on junk confidence, which silently reset
+    `pass_number` to 1 and let the planning loop run past its cap. Tight on
+    the SHAPE, so a human's prose that happens to start the same way is their
+    text and not our bookkeeping."""
+
+    @pytest.mark.parametrize("line", [
+        "— pass 2",
+        "— pass 2 · confidence 0.8",
+        "— pass ? · confidence junk",
+    ])
+    def test_ours_is_stripped(self, line):
+        assert plan_notes._FOOTER_RE.fullmatch(line)
+
+    @pytest.mark.parametrize("line", [
+        "— pass the buck to legal",
+        "— pass 2 extra words",
+    ])
+    def test_a_humans_sentence_is_not(self, line):
+        assert not plan_notes._FOOTER_RE.fullmatch(line)
+
+
+class TestWhichFooterIsAuthoritative:
+    """`with_trailing_note` has always documented the convention — "the LAST
+    footer: a human may have pasted an older one above" — and `parse` used
+    `search`, which takes the first. They disagreed, and the disagreement ran
+    the pass counter BACKWARDS: a pasted `— pass 1` above ours made a third
+    pass report as its first, uncapping the planning loop."""
+
+    PASTED = ("## Questions\n\n- Which branch?\n\n"
+              "— pass 1\n\nsome context\n\n— pass 3\n")
+
+    def test_the_last_footer_wins(self):
+        assert plan_notes.parse(self.PASTED).pass_number == 3
+
+    def test_that_is_the_footer_with_trailing_note_writes_before(self):
+        after = plan_notes.with_trailing_note(self.PASTED, "NOTE")
+        assert after.split("NOTE")[1].strip().startswith("— pass 3")
+
+    def test_neither_footer_reaches_the_planner(self):
+        text = plan_notes.parse(self.PASTED).human_text
+        assert "pass 1" not in text and "pass 3" not in text
+        assert "some context" in text

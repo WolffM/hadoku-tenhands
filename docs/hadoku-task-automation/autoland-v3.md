@@ -318,7 +318,7 @@ saying exactly that.
 
 ---
 
-## 11. A defect in §5.1, found after it shipped
+## 11. A defect in §5.1, found after it shipped — ✅ fixed both sides
 
 `parsePlanNotes` has no concept of our `— pass N` footer, so it lands **inside
 `## Questions`** whenever that is the last section — which it is for every plan
@@ -345,13 +345,59 @@ The blast radius is limited by luck: an unticked box short-circuits before the
 reply check, so the **approval flow — the primary path — is safe**. It is
 prose-question plans and the `_No open questions._` sentinel that break.
 
-**Suggested fix, mirroring what our `parse` has always done:** strip a trailing
-`/^—\s*pass\s+\S+(\s*·\s*confidence\s+\S+)?$/m` line before sectioning.
+**Fixed in hadoku-task `13b862a` (`@wolffm/task@5.13.1`), 2026-09-16.** They
+stripped it before sectioning, and departed from the suggested patch in three
+ways, one of which was a correction to us:
 
-Our side is immune: `plan_notes._questions_section` strips the footer before
-either predicate runs. It was found because a test transcribed from their own
-fixtures failed on a document *we* render, which is the argument for
-transcribing fixtures rather than paraphrasing them.
+- **Stripped wherever it stands, not only when trailing.** Their
+  `appendAnswerToNotes` inserts a reply before the next `##` heading, so on a
+  Questions-last plan — the broken shape — the reply lands *after* our footer.
+  A trailing anchor would stop matching at the exact moment someone answers.
+- **Fence-aware**, so a plan documenting the footer format keeps it.
+- The suggested regex used `/m` with a single `.replace()`, which strips the
+  first footer-shaped line anywhere: neither trailing-only nor all. They kept
+  the permissive-on-values advice and tightened the structure instead.
+
+It also un-hid an under-report: a footed section with both a prose question and
+an unticked box read as 1 open ask instead of 2, because the footer zeroed the
+prose half while the box kept counting.
+
+### The mirror image, which they asked us to check
+
+Their `appendAnswerToNotes` shape puts a reply after our footer, so a
+trailing-anchored strip on OUR side would fail the same way. Checked, and it
+holds — `parse` and `_questions_section` both use `re.sub`, which is
+position-independent — but checking it found a real defect next door:
+
+**`parse` read the FIRST footer; `with_trailing_note` writes before the LAST.**
+The two disagreed about which is authoritative, and `with_trailing_note` has
+always documented the case ("a human may have pasted an older one above"). A
+pasted `— pass 1` above ours made a third pass report as its first, uncapping
+the planning loop — the same failure the permissive `\S+` exists to prevent,
+reached from the other direction. `parse` takes the last footer now.
+
+Pinned in `test_plan_notes_checklists.py`, using their fixture verbatim, and
+each test verified to fail against the unfixed parser rather than assumed to.
+
+### The footer format is a contract now
+
+It was never written down as one, which is how it reached their parser
+unannounced. It is:
+
+```
+— pass <N>
+— pass <N> · confidence <X>
+```
+
+`—` is U+2014 EM DASH and `·` is U+00B7 MIDDLE DOT. Both sides match
+permissively on the **values** (deliberately: a strict `[0-9.]+` once made the
+whole footer fail to match on junk confidence, silently resetting
+`pass_number` to 1 and uncapping the loop) and tightly on the **shape**, so a
+human's `— pass the buck to legal` stays their text.
+
+**If this gains a variant — another separator, a second field — tell
+hadoku-task before shipping it.** Permissiveness on values does not extend to a
+new separator character, and their parser would fall straight through.
 
 ---
 
