@@ -27,6 +27,7 @@ request/response mapping without a network or a live board.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -152,6 +153,34 @@ class LaneChanged(TaskBoardDomainError):
     code = "LANE_CHANGED"
 
 
+class NotesChanged(TaskBoardDomainError):
+    """409 — the optional `ifNotesHash` guard didn't match.
+
+    A human edited the plan mid-claim. The release wrote nothing, and — unlike
+    `LeaseLost` — **our claim is still live**, so the caller must hand it back
+    rather than walk away and leave the task pinned until the lease expires.
+
+    `current_notes_hash` is the digest of what the board holds now, so a caller
+    can re-plan against it without a second read.
+    """
+
+    code = "NOTES_CHANGED"
+
+    @property
+    def current_notes_hash(self) -> str:
+        return self.body.get("currentNotesHash", "")
+
+
+class StatusInvalid(TaskBoardDomainError):
+    """422 — the `status` payload isn't the documented shape.
+
+    An unknown `kind`, a missing or oversized `label`, or an `href` that isn't
+    http(s). Deterministic: fix the payload, don't retry it.
+    """
+
+    code = "STATUS_INVALID"
+
+
 class TaskNotFound(TaskBoardDomainError):
     """404 — deleted mid-job. Treat as handled; there's nothing to release."""
 
@@ -260,7 +289,8 @@ _ERRORS_BY_CODE: dict[str, type[TaskBoardDomainError]] = {
     cls.code: cls
     for cls in (
         ClaimHeld, LeaseLost, LaneUnknown, LaneNotEditable, LaneInvalid,
-        LaneChanged, TaskNotFound, BoardNotFound, VersionConflict,
+        LaneChanged, NotesChanged, StatusInvalid,
+        TaskNotFound, BoardNotFound, VersionConflict,
         NotesTooLarge, Forbidden, RateLimited,
         NameNotFound, NoUserId, BoardSchemaLocked, DigestMismatch,
         LaneSetInvalid, BadRequest,
@@ -273,10 +303,21 @@ _ERRORS_BY_CODE: dict[str, type[TaskBoardDomainError]] = {
 #: value nothing emits — so this list is theirs to grow, not ours to guess.
 KNOWN_CODES = frozenset(_ERRORS_BY_CODE)
 
-#: Release wrote nothing and the claim is no longer ours to use. LEASE_LOST
-#: means someone else owns the task; LANE_CHANGED means a human retagged it
-#: mid-claim. Different causes, identical consequence: abort, write nothing.
-RELEASE_ABORTED = (LeaseLost, LaneChanged)
+#: Release wrote nothing. LEASE_LOST means someone else owns the task;
+#: LANE_CHANGED means a human retagged it mid-claim; NOTES_CHANGED means a
+#: human edited the plan mid-claim. Different causes, identical consequence for
+#: the write: abort, write nothing.
+#:
+#: They differ in one way the caller must not collapse — **whether we still
+#: hold the claim**. Only LEASE_LOST means we don't. The other two leave a live
+#: token that nothing will release unless the caller hands it back, and an
+#: orphaned claim idles the whole repo lane until the lease expires.
+RELEASE_ABORTED = (LeaseLost, LaneChanged, NotesChanged)
+
+#: Release aborted but our token is STILL LIVE, so the claim has to be handed
+#: back explicitly. `LeaseLost` is deliberately absent: there is no claim left
+#: to give up, and a release would fail too.
+RELEASE_ABORTED_CLAIM_HELD = (LaneChanged, NotesChanged)
 
 
 # ── Board shapes ──────────────────────────────────────────────────────────
@@ -294,6 +335,97 @@ class Lane:
         return self.editable_by == "agent"
 
 
+#: The chip's closed vocabulary, mirroring `TASK_STATUS_KINDS` in hadoku-task's
+#: `src/domain/types.ts`. Four states, because four is what a human tells apart
+#: at a glance: it's moving / it wants me / it's stuck / it's finished.
+#:
+#: **Hardcoded on both sides, deliberately.** We asked them to serve this
+#: alongside the lane contracts so it couldn't drift, the way lane names can't;
+#: they declined, and they were right — "a `kind` nobody has a stylesheet rule
+#: for renders no better for having been downloaded". The vocabulary is code at
+#: both ends. What keeps it honest is that a value they don't know is a hard
+#: `422 STATUS_INVALID` at the boundary, not a blank chip nobody can explain.
+TASK_STATUS_KINDS = ("working", "waiting", "blocked", "done")
+
+#: Longest `label` the chip will carry — a phrase on a card, not a log line.
+MAX_STATUS_LABEL_LENGTH = 120
+
+
+@dataclass(frozen=True)
+class TaskStatus:
+    """What the pipeline is doing to a task, as the board renders it.
+
+    `label` is ours and is never parsed by anyone; `kind` is the closed set the
+    UI styles; `href` makes the chip a link, and is restricted to http(s)
+    because it lands in an `<a href>`.
+
+    Validated here as well as at the far end so a typo fails in our own tests
+    rather than as a 422 in production — the same reason `validate_lane_set`
+    exists on this side.
+    """
+
+    kind: str
+    label: str
+    href: str = ""
+
+    def __post_init__(self) -> None:
+        if self.kind not in TASK_STATUS_KINDS:
+            raise ValueError(
+                f"status kind {self.kind!r} is not one of "
+                f"{', '.join(TASK_STATUS_KINDS)}")
+        if not self.label or not self.label.strip():
+            raise ValueError("status needs a non-empty label")
+        if len(self.label) > MAX_STATUS_LABEL_LENGTH:
+            raise ValueError(
+                f"status label is {len(self.label)} chars, "
+                f"over the {MAX_STATUS_LABEL_LENGTH} cap")
+        if self.href and not self.href.startswith(("http://", "https://")):
+            raise ValueError(f"status href {self.href!r} is not http(s)")
+
+    def to_payload(self) -> dict:
+        body = {"kind": self.kind, "label": self.label}
+        if self.href:
+            body["href"] = self.href
+        return body
+
+
+def _status_from(d: Any) -> Optional[TaskStatus]:
+    """Read a status off a board payload, tolerating anything unusable.
+
+    A read must not fail because the far end grew a `kind` we don't know yet —
+    that is precisely the case where the rest of the board is still worth
+    having. Writes stay strict; reads degrade to `None`.
+    """
+    if not isinstance(d, dict):
+        return None
+    try:
+        return TaskStatus(kind=d.get("kind", ""), label=d.get("label", ""),
+                          href=d.get("href") or "")
+    except ValueError:
+        logger.warning("ignoring unreadable task status: %r", d)
+        return None
+
+
+def notes_hash(notes: Optional[str]) -> str:
+    """The `ifNotesHash` digest: hex SHA-256 of the notes as UTF-8.
+
+    Absent notes hash as the EMPTY STRING, not as an absent hash — that
+    convention is what lets a caller guard "this task had no plan when I
+    claimed it" without a nullable digest.
+
+    No trimming, no newline normalisation, no canonicalisation: the bytes as
+    stored are the bytes hashed. Anything else would be a second format both
+    repos have to agree on and drift apart over. Defined in
+    `src/domain/utils/notesHash.ts` on their side, which states this same rule
+    and gives this exact Python line as the equivalent.
+    """
+    return hashlib.sha256((notes or "").encode("utf-8")).hexdigest()
+
+
+#: Hex SHA-256 of the empty string — what absent notes hash to.
+EMPTY_NOTES_HASH = notes_hash("")
+
+
 @dataclass(frozen=True)
 class BoardTask:
     id: str
@@ -302,6 +434,9 @@ class BoardTask:
     tag: str  # space-separated tag string; the lane is a token within it
     metadata: dict
     claimed: bool
+    #: The agent's chip, or None when nothing has reported one. Read-tolerant:
+    #: an unreadable payload degrades to None rather than failing the board.
+    status: Optional[TaskStatus] = None
     # 'Active' | 'Completed' | 'Deleted'. Archived tasks still come back in the
     # board read, so anything that picks up work must filter on this — see
     # `BoardSnapshot.active_tasks`.
@@ -327,10 +462,20 @@ class BoardTask:
     def lane_tags(self, lanes: list[Lane]) -> list[str]:
         """Every lane tag this task carries — normally zero or one.
 
-        Tags are one space-separated string, not an array, and a user is
-        free to add their own (`urgent`, `someday`) alongside a lane tag.
-        So "has no lane" and "has no tags" are different questions, and
-        conflating them strands any task the human labelled by hand.
+        Tags are one space-separated string, not an array, so "has no lane"
+        and "has no tags" are different questions and conflating them would
+        strand a task.
+
+        This used to add "a user is free to add their own (`urgent`,
+        `someday`) alongside a lane tag". **That is true of a standard board
+        and false of an automation board**, which is the only kind we drive:
+        `assertHumanLaneWrite` rejects any tag containing whitespace, and
+        `agentLaneTag` normalises the agent path to a single token. One tag,
+        and it must be a lane.
+
+        That constraint is why autoland v3 puts *repos* on the tag axis and
+        moves pipeline state to `status` — there was never a second tag
+        available to hold both.
         """
         known = {ln.tag for ln in lanes}
         return [t for t in self.tag.split() if t in known]
@@ -423,6 +568,7 @@ def _task_from(d: dict) -> BoardTask:
         tag=d.get("tag") or "",
         metadata=d.get("metadata") or {},
         claimed=bool(d.get("claimed")),
+        status=_status_from(d.get("status")),
         state=d.get("state") or "Active",
         created_at=d.get("createdAt") or "",
         updated_at=d.get("updatedAt") or "",
@@ -743,34 +889,59 @@ class TaskBoardClient:
             body["leaseSeconds"] = lease_seconds
         return self._call("POST", "/agent/heartbeat", json_body=body)
 
-    def set_lane(self, board: str, task_id: str, token: str, lane: str) -> dict:
-        """Move between lanes mid-job while holding the claim."""
-        return self._call("POST", "/agent/set-lane", json_body={
-            "board": board, "taskId": task_id, "token": token, "lane": lane,
-        })
+    def set_lane(self, board: str, task_id: str, token: str, lane: str, *,
+                 status: Optional[TaskStatus] = None) -> dict:
+        """Move between lanes mid-job while holding the claim.
+
+        `status` rides along so a long job can report progress **without
+        releasing**. That matters more than it looks: releasing to report
+        progress and re-claiming drops the lease in between, which is exactly
+        the window another runner would take the task in.
+
+        Omitting `status` leaves the chip alone; it is three-way like `notes`,
+        so an unrelated lane move never silently wipes it.
+        """
+        body: dict = {"board": board, "taskId": task_id, "token": token,
+                      "lane": lane}
+        if status is not None:
+            body["status"] = status.to_payload()
+        return self._call("POST", "/agent/set-lane", json_body=body)
 
     def release(self, board: str, task_id: str, token: str, *,
                 lane: Optional[str] = None, notes: Optional[str] = None,
                 outcome: Optional[str] = None,
                 metadata: Optional[dict] = None,
                 complete: bool = False,
-                if_current_lane: Optional[str] = None) -> dict:
+                status: Optional[TaskStatus] = None,
+                if_current_lane: Optional[str] = None,
+                if_notes_hash: Optional[str] = None) -> dict:
         """Release the claim, naming the destination lane.
 
         We choose where the task goes — the board holds no routing policy.
-        `metadata` and `complete` are claim-gated: `complete: true` archives
-        the task, which is how `landed` avoids growing without bound.
+        `metadata`, `status` and `complete` are claim-gated: `complete: true`
+        archives the task, which is how a finished task leaves the board
+        instead of accumulating in a notification lane.
 
-        `if_current_lane` guards against a human retagging mid-claim; a
-        mismatch raises LaneChanged and writes nothing.
+        **Two guards, and they cover different halves of the same hazard.**
+        `if_current_lane` catches a human retagging mid-claim;
+        `if_notes_hash` catches a human editing the plan mid-claim. Either
+        mismatch writes nothing and raises — `LaneChanged`, `NotesChanged` —
+        and in both cases **our token is still live**, so the caller has to
+        hand the claim back rather than walk away (`RELEASE_ABORTED_CLAIM_HELD`).
 
-        **`NOTES_TOO_LARGE` is not raised here.** hadoku-task enforces the
-        64 KiB cap on the human PATCH path only, not on release — verified
-        2026-07-25 — so an agent can currently write unbounded notes through
-        this call. Do not code a truncate-and-retry for it: the error will
-        never arrive, and the retry would be dead code hiding the fact that
-        nothing is bounding us. We keep notes small by rewriting rather than
-        appending (see plan_notes), which is the real control.
+        Pass `if_notes_hash` on every release that writes `notes`. Without it,
+        a twenty-minute job ends by overwriting whatever the human typed while
+        it ran, and the previous text was never stored anywhere — there is no
+        recovery. Read-then-compare here cannot close that; only the board can
+        compare and write in one operation.
+
+        `NOTES_TOO_LARGE` **is** raised here — `releaseClaim` calls
+        `assertNotesWithinLimit` before it reads or writes anything, so the
+        64 KiB cap applies to the agent path too. (This docstring used to say
+        the opposite, on a 2026-07-25 reading that the cap was on the human
+        PATCH path only. It was true then and is not now.) Still don't code a
+        truncate-and-retry: we keep notes small by rewriting rather than
+        appending (see `plan_notes`), which is the real control.
         """
         body: dict = {"board": board, "taskId": task_id, "token": token}
         if lane is not None:
@@ -783,8 +954,12 @@ class TaskBoardClient:
             body["metadata"] = metadata
         if complete:
             body["complete"] = True
+        if status is not None:
+            body["status"] = status.to_payload()
         if if_current_lane is not None:
             body["ifCurrentLane"] = if_current_lane
+        if if_notes_hash is not None:
+            body["ifNotesHash"] = if_notes_hash
         return self._call("POST", "/agent/release", json_body=body)
 
     # NOTE: POST /agent/cancel is deliberately not wrapped. It is owner-only

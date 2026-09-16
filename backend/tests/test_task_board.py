@@ -499,6 +499,8 @@ def test_every_documented_code_has_a_typed_exception():
         "VERSION_CONFLICT", "NOTES_TOO_LARGE", "RATE_LIMITED", "FORBIDDEN",
         "NAME_NOT_FOUND", "BOARD_SCHEMA_LOCKED", "DIGEST_MISMATCH",
         "LANE_SET_INVALID", "NO_USER_ID", "BAD_REQUEST",
+        # autoland v3: the two guards that made state leaving the lanes safe.
+        "NOTES_CHANGED", "STATUS_INVALID",
     }
     assert KNOWN_CODES == documented, (
         f"missing: {documented - KNOWN_CODES}, extra: {KNOWN_CODES - documented}")
