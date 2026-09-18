@@ -37,7 +37,7 @@ from services.task_board import (  # noqa: E402
 from temporal.taskauto import selection  # noqa: E402
 
 SCHEMA = (Path(__file__).resolve().parents[1] / "docs" / "hadoku-task-automation"
-          / "schemas" / "autoland.json")
+          / "schemas" / "autoland-v1.json")
 
 OK, BAD, INFO = "  ok  ", " FAIL ", "  ..  "
 
@@ -54,10 +54,9 @@ def read_only(client: TaskBoardClient, handle: str) -> tuple[bool, object]:
     ok = True
     ok &= check("board resolves", bool(board.id), f"id={board.id} name={board.name!r}")
     ok &= check(
-        "repo lanes are set", bool(board.repo_lanes),
-        ", ".join(f"{ln.tag}→{ln.repo}" for ln in board.repo_lanes)
-        or "NONE — every lane needs a `repo` on it, or the board→checkout "
-           "mapping has nothing to key on. See autoland-v3.md §1")
+        "repo is set", bool(board.repo),
+        board.repo or "EMPTY — activation payload needs `repo`, or board→checkout "
+                      "mapping has nothing to key on")
     ok &= check("automation is active", board.is_automation,
                 f"{len(board.lanes)} lane(s), schema={board.schema_id}"
                 f" v{board.schema_version}")
@@ -66,23 +65,12 @@ def read_only(client: TaskBoardClient, handle: str) -> tuple[bool, object]:
                 + ("" if board.access != "readonly"
                    else " — share must be `contributor`, not `readonly`"))
 
-    # v2 diffed the live lane set against the schema's. There is nothing to
-    # diff now — `laneKind: "repo"` means the lanes ARE the operator's repo
-    # list, and the schema's single lane is an example of the shape. So check
-    # the shape instead: every lane must name a repo and be human-editable,
-    # because a lane that fails either is one the pipeline cannot drive or a
-    # human cannot re-file from.
-    if board.lanes:
-        stateish = [ln.tag for ln in board.lanes if not ln.is_repo_lane]
-        ok &= check("every lane names a repo", not stateish,
-                    "" if not stateish else
-                    f"{stateish} carry no `repo` — a v2 lane set, or an "
-                    f"activation that dropped the extras")
-        agentish = [ln.tag for ln in board.lanes if ln.is_agent]
-        ok &= check("every lane is human-editable", not agentish,
-                    "" if not agentish else
-                    f"{agentish} are editableBy:agent — a human could not "
-                    f"drag a card into them, so a repo becomes unreachable")
+    if SCHEMA.exists() and board.lanes:
+        want = {ln["tag"] for ln in json.loads(SCHEMA.read_text())["lanes"]}
+        got = {ln.tag for ln in board.lanes}
+        ok &= check("lane set matches autoland-v1", want == got,
+                    "" if want == got else
+                    f"missing={sorted(want - got)} unexpected={sorted(got - want)}")
 
     print(f"\n  lanes: " + ", ".join(
         f"{ln.tag}({'agent' if ln.is_agent else 'user'})" for ln in board.lanes))
@@ -96,10 +84,8 @@ def read_only(client: TaskBoardClient, handle: str) -> tuple[bool, object]:
               f"{[t.id for t in board.malformed()]}")
 
     from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    print(f"\n  inbox: {selection.choose_unrouted(board, now=now)}")
-    for ln in board.repo_lanes:
-        print(f"  {ln.tag}: {selection.choose(board, ln.tag, now=now)}")
+    decision = selection.choose(board, now=datetime.now(timezone.utc))
+    print(f"\n  selection says: {decision}")
     return ok, board
 
 

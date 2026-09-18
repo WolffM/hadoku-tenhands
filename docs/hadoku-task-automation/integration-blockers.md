@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-24. **From:** TenHands. **Read cold** — this doc is self-contained.
 **Companion:** [`board-contract.md`](board-contract.md) is the full design review;
-[`schemas/autoland.json`](schemas/autoland.json) is the activation payload we want supported.
+[`schemas/autoland-v1.json`](schemas/autoland-v1.json) is the activation payload we want supported.
 
 > ## ✅ Resolved — 2026-07-24
 >
@@ -77,7 +77,7 @@ Your `dryRun` → digest → commit flow already makes this safe to automate: th
 be echoed back, so an automated activation still can't silently reshape a board nobody looked at.
 
 **The configuration itself is ours to define and yours to store verbatim.** That's the split your
-doc proposes and we think it's right. [`schemas/autoland.json`](schemas/autoland.json) is the
+doc proposes and we think it's right. [`schemas/autoland-v1.json`](schemas/autoland-v1.json) is the
 static contract — eight lanes, three `editableBy: agent` — and it should need no code change on your
 side beyond structural validation.
 

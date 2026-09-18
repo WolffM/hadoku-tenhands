@@ -1,7 +1,7 @@
-"""Reconciling tasks awaiting a PR against what really happened to it.
+"""Reconciling `landed` tasks against what really happened to their PR.
 
-The bug this module exists for was not subtle and was invisible for days: the
-pipeline promised "the PR is open and waiting on you to merge" and nothing
+The bug this module exists for was not subtle and was invisible for days:
+`landed` promised "the PR is open and waiting on you to merge" and nothing
 ever checked. 13 of 14 live tasks disagreed with their pull request — ten
 merged and still nagging, three CLOSED WITHOUT MERGING and still presented as
 work waiting to be accepted.
@@ -30,27 +30,19 @@ from temporal.taskauto.reconcile import PRRef, PRState
 
 PR_URL = "https://github.com/WolffM/hadoku-pygmalion/pull/8"
 
-PYGMALION = "hadoku-pygmalion"
-
 LANES = [
-    Lane(tag=PYGMALION, label="Pygmalion", order=0, editable_by="user",
-         repo="WolffM/hadoku-pygmalion"),
+    Lane(tag="replan", label="Replan", order=1, editable_by="user"),
+    Lane(tag="approved", label="Approved", order=2, editable_by="user"),
+    Lane(tag="working", label="Working", order=3, editable_by="agent"),
+    Lane(tag="landed", label="Landed", order=4, editable_by="user"),
 ]
 
-#: What makes a task reconcilable under v3: a `waiting` chip, a repo lane, and
-#: a PR link in the notes. v2 asked the board for one lane; there is no such
-#: lane now, so the question is a property of the task.
-_UNSET = object()
 
-
-def task(tid="t1", tag=PYGMALION, notes=f"see {PR_URL}",
-         status=_UNSET) -> BoardTask:
+def task(tid="t1", tag="landed", notes=f"see {PR_URL}") -> BoardTask:
     return BoardTask(id=tid, title="a task", notes=notes, tag=tag,
                      metadata={}, claimed=False, state="Active",
                      created_at="2026-08-01T00:00:00Z",
-                     updated_at="2026-08-01T00:00:00Z",
-                     status=(selection.waiting("PR open")
-                             if status is _UNSET else status))
+                     updated_at="2026-08-01T00:00:00Z")
 
 
 def board(*tasks: BoardTask) -> BoardSnapshot:
@@ -129,10 +121,10 @@ def test_merged_by_timestamp_alone_still_counts():
     assert v.outcome == "pr-merged:8"
 
 
-def test_closed_unmerged_goes_back_into_planning():
+def test_closed_unmerged_goes_back_to_replan():
     v = reconcile.decide(task(), PRRef("WolffM/x", 8),
                          PRState(state="CLOSED", merged=False))
-    assert v.status.kind == "waiting"
+    assert v.lane == selection.LANE_REPLAN
     assert v.complete is False
     assert v.outcome == "pr-rejected:8"
 
@@ -216,9 +208,7 @@ def test_reconcile_claims_and_releases_a_rejected_task():
                                 lookup=lookup_of(PRState("CLOSED", False)))
     assert acted and c.claims == ["t1"]
     rel = c.releases[0]
-    # The card does not move; only the chip and the notes change.
-    assert rel["lane"] == PYGMALION
-    assert rel["status"].kind == "waiting"
+    assert rel["lane"] == selection.LANE_REPLAN
     assert rel["complete"] is False
 
 
@@ -228,7 +218,7 @@ def test_release_is_guarded_on_the_lane_it_read():
     c = FakeClient()
     reconcile.reconcile(board(task()), c, "bh",
                         lookup=lookup_of(PRState("MERGED", True)))
-    assert c.releases[0]["if_current_lane"] == PYGMALION
+    assert c.releases[0]["if_current_lane"] == selection.LANE_LANDED
 
 
 def test_only_landed_tasks_are_touched():
@@ -295,7 +285,7 @@ def test_several_tasks_are_each_handled_on_their_own_verdict():
     assert sorted(c.claims) == ["m", "r"]
     by_task = {r["task_id"]: r for r in c.releases}
     assert by_task["m"]["complete"] is True
-    assert by_task["r"]["status"].kind == "waiting"
+    assert by_task["r"]["lane"] == selection.LANE_REPLAN
 
 
 # ── the gh seam ───────────────────────────────────────────────────────────

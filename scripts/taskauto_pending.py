@@ -72,21 +72,12 @@ logger = logging.getLogger("taskauto-pending")
 #: is a different claim from "I failed".
 EXIT_NOTHING_PENDING = 10
 
-#: Status kinds a sweep cannot advance.
-#:
-#: Under v2 these were LANES — `plan-review` and `stalled`. The lanes are repos
-#: now, so the same question is asked of the chip, and the answer is one value
-#: shorter than you would expect: `waiting` is NOT resting. A `waiting` task
-#: whose approval box has been ticked is exactly the work a sweep exists to
-#: pick up, and the tick is a notes write, which under v2 dispatched nothing.
-#: It does dispatch now — that was our §5.1 ask — but a gate that depends on
-#: the dispatch having arrived is a gate that deletes the backstop, and the
-#: backstop is the whole reason this file is careful.
-#:
-#: So only genuinely terminal chips rest here. Everything else is pending,
-#: stated that way round on purpose, so a kind added tomorrow errs toward
-#: sweeping.
-RESTING_KINDS = frozenset({selection.STATUS_BLOCKED, selection.STATUS_DONE})
+#: Lanes a sweep cannot advance. Both are resting places where a human is
+#: expected to act (`selection.CLAIMABLE_HUMAN_LANES` names them as the two it
+#: deliberately excludes), and a human acting on one is a board write, which
+#: dispatches. Everything not in here is pending — stated that way round on
+#: purpose, so a lane added to the schema tomorrow errs toward sweeping.
+RESTING_LANES = frozenset({selection.LANE_PLAN_REVIEW, selection.LANE_STALLED})
 
 
 def pending_tasks(board: BoardSnapshot) -> list[str]:
@@ -94,21 +85,9 @@ def pending_tasks(board: BoardSnapshot) -> list[str]:
     out = []
     for task in board.active_tasks:
         # A live claim means a run is working right now — pending by
-        # definition, whatever the chip says.
-        if task.claimed:
+        # definition, whatever lane the task is sitting in.
+        if task.claimed or (task.lane(board.lanes) or "") not in RESTING_LANES:
             out.append(task.id)
-            continue
-        kind = task.status.kind if task.status else ""
-        if kind in RESTING_KINDS:
-            continue
-        # A `waiting` task is only pending once the human has actually done
-        # something with it. Without this, every plan awaiting sign-off would
-        # keep the cron sweeping forever — which is the poll this replaces.
-        if kind == selection.STATUS_WAITING:
-            if selection.human_verdict(task) is not None:
-                out.append(task.id)
-            continue
-        out.append(task.id)
     return out
 
 

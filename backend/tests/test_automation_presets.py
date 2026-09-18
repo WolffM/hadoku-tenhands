@@ -24,7 +24,6 @@ from services.automation_presets import (
     load_presets,
     validate_lane_set,
 )
-from services.task_board import TASK_STATUS_KINDS
 from temporal.taskauto import selection
 
 PRESETS_PATH = "/tenhands/automation/presets"
@@ -82,35 +81,25 @@ def test_shipped_schemas_are_publishable():
         validate_lane_set(preset["lanes"])
 
 
-def test_autoland_declares_repo_lanes_not_state_lanes():
-    """v3's lanes are the operator's repo list, so there is no fixed
-    vocabulary left to pin against `selection.py`.
+def test_autoland_lanes_match_the_lanes_the_runner_claims_from():
+    """The published vocabulary is the one `selection.py` implements.
 
-    What replaces that check: `laneKind` says the lanes are per-board, and the
-    example lane set must LOOK like one — `editableBy: user` (a human has to
-    be able to re-file a card) and a `repo` on every lane. A state lane
-    sneaking back in would be a task resting somewhere nothing picks it up,
-    which is the failure the old assertion was really guarding against.
+    Advertising a lane the runner has no constant for means a task can rest
+    somewhere nothing ever picks it up.
     """
     autoland = _preset_by_schema_id("autoland")
-    assert autoland["laneKind"] == "repo"
-    assert autoland["lanes"], (
-        "validateLaneSet requires a non-empty array on BOTH sides, so the "
-        "preset carries one example lane — see autoland-v3.md §10")
-    for lane in autoland["lanes"]:
-        assert lane["editableBy"] == "user", lane["tag"]
-        assert "/" in lane.get("repo", ""), lane["tag"]
-
-
-def test_the_published_status_vocabulary_is_the_one_we_write():
-    """The chip's `kind` is hardcoded at both ends — hadoku-task declined to
-    fetch it, rightly ("a kind nobody has a stylesheet rule for renders no
-    better for having been downloaded"). Publishing it anyway is what lets a
-    reader of the preset know what the four values mean, so it still has to
-    agree with the set we can actually emit."""
-    autoland = _preset_by_schema_id("autoland")
-    published = {k["kind"] for k in autoland["statusKinds"]}
-    assert published == set(TASK_STATUS_KINDS)
+    served = {lane["tag"] for lane in autoland["lanes"]}
+    implemented = {
+        selection.LANE_PLANNING,
+        selection.LANE_PLAN_REVIEW,
+        selection.LANE_REPLAN,
+        selection.LANE_APPROVED,
+        selection.LANE_WORKING,
+        selection.LANE_LANDING,
+        selection.LANE_LANDED,
+        selection.LANE_STALLED,
+    }
+    assert served == implemented
 
 
 def test_repo_is_stripped_but_the_human_facing_fields_survive():

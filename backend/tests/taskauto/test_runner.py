@@ -1,15 +1,9 @@
 """Tests for temporal/taskauto/runner.py.
 
 The claim is the boundary of responsibility, so most of these are about what
-happens *after* it: every path out must release the task. A task left claimed
-is invisible to the human and blocks its whole repo, since we serialise to one
-task in flight per repo lane.
-
-Every scenario below survived the v2 → v3 rewrite unchanged in substance —
-they encode outages that happened, and turning the board axis did not make any
-of them stop being possible. What changed is the vocabulary: a job returns a
-STATUS rather than a destination lane, and the task stays in its repo lane
-from claim to release.
+happens *after* it: every path out must release the task. A task left pinned
+in an agent lane is invisible to the human and blocks the whole board, since
+we serialise to one task per repo.
 """
 
 from __future__ import annotations
@@ -23,66 +17,39 @@ from services.task_board import (
     BoardTask,
     ClaimHeld,
     Lane,
-    LaneChanged,
     LeaseLost,
-    NotesChanged,
-    TaskBoardError,
     TaskBoardUnavailable,
-    notes_hash,
 )
-from temporal.taskauto import plan_notes, selection
+from temporal.taskauto import selection
 from temporal.taskauto.agent import AgentError, AgentUnavailable
-from temporal.taskauto.plan_notes import APPROVAL_ITEM, PlanDoc
-from temporal.taskauto.runner import BoardRunner, LaneRunner, TurnResult
+from temporal.taskauto.runner import Runner, TurnResult
 
-NOW = datetime(2026, 9, 15, 12, 0, 0, tzinfo=timezone.utc)
-
-CONJURE = "hadoku-conjure"
-AGGREGATOR = "hadoku-aggregator"
+NOW = datetime(2026, 7, 25, 12, 0, 0, tzinfo=timezone.utc)
 
 LANES = [
-    Lane(CONJURE, "Conjure", 0, "user", repo="WolffM/hadoku-conjure"),
-    Lane(AGGREGATOR, "Aggregator", 1, "user", repo="WolffM/hadoku-aggregator"),
+    Lane("planning", "Planning", 0, "agent"),
+    Lane("plan-review", "Plan Review", 0, "user"),
+    Lane("replan", "Re-plan", 1, "user"),
+    Lane("approved", "Approved", 2, "user"),
+    Lane("working", "Working", 3, "agent"),
+    Lane("landing", "Landing", 4, "agent"),
+    Lane("landed", "Landed", 5, "user"),
+    Lane("stalled", "Stalled", 6, "user"),
 ]
 
-SIGNED_OFF = plan_notes.render(PlanDoc(
-    understanding="Cache it.", plan=["Add a TTL."],
-    acceptance=["Second call hits."], needs_approval=True)).replace(
-        APPROVAL_ITEM, "- [x] Approve this plan")
 
-LANDED = selection.done("landed as abc12345")
-WAITING = selection.waiting("plan ready — sign it off")
-
-
-#: `status=None` has to mean "no chip at all" — an untouched task — so the
-#: default cannot be spelled `None` or the helper would swallow the one case
-#: that gets a task planned.
-_UNSET = object()
-
-
-def task(tid="t1", tag=CONJURE, *, claimed=False, ago=60, notes=SIGNED_OFF,
-         status=_UNSET):
+def task(tid="t1", tag="approved", *, claimed=False, ago=60):
     ts = (NOW - timedelta(minutes=ago)).isoformat().replace("+00:00", "Z")
-    return BoardTask(id=tid, title="make coffee theme default", notes=notes,
+    return BoardTask(id=tid, title="make coffee theme default", notes="",
                      tag=tag, metadata={}, claimed=claimed, state="Active",
-                     created_at=ts, updated_at=ts,
-                     status=(selection.waiting("sign it off")
-                             if status is _UNSET else status))
-
-
-def inbox_task(tid="t1", *, ago=90):
-    ts = (NOW - timedelta(minutes=ago)).isoformat().replace("+00:00", "Z")
-    return BoardTask(id=tid, title="fix the cache", notes="", tag="",
-                     metadata={}, claimed=False, state="Active",
                      created_at=ts, updated_at=ts)
 
 
-def snapshot(*tasks, lanes=None):
-    return BoardSnapshot(id="b", name="hadoku", handle="H", repo="",
-                         mode="automation",
-                         lanes=LANES if lanes is None else lanes,
-                         tasks=list(tasks), schema_id="autoland",
-                         schema_version=3, access="contributor", version=1)
+def snapshot(*tasks):
+    return BoardSnapshot(id="b", name="tenhands", handle="H",
+                         repo="WolffM/tenhands", mode="automation",
+                         lanes=LANES, tasks=list(tasks), schema_id="autoland",
+                         schema_version=1, access="contributor", version=1)
 
 
 class FakeClient:
@@ -91,10 +58,8 @@ class FakeClient:
         self.claim_raises = claim_raises
         self.calls: list[tuple] = []
         self.token = "tok-1"
-        self.boards_read = 0
 
     def get_board(self, handle):
-        self.boards_read += 1
         self.calls.append(("get_board", handle))
         return self.board
 
@@ -105,9 +70,8 @@ class FakeClient:
             raise self.claim_raises
         return self.token
 
-    def set_lane(self, board, task_id, token, lane, *, status=None):
-        self.calls.append(("set_lane", task_id, lane,
-                           status.kind if status else None))
+    def set_lane(self, board, task_id, token, lane):
+        self.calls.append(("set_lane", task_id, lane))
         return {}
 
     def heartbeat(self, board, task_id, token, *, lease_seconds=None):
@@ -115,54 +79,48 @@ class FakeClient:
         return {}
 
     def release(self, board, task_id, token, *, lane=None, notes=None,
-                outcome=None, metadata=None, complete=False, status=None,
-                if_current_lane=None, if_notes_hash=None):
-        self.calls.append(("release", task_id, lane, outcome, complete,
-                           status.kind if status else None))
-        # Kept off the tuple so the exact-match assertions stay readable.
-        self.last_release = {"lane": lane, "if_current_lane": if_current_lane,
-                             "if_notes_hash": if_notes_hash}
+                outcome=None, metadata=None, complete=False,
+                if_current_lane=None):
+        self.calls.append(("release", task_id, lane, outcome, complete))
+        # Kept off the tuple so the exact-match assertions above stay readable.
+        self.last_release = {"lane": lane, "if_current_lane": if_current_lane}
         return {}
 
     def named(self, name):
         return [c for c in self.calls if c[0] == name]
 
 
-def runner(client, jobs, *, lane=CONJURE, lock=None):
-    return LaneRunner(client, "H", lane, jobs=jobs, now=lambda: NOW, lock=lock)
-
-
-def turn(client, jobs, *, lane=CONJURE, lock=None):
-    return runner(client, jobs, lane=lane, lock=lock).turn(client.board)
+def runner(client, jobs):
+    return Runner(client, "H", jobs=jobs, now=lambda: NOW)
 
 
 # ── no-ops ────────────────────────────────────────────────────────────────
 
 
-def test_empty_lane_does_nothing():
+def test_empty_board_does_nothing():
     c = FakeClient(snapshot())
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "ok")})
-    assert r.acted is False and "nothing waiting" in r.reason
+    r = runner(c, {"implement": lambda *a: ("landed", None, "ok")}).turn()
+    assert r.acted is False and r.reason == "nothing waiting"
     assert c.named("claim") == []
 
 
 def test_no_handler_means_no_claim():
-    """Claiming work we can't run would pin the repo behind a task nothing
+    """Claiming work we can't run would pin the board behind a task nothing
     will ever finish."""
     c = FakeClient(snapshot(task()))
-    r = turn(c, {})
+    r = runner(c, {}).turn()
     assert r.acted is False and "no handler" in r.reason
     assert c.named("claim") == []
 
 
 def test_losing_the_claim_race_is_not_an_error():
-    """Two runners polling one board is the case the atomic claim exists for;
-    the loser should shrug and move on."""
+    """Two runners polling one board is the case the atomic claim exists
+    for; the loser should shrug and move on."""
     c = FakeClient(snapshot(task()),
                    claim_raises=ClaimHeld("held", code="CLAIM_HELD",
                                           status=409,
                                           body={"holder": "agent-9"}))
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "ok")})
+    r = runner(c, {"implement": lambda *a: ("landed", None, "ok")}).turn()
     assert r.acted is False and "agent-9" in r.reason
     assert c.named("release") == []
 
@@ -170,105 +128,97 @@ def test_losing_the_claim_race_is_not_an_error():
 # ── the happy path ────────────────────────────────────────────────────────
 
 
-def test_the_log_line_says_what_the_job_decided_not_just_its_status():
-    """Two very different conclusions publish the same chip.
+def test_the_log_line_says_what_the_job_decided_not_just_where_it_went():
+    """Two very different conclusions release to the same lane.
 
-    `plan:no-action-proposed` ("this looks already done") and
-    `plan:unverifiable` ("I could not state an acceptance check") both leave a
-    `waiting` chip with no plan. Without the outcome in the log line the two
-    are indistinguishable after the fact — the notes are rewritten each pass,
-    so the evidence is gone. That cost a real debugging round."""
+    `plan:no-op` ("this looks already done") and `plan:unverifiable` ("I could
+    not state an acceptance check") both land in plan-review with no plan, and
+    a card that then gets approved bounces identically. Without the outcome in
+    the log line the two are indistinguishable after the fact — the notes are
+    rewritten each pass, so the evidence is gone. That cost a real debugging
+    round.
+    """
     c = FakeClient(snapshot(task()))
-    r = turn(c, {"implement": lambda *a: (WAITING, None, "implement:no-plan")})
+    r = runner(c, {"implement": lambda *a: ("plan-review", None, "implement:no-plan")}).turn()
     assert r.outcome == "implement:no-plan"
     assert "[implement:no-plan]" in str(r)
-    assert "→ waiting" in str(r)
+    assert "→ plan-review" in str(r)
 
 
 def test_an_idle_turn_has_no_outcome_to_report():
     c = FakeClient(snapshot())
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "ok")})
+    r = runner(c, {"implement": lambda *a: ("landed", None, "ok")}).turn()
     assert str(r).startswith("idle:") and "[" not in str(r)
 
 
-def test_claims_into_the_repo_lane_and_releases_there():
-    """The claim names the lane the task is ALREADY in. Under v2 this moved
-    the card into an agent lane; under v3 the card never moves, so the lane on
-    both calls is the repo — and a release that named anything else would be
-    re-filing the task behind the human's back."""
+def test_claims_into_the_lane_selection_chose_and_releases():
     c = FakeClient(snapshot(task()))
-    r = turn(c, {"implement": lambda *a: (LANDED, "done", "merged")})
+    r = runner(c, {"implement": lambda *a: ("landed", "done", "merged")}).turn()
     assert r.acted is True
-    assert ("claim", "t1", CONJURE, 900) in c.calls
-    assert ("release", "t1", CONJURE, "merged", False, "done") in c.calls
-    assert r.status == "done" and r.repo == "WolffM/hadoku-conjure"
+    assert ("claim", "t1", "working", 900) in c.calls
+    assert ("release", "t1", "landed", "merged", False) in c.calls
+    assert r.released_to == "landed"
 
 
-def test_a_job_can_publish_progress_without_releasing():
-    """Releasing to report progress would drop the lease in between — the
-    exact window another runner would take the task in."""
+def test_the_job_can_move_lanes_mid_run():
     def job(pickup, board, sink):
-        sink.status(selection.working("landing"))
-        return LANDED, None, "merged"
+        sink.lane("landing")
+        return "landed", None, "merged"
 
     c = FakeClient(snapshot(task()))
-    turn(c, {"implement": job})
-    assert ("set_lane", "t1", CONJURE, "working") in c.calls
+    runner(c, {"implement": job}).turn()
+    assert ("set_lane", "t1", "landing") in c.calls
 
 
-def test_release_asserts_both_guards():
-    """End to end: `ifCurrentLane` AND `ifNotesHash` have to reach the client.
+def test_release_asserts_the_lane_it_believes_the_task_is_in():
+    """End to end: the `ifCurrentLane` guard has to reach the client.
 
-    Between them they are the only thing stopping the pipeline overwriting a
-    human who moved the card to another repo, or edited the plan, mid-claim.
-    hadoku-task allows both and checks for no live claim first."""
-    notes = SIGNED_OFF
-    c = FakeClient(snapshot(task(notes=notes)))
-    turn(c, {"implement": lambda *a: (LANDED, "new notes", "merged")})
-    assert c.last_release == {
-        "lane": CONJURE,
-        "if_current_lane": CONJURE,
-        # The digest of what we PLANNED AGAINST, not of what we are writing.
-        "if_notes_hash": notes_hash(notes),
-    }
+    It's the only thing stopping the pipeline from overwriting a task a human
+    dragged out mid-claim — hadoku-task allows that drag and doesn't check for
+    a live claim (`board-contract.md` §2, `test_progress.py`).
+    """
+    def job(pickup, board, sink):
+        sink.lane("landing")
+        return "landed", None, "merged"
 
-
-def test_the_notes_guard_is_the_claim_time_snapshot():
-    """Hashing the outgoing notes instead would make the guard vacuous — it
-    would only ever compare our own write against itself."""
-    original = SIGNED_OFF + "\n<!-- distinct -->\n"
-    c = FakeClient(snapshot(task(notes=original)))
-    turn(c, {"implement": lambda *a: (LANDED, "rewritten", "merged")})
-    assert c.last_release["if_notes_hash"] == notes_hash(original)
-    assert c.last_release["if_notes_hash"] != notes_hash("rewritten")
+    c = FakeClient(snapshot(task()))
+    runner(c, {"implement": job}).turn()
+    assert c.last_release == {"lane": "landed", "if_current_lane": "landing"}
 
 
-def test_plan_job_runs_for_an_unplanned_task_in_a_repo_lane():
-    c = FakeClient(snapshot(task(notes="", status=None, ago=90)))
-    r = turn(c, {"plan": lambda *a: (WAITING, "a plan", "asked")})
+def test_release_guard_falls_back_to_the_claim_lane():
+    """A job that never moves lanes still asserts where the claim put it."""
+    c = FakeClient(snapshot(task()))
+    runner(c, {"implement": lambda *a: ("landed", None, "merged")}).turn()
+    assert c.last_release == {"lane": "landed", "if_current_lane": "working"}
+
+
+def test_plan_job_runs_for_an_inbox_task():
+    c = FakeClient(snapshot(task(tag="", ago=90)))
+    r = runner(c, {"plan": lambda *a: ("plan-review", "a plan", "asked")}).turn()
     assert r.acted and r.job == "plan"
-    assert ("claim", "t1", CONJURE, 900) in c.calls
-    assert ("release", "t1", CONJURE, "asked", False, "waiting") in c.calls
+    assert ("claim", "t1", "planning", 900) in c.calls
+    assert ("release", "t1", "plan-review", "asked", False) in c.calls
 
 
 # ── failure always hands the task back ────────────────────────────────────
 
 
-def test_a_crashing_job_blocks_the_task_rather_than_pinning_it():
-    """A task left claimed is invisible and blocks its repo. Publishing
-    `blocked` with a reason is strictly better."""
+def test_a_crashing_job_stalls_the_task_rather_than_pinning_it():
+    """A task left claimed in an agent lane is invisible and blocks the
+    board. Stalling with a reason is strictly better."""
     def boom(*a):
         raise RuntimeError("the agent exploded")
 
     c = FakeClient(snapshot(task()))
-    r = turn(c, {"implement": boom})
+    r = runner(c, {"implement": boom}).turn()
     rel = c.named("release")[0]
-    assert rel[5] == "blocked"
+    assert rel[2] == "stalled"
     assert rel[3] == "error:RuntimeError"
-    assert r.acted and r.status == "blocked"
+    assert r.acted and r.released_to == "stalled"
 
 
-def test_the_failure_note_names_the_failure():
+def test_the_stall_note_names_the_failure():
     def boom(*a):
         raise ValueError("could not find the theme file")
 
@@ -279,17 +229,18 @@ def test_the_failure_note_names_the_failure():
             captured.update(kw)
             return super().release(board, task_id, token, **kw)
 
-    r = turn(C(snapshot(task())), {"implement": boom})
+    r = runner(C(snapshot(task())), {"implement": boom}).turn()
     assert "could not find the theme file" in captured["notes"]
-    assert r.status == "blocked"
+    assert r.released_to == "stalled"
 
 
-def test_a_job_failing_on_an_unavailable_board_still_blocks():
+def test_a_job_failing_on_an_unavailable_board_still_stalls():
     def boom(*a):
         raise TaskBoardUnavailable("network")
 
     c = FakeClient(snapshot(task()))
-    assert turn(c, {"implement": boom}).status == "blocked"
+    r = runner(c, {"implement": boom}).turn()
+    assert r.released_to == "stalled"
 
 
 # ── lease loss is not a failure to route ──────────────────────────────────
@@ -302,7 +253,7 @@ def test_lease_lost_aborts_without_writing():
         raise LeaseLost("gone", code="LEASE_LOST", status=409)
 
     c = FakeClient(snapshot(task()))
-    r = turn(c, {"implement": cancelled})
+    r = runner(c, {"implement": cancelled}).turn()
     assert r.acted is False and "lease lost" in r.reason
     assert c.named("release") == [], "must not write after losing the lease"
 
@@ -312,7 +263,7 @@ def test_lease_lost_during_release_is_reported_not_swallowed():
         def release(self, *a, **k):
             raise LeaseLost("gone", code="LEASE_LOST", status=409)
 
-    r = turn(C(snapshot(task())), {"implement": lambda *a: (LANDED, None, "")})
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
     assert r.acted is False
     assert "LEASE_LOST" in r.reason and "wrote nothing" in r.reason
 
@@ -324,115 +275,101 @@ def test_release_failure_is_surfaced_loudly():
         def release(self, *a, **k):
             raise TaskBoardUnavailable("500")
 
-    r = turn(C(snapshot(task())), {"implement": lambda *a: (LANDED, None, "")})
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
     assert r.acted is False and "release failed" in r.reason
 
 
 # ── serialisation holds through the runner ────────────────────────────────
 
 
-def test_a_live_claim_in_this_repo_blocks_the_turn():
-    c = FakeClient(snapshot(task("busy", claimed=True), task("t2")))
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "")})
+def test_a_live_claim_elsewhere_blocks_this_turn():
+    c = FakeClient(snapshot(task("busy", "working", claimed=True), task("t2")))
+    r = runner(c, {"implement": lambda *a: ("landed", None, "")}).turn()
     assert r.acted is False and "in flight" in r.reason
     assert c.named("claim") == []
 
 
-def test_a_live_claim_in_another_repo_does_not():
-    c = FakeClient(snapshot(task("busy", AGGREGATOR, claimed=True),
-                            task("t2", CONJURE)))
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "")})
-    assert r.acted is True and r.task_id == "t2"
+def test_a_lane_changed_release_aborts_like_a_lost_lease():
+    """A human retagged the task mid-claim, so the release wrote nothing.
+    Different cause from LEASE_LOST, identical consequence — the task is no
+    longer ours to write to.
 
+    This only happens in production because `finish` sends `ifCurrentLane`
+    (`test_release_asserts_the_lane_it_believes_the_task_is_in`). Until it did,
+    the board had no way to raise this and the release quietly moved the task
+    back — the handler was right, the guard that reaches it was missing."""
+    from services.task_board import LaneChanged
 
-# ── a refused release must not strand the claim ───────────────────────────
-
-
-@pytest.mark.parametrize("exc,code", [
-    (LaneChanged("retagged", code="LANE_CHANGED", status=409), "LANE_CHANGED"),
-    (NotesChanged("edited", code="NOTES_CHANGED", status=409), "NOTES_CHANGED"),
-])
-def test_a_refused_release_aborts_like_a_lost_lease(exc, code):
-    """A human moved the card or edited the plan mid-claim, so the release
-    wrote nothing. Different causes from LEASE_LOST, identical consequence for
-    the write — the task is no longer ours to describe."""
     class C(FakeClient):
         def release(self, *a, **k):
-            raise exc
+            raise LaneChanged("retagged", code="LANE_CHANGED", status=409)
 
-    r = turn(C(snapshot(task())), {"implement": lambda *a: (LANDED, None, "")})
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
     assert r.acted is False
-    assert code in r.reason and "wrote nothing" in r.reason
+    assert "LANE_CHANGED" in r.reason and "wrote nothing" in r.reason
 
 
-def _guarded_release_client(attempts, exc):
+def _guarded_release_client(attempts):
     """Production's actual shape: the board refuses the *guarded* release and
     accepts an unguarded one.
 
-    Making every release raise cannot tell "we let go of the claim" apart from
-    "we walked away still holding it" — the whole point of the fix below.
-    `attempts` records EVERY call including refused ones; `FakeClient.calls`
-    only sees the ones that get through.
+    The older test made every release raise, which cannot tell "we let go of
+    the claim" apart from "we walked away still holding it" — the whole point
+    of the fix below. `attempts` records EVERY call including refused ones;
+    `FakeClient.calls` only sees the ones that get through.
     """
     class C(FakeClient):
         def release(self, board, task_id, token, **kw):
             attempts.append(kw)
-            if (kw.get("if_current_lane") is not None
-                    or kw.get("if_notes_hash") is not None):
-                raise exc
+            if kw.get("if_current_lane") is not None:
+                from services.task_board import LaneChanged
+                raise LaneChanged("retagged", code="LANE_CHANGED", status=409)
             return super().release(board, task_id, token, **kw)
     return C
 
 
-@pytest.mark.parametrize("exc,code", [
-    (LaneChanged("retagged", code="LANE_CHANGED", status=409), "LANE_CHANGED"),
-    (NotesChanged("edited", code="NOTES_CHANGED", status=409), "NOTES_CHANGED"),
-])
-def test_a_refused_release_hands_the_claim_back(exc, code):
-    """The 2026-08-05 outage in one test, now covering both guards.
+def test_lane_changed_hands_the_claim_back_instead_of_stranding_it():
+    """The 2026-08-05 outage in one test.
 
-    A refused release leaves the claim OURS, and selection idles an entire
-    repo while any claim on it is live. Returning without handing it back
-    blocked the `task` board for 32 minutes across four sweeps, on a task the
-    agent had barely touched. `NOTES_CHANGED` is new in v3 and has exactly the
-    same shape, which is why it is parametrised alongside rather than trusted
-    to be covered by the older case.
+    A refused release leaves the claim OURS, and `selection.choose` idles an
+    entire board while any claim on it is live. Returning without handing it
+    back blocked the `task` board for 32 minutes across four sweeps, on a task
+    the agent had barely touched.
     """
     attempts = []
-    c = _guarded_release_client(attempts, exc)(snapshot(task()))
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "")})
+    c = _guarded_release_client(attempts)(snapshot(task()))
+    r = runner(c, {"implement": lambda *a: ("landed", None, "")}).turn()
 
     assert r.acted is False
-    assert code in r.reason and "wrote nothing" in r.reason
+    assert "LANE_CHANGED" in r.reason and "wrote nothing" in r.reason
     assert "claim handed back" in r.reason
 
     assert len(attempts) == 2, "the guarded release, then the handback"
+    assert attempts[0]["if_current_lane"] is not None, "the guarded one first"
     assert attempts[1].get("if_current_lane") is None, (
         "the handback must not re-send the guard that just refused us")
-    assert attempts[1].get("if_notes_hash") is None
 
 
-def test_the_handback_writes_nothing_but_the_lane():
+def test_the_handback_writes_nothing_at_all():
     """It is a surrender, not an update. The board just told us our idea of
-    this task is stale, so overwriting notes is exactly the trampling the
-    guards exist to prevent. The lane IS sent, because an absent lane clears
-    the tag and would drop the task out of its repo into the Inbox."""
+    this task is stale, so asserting a lane or overwriting notes is exactly
+    the trampling `ifCurrentLane` exists to prevent."""
     attempts = []
-    c = _guarded_release_client(
-        attempts, LaneChanged("x", code="LANE_CHANGED", status=409))(
-            snapshot(task()))
-    turn(c, {"implement": lambda *a: (LANDED, "notes!", "out")})
+    c = _guarded_release_client(attempts)(snapshot(task()))
+    runner(c, {"implement": lambda *a: ("landed", "notes!", "out")}).turn()
+
     handback = attempts[-1]
-    assert handback.get("lane") == CONJURE
+    assert handback.get("lane") is None
     assert handback.get("notes") is None
     assert handback.get("metadata") is None
-    assert handback.get("status") is None
     assert not handback.get("complete")
 
 
 def test_lease_lost_on_release_does_not_attempt_a_handback():
     """Nothing to hand back — the lease is already gone, and the release would
-    fail too. Only the other two leave us holding a live token."""
+    fail too. Only LANE_CHANGED leaves us holding a live token."""
+    from services.task_board import LeaseLost
+
     attempts = []
 
     class C(FakeClient):
@@ -440,22 +377,24 @@ def test_lease_lost_on_release_does_not_attempt_a_handback():
             attempts.append(kw)
             raise LeaseLost("gone", code="LEASE_LOST", status=409)
 
-    r = turn(C(snapshot(task())), {"implement": lambda *a: (LANDED, None, "")})
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
     assert "LEASE_LOST" in r.reason and "wrote nothing" in r.reason
     assert "claim handed back" not in r.reason
     assert len(attempts) == 1, "must not retry a dead token"
 
 
 def test_a_failed_handback_is_reported_honestly_not_claimed_as_success():
-    """If the handback itself fails the repo really is blocked until the lease
-    expires. Saying otherwise would hide the outage."""
+    """If the handback itself fails the board really is blocked until the
+    lease expires. Saying otherwise would hide the outage."""
+    from services.task_board import LaneChanged, TaskBoardError
+
     class C(FakeClient):
         def release(self, board, task_id, token, **kw):
             if kw.get("if_current_lane") is not None:
                 raise LaneChanged("retagged", code="LANE_CHANGED", status=409)
             raise TaskBoardError("board unreachable")
 
-    r = turn(C(snapshot(task())), {"implement": lambda *a: (LANDED, None, "")})
+    r = runner(C(snapshot(task())), {"implement": lambda *a: ("landed", None, "")}).turn()
     assert r.acted is False
     assert "wrote nothing" in r.reason
     assert "claim handed back" not in r.reason, "the claim is still stranded"
@@ -487,11 +426,12 @@ class FakeLock:
 
 def test_a_busy_checkout_means_we_never_claim():
     """The lock is taken BEFORE the claim on purpose. Claim first and this
-    same contention would strand a task until its lease expired, with no human
-    able to see why."""
+    same contention would strand a task in an agent lane until its lease
+    expired, with no human able to see why."""
     lock = FakeLock(available=False)
     c = FakeClient(snapshot(task()))
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "ok")}, lock=lock)
+    r = Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+               now=lambda: NOW, lock=lock).turn()
     assert r.acted is False
     assert "held by another process" in r.reason
     assert c.named("claim") == [], "a lost checkout race must cost no claim"
@@ -499,54 +439,56 @@ def test_a_busy_checkout_means_we_never_claim():
     assert lock.events == ["acquire", "release"]
 
 
-def test_the_lock_is_keyed_on_the_lanes_repo():
-    """v2 keyed it on the board's single repo. The board has many now, so the
-    key comes from the lane — get this wrong and two repos serialise against
-    each other, or worse, one repo doesn't serialise against itself."""
+def test_the_lock_is_keyed_on_the_boards_repo():
     lock = FakeLock()
-    c = FakeClient(snapshot(task("t1", AGGREGATOR)))
-    turn(c, {"implement": lambda *a: (LANDED, None, "ok")},
-         lane=AGGREGATOR, lock=lock)
-    assert lock.repos == ["WolffM/hadoku-aggregator"]
+    c = FakeClient(snapshot(task()))
+    Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+           now=lambda: NOW, lock=lock).turn()
+    assert lock.repos == ["WolffM/tenhands"]
 
 
 def test_a_normal_turn_takes_the_lock_and_gives_it_back():
     lock = FakeLock()
     c = FakeClient(snapshot(task()))
-    r = turn(c, {"implement": lambda *a: (LANDED, None, "ok")}, lock=lock)
+    r = Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+               now=lambda: NOW, lock=lock).turn()
     assert r.acted is True
     assert lock.events == ["acquire", "release"]
     assert c.named("claim"), "the happy path still claims"
 
 
 def test_the_lock_is_released_even_when_the_job_explodes():
+    """The runner swallows a job failure into `stalled`; the lock must not
+    outlive the turn regardless."""
     lock = FakeLock()
     c = FakeClient(snapshot(task()))
 
     def boom(*a):
         raise RuntimeError("kaboom")
 
-    r = turn(c, {"implement": boom}, lock=lock)
-    assert r.acted is True and r.status == selection.STATUS_BLOCKED
+    r = Runner(c, "H", jobs={"implement": boom}, now=lambda: NOW,
+               lock=lock).turn()
+    assert r.acted is True and r.released_to == selection.LANE_STALLED
     assert lock.events == ["acquire", "release"]
 
 
 def test_nothing_waiting_does_not_touch_the_lock():
-    """An idle repo is decided from the snapshot alone. Taking a filesystem
+    """An idle board is decided from the snapshot alone. Taking a filesystem
     lock to conclude there is no work would serialise every poll across
     processes for no reason."""
     lock = FakeLock()
     c = FakeClient(snapshot())
-    turn(c, {"implement": lambda *a: (LANDED, None, "ok")}, lock=lock)
+    Runner(c, "H", jobs={"implement": lambda *a: ("landed", None, "ok")},
+           now=lambda: NOW, lock=lock).turn()
     assert lock.events == []
 
 
 # ── an unusable agent is an outage, not a stall ───────────────────────────
 
 
-def test_an_unavailable_agent_does_not_block_the_task():
-    """Blocking would blame a task that is fine for a credential nobody
-    replaced, and — because `blocked` is a normal, successful outcome — hide
+def test_an_unavailable_agent_does_not_stall_the_task():
+    """Stalling would blame a task that is fine for a credential nobody
+    replaced, and — because a stall is a normal, successful outcome — hide
     the outage behind a green run. 2026-08-08: that is exactly what happened.
     """
     def boom(*a):
@@ -554,19 +496,20 @@ def test_an_unavailable_agent_does_not_block_the_task():
 
     c = FakeClient(snapshot(task()))
     with pytest.raises(AgentUnavailable):
-        turn(c, {"implement": boom})
-    assert not [r for r in c.named("release") if r[5] == "blocked"]
+        runner(c, {"implement": boom}).turn()
+    assert not [r for r in c.named("release") if r[2] == "stalled"]
 
 
 def test_the_claim_is_handed_back_before_the_run_dies():
-    """A claim that outlives the turn idles the whole repo until the lease
-    expires — 32 minutes, measured, on 2026-08-05."""
+    """A claim that outlives the turn idles the whole board until the lease
+    expires — 32 minutes, measured, on 2026-08-05. Failing the run must not
+    reintroduce that."""
     def boom(*a):
         raise AgentUnavailable("claude exited non-zero")
 
     c = FakeClient(snapshot(task()))
     with pytest.raises(AgentUnavailable):
-        turn(c, {"implement": boom})
+        runner(c, {"implement": boom}).turn()
     handback = c.named("release")
     assert handback, "the claim was never given back"
     # No notes and no outcome — we assert nothing about a task we never
@@ -574,181 +517,37 @@ def test_the_claim_is_handed_back_before_the_run_dies():
     assert handback[0][3] is None
 
 
-def test_the_task_stays_in_its_repo_when_the_agent_dies():
-    """An absent lane on release CLEARS the tag, which under v3 would drop the
-    task out of its repo and back into the Inbox — losing the routing decision
-    and, if it was signed off, the approval with it. Measured against the live
-    board 2026-08-08, when the same hazard cost a human's approval."""
+def test_the_task_goes_back_to_the_lane_it_came_from():
+    """An absent lane on release CLEARS the tag, dropping the task into the
+    Inbox — so the obvious "write nothing" handback would turn a human's
+    approval into another planning round, silently. Measured against the live
+    board 2026-08-08."""
     def boom(*a):
         raise AgentUnavailable("claude exited non-zero")
 
-    c = FakeClient(snapshot(task(tag=CONJURE)))
+    c = FakeClient(snapshot(task(tag="approved")))
     with pytest.raises(AgentUnavailable):
-        turn(c, {"implement": boom})
-    assert c.named("release")[0][2] == CONJURE
+        runner(c, {"implement": boom}).turn()
+    assert c.named("release")[0][2] == "approved"
 
 
-def test_an_ordinary_agent_error_still_blocks_just_that_task():
+def test_an_inbox_task_goes_back_to_the_inbox():
+    """The one case where clearing the tag is right: it had no lane to start
+    with, and `None` is how you say that."""
+    def boom(*a):
+        raise AgentUnavailable("claude exited non-zero")
+
+    c = FakeClient(snapshot(task(tag="", ago=90)))
+    with pytest.raises(AgentUnavailable):
+        runner(c, {"plan": boom}).turn()
+    assert c.named("release")[0][2] is None
+
+
+def test_an_ordinary_agent_error_still_stalls_just_that_task():
     """The whole point of the split — one bad task must not stop the sweep."""
     def boom(*a):
         raise AgentError("the reply had no sections in it")
 
     c = FakeClient(snapshot(task()))
-    r = turn(c, {"implement": boom})
-    assert r.status == "blocked" and r.outcome == "error:AgentError"
-
-
-# ── BoardRunner: one read, then every repo ────────────────────────────────
-
-
-def board_runner(client, *, jobs=None, route_job=None, pr_lookup=None):
-    jobs = jobs or {}
-    return BoardRunner(
-        client, "H", now=lambda: NOW, route_job=route_job,
-        pr_lookup=pr_lookup,
-        lane_runner_for=lambda tag: LaneRunner(client, "H", tag, jobs=jobs,
-                                               now=lambda: NOW))
-
-
-def test_the_board_is_read_once_for_every_repo_on_it():
-    """N lane runners each calling `get_board` would be N identical round
-    trips per tick. Hoisting the read is what makes one board with N repos
-    cheaper than N boards rather than merely tidier."""
-    c = FakeClient(snapshot(task("t1", CONJURE), task("t2", AGGREGATOR)))
-    board_runner(c, jobs={"implement": lambda *a: (LANDED, None, "ok")}).turn()
-    assert c.boards_read == 1
-
-
-def test_every_repo_lane_gets_a_turn():
-    c = FakeClient(snapshot(task("t1", CONJURE), task("t2", AGGREGATOR)))
-    r = board_runner(
-        c, jobs={"implement": lambda *a: (LANDED, None, "ok")}).turn()
-    assert r.acted
-    assert {rel[1] for rel in c.named("release")} == {"t1", "t2"}
-
-
-def test_one_repo_erroring_does_not_stop_the_others():
-    calls = []
-
-    class C(FakeClient):
-        def claim(self, board, task_id, **kw):
-            calls.append(task_id)
-            if task_id == "t1":
-                raise TaskBoardError("board unhappy")
-            return super().claim(board, task_id, **kw)
-
-    c = C(snapshot(task("t1", CONJURE), task("t2", AGGREGATOR)))
-    r = board_runner(
-        c, jobs={"implement": lambda *a: (LANDED, None, "ok")}).turn()
-    assert calls == ["t1", "t2"]
-    assert r.acted, "the second repo still got its turn"
-
-
-def test_an_unavailable_agent_abandons_the_whole_board():
-    """Every remaining repo would fail identically, so carrying on would turn
-    one outage into a row of blocked tasks across the fleet."""
-    def boom(*a):
-        raise AgentUnavailable("claude is down")
-
-    c = FakeClient(snapshot(task("t1", CONJURE), task("t2", AGGREGATOR)))
-    with pytest.raises(AgentUnavailable):
-        board_runner(c, jobs={"implement": boom}).turn()
-
-
-def test_a_v2_board_is_declined_rather_than_misread():
-    v2 = [Lane("planning", "Planning", 0, "agent")]
-    c = FakeClient(snapshot(task("t1", "planning"), lanes=v2))
-    r = board_runner(c, jobs={"implement": lambda *a: (LANDED, None, "ok")}).turn()
-    assert r.acted is False and "not a v3 board" in str(r)
-    assert c.named("claim") == []
-
-
-def test_malformed_tasks_are_reported_on_the_board_line():
-    c = FakeClient(snapshot(task("t1", f"{CONJURE} {AGGREGATOR}")))
-    r = board_runner(c, jobs={}).turn()
-    assert "unusable lane tag" in str(r)
-
-
-# ── BoardRunner: routing ──────────────────────────────────────────────────
-
-
-def test_routing_files_an_inbox_task_and_takes_no_checkout_lock():
-    """No lock is available to take — an Inbox task's repo is unknown until it
-    has been read. That is the whole reason routing is its own job."""
-    def route(pickup, board, sink):
-        return selection.working(f"filed under {CONJURE}"), None, "route", CONJURE
-
-    c = FakeClient(snapshot(inbox_task()))
-    r = board_runner(c, route_job=route).turn()
-    assert r.acted
-    rel = c.named("release")[0]
-    assert rel[1] == "t1" and rel[2] == CONJURE
-
-
-def test_routing_takes_a_short_lease():
-    """A crashed router must not pin an Inbox task for a quarter of an hour
-    over work that is a single classification call."""
-    def route(pickup, board, sink):
-        return selection.working("filed"), None, "route", CONJURE
-
-    c = FakeClient(snapshot(inbox_task()))
-    board_runner(c, route_job=route).turn()
-    assert c.named("claim")[0][3] == 120
-
-
-def test_routing_guards_the_release_on_the_task_still_being_untagged():
-    """"" is a real lane value meaning untagged, and sending it guards against
-    a human filing the card themselves while the router was thinking. None
-    would send no guard at all."""
-    def route(pickup, board, sink):
-        return selection.working("filed"), None, "route", CONJURE
-
-    c = FakeClient(snapshot(inbox_task()))
-    board_runner(c, route_job=route).turn()
-    assert c.last_release["if_current_lane"] == ""
-
-
-def test_a_routed_task_is_claimable_in_the_same_tick():
-    """Re-reading after a successful route is what gets a fresh capture
-    planned in one sweep instead of two."""
-    def route(pickup, board, sink):
-        return selection.working("filed"), None, "route", CONJURE
-
-    c = FakeClient(snapshot(inbox_task()))
-    board_runner(c, route_job=route,
-                 jobs={"plan": lambda *a: (WAITING, "p", "planned")}).turn()
-    assert c.boards_read == 2, "one read, then a re-read after the route"
-
-
-def test_an_empty_inbox_does_not_claim():
-    def route(pickup, board, sink):  # pragma: no cover - must not run
-        raise AssertionError("routing ran on an empty inbox")
-
-    c = FakeClient(snapshot(task("t1", CONJURE)))
-    board_runner(c, route_job=route).turn()
-    assert [x for x in c.named("claim") if x[1] == "t1"] == []
-
-
-def test_no_route_job_means_the_inbox_is_simply_not_touched():
-    c = FakeClient(snapshot(inbox_task()))
-    r = board_runner(c).turn()
-    assert c.named("claim") == []
-    assert "route" not in str(r)
-
-
-# ── BoardRunner: reconciliation runs first ────────────────────────────────
-
-
-def test_reconcile_runs_before_selection_and_forces_a_re_read():
-    seen = []
-
-    def lookup(ref):
-        seen.append(ref.number)
-        return None  # no verdict — leave it alone
-
-    notes = "Opened https://github.com/WolffM/hadoku-conjure/pull/42"
-    c = FakeClient(snapshot(task("t1", CONJURE, notes=notes,
-                                 status=selection.waiting("PR #42"))))
-    board_runner(c, pr_lookup=lookup).turn()
-    assert seen == [42], "the open PR was checked"
-    assert c.boards_read == 1, "no verdict means no correction and no re-read"
+    r = runner(c, {"implement": boom}).turn()
+    assert r.released_to == "stalled" and r.outcome == "error:AgentError"

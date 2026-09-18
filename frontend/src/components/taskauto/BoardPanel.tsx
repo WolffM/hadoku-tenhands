@@ -1,14 +1,9 @@
 /**
  * BoardPanel — one automation board as a row of lanes.
  *
- * **A lane is a repo** since autoland v3, so the columns are the repos the
- * board covers and the pipeline's state lives on each card's chip instead.
- * That is why nothing here switches on a lane NAME any more: v2 could colour
- * `stalled` red because the vocabulary was fixed, and a repo list is not.
- *
- * Lanes render in the board's own order (each board sends its own
- * `laneOrder`), so adding a repo shows up without a frontend change — which
- * matters more now, because adding a repo no longer needs a deploy at all.
+ * Lanes are rendered in the board's own order (the API sends `laneOrder`)
+ * rather than an order invented here, so adding a lane to the schema shows up
+ * without a frontend change.
  *
  * A task carrying two lane tags resolves to no lane at all, which makes it
  * invisible to the scheduler — it sits there looking fine and is never picked
@@ -17,35 +12,16 @@
  */
 
 import { Badge, type BadgeVariant } from '../common'
-import type { TaskAutoBoard, TaskAutoStatusKind, TaskAutoTask } from '../../api/types'
+import type { TaskAutoBoard } from '../../api/types'
 
-/** The chip's four states. `waiting` is the one that wants a person. */
-const CHIP_VARIANT: Record<TaskAutoStatusKind, BadgeVariant> = {
-  working: 'info',
-  waiting: 'warning',
-  blocked: 'danger',
-  done: 'success'
-}
+/** Lanes where the pipeline is waiting on a person, not on itself. */
+const HUMAN_LANES = new Set(['plan-review', 'replan', 'approved', 'stalled'])
 
-function TaskChip({ task }: { task: TaskAutoTask }) {
-  if (!task.status) return null
-  const { kind, label, href } = task.status
-  const badge = <Badge variant={CHIP_VARIANT[kind] ?? 'secondary'}>{label}</Badge>
-  // The href is nearly always the pull request. Stop the click reaching the
-  // row's button, which opens the task detail instead of the PR.
-  return href ? (
-    <a
-      className="taskauto-lane__chip"
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      onClick={e => e.stopPropagation()}
-    >
-      {badge}
-    </a>
-  ) : (
-    <span className="taskauto-lane__chip">{badge}</span>
-  )
+function laneVariant(lane: string): BadgeVariant {
+  if (lane === 'stalled') return 'danger'
+  if (HUMAN_LANES.has(lane)) return 'warning'
+  if (lane === '(inbox)') return 'secondary'
+  return 'info'
 }
 
 interface BoardPanelProps {
@@ -57,21 +33,12 @@ interface BoardPanelProps {
 
 export function BoardPanel({ board, laneOrder, onOpenTask }: BoardPanelProps) {
   const total = Object.values(board.lanes).reduce((n, tasks) => n + tasks.length, 0)
-  // Each board declares its own repos; the prop is the union across boards and
-  // is only the fallback for a board read that failed before it could say.
-  const order = board.laneOrder?.length ? board.laneOrder : laneOrder
 
   return (
     <section className="taskauto-board" data-testid={`taskauto-board-${board.handle}`}>
       <header className="taskauto-board__head">
         <h3 className="taskauto-board__name">{board.name}</h3>
-        <code className="taskauto-board__repo">
-          {Object.keys(board.laneRepos ?? {}).length || board.repo
-            ? `${Object.keys(board.laneRepos ?? {}).length || 1} repo${
-                Object.keys(board.laneRepos ?? {}).length === 1 ? '' : 's'
-              }`
-            : board.repo}
-        </code>
+        <code className="taskauto-board__repo">{board.repo}</code>
         <span className="taskauto-board__total">
           {total} task{total === 1 ? '' : 's'}
         </span>
@@ -81,16 +48,13 @@ export function BoardPanel({ board, laneOrder, onOpenTask }: BoardPanelProps) {
         <p className="taskauto-board__error">{board.error}</p>
       ) : (
         <div className="taskauto-lanes">
-          {order.map(lane => {
+          {laneOrder.map(lane => {
             const tasks = board.lanes[lane] ?? []
             if (tasks.length === 0) return null
             return (
               <div key={lane} className="taskauto-lane">
                 <div className="taskauto-lane__head">
-                  <Badge variant={lane === '(inbox)' ? 'secondary' : 'info'}>{lane}</Badge>
-                  {board.laneRepos?.[lane] && (
-                    <code className="taskauto-lane__repo">{board.laneRepos[lane]}</code>
-                  )}
+                  <Badge variant={laneVariant(lane)}>{lane}</Badge>
                   <span className="taskauto-lane__count">{tasks.length}</span>
                 </div>
                 <ul className="taskauto-lane__tasks">
@@ -105,22 +69,6 @@ export function BoardPanel({ board, laneOrder, onOpenTask }: BoardPanelProps) {
                       >
                         {t.claimed && <span className="taskauto-pulse" aria-hidden="true" />}
                         <span className="taskauto-lane__task-title">{t.title}</span>
-                        <TaskChip task={t} />
-                        {t.needsApproval ? (
-                          <span
-                            className="taskauto-lane__asks"
-                            title="This plan is waiting on your sign-off. Tick the approval box in the task's notes."
-                          >
-                            sign off
-                          </span>
-                        ) : t.openQuestions > 0 ? (
-                          <span
-                            className="taskauto-lane__asks"
-                            title="This task is asking you something. The questions are in its notes."
-                          >
-                            {t.openQuestions} question{t.openQuestions === 1 ? '' : 's'}
-                          </span>
-                        ) : null}
                         {t.stuck && (
                           <span
                             className="taskauto-lane__stuck"

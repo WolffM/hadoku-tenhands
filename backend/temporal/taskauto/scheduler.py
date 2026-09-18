@@ -24,12 +24,6 @@ reason that is specific to this pipeline rather than general taste:
    budget. Since we serialise to one task per repo, latency-to-start barely
    matters anyway: the work itself takes minutes.
 
-   Autoland v3 made it cheaper still, in a way worth stating because "one
-   board for everything" sounds like it should cost more. Each change row
-   carries `tag`, and with lanes as repos **`tag` IS the repo** — so the feed
-   says which repos moved, which is finer than v2's per-board granularity, not
-   coarser. And one board serves every repo from a single `get_board`.
-
 So: **push for latency, poll for correctness.** The poll is the part that
 cannot be skipped, so it is what got built first.
 
@@ -107,9 +101,9 @@ class TickResult:
 @dataclass
 class Scheduler:
     client: TaskBoardClient
-    #: Board handles to drive. One board now covers many repos.
+    #: Board handles to drive. One repo each.
     boards: list[str]
-    #: handle -> something with .turn() -> a result carrying `.acted`
+    #: handle -> something with .turn() -> TurnResult
     runner_for: Callable[[str], object]
 
     active_interval_s: float = ACTIVE_INTERVAL_S
@@ -204,13 +198,6 @@ class Scheduler:
         that, a fresh scheduler would treat the entire backlog as new and
         immediately claim work a human may have finished with days ago — the
         periodic sweep picks up anything genuinely actionable anyway.
-
-        **`Deleted` rows are skipped.** Every mutation sets `updated_at`, so a
-        task being deleted appears here like any other change. Under v2 that
-        was harmless — per-board scoping meant few of them and a wasted sweep
-        costs seconds. Under v3 there is one board, so every deletion anywhere
-        wakes it, and waking to look at a task that no longer exists is the
-        one change that can never be actionable.
         """
         body = self.client.changes(since=self.cursor, limit=200)
         changes = body.get("changes") or []
@@ -225,8 +212,7 @@ class Scheduler:
         # same window rather than skipping past changes we never saw.
         if nxt:
             self.cursor = nxt
-        return {c.get("boardId") for c in changes
-                if c.get("boardId") and c.get("state") != "Deleted"}
+        return {c.get("boardId") for c in changes if c.get("boardId")}
 
     # ── the loop ──────────────────────────────────────────────────────────
 

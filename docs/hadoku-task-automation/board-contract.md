@@ -69,7 +69,7 @@ than after.
 
 | Thing | Verdict |
 |---|---|
-| Activation payload shape | Works. Ours is [`schemas/autoland.json`](schemas/autoland.json) |
+| Activation payload shape | Works. Ours is [`schemas/autoland-v1.json`](schemas/autoland-v1.json) |
 | `dryRun` → digest → commit | Good, and the echo-back digest is the right call — we'd have shipped this wrong |
 | claim → heartbeat → set-lane → release | Works. `job_id` = claim token maps cleanly onto our dispatcher interface |
 | Atomic claim, server-clamped lease | The part we didn't want to build ourselves. Thank you |
@@ -96,7 +96,7 @@ didn't find one — "a human can drag out of an agent lane once no claim is live
 ## 3. Our configuration
 
 One named config, `autoland` v1 — full payload in
-[`schemas/autoland.json`](schemas/autoland.json). Eight lanes, three `agent`:
+[`schemas/autoland-v1.json`](schemas/autoland-v1.json). Eight lanes, three `agent`:
 
 | `tag` | `editableBy` | What it means |
 |---|---|---|

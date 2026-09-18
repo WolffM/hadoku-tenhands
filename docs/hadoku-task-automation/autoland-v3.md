@@ -1,7 +1,8 @@
 # Autoland v3 — one board, repo lanes
 
-**Date:** 2026-09-15. **From:** TenHands. **Status:** built on both sides;
-awaiting hadoku-task's deploy (§11).
+**Date:** 2026-09-15. **From:** TenHands.
+**Status: built on both sides, REVERTED FROM `main`, parked on
+`autoland-v3-parked` (tenhands `56da965`).** See §13 before re-landing.
 **Supersedes the lane model in** [`schemas/autoland.json`](schemas/autoland.json) (`schemaVersion` 2).
 **Companion:** [`board-contract.md`](board-contract.md) is the v1/v2 design review and still the
 reference for the claim protocol, which **does not change**.
@@ -413,3 +414,53 @@ Our side is ordered the other way and is safe either way round: `_status_from`
 degrades an unreadable or absent status to `None`, and a board with no repo
 lanes is declined rather than misread, so this code running against a v2 board
 does nothing rather than doing something wrong.
+
+---
+
+## 13. Why this is reverted, and what has to be true to re-land it
+
+**It was landed ahead of its own migration and took the pipeline down for 47
+hours.** `run_taskauto.py` declined every board without repo lanes and exited
+`2`; production carries seven v2 boards, none of them migrated, so every one of
+the 95 hourly runs between 2026-09-16 06:21 UTC and the revert failed with
+`no usable v3 boards out of 7 discovered`. Nothing was picked up in that
+window. The orchestration half (`384428d`) is reverted; the client contract
+(`a4f1cc5`) and the footer fix (`56da965`) stay, because both are additive and
+behaviour-preserving on a v2 board.
+
+The mistake was not the code. §12 already said the deploy order was hard, and
+it was written down two days before it was ignored — what was missing is that
+**nothing in the pipeline could tell whether the far side was ready**, so the
+ordering lived only in a document. A reader of §12 has to already be thinking
+about it; the runner did not have to think about it at all.
+
+### The three preconditions, none of which held
+
+1. **hadoku-task's v3 merged and deployed.** It is on `autoland-v3` only.
+   Probed on 2026-09-18: the live worker's OpenAPI advertises no
+   `NOTES_CHANGED`, no `STATUS_INVALID`, no `ifNotesHash`, no `laneKind`.
+2. **Migration 0007 applied to production D1.** It cannot have been — and per
+   §12 the worker must not ship before it, or `GET /boards` answers 500.
+3. **The boards re-activated with repo lanes.** Owner-only, seven of them, and
+   worth doing one first and watching it.
+
+Note what (1) means for a board migrated early: `status` on a release would be
+dropped as an unknown key rather than refused, so the chip would never persist,
+every task would read as having no chip, and the pipeline would re-plan it
+forever. **Migrating a board before the worker deploys is worse than not
+migrating it**, because it fails silently instead of loudly.
+
+### What the re-land must do differently
+
+**Degrade, do not exit.** A board without repo lanes is a v2 board, and the
+runner should drive it as one rather than refusing the whole fleet. Both lane
+models can be live at once — the board says which it is, in a field already on
+the wire — so the cutover is per-board and reversible, and no flag day is
+needed. That also makes precondition (3) safe to do one board at a time.
+
+**Detect (1) rather than assume it.** The board read already carries enough to
+tell: a release that comes back without the `status` it was given, or a v3 code
+path against a worker whose error enum has no `NOTES_CHANGED`, is a far side
+that has not deployed. Refuse to drive a repo-laned board in that state, loudly
+— that is the check that would have turned a 47-hour silence into one red run
+with a legible reason.
