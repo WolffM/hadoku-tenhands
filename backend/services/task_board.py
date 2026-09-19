@@ -864,9 +864,19 @@ class TaskBoardClient:
         """Every automation board this key can drive, discovered not configured.
 
         A board is ours to work if it is shared with us (or owned by us),
-        has been activated with a lane set, and records the repo it drives.
-        Nothing else needs saying: granting the key `contributor` on an
-        automation board IS the act of enrolling it.
+        has been activated with a lane set, and **records a repo somewhere** —
+        either the board-level scalar (v2, one repo per board) or on at least
+        one lane (v3, a lane per repo). Nothing else needs saying: granting the
+        key `contributor` on an automation board IS the act of enrolling it.
+
+        The `or` in that sentence is load-bearing and was missing for three
+        days. This filter required the board-level scalar, which a v3 board
+        does not set — activation puts the repos on the lanes and leaves
+        `boards.repo` null. So every v3 board was silently invisible: not an
+        error, not a warning, just absent from discovery, and the runner would
+        have reported "nothing to drive yet" forever no matter how many boards
+        were activated. Caught by a production run, not by a test, because the
+        end-to-end tests mocked this method.
 
         That is deliberately not a config list. A configured list has to be
         kept in step with reality by hand, and the failure when it drifts is
@@ -886,7 +896,9 @@ class TaskBoardClient:
         out: list[BoardSnapshot] = []
         for raw in (body.get("boards") or []):
             lanes = [_lane_from(d) for d in (raw.get("lanes") or [])]
-            if not lanes or not (raw.get("repo") or "").strip():
+            has_repo = bool((raw.get("repo") or "").strip()) or any(
+                ln.is_repo_lane for ln in lanes)
+            if not lanes or not has_repo:
                 continue
             if raw.get("access") not in ("owner", "contributor"):
                 continue

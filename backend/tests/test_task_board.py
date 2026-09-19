@@ -612,3 +612,66 @@ def test_a_rate_limited_read_is_not_retried():
     with pytest.raises(RateLimited):
         c.get_board("h1")
     assert len(c._transport.calls) == 1
+
+
+# ── discovery has to see a v3 board ───────────────────────────────────────
+
+
+def _boards_body(*boards):
+    return {"boards": list(boards)}
+
+
+def _raw(name, *, repo=None, lanes=None, access="contributor"):
+    return {"id": name, "name": name, "handle": name.upper(), "repo": repo,
+            "mode": "automation", "access": access, "schemaId": "autoland",
+            "schemaVersion": 3, "lanes": lanes or []}
+
+
+V2_LANES = [{"tag": "planning", "label": "P", "order": 0, "editableBy": "agent"},
+            {"tag": "approved", "label": "A", "order": 1, "editableBy": "user"}]
+V3_LANES = [{"tag": "conjure", "label": "C", "order": 0, "editableBy": "user",
+             "repo": "WolffM/hadoku-conjure"}]
+
+
+def test_a_v3_board_is_discovered_even_with_no_board_level_repo():
+    """The bug that made the whole v3 re-land inert for three days.
+
+    Activation puts the repos on the LANES and leaves `boards.repo` null, so a
+    filter requiring the scalar dropped every v3 board — silently. Not an
+    error, not a warning, just absent: the runner reported "nothing to drive
+    yet" forever however many boards were activated.
+
+    Caught by a production run rather than a test, because the end-to-end
+    scenario tests mocked `automation_boards` and never exercised the filter.
+    """
+    c = client(FakeResponse(200, _boards_body(_raw("new", repo=None, lanes=V3_LANES))))
+    got = c.automation_boards()
+    assert [b.name for b in got] == ["new"]
+    assert got[0].repo == "" and len(got[0].repo_lanes) == 1
+
+
+def test_a_v2_board_is_still_discovered_by_its_scalar():
+    c = client(FakeResponse(200, _boards_body(
+        _raw("old", repo="WolffM/x", lanes=V2_LANES))))
+    assert [b.name for b in c.automation_boards()] == ["old"]
+
+
+def test_both_models_are_discovered_together():
+    """A fleet mid-migration. Neither kind may hide the other."""
+    c = client(FakeResponse(200, _boards_body(
+        _raw("old", repo="WolffM/x", lanes=V2_LANES),
+        _raw("new", repo=None, lanes=V3_LANES))))
+    assert sorted(b.name for b in c.automation_boards()) == ["new", "old"]
+
+
+def test_a_board_with_lanes_but_no_repo_anywhere_is_not_drivable():
+    """Still filtered. Lanes alone are not a checkout mapping, and driving one
+    would mean cloning the empty string."""
+    c = client(FakeResponse(200, _boards_body(_raw("bare", repo=None, lanes=V2_LANES))))
+    assert c.automation_boards() == []
+
+
+def test_a_readonly_share_is_not_drivable():
+    c = client(FakeResponse(200, _boards_body(
+        _raw("ro", repo=None, lanes=V3_LANES, access="readonly"))))
+    assert c.automation_boards() == []
