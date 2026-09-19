@@ -251,6 +251,14 @@ class TestTheFooterPatternIsTightOnStructureNotValues:
         "— pass 2",
         "— pass 2 · confidence 0.8",
         "— pass ? · confidence junk",
+        # Trailing whitespace. hadoku-task found this one by running their new
+        # cases against their OLD pattern rather than assuming they would fail,
+        # and had not predicted it: their wildcard tail never matched, so `$`
+        # then failed on the spaces and the footer did not strip at all. An
+        # editor adding or trimming one space decided whether the wake fired.
+        # `\s*$` covers it here, but it was covered by luck until they said so.
+        "— pass 2   ",
+        "— pass 2 · confidence 0.8  ",
     ])
     def test_ours_is_stripped(self, line):
         assert plan_notes._FOOTER_RE.fullmatch(line)
@@ -258,6 +266,14 @@ class TestTheFooterPatternIsTightOnStructureNotValues:
     @pytest.mark.parametrize("line", [
         "— pass the buck to legal",
         "— pass 2 extra words",
+        # The worse of the two silent failures, and it was theirs: a tail of
+        # `[separator].*` swallowed the human's sentence with the footer, so a
+        # reply was LOST rather than mis-badged. Our `$` anchor keeps it, which
+        # is the property their fix converged on from the other side.
+        "— pass 2 · confidence 0.8 and then some",
+        # A comma was a separator in their pattern — their invention, never our
+        # format — so this was being eaten too.
+        "— pass 2, some note",
     ])
     def test_a_humans_sentence_is_not(self, line):
         assert not plan_notes._FOOTER_RE.fullmatch(line)
