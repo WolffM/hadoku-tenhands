@@ -24,12 +24,13 @@ pipeline also ends at a PR — opened here, on our own repo, and merged by a hum
 reaches `main`. Safety rests on that review gate, not on being able to undo a bad merge after the
 fact (§4).
 
-> **Superseded in design by [autoland-v3.md](autoland-v3.md) — 2026-09-15, not yet built.**
+> **Superseded by [autoland-v3.md](autoland-v3.md), LIVE since 2026-09-19.**
 > v3 turns the board axis ninety degrees: **one board with a lane per repo**, instead of one board
 > per repo with a lane per pipeline state. Pipeline state moves off the lanes onto a `status` chip
 > and the `## Outcome` line, and plan approval becomes a control inside the task item rather than a
 > lane to drag to. The claim protocol is unchanged. Everything below describes what is **running
-> today** (`schemaVersion` 2) and stays accurate until v3 lands.
+> today on a board that has NOT been re-activated with repo lanes** (`schemaVersion` 2).
+> Such a board is no longer driven; see autoland-v3.md §15.
 
 ---
 

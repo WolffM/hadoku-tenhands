@@ -1,7 +1,10 @@
 # Autoland v3 — one board, repo lanes
 
-**Date:** 2026-09-15. **From:** TenHands. **Status:** built on both sides;
-awaiting hadoku-task's deploy (§11).
+**Date:** 2026-09-15. **From:** TenHands.
+**Status: LIVE.** hadoku-task deployed 2026-09-19 (`@wolffm/task` 5.13.3, their
+`e781bad`); tenhands landed `9ab4ed5` after a first attempt that was reverted —
+§13 is that post-mortem, §14 the production verification, §15 what replaced the
+deploy order in §12.
 **Supersedes the lane model in** [`schemas/autoland.json`](schemas/autoland.json) (`schemaVersion` 2).
 **Companion:** [`board-contract.md`](board-contract.md) is the v1/v2 design review and still the
 reference for the claim protocol, which **does not change**.
@@ -401,7 +404,7 @@ new separator character, and their parser would fall straight through.
 
 ---
 
-## 12. Deploy order
+## 12. Deploy order — superseded by §15
 
 **Migration 0007 must be applied to production D1 BEFORE hadoku-task's worker
 ships.** `status` is in the `SELECT` list of every task read, so a worker
@@ -413,3 +416,100 @@ Our side is ordered the other way and is safe either way round: `_status_from`
 degrades an unreadable or absent status to `None`, and a board with no repo
 lanes is declined rather than misread, so this code running against a v2 board
 does nothing rather than doing something wrong.
+
+---
+
+## 13. The first attempt, and why it was reverted
+
+**It shipped ahead of its own migration and took the pipeline down for 47
+hours.** `run_taskauto.py` declined every board without repo lanes and exited
+`2`; production carried seven v2 boards, none migrated, so all 95 hourly runs
+between 2026-09-16 06:21 UTC and the revert failed with `no usable v3 boards
+out of 7 discovered`. Nothing was picked up in that window. `384428d` was
+reverted in `e146e28`; the client contract and the footer fix stayed, both
+being additive and behaviour-preserving on a v2 board.
+
+It could not have worked anyway: hadoku-task's half was on a branch, and the
+live worker advertised no `NOTES_CHANGED`, `STATUS_INVALID` or `ifNotesHash`.
+The code was built against their branch and shipped as though that branch were
+live.
+
+**§12 already said the deploy order was hard, written two days before it was
+ignored.** So the lesson is not "document the ordering". It is that nothing in
+the pipeline could *observe* whether the far side was ready, so the constraint
+existed only in prose that the runner never had to read. §15 is what replaced
+it: the same constraint, expressed as code that fails legibly.
+
+One trap found while writing this up, and it is the reason §15's second guard
+exists: a board migrated **before** the worker deploys is worse than one not
+migrated at all. Unknown keys are stripped rather than refused, so `status`
+would be dropped with a 200, the chip would never persist, and every task
+would be re-planned forever. Migrating early fails silently; not migrating
+fails loudly. That asymmetry is the wrong way round, so the runner now checks.
+
+---
+
+## 14. Verified against production, 2026-09-19
+
+Not against a fixture. The service key **owns the board it creates**, so
+owner-only activation applied to it, and the contract was exercised end to end
+on its own `main` board (`MS1E8B4TU2…`) before any of this reached `main`.
+
+| | result |
+|---|---|
+| Activation | `schemaVersion: 3`, seven repo lanes, `repo` round-trips on every one — the unknown-key preservation that made multi-repo a zero-change ask (§5.6) is real rather than inferred |
+| `status` persists | A `working` chip written mid-flight via `set-lane`, and a `waiting` chip with an `href` written on release, both stuck and read back intact |
+| `ifNotesHash` bites | A deliberately wrong digest answered `409 NOTES_CHANGED` with a `currentNotesHash` matching the real notes, and **wrote nothing**; the correct digest then landed |
+
+The middle row is the one worth recording. hadoku-task confirmed the
+*validation* path live but could not observe a status **persisting** — their
+sandbox blocked production writes partway through the check. That gap is
+closed from this side now.
+
+### A spec-vs-behaviour drift, reported, costing us nothing
+
+`STATUS_INVALID` is documented as covering "an unknown `kind`, a missing or
+oversized `label`, or an `href` that isn't http(s)". Three of those four never
+reach it — zod refuses them at the route boundary first:
+
+| bad status | actual |
+|---|---|
+| unknown `kind` | `400 Validation Error`, no `code` |
+| missing `label` | `400 Validation Error`, no `code` |
+| oversized `label` | `400 Validation Error`, no `code` |
+| non-http(s) `href` | `422 STATUS_INVALID` |
+
+A client branching on the code would miss three of four. It costs us nothing,
+and not by luck: `TaskStatus.__post_init__` refuses all four locally before
+anything is sent — which is why validating at both ends was worth the
+duplication (§5.3).
+
+---
+
+## 15. There is no migration order any more
+
+This supersedes §12 as the operational rule. §12 described an ordering a human
+had to hold; this is the same constraint expressed as four outcomes the runner
+produces on its own.
+
+- **Boards present, none repo-laned** → exit **0**, and one line saying what
+  would make it act. A fleet is legitimately in this state from the moment the
+  code ships until the first board is activated. This is the case that was
+  exit 2, and the 95 red runs.
+- **Nothing shared with the key** → still exit **2**. A wrong share or a wrong
+  identity is a real misconfiguration, and silence there is the worst failure
+  this pipeline has.
+- **A repo-laned board while the far side is pre-v3** → exit **4**, nothing
+  claimed. The failure with no symptom, so the one worth a network call per run
+  to refuse. `far_side_has_v3()` probes their published spec for
+  `NOTES_CHANGED` — an **error code**, not a field name, because their
+  `openapi-verify` harness fails their build in both directions and so the
+  string cannot appear unless the path that raises it shipped with it. Not
+  `laneKind`: that was ours, for our own preset, never in their spec, and
+  probing for it found nothing and told us nothing.
+- **Probe unreadable** → warn and carry on. `None`, never `False`. A failed
+  probe is not evidence of a rollback, and treating it as one would take the
+  pipeline down for a network blip — a worse outage than the one being guarded.
+
+Activate a board whenever you like; it is picked up on the next run. Boards
+that are not repo-laned are neither driven nor touched.
