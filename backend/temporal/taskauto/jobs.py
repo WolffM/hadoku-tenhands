@@ -13,6 +13,8 @@ capabilities apart is cheaper than granting both and relying on a prompt.
 from __future__ import annotations
 
 import logging
+import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -143,7 +145,7 @@ def _stall_note(doc: PlanDoc, *, trailing: str, questions: Optional[list] = None
     Both stall paths used to build a FRESH `PlanDoc`, which meant the approved
     plan vanished from `notes` — and `notes` is the only place it lives. The
     cost was not cosmetic: `implement_job` starts with `if not doc.plan: ->
-    LANE_REPLAN`, so a human who did the obvious thing and re-approved a
+    `implement:no-plan`, so a human who did the obvious thing and re-approved a
     stalled task got the whole planning conversation restarted from scratch.
     On the `meet` task that was 266 seconds of planning across three passes,
     discarded because a gate said no to one file.
@@ -170,7 +172,7 @@ def _stall_note(doc: PlanDoc, *, trailing: str, questions: Optional[list] = None
 
 def _task_ref(pickup, board, policy: Optional[RepoPolicy] = None) -> TaskRef:
     return TaskRef(
-        repo_slug=board.repo,
+        repo_slug=pickup.repo,
         board=board.handle or board.id,
         task_id=pickup.task.id,
         title=pickup.task.title,
@@ -194,7 +196,7 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
     """
 
     def plan_job(pickup, board, sink):
-        checkout = checkouts.reset_to(board.repo, base_branch)
+        checkout = checkouts.reset_to(pickup.repo, base_branch)
         sink.heartbeat()
 
         prior = plan_notes.parse(pickup.task.notes or "")
@@ -203,7 +205,7 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         if prior.pass_number >= plan_notes.MAX_PASSES:
             # Converging is the point; a fourth round of questions is a sign
             # the medium is wrong, not that one more question will help.
-            return (selection.LANE_STALLED,
+            return (selection.blocked("planning hit its pass cap"),
                     plan_notes.render(PlanDoc(
                         understanding=prior.understanding,
                         questions=prior.questions,
@@ -215,7 +217,7 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         # Before the notes, not after: the notes' preview of a seeded item is
         # a lossy copy of what this returns, and the prompt tells the agent to
         # prefer this one.
-        item_block = hydrate(board.repo, pickup.task.title)
+        item_block = hydrate(pickup.repo, pickup.task.title)
         if item_block:
             item_block = f"\n{item_block}\n"
         sink.heartbeat()
@@ -267,27 +269,41 @@ def make_plan_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             # unilaterally, so it goes to the human. This branch is only
             # honest because of the check above: it now means the agent
             # proposed nothing, not that we failed to understand it.
-            return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
-                    "plan:no-action-proposed")
+            # No plan and no question, in a document we could read. Still
+            # asks for sign-off: "I think this is already done" is a claim a
+            # human should agree with before the task is closed on it.
+            doc.needs_approval = True
+            return (selection.waiting("looks already done — confirm?"),
+                    plan_notes.render(doc), "plan:no-action-proposed")
 
         if doc.has_open_questions:
-            return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
-                    "plan:questions")
+            # Questions but no approval row: answering them sends it back for
+            # another pass, which is what `human_verdict` reads a reply as.
+            # Asking both at once would let someone tick approve while leaving
+            # a question we said we could not proceed without.
+            n_q = len(doc.questions)
+            return (selection.waiting(f"{n_q} question(s) for you"),
+                    plan_notes.render(doc), "plan:questions")
 
         if not doc.acceptance:
             # G2: without an acceptance check there is nothing to verify, and
             # "lands on green" would be an empty phrase.
             doc.questions = ["How would you tell me this was fixed? I could "
                              "not state an acceptance check for it."]
-            return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
-                    "plan:unverifiable")
+            return (selection.waiting("1 question(s) for you"),
+                    plan_notes.render(doc), "plan:unverifiable")
 
         # A plan with no questions and a real acceptance check. The human
-        # still sees it in plan-review before anything is built — the fast
-        # path in the design releases to `approved`, but that is a judgement
-        # this job is not yet trusted to make unattended.
-        return (selection.LANE_PLAN_REVIEW, plan_notes.render(doc),
-                "plan:ready")
+        # still signs it off before anything is built — the fast path in the
+        # design implements straight away, but that is a judgement this job is
+        # not yet trusted to make unattended.
+        #
+        # THIS is the approval row's main home. Everything above it asks a
+        # question instead, because a plan with an open question is not a plan
+        # anyone should be able to approve in one tap.
+        doc.needs_approval = True
+        return (selection.waiting("plan ready — sign it off"),
+                plan_notes.render(doc), "plan:ready")
 
     return plan_job
 
@@ -298,31 +314,28 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                        test_cwd: str = ".",
                        watcher: Optional[ProdWatcher] = None,
                        reverter: Optional[Reverter] = None,
-                       health_url: str = "", watch_window_s: int = 600,
-                       pr_lane: str = selection.LANE_LANDED):
+                       health_url: str = "", watch_window_s: int = 600):
     """An `implement` job. `lander.dry_run` decides whether it really pushes.
 
-    `pr_lane` is where a task goes once its pull request is open, and `landed`
-    is now honestly that lane rather than a stopgap: `autoland` v2 redefined it
-    as "The pull request is open, gates green, and waiting on you. Review it
-    and merge." The lane that used to mean *merged and production verified*
-    means *yours to merge* — which is the same change this module makes, said
-    in the vocabulary the board publishes. The notes still give the URL and say
-    NOT merged, because a lane name is not evidence.
+    The `pr_lane` parameter is gone with v2's lanes. A task with an open pull
+    request does not move — it stays in its repo and carries a `waiting` chip
+    linking to the PR, which is strictly more information than the `landed`
+    lane ever was: the chip says whose move it is AND where to go and make it.
+    `reconcile` turns that chip into `done` once the PR actually merges.
     """
 
     def implement_job(pickup, board, sink):
         task = _task_ref(pickup, board, policy)
-        checkout = checkouts.reset_to(board.repo, base_branch)
+        checkout = checkouts.reset_to(pickup.repo, base_branch)
         # Housekeeping before the work, not after: a run that crashes or is
         # killed never reaches its own cleanup, so cleaning at the START is
         # what actually keeps the clone from growing without bound. reset_to
         # has just moved HEAD to the base branch, so last run's branch is now
         # deletable.
         try:
-            checkouts.prune(board.repo, base=base_branch)
+            checkouts.prune(pickup.repo, base=base_branch)
         except Exception as e:  # never fail a task over tidying
-            logger.warning("prune failed on %s: %s", board.repo, e)
+            logger.warning("prune failed on %s: %s", pickup.repo, e)
         sink.heartbeat()
 
         # Recovery after a crash between push and release. Observed for real:
@@ -335,7 +348,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         already = _already_landed(checkouts, checkout, pickup.task.title,
                                   base_branch)
         if already:
-            return (selection.LANE_LANDED,
+            return (selection.done(f"already landed as {already[:8]}"),
                     plan_notes.render(PlanDoc(
                         understanding=(
                             f"Already landed as {already[:8]} — recovered a run "
@@ -359,14 +372,30 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             # not be answered by answering it — only by dragging the task
             # somewhere else. A question whose answer is a lane change should
             # be the lane change.
-            return (selection.LANE_REPLAN,
+            #
+            # Getting it re-planned without a `replan` lane to drop it in: the
+            # explanation goes BELOW the document, as residue. `plan_notes.parse`
+            # surfaces residue as `human_text`, and `selection.human_verdict`
+            # reads a `waiting` task with `human_text` as "they answered, plan
+            # it again". So the note is both the explanation and the trigger.
+            #
+            # That is the same idiom `reconcile` uses for a rejected PR, and
+            # for the same reason: anything that should restart the
+            # conversation arrives on the channel a human's reply arrives on.
+            return (selection.waiting("re-planning — nothing needed from you"),
                     plan_notes.render(PlanDoc(
                         understanding=(
                             "There was no plan here to implement — my last "
                             "pass asked a question instead of writing one. "
-                            "I've put this back in `replan` and will plan it "
-                            "on the next pass. Nothing is needed from you."),
-                        pass_number=1)),
+                            "I'll plan it again on the next pass. Nothing is "
+                            "needed from you."),
+                        pass_number=1))
+                    # Below the document, so it lands as `human_text` and the
+                    # planner reads it as the instruction it is. The sentence
+                    # above is for the person looking at the card; this one is
+                    # for the agent that picks the task up.
+                    + "\nRe-plan this from the original task text. The "
+                      "previous pass produced a question, not a plan.\n",
                     "implement:no-plan")
 
         # Anything the human wrote that we didn't. `render` deliberately emits
@@ -394,7 +423,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         sink.heartbeat()
 
         if not outcome.made_changes:
-            return (selection.LANE_STALLED,
+            return (selection.blocked("the agent made no changes"),
                     _stall_note(
                         doc,
                         trailing=("**NOT LANDED — the agent made no changes, "
@@ -403,7 +432,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                         changed_files=[]),
                     "implement:no-changes")
 
-        sink.lane(selection.LANE_LANDING)
+        sink.status(selection.working("landing"))
         try:
             res = lander.land(
                 checkout, task,
@@ -418,7 +447,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 diff_text=outcome.diff,
             )
         except LandingRefused as e:
-            return (selection.LANE_STALLED,
+            return (selection.blocked("refused at the landing gate"),
                     _stall_note(
                         doc,
                         trailing=(
@@ -449,15 +478,20 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
             # Status goes under Outcome; the understanding the human approved is
             # carried through unchanged, and the execution log stays under Plan
             # while the task is in flight (reconciliation drops it on merge).
-            return (pr_lane,
+            n_pr = res.pr_url.rsplit('/', 1)[-1]
+            return (selection.waiting(
+                        f"PR #{n_pr} open — auto-merge armed"
+                        if res.auto_merge_armed else
+                        f"PR #{n_pr} — yours to merge",
+                        href=res.pr_url),
                     plan_notes.render(PlanDoc(
                         outcome=status, understanding=doc.understanding,
                         plan=res.checks, acceptance=doc.acceptance,
                         blast_radius=outcome.changed_files, pass_number=1)),
-                    f"pr-open:{res.pr_url.rsplit('/', 1)[-1]}")
+                    f"pr-open:{n_pr}")
 
         if not res.pushed:
-            return (selection.LANE_PLAN_REVIEW,
+            return (selection.blocked("verified but not pushed (dry run)"),
                     plan_notes.render(PlanDoc(
                         outcome="Verified but NOT pushed (dry run).",
                         understanding=doc.understanding,
@@ -471,7 +505,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         checks = list(res.checks)
         if watcher and health_url:
             sink.heartbeat()
-            verdict = watcher.watch(board.repo, res.commit_sha,
+            verdict = watcher.watch(pickup.repo, res.commit_sha,
                                     health_url=health_url,
                                     window_s=watch_window_s)
             checks.append(f"prod watch: {verdict.reason}")
@@ -479,7 +513,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 if reverter is None:
                     checks.append("NO REVERTER CONFIGURED — prod is red and "
                                   "this change was NOT taken back")
-                    return (selection.LANE_STALLED,
+                    return (selection.blocked("prod red, NOT reverted"),
                             plan_notes.render(PlanDoc(
                                 outcome="Landed, then production went red — "
                                         "and could not be reverted "
@@ -490,7 +524,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
                 rev = reverter.revert(checkout, res.commit_sha,
                                       base=base_branch)
                 checks.append(f"REVERTED as {rev[:8]}")
-                return (selection.LANE_STALLED,
+                return (selection.blocked("landed, went red, reverted"),
                         plan_notes.render(PlanDoc(
                             outcome=("Landed, production went red, and the "
                                      "change was reverted."),
@@ -503,7 +537,7 @@ def make_implement_job(agent: ClaudeCodeAgent, checkouts: CheckoutManager,
         else:
             checks.append("NO PROD WATCHER — nothing is watching this change")
 
-        return (selection.LANE_LANDED,
+        return (selection.done(f"landed as {res.commit_sha[:8]}"),
                 plan_notes.render(PlanDoc(
                     outcome="Landed and production stayed healthy."
                             if watcher and health_url else "Landed.",
@@ -549,3 +583,108 @@ def _commit_message(title: str, doc: PlanDoc) -> str:
     subject = _subject(title)
     body = "\n".join(f"- {s}" for s in doc.plan[:8])
     return f"{subject}\n\n{body}\n"
+
+
+ROUTE_PROMPT = """\
+You are the routing step of an automated pipeline. A human typed one short
+task onto a board that covers several repositories. Decide which one it is
+about.
+
+TASK TITLE: {title}
+{notes_block}
+THE REPOSITORIES ON THIS BOARD:
+
+{lanes}
+
+Reply with EXACTLY one line and nothing else:
+
+REPO: <tag>
+
+…using one of the tags listed above, or:
+
+UNCLEAR: <one short question that would tell you which repo this is for>
+
+Rules:
+- Pick a repo only if the task names it, names something clearly inside it, or
+  describes a symptom only that repo could produce.
+- Prefer UNCLEAR to a guess. A wrong repo sends the work to the wrong codebase
+  and wastes a whole planning pass in it.
+- Do not ask about anything except which repo. Scope, approach and priority
+  are the planning step's business, not yours.
+"""
+
+#: `REPO: <tag>` / `UNCLEAR: <question>`, tolerant of the model decorating it.
+_ROUTE_REPO = re.compile(r"^\W*REPO:\s*(?P<tag>\S+)", re.IGNORECASE | re.MULTILINE)
+_ROUTE_UNCLEAR = re.compile(r"^\W*UNCLEAR:\s*(?P<q>.+)", re.IGNORECASE | re.MULTILINE)
+
+
+def make_route_job(agent: ClaudeCodeAgent, *,
+                   scratch: Optional[Callable[[], Path]] = None):
+    """A `route` job: decide which repo an Inbox task belongs to.
+
+    New in autoland v3, and only needed because of it. Under one board per
+    repo a fresh capture already knew where it was going; under one board with
+    a lane per repo, nothing does until someone reads the task.
+
+    **It touches no checkout, and that is a requirement rather than an
+    optimisation.** `LaneRunner.turn` takes the checkout lock BEFORE claiming,
+    so that losing the race costs nothing — no claim held, no task parked
+    waiting out a lease. An Inbox task's repo is unknown until it has been
+    read, so there would be nothing to lock. Making routing a job that needs
+    no lock is what preserves that ordering everywhere else; the alternative
+    considered was claim-then-lock for routing only, which weakens an
+    invariant that was chosen carefully, to save one turn of latency.
+
+    So the agent runs in an empty scratch directory with no repo in front of
+    it. It is classifying a sentence against a list of names, not researching
+    a codebase — and a router that could read repos would be a router that
+    sometimes reads the wrong one for ten minutes.
+    """
+    def route_job(pickup, board, sink):
+        lanes = board.repo_lanes
+        listing = "\n".join(
+            f"- {ln.tag} — {ln.label} ({ln.repo})" for ln in lanes)
+        notes_block = ""
+        if (pickup.task.notes or "").strip():
+            notes_block = f"\nWHAT ELSE THEY TYPED:\n---\n{pickup.task.notes.strip()}\n---\n"
+
+        t0 = time.monotonic()
+        if scratch is not None:
+            cwd = scratch()
+        else:
+            cwd = Path(tempfile.mkdtemp(prefix="taskauto-route-"))
+        raw = agent.ask(cwd, ROUTE_PROMPT.format(
+            title=pickup.task.title, notes_block=notes_block, lanes=listing))
+        sink.record(route_s=time.monotonic() - t0, route_passes=1)
+
+        m = _ROUTE_REPO.search(raw or "")
+        if m:
+            tag = m.group("tag").strip().strip("`*_.,")
+            if any(ln.tag == tag for ln in lanes):
+                # The lane move is the whole output. No notes: the task is
+                # still the human's raw capture and planning has not run, so
+                # writing a document here would put words in its mouth and
+                # make `looks_unplanned` false — which is the predicate that
+                # gets it planned on the very next tick.
+                return (selection.working(f"filed under {tag}"), None,
+                        f"route:{tag}", tag)
+            logger.warning("router named %r, which is not a lane on this "
+                           "board; asking instead", tag)
+
+        m = _ROUTE_UNCLEAR.search(raw or "")
+        question = (m.group("q").strip() if m else
+                    "Which repo is this for? I could not tell.")
+
+        # Unroutable, so it stays in the Inbox — there is no lane that is
+        # honestly its home yet, and parking it in an arbitrary repo would be
+        # a guess wearing a decision's clothes. `waiting` with a question is
+        # how it asks; a human answering in the notes, or dragging the card
+        # onto a repo themselves, both resolve it.
+        return (selection.waiting("which repo?"),
+                plan_notes.render(PlanDoc(
+                    understanding="I could not tell which repo this is for.",
+                    questions=[question],
+                    pass_number=1)),
+                "route:unclear")
+
+    return route_job

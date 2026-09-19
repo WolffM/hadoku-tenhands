@@ -24,15 +24,12 @@ pipeline also ends at a PR — opened here, on our own repo, and merged by a hum
 reaches `main`. Safety rests on that review gate, not on being able to undo a bad merge after the
 fact (§4).
 
-> **A v3 design exists ([autoland-v3.md](autoland-v3.md)) and is PARKED — it was
-> landed on 2026-09-16 and reverted on 2026-09-18 after taking the pipeline down
-> for 47h; see its §13.** Everything below is what runs today.
+> **Superseded in design by [autoland-v3.md](autoland-v3.md) — 2026-09-15, not yet built.**
 > v3 turns the board axis ninety degrees: **one board with a lane per repo**, instead of one board
 > per repo with a lane per pipeline state. Pipeline state moves off the lanes onto a `status` chip
 > and the `## Outcome` line, and plan approval becomes a control inside the task item rather than a
 > lane to drag to. The claim protocol is unchanged. Everything below describes what is **running
-> today** (`schemaVersion` 2), and is not superseded by anything until v3's three
-> preconditions hold.
+> today** (`schemaVersion` 2) and stays accurate until v3 lands.
 
 ---
 
@@ -77,7 +74,7 @@ a phone is miserable; reading a plan and answering three questions is not.
 
 Eight lanes, three of them `agent`. The board is [hadoku-task](https://hadoku.me/task); the
 contract is [board-contract.md](board-contract.md); the activation payload is
-[schemas/autoland-v1.json](schemas/autoland-v1.json), which we also publish for hadoku-task to
+[schemas/autoland.json](schemas/autoland.json), which we also publish for hadoku-task to
 fetch ([preset-endpoint.md](preset-endpoint.md)) so nobody keeps a pasted copy of it.
 Intake is §1.1, the planning loop §1.2.
 
@@ -613,7 +610,7 @@ were wrong, for reasons worth keeping:
 
 **How to run it.** Boards are discovered, not configured: share a board with the
 service key at `contributor`, activate it with
-[schemas/autoland-v1.json](schemas/autoland-v1.json) — or, once hadoku-task points at
+[schemas/autoland.json](schemas/autoland.json) — or, once hadoku-task points at
 [our preset endpoint](preset-endpoint.md), pick *TenHands · Autoland* from their picker
 and skip the paste — and it gets driven.
 

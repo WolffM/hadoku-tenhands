@@ -30,7 +30,23 @@ export interface TaskAutoMetrics {
   plan_passes?: number
   implement_s?: number
   implement_runs?: number
-  finished_lane?: string
+  /** The chip the task ended on. Was `finished_lane` before autoland v3. */
+  finished_kind?: string
+}
+
+/** The four states the pipeline publishes. Mirrors TASK_STATUS_KINDS. */
+export type TaskAutoStatusKind = 'working' | 'waiting' | 'blocked' | 'done'
+
+/**
+ * Where the pipeline is on a task. Autoland v3 moved state off the lanes —
+ * a lane is a repo now — so this is the whole of it.
+ */
+export interface TaskAutoChip {
+  kind: TaskAutoStatusKind
+  /** Free text the agent wrote. Render verbatim; never parse it. */
+  label: string
+  /** Usually the pull request. Makes the chip a link when present. */
+  href?: string
 }
 
 export interface TaskAutoTask {
@@ -41,6 +57,12 @@ export interface TaskAutoTask {
   hasPlan: boolean
   /** Two lane tags — resolves to no lane, so the scheduler cannot see it. */
   stuck: boolean
+  /** Absent until the pipeline has touched the task. */
+  status?: TaskAutoChip | null
+  /** How many things this task is waiting on a human for. */
+  openQuestions: number
+  /** An unticked `- [ ] Approve this plan` is outstanding. */
+  needsApproval: boolean
   metrics?: TaskAutoMetrics
 }
 
@@ -92,6 +114,10 @@ export interface TaskAutoBoard {
   schemaId?: string
   schemaVersion?: number
   lanes: Record<string, TaskAutoTask[]>
+  /** THIS board's lanes in order, Inbox first. Two boards need not match. */
+  laneOrder: string[]
+  /** Lane tag → `owner/name`, for labelling a repo column. */
+  laneRepos: Record<string, string>
   counts: Record<string, number>
   prs: TaskAutoPR[]
   error?: string
@@ -101,6 +127,7 @@ export interface TaskAutoStatus {
   success: boolean
   boards: TaskAutoBoard[]
   running: (TaskAutoTask & { board: string; repo: string; lane: string })[]
+  /** The union across boards. Prefer each board's own `laneOrder`. */
   laneOrder: string[]
   prCount: number
 }

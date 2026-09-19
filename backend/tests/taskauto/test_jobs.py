@@ -15,29 +15,31 @@ from temporal.taskauto.landing import LandingRefused, LandResult
 from temporal.taskauto.selection import Pickup
 
 NOW = datetime(2026, 7, 25, tzinfo=timezone.utc)
-LANES = [Lane("planning", "P", 0, "agent"), Lane("plan-review", "PR", 0, "user"),
-         Lane("replan", "R", 1, "user"), Lane("approved", "A", 2, "user"),
-         Lane("working", "W", 3, "agent"), Lane("landing", "L", 4, "agent"),
-         Lane("landed", "D", 5, "user"), Lane("stalled", "S", 6, "user")]
+REPO = "WolffM/hadoku-tenhands"
+LANE = "hadoku-tenhands"
+
+#: A v3 lane set: one lane, and it names a repo. The jobs read the repo off
+#: the PICKUP rather than the board now, because a board has several.
+LANES = [Lane(LANE, "TenHands", 0, "user", repo=REPO)]
 
 
 def board():
-    return BoardSnapshot(id="b", name="n", handle="H", repo="WolffM/tenhands",
+    return BoardSnapshot(id="b", name="n", handle="H", repo="",
                          mode="automation", lanes=LANES, tasks=[],
-                         schema_id="autoland", schema_version=1,
+                         schema_id="autoland", schema_version=3,
                          access="contributor", version=1)
 
 
 def pickup(title="make coffee theme default", notes="", job="plan"):
-    t = BoardTask(id="t1", title=title, notes=notes, tag="", metadata={},
+    t = BoardTask(id="t1", title=title, notes=notes, tag=LANE, metadata={},
                   claimed=False, state="Active",
                   created_at=NOW.isoformat(), updated_at=NOW.isoformat())
-    return Pickup(task=t, job=job, lane="planning", reason="test")
+    return Pickup(task=t, job=job, lane=LANE, repo=REPO, reason="test")
 
 
 class FakeSink:
-    def __init__(self): self.lanes, self.beats, self.metrics = [], 0, {}
-    def lane(self, lane): self.lanes.append(lane)
+    def __init__(self): self.chips, self.beats, self.metrics = [], 0, {}
+    def status(self, status): self.chips.append(status.kind)
     def heartbeat(self): self.beats += 1
     def record(self, **f):
         for k, v in f.items():
@@ -106,8 +108,8 @@ _No open questions._
 def test_a_clean_plan_goes_to_plan_review_for_a_human():
     agent = FakeAgent(answer=GOOD_PLAN)
     job = make_plan_job(agent, FakeCheckouts())
-    lane, notes, outcome = job(pickup(), board(), FakeSink())
-    assert lane == selection.LANE_PLAN_REVIEW and outcome == "plan:ready"
+    status, notes, outcome = job(pickup(), board(), FakeSink())
+    assert status.kind == "waiting" and outcome == "plan:ready"
     assert "coffee" in notes.lower()
 
 
@@ -119,7 +121,7 @@ def test_the_seeded_github_item_reaches_the_planning_prompt():
     job = make_plan_job(agent, FakeCheckouts(),
                         hydrate=lambda repo, title: f"ITEM({repo}/{title})")
     job(pickup("Address PR #21"), board(), FakeSink())
-    assert "ITEM(WolffM/tenhands/Address PR #21)" in agent.asked[0]
+    assert f"ITEM({REPO}/Address PR #21)" in agent.asked[0]
 
 
 def test_a_task_with_no_github_item_gets_no_item_block():
@@ -143,9 +145,9 @@ def test_planning_is_told_not_to_invent_a_reason_for_the_task():
 def test_open_questions_go_to_plan_review():
     agent = FakeAgent(answer=GOOD_PLAN.replace(
         "_No open questions._", "1. Which shade of coffee?"))
-    lane, notes, outcome = make_plan_job(agent, FakeCheckouts())(
+    status, notes, outcome = make_plan_job(agent, FakeCheckouts())(
         pickup(), board(), FakeSink())
-    assert lane == selection.LANE_PLAN_REVIEW and outcome == "plan:questions"
+    assert status.kind == "waiting" and outcome == "plan:questions"
     assert "Which shade" in notes
 
 
@@ -154,7 +156,7 @@ def test_a_plan_without_an_acceptance_check_asks_how_wed_know():
     be an empty phrase."""
     agent = FakeAgent(answer=GOOD_PLAN.replace(
         "- the default theme resolves to coffee", "_none_"))
-    lane, notes, outcome = make_plan_job(agent, FakeCheckouts())(
+    status, notes, outcome = make_plan_job(agent, FakeCheckouts())(
         pickup("too much wooshing"), board(), FakeSink())
     assert outcome == "plan:unverifiable"
     assert "how would you tell me" in notes.lower()
@@ -165,9 +167,9 @@ def test_already_done_is_reported_never_concluded():
     agent = FakeAgent(answer=(
         "## What I think you want\n\nThis is already done.\n\n"
         "## Plan\n\n_none_\n\n## Questions\n\n_No open questions._\n"))
-    lane, notes, outcome = make_plan_job(agent, FakeCheckouts())(
+    status, notes, outcome = make_plan_job(agent, FakeCheckouts())(
         pickup(), board(), FakeSink())
-    assert lane == selection.LANE_PLAN_REVIEW
+    assert status.kind == "waiting"
     assert outcome == "plan:no-action-proposed"
 
 
@@ -195,9 +197,9 @@ def test_one_recognised_heading_is_enough_to_be_read_as_a_document():
     complete" — a document proposing nothing is still a document, and
     `no-action-proposed` remains the honest outcome for it."""
     agent = FakeAgent(answer="## What I think you want\n\nNothing to do here.\n")
-    lane, _, outcome = make_plan_job(agent, FakeCheckouts())(
+    status, _, outcome = make_plan_job(agent, FakeCheckouts())(
         pickup(), board(), FakeSink())
-    assert lane == selection.LANE_PLAN_REVIEW
+    assert status.kind == "waiting"
     assert outcome == "plan:no-action-proposed"
 
 
@@ -221,9 +223,9 @@ def test_a_refused_landing_keeps_the_plan():
                               "protected paths touched without "
                               "`allow-protected:` authorisation: .devvault.json"))
     agent = FakeAgent(outcome=AgentOutcome(changed_files=[".devvault.json"]))
-    lane, notes, outcome = make_implement_job(agent, FakeCheckouts(), lander)(
+    status, notes, outcome = make_implement_job(agent, FakeCheckouts(), lander)(
         _approved(), board(), FakeSink())
-    assert lane == selection.LANE_STALLED and outcome == "land:refused"
+    assert status.kind == "blocked" and outcome == "land:refused"
     assert plan_notes.parse(notes).plan == ["step one", "step two"]
 
 
@@ -238,12 +240,12 @@ def test_re_approving_a_refused_task_rebuilds_instead_of_replanning():
 
     # The human drags it back to `approved` unchanged. It must implement, not
     # bounce to `replan` for a fresh planning conversation.
-    lane2, _, outcome2 = make_implement_job(
+    status2, _, outcome2 = make_implement_job(
         FakeAgent(outcome=AgentOutcome(changed_files=["a.py"])),
         FakeCheckouts(), FakeLander())(
         pickup(notes=notes, job="implement"), board(), FakeSink())
     assert outcome2 != "implement:no-plan"
-    assert lane2 != selection.LANE_REPLAN
+    assert status2.kind != "waiting"
 
 
 def test_a_refusal_explains_itself_without_naming_an_incantation():
@@ -297,9 +299,9 @@ def test_a_refusal_carries_the_agents_own_account():
 def test_no_changes_also_keeps_the_plan_and_the_agents_words():
     agent = FakeAgent(outcome=AgentOutcome(changed_files=[],
                                            log="Nothing to do; already done."))
-    lane, notes, outcome = make_implement_job(agent, FakeCheckouts(), FakeLander())(
+    status, notes, outcome = make_implement_job(agent, FakeCheckouts(), FakeLander())(
         _approved(), board(), FakeSink())
-    assert lane == selection.LANE_STALLED and outcome == "implement:no-changes"
+    assert status.kind == "blocked" and outcome == "implement:no-changes"
     assert plan_notes.parse(notes).plan == ["step one", "step two"]
     assert "Nothing to do; already done." in notes
 
@@ -318,10 +320,10 @@ def test_the_pass_cap_stalls_rather_than_asking_again():
     prior = plan_notes.render(plan_notes.PlanDoc(
         plan=["x"], questions=["again?"],
         pass_number=plan_notes.MAX_PASSES))
-    lane, notes, outcome = make_plan_job(FakeAgent(answer=GOOD_PLAN),
+    status, notes, outcome = make_plan_job(FakeAgent(answer=GOOD_PLAN),
                                          FakeCheckouts())(
         pickup(notes=prior), board(), FakeSink())
-    assert lane == selection.LANE_STALLED and outcome == "plan:cap-reached"
+    assert status.kind == "blocked" and outcome == "plan:cap-reached"
     assert "laptop" in notes
 
 
@@ -361,7 +363,7 @@ def test_a_bug_is_described_to_the_planner_as_a_bug():
 def test_planning_resets_the_checkout_first():
     co = FakeCheckouts()
     make_plan_job(FakeAgent(answer=GOOD_PLAN), co)(pickup(), board(), FakeSink())
-    assert co.calls == [("WolffM/tenhands", "main")]
+    assert co.calls == [(REPO, "main")]
 
 
 # ── implement job ─────────────────────────────────────────────────────────
@@ -373,35 +375,41 @@ def approved(notes=GOOD_PLAN):
 
 def test_a_successful_landing_reports_landed_with_the_sha():
     agent = FakeAgent(outcome=AgentOutcome(changed_files=["src/themes.ts"]))
-    lane, notes, outcome = make_implement_job(
+    status, notes, outcome = make_implement_job(
         agent, FakeCheckouts(), FakeLander())(approved(), board(), FakeSink())
-    assert lane == selection.LANE_LANDED
+    assert status.kind == "done"
     assert outcome == "landed:abc12345"
 
 
-def test_a_dry_run_parks_in_plan_review_rather_than_claiming_success():
+def test_a_dry_run_blocks_rather_than_claiming_success():
+    """`blocked`, not `waiting`, and the difference is load-bearing.
+
+    Nothing is wrong with the change — but nothing a human writes in the notes
+    can advance it either; only arming TASKAUTO_LIVE can. A `waiting` chip on
+    an already-signed-off plan is re-read as "approved, go" on the very next
+    sweep, so a dry run would rebuild the same change forever."""
     lander = FakeLander(LandResult(False, "abc12345", "b", "dry run", ["ok"]))
     agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
-    lane, notes, outcome = make_implement_job(
+    status, notes, outcome = make_implement_job(
         agent, FakeCheckouts(), lander)(approved(), board(), FakeSink())
-    assert lane == selection.LANE_PLAN_REVIEW and outcome == "dry-run"
+    assert status.kind == "blocked" and outcome == "dry-run"
     assert "NOT pushed" in notes
 
 
 def test_an_agent_that_changed_nothing_stalls_with_what_it_said():
     agent = FakeAgent(outcome=AgentOutcome(changed_files=[], log="I declined."))
-    lane, notes, outcome = make_implement_job(
+    status, notes, outcome = make_implement_job(
         agent, FakeCheckouts(), FakeLander())(approved(), board(), FakeSink())
-    assert lane == selection.LANE_STALLED and outcome == "implement:no-changes"
+    assert status.kind == "blocked" and outcome == "implement:no-changes"
     assert "I declined." in notes
 
 
 def test_a_refused_landing_stalls_with_the_gate_reason():
     lander = FakeLander(raises=LandingRefused("suite failed on the merge result"))
     agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
-    lane, notes, outcome = make_implement_job(
+    status, notes, outcome = make_implement_job(
         agent, FakeCheckouts(), lander)(approved(), board(), FakeSink())
-    assert lane == selection.LANE_STALLED and outcome == "land:refused"
+    assert status.kind == "blocked" and outcome == "land:refused"
     assert "suite failed" in notes
 
 
@@ -436,18 +444,28 @@ def test_an_unamended_plan_adds_no_human_block():
 def test_implementing_without_a_plan_routes_where_it_will_be_planned():
     """Approved before it was planned — a task dragged straight from the Inbox.
 
-    It has to land in `replan`, because that is a lane the pipeline claims
-    from. It used to go to `plan-review`, which the pipeline never touches, and
-    ask "should this go back through planning?" — a question that could not be
-    answered by answering it, on a task nothing would ever pick up again.
+    v2 put it in `replan`, a lane the pipeline claims from. There are no
+    state lanes now, so the same job is done by the SHAPE of the note: a
+    `waiting` chip plus text below the document, which `plan_notes.parse`
+    surfaces as `human_text` and `selection.human_verdict` reads as "they
+    answered, plan it again".
+
+    It used to go to `plan-review`, which the pipeline never touched, and ask
+    "should this go back through planning?" — a question that could not be
+    answered by answering it, on a task nothing would ever pick up again. The
+    assertion below is the guard against regressing to that: whatever the note
+    says, selection has to be willing to pick the task up.
     """
     agent = FakeAgent(outcome=AgentOutcome(changed_files=["a"]))
-    lane, notes, outcome = make_implement_job(
+    status, notes, outcome = make_implement_job(
         agent, FakeCheckouts(), FakeLander())(
         approved(notes="just a raw thought"), board(), FakeSink())
-    assert lane == selection.LANE_REPLAN and outcome == "implement:no-plan"
-    assert lane in {t[0] for t in selection.CLAIMABLE_HUMAN_LANES}, \
-        "the lane must be one selection.choose actually claims from"
+    assert status.kind == "waiting" and outcome == "implement:no-plan"
+
+    parked = BoardTask(id="t1", title="t", notes=notes, tag=LANE, metadata={},
+                       claimed=False, state="Active", status=status)
+    assert selection.human_verdict(parked) == selection.JOB_PLAN, \
+        "selection has to be willing to plan the task this note produces"
     assert "Nothing is needed from you" in notes
     assert "?" not in notes.split("## Questions")[-1] or "_No open questions._" in notes
     assert agent.worked == [], "must not run the agent when there is no plan"
@@ -457,7 +475,7 @@ def test_the_task_is_moved_to_landing_before_the_push():
     sink = FakeSink()
     make_implement_job(FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"])),
                        FakeCheckouts(), FakeLander())(approved(), board(), sink)
-    assert selection.LANE_LANDING in sink.lanes
+    assert "working" in sink.chips
 
 
 def test_the_test_command_is_passed_through_to_the_lander():
@@ -519,8 +537,8 @@ def _implement(**kw):
 
 def test_a_healthy_landing_reports_landed():
     job = _implement(watcher=FakeWatcher(True, "deploy success, health ok"))
-    lane, notes, outcome = job(approved(), board(), FakeSink())
-    assert lane == selection.LANE_LANDED and outcome.startswith("landed:")
+    status, notes, outcome = job(approved(), board(), FakeSink())
+    assert status.kind == "done" and outcome.startswith("landed:")
     assert "stayed healthy" in notes
 
 
@@ -529,8 +547,8 @@ def test_a_red_prod_is_reverted_and_stalled():
     rev = FakeReverter()
     job = _implement(watcher=FakeWatcher(False, "deploy concluded failure"),
                      reverter=rev)
-    lane, notes, outcome = job(approved(), board(), FakeSink())
-    assert lane == selection.LANE_STALLED
+    status, notes, outcome = job(approved(), board(), FakeSink())
+    assert status.kind == "blocked"
     assert outcome.startswith("reverted:")
     assert rev.calls == ["abc12345"]
     assert "REVERTED as revert99" in notes
@@ -546,17 +564,17 @@ def test_the_revert_reason_is_carried_back_to_the_human():
 def test_red_prod_with_no_reverter_says_so_very_loudly():
     """Silence here would report a landing as fine while prod is down."""
     job = _implement(watcher=FakeWatcher(False, "deploy concluded failure"))
-    lane, notes, outcome = job(approved(), board(), FakeSink())
-    assert lane == selection.LANE_STALLED
+    status, notes, outcome = job(approved(), board(), FakeSink())
+    assert status.kind == "blocked"
     assert outcome == "landed:unwatched-red"
     assert "NOT taken back" in notes
 
 
 def test_landing_with_no_watcher_at_all_is_recorded():
-    lane, notes, outcome = make_implement_job(
+    status, notes, outcome = make_implement_job(
         FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"])),
         FakeCheckouts(), FakeLander())(approved(), board(), FakeSink())
-    assert lane == selection.LANE_LANDED
+    assert status.kind == "done"
     assert "NO PROD WATCHER" in notes
 
 
@@ -567,7 +585,7 @@ def test_a_dry_run_never_watches_or_reverts():
         FakeCheckouts(),
         FakeLander(LandResult(False, "abc", "b", "dry run", ["ok"])),
         watcher=w, reverter=rev, health_url="http://h")
-    lane, _, outcome = job(approved(), board(), FakeSink())
+    status, _, outcome = job(approved(), board(), FakeSink())
     assert outcome == "dry-run" and w.calls == [] and rev.calls == []
 
 
@@ -598,9 +616,9 @@ def test_a_task_already_on_main_is_recovered_not_rebuilt():
     rebuild shipped work and then stall on 'no changes'."""
     agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
     co = GitCheckouts(landed_subject="make coffee theme default")
-    lane, notes, outcome = make_implement_job(agent, co, FakeLander())(
+    status, notes, outcome = make_implement_job(agent, co, FakeLander())(
         approved(), board(), FakeSink())
-    assert lane == selection.LANE_LANDED
+    assert status.kind == "done"
     assert outcome == "recovered:cafe1234"
     assert agent.worked == [], "must not run the agent again"
 
@@ -608,7 +626,7 @@ def test_a_task_already_on_main_is_recovered_not_rebuilt():
 def test_a_task_not_on_main_proceeds_normally():
     agent = FakeAgent(outcome=AgentOutcome(changed_files=["a.ts"]))
     co = GitCheckouts(landed_subject=None)
-    lane, _, outcome = make_implement_job(agent, co, FakeLander())(
+    status, _, outcome = make_implement_job(agent, co, FakeLander())(
         approved(), board(), FakeSink())
     assert outcome.startswith("landed:") and agent.worked
 

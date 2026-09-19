@@ -329,10 +329,22 @@ class Lane:
     label: str
     order: int
     editable_by: str  # "user" | "agent"
+    #: `owner/name` for a v3 repo lane, empty otherwise.
+    #:
+    #: Carried as an unknown key on the lane object in the activation payload.
+    #: `validateLaneSet` preserves what it doesn't interpret ("we validate the
+    #: four we interpret and keep the rest"), so this round-trips without
+    #: hadoku-task knowing it exists — which is why multi-repo needed no server
+    #: change. `boards.repo` remains the single-repo fallback.
+    repo: str = ""
 
     @property
     def is_agent(self) -> bool:
         return self.editable_by == "agent"
+
+    @property
+    def is_repo_lane(self) -> bool:
+        return bool(self.repo)
 
 
 #: The chip's closed vocabulary, mirroring `TASK_STATUS_KINDS` in hadoku-task's
@@ -510,6 +522,23 @@ class BoardSnapshot:
         return bool(self.lanes)
 
     @property
+    def repo_lanes(self) -> list[Lane]:
+        """The v3 lanes — one per repo, in declared order.
+
+        Empty on a v1/v2 board, whose lanes are pipeline states and carry no
+        `repo`. That emptiness is the version check: anything driving repo
+        lanes finds nothing to do rather than misreading `planning` as a repo.
+        """
+        return sorted((ln for ln in self.lanes if ln.is_repo_lane),
+                      key=lambda ln: ln.order)
+
+    def repo_for(self, lane_tag: str) -> str:
+        for ln in self.lanes:
+            if ln.tag == lane_tag:
+                return ln.repo
+        return ""
+
+    @property
     def active_tasks(self) -> list[BoardTask]:
         """Tasks that still exist as work.
 
@@ -557,6 +586,7 @@ def _lane_from(d: dict) -> Lane:
         label=d.get("label", ""),
         order=int(d.get("order", 0)),
         editable_by=d.get("editableBy", "user"),
+        repo=(d.get("repo") or "").strip(),
     )
 
 
@@ -574,6 +604,52 @@ def _task_from(d: dict) -> BoardTask:
         updated_at=d.get("updatedAt") or "",
         raw=d,
     )
+
+
+#: Sentinel the far side only emits once autoland v3 is deployed. Chosen over
+#: `status` or `laneKind` because it is an ERROR CODE: hadoku-task's
+#: `openapi-verify` harness fails their build in both directions — a code they
+#: emit that isn't enumerated, and an enumerated value nothing emits — so this
+#: string cannot be in their published spec unless the code path that raises it
+#: shipped with it.
+_V3_SENTINEL = "NOTES_CHANGED"
+
+#: Where that spec lives. Same origin as the board API, so a reachable board
+#: implies a reachable spec.
+OPENAPI_URL = "https://hadoku.me/task/api/openapi.json"
+
+
+def far_side_has_v3(url: str = OPENAPI_URL, *, timeout: int = 15) -> Optional[bool]:
+    """Is hadoku-task's v3 deployed? `None` when we could not find out.
+
+    Three states, and collapsing the third into either of the others is the
+    whole point of returning `Optional`:
+
+      True   the spec enumerates NOTES_CHANGED — v3 is live.
+      False  it does not — the worker is pre-v3, or has been rolled back.
+      None   we could not read the spec. Not evidence of anything.
+
+    **Why this is worth a network call at startup.** Driving a repo-laned board
+    against a pre-v3 worker fails SILENTLY and expensively: unknown keys are
+    stripped rather than refused, so every `status` we publish is discarded,
+    every task reads back as having no chip, and selection re-plans all of them
+    forever. Measured on the live v2 worker before their deploy — a release
+    carrying `status` answered 200 and kept nothing.
+
+    That is the one failure in this pipeline with no loud symptom at all, which
+    makes it worth one GET per run to refuse instead. A v2 board is unaffected
+    either way and keeps running.
+    """
+    try:
+        r = requests.get(url, timeout=timeout,
+                         headers={"User-Agent": "tenhands-taskauto/1.0"})
+        if r.status_code != 200:
+            logger.warning("could not read %s (HTTP %s)", url, r.status_code)
+            return None
+        return _V3_SENTINEL in r.text
+    except requests.RequestException as e:
+        logger.warning("could not read %s: %s", url, e)
+        return None
 
 
 def _ambient_key() -> str:

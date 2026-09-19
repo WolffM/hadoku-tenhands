@@ -24,6 +24,8 @@ from services.task_board import (
     LeaseLost,
     TaskBoardClient,
     TaskBoardError,
+    TaskStatus,
+    notes_hash,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,18 +34,25 @@ logger = logging.getLogger(__name__)
 #: so it cannot hold a running total; `metadata` merges and survives.
 METRICS_KEY = "taskauto"
 
-#: Lanes that end the pipeline's involvement. Reaching one is what makes an
-#: end-to-end total meaningful.
-TERMINAL_LANES = ("landed", "stalled")
+#: Status kinds that end the pipeline's involvement. Reaching one is what
+#: makes an end-to-end total meaningful.
+#:
+#: v2 listed lanes here (`landed`, `stalled`). The lanes are repos now and a
+#: task never leaves the one it is in, so "finished" is a property of the
+#: status rather than of where the card sits. `waiting` is deliberately absent
+#: — a plan awaiting sign-off is mid-conversation, and stamping a total on it
+#: each pass would make "how long did this take" mean "how long until someone
+#: last looked at it".
+TERMINAL_KINDS = ("blocked", "done")
 
 
 class ProgressSink(Protocol):
     """Where a pipeline reports what it's doing."""
 
-    def lane(self, lane: str) -> None: ...
+    def status(self, status: TaskStatus) -> None: ...
     def heartbeat(self) -> None: ...
     def record(self, **fields: float) -> None: ...
-    def finish(self, lane: str, *, notes: Optional[str] = None,
+    def finish(self, status: TaskStatus, *, notes: Optional[str] = None,
                outcome: str = "", complete: bool = False) -> None: ...
 
 
@@ -54,7 +63,7 @@ class NullSink:
     before it holds a claim.
     """
 
-    def lane(self, lane: str) -> None:
+    def status(self, status: TaskStatus) -> None:
         pass
 
     def heartbeat(self) -> None:
@@ -63,7 +72,8 @@ class NullSink:
     def record(self, **fields: float) -> None:
         pass
 
-    def finish(self, lane: str, *, notes=None, outcome="", complete=False) -> None:
+    def finish(self, status: TaskStatus, *, notes=None, outcome="",
+               complete=False) -> None:
         pass
 
 
@@ -72,7 +82,8 @@ class BoardSink:
 
     def __init__(self, client: TaskBoardClient, board: str, task_id: str,
                  token: str, *, lane: Optional[str] = None,
-                 metrics: Optional[dict] = None) -> None:
+                 metrics: Optional[dict] = None,
+                 notes_at_claim: Optional[str] = None) -> None:
         self.client = client
         self.board = board
         self.task_id = task_id
@@ -82,30 +93,46 @@ class BoardSink:
         #: turn runs. `notes` is rewritten every pass and cannot carry a running
         #: total; `metadata` survives, which is why the numbers live there.
         self._metrics: dict = dict(metrics or {})
-        #: Where we believe the board currently has this task: the lane the
-        #: claim moved it into, then whatever `lane()` last *successfully*
-        #: set. Sent as `ifCurrentLane` on release — see `finish`.
+        #: Where we believe the board currently has this task. Under v3 that
+        #: is the repo lane it was claimed in and never leaves; a routing job
+        #: starts with None, because deciding this IS its job.
+        #: Sent as `ifCurrentLane` on release — see `finish`.
         self._current_lane = lane
+        #: Digest of the notes as they stood when we claimed. Sent as
+        #: `ifNotesHash` on release, so the guard compares against what we
+        #: PLANNED AGAINST rather than what we are about to write.
+        self._notes_at_claim = notes_hash(notes_at_claim)
 
     def _swallow(self, what: str, exc: Exception) -> None:
         logger.warning("board projection failed (%s): %s: %s",
                        what, type(exc).__name__, exc)
 
-    def lane(self, lane: str) -> None:
-        """Move the task to `lane`. Best-effort.
+    def status(self, status: TaskStatus) -> None:
+        """Publish the chip mid-job. Best-effort.
 
-        `_current_lane` advances only on success: a swallowed failure means
-        the task is still where it was, and that older lane is the accurate
-        thing to assert on release.
+        Rides on `set-lane` with the task's CURRENT lane, which is a lane move
+        that moves nothing: under v3 the lane is the repo and the task stays
+        in it from claim to release. The endpoint is what accepts a status
+        without releasing, and releasing to report progress would drop the
+        lease in between — the exact window another runner would take the task
+        in.
+
+        Swallowing a failure is right here for the same reason as everywhere
+        else in this class: the chip is a projection, and a run must not die
+        because a projection write 500'd.
         """
+        if not self._current_lane:
+            # Nothing to address the write at. Only reachable for a routing
+            # job, which holds a claim on an Inbox task that is in no lane yet
+            # — and which has nothing worth reporting mid-flight anyway.
+            return
         try:
-            self.client.set_lane(self.board, self.task_id, self.token, lane)
+            self.client.set_lane(self.board, self.task_id, self.token,
+                                 self._current_lane, status=status)
         except LeaseLost:
             raise
         except TaskBoardError as e:
-            self._swallow(f"set-lane {lane}", e)
-            return
-        self._current_lane = lane
+            self._swallow(f"status {status.kind}", e)
 
     def record(self, **fields: float) -> None:
         """Add to this task's running totals. Numbers accumulate, so a task
@@ -132,28 +159,44 @@ class BoardSink:
         except TaskBoardError as e:
             self._swallow("heartbeat", e)
 
-    def finish(self, lane: str, *, notes: Optional[str] = None,
-               outcome: str = "", complete: bool = False) -> None:
-        """Release the claim into `lane`. Idempotent on our side.
+    def finish(self, status: TaskStatus, *, notes: Optional[str] = None,
+               outcome: str = "", complete: bool = False,
+               lane: Optional[str] = None) -> None:
+        """Release the claim, publishing the final status. Idempotent here.
 
-        Unlike the others this is allowed to raise: releasing is how the
-        task stops being ours, and a silent failure would leave it pinned in
-        an agent lane until the lease expired — invisible, and blocking the
-        whole board under one-task-per-repo.
+        `lane` is the ONE case where the pipeline moves a card: a routing job
+        naming the repo it decided on. Everything else leaves it out and the
+        task stays where it is, which is what `_current_lane` defaults to.
 
-        **`ifCurrentLane` is what makes "a human can take a task back" true.**
-        hadoku-task lets a human drag a task *out* of an agent lane — we asked
-        for that and called it sufficient (`board-contract.md` §2) — and it
-        does not check whether a claim is live first. Without this guard our
-        release moves the task back and overwrites `notes` with the pipeline's
-        version, silently discarding what the human did. With it, a retagged
-        task answers `409 LANE_CHANGED`, the release writes nothing, and the
-        runner abandons the turn.
+        Unlike the others this is allowed to raise: releasing is how the task
+        stops being ours, and a silent failure would leave it claimed until the
+        lease expired — invisible, and blocking its whole repo under
+        one-task-in-flight-per-repo.
 
-        The trade is deliberate: if a `set-lane` succeeded but its response
-        was lost, our belief is stale and the release aborts on a lane nobody
-        touched. That leaves the task in an agent lane until the lease expires,
-        which recovery then resumes — recoverable, unlike an overwrite.
+        **Two guards, covering the two ways a human can act mid-claim.**
+
+        `ifCurrentLane` catches a retag. Under v3 that means *moving the task
+        to another repo*, which is a rarer act than v2's drag-out-of-a-lane but
+        a far more consequential one: releasing over it would drag the task
+        back to a repo the human just decided it did not belong in.
+
+        `ifNotesHash` catches an edit to the plan, and it is new because v3
+        needed it to exist. In v2 the notes were safe by construction — we only
+        wrote them while the task sat in an `agent` lane a human could not
+        write. With every lane `editableBy: user` that guarantee is gone, and
+        without this guard a twenty-minute job ends by overwriting whatever
+        they typed while it ran. There is no recovery from that; the previous
+        text was never stored anywhere.
+
+        `_notes_at_claim` is the digest we planned against, so the comparison
+        is against what we READ rather than what we are about to write. Both
+        guards refuse by writing nothing, and both leave our token live — which
+        is why the runner has to hand the claim back rather than return.
+
+        The trade is deliberate and unchanged: a lost response to a successful
+        `set-lane` makes our belief stale and aborts a release nobody
+        contested. That costs a lease, which recovery then resumes —
+        recoverable, unlike an overwrite.
         """
         if self.released:
             return
@@ -164,16 +207,18 @@ class BoardSink:
             # has no end-to-end number yet, and stamping one every pass would
             # make "how long did this take" mean "how long until it was last
             # touched".
-            if lane in TERMINAL_LANES:
+            if status.kind in TERMINAL_KINDS or complete:
                 metrics["agent_s"] = round(
                     sum(v for k, v in metrics.items()
                         if k.endswith("_s") and isinstance(v, (int, float))), 3)
-                metrics["finished_lane"] = lane
+                metrics["finished_kind"] = status.kind
             metadata = {METRICS_KEY: metrics}
         self.client.release(self.board, self.task_id, self.token,
-                            lane=lane, notes=notes, outcome=outcome or None,
+                            lane=lane or self._current_lane, notes=notes,
+                            outcome=outcome or None, status=status,
                             complete=complete, metadata=metadata,
-                            if_current_lane=self._current_lane)
+                            if_current_lane=self._current_lane,
+                            if_notes_hash=self._notes_at_claim)
         self.released = True
 
     def abandon(self, *, lane: Optional[str] = None) -> bool:

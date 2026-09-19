@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 _DOCS = Path(__file__).resolve().parents[2] / "docs" / "hadoku-task-automation"
 
 #: Where the activation payloads live. One file per named config; today that is
-#: `autoland-v1.json` alone. crimson-kitty, the other pipeline, is not
+#: `autoland.json` alone. crimson-kitty, the other pipeline, is not
 #: board-driven and has no lane vocabulary to publish.
 #:
 #: Every `*.json` in here is served as a preset, so nothing else may live in it

@@ -40,11 +40,11 @@ crimson-kitty's work arrives from the aggregator and leaves as an upstream PR, s
 vocabulary to publish and [is not moving to boards](board-contract.md).
 
 So the array has exactly one entry today, `autoland` v1 — the eight lanes in
-[schemas/autoland-v1.json](schemas/autoland-v1.json), described in [board-contract.md](board-contract.md) §3.
+[schemas/autoland.json](schemas/autoland.json), described in [board-contract.md](board-contract.md) §3.
 A second pipeline shape would be a second file in `schemas/`; it appears in the same array with no
 endpoint change and nothing to coordinate.
 
-**The file is the source of truth, not a copy of it.** `schemas/autoland-v1.json` is already the
+**The file is the source of truth, not a copy of it.** `schemas/autoland.json` is already the
 payload we hand to `activate-automation` and already what `scripts/taskauto_smoke.py` diffs a live
 board against. Serving those same bytes is the point — a hand-maintained Python copy would be the
 pasted-JSON problem again, one layer down.

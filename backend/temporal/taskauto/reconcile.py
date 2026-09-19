@@ -1,11 +1,11 @@
 """What actually happened to the pull request, written back to the board.
 
-`pr` mode ends by opening a pull request and moving the task to `landed`,
-which `autoland` v2 defines as *"the PR is open, gates green, and waiting on
-you. Review it and merge."* That is a promise about the present tense, and
-nothing was keeping it. The pipeline never looked at a PR again, so `landed`
-was a write-once state and every task in it went on claiming to be waiting for
-a merge no matter what the human actually did.
+`pr` mode ends by opening a pull request and publishing a `waiting` chip that
+links to it — *the PR is open, gates green, review it and merge*. That is a
+promise about the present tense, and nothing was keeping it. The pipeline
+never looked at a PR again, so the chip was write-once and every task carrying
+one went on claiming to be waiting for a merge no matter what the human
+actually did.
 
 Measured on 2026-08-04, before this module existed: **13 of 14** tasks holding
 a PR link disagreed with their PR. Ten were merged days earlier and still read
@@ -32,13 +32,14 @@ outcome of everything the pipeline shipped.
 
 **Three outcomes, and only two of them are ours to act on.**
 
-- **Merged** — done. Complete the task, which archives it. `release()` has
-  always documented `complete: true` as "how `landed` avoids growing without
-  bound"; it simply had no caller.
-- **Closed, unmerged** — rejected. Back to `replan`, with the rejection
+- **Merged** — done. Complete the task, which archives it. Under v3 that is
+  the ONLY way a finished task leaves the board: there is no `landed` lane to
+  accumulate in, so a merge turns the chip `done` and the card goes.
+- **Closed, unmerged** — rejected. Back into planning, with the rejection
   appended as residue so `plan_notes.parse` hands it to the planning agent as
   `human_text`. That is the same channel a human's typed reply arrives on,
-  which is right: a closed PR *is* the reply.
+  which is right: a closed PR *is* the reply. `selection.human_verdict` then
+  reads the `waiting` chip plus that residue as "plan it again".
 - **Open** — the promise still holds. Leave it alone.
 
 **Never act on ignorance.** A lookup that fails returns no verdict, exactly
@@ -60,7 +61,10 @@ from services.task_board import (
     ClaimHeld,
     LaneChanged,
     LeaseLost,
+    NotesChanged,
     TaskBoardError,
+    TaskStatus,
+    notes_hash,
 )
 
 from . import plan_notes, selection
@@ -69,9 +73,9 @@ from .plan_notes import PlanDoc
 logger = logging.getLogger(__name__)
 
 #: Seconds. Deliberately short — this is bookkeeping, not work, and a claim
-#: here blocks the WHOLE board (`any_claim_live` is the basis for
-#: one-task-in-flight). If a release is refused mid-reconcile we still hold the
-#: claim, so this number is how long that costs before it heals itself.
+#: here blocks the task's whole REPO (one task in flight per repo lane). If a
+#: release is refused mid-reconcile we still hold the claim, so this number is
+#: how long that costs before it heals itself.
 RECONCILE_LEASE_S = 120
 
 #: The pipeline's own PR links, as `jobs.py` writes them into the notes. Kept
@@ -112,11 +116,11 @@ class PRState:
 
 @dataclass(frozen=True)
 class Verdict:
-    """One task's correction. `lane` is where it goes; `complete` archives it."""
+    """One task's correction. The card does not move; only its chip changes."""
 
     task_id: str
     pr: PRRef
-    lane: str
+    status: TaskStatus
     complete: bool
     outcome: str
     notes: str
@@ -139,7 +143,7 @@ def pr_ref(notes: str) -> Optional[PRRef]:
 
 
 def _rejected_notes(task: BoardTask, pr: PRRef) -> str:
-    """Notes for a task going back to `replan` after its PR was refused.
+    """Notes for a task going back into planning after its PR was refused.
 
     The prior plan and acceptance criteria are preserved — they are still the
     best statement of the intent, and the planner re-reading its own previous
@@ -210,11 +214,14 @@ def decide(task: BoardTask, pr: PRRef,
     if state is None:
         return None
     if state.is_merged:
-        return Verdict(task_id=task.id, pr=pr, lane=selection.LANE_LANDED,
+        return Verdict(task_id=task.id, pr=pr,
+                       status=selection.done(f"merged in #{pr.number}",
+                                             href=pr.url),
                        complete=True, outcome=f"pr-merged:{pr.number}",
                        notes=_merged_notes(task, pr))
     if state.is_rejected:
-        return Verdict(task_id=task.id, pr=pr, lane=selection.LANE_REPLAN,
+        return Verdict(task_id=task.id, pr=pr,
+                       status=selection.waiting("re-planning after rejection"),
                        complete=False, outcome=f"pr-rejected:{pr.number}",
                        notes=_rejected_notes(task, pr))
     return None
@@ -225,19 +232,38 @@ def decide(task: BoardTask, pr: PRRef,
 Lookup = Callable[[PRRef], Optional[PRState]]
 
 
+def _awaiting_pr(board: BoardSnapshot) -> list[BoardTask]:
+    """Tasks whose chip says they are waiting on a pull request.
+
+    v2 asked the board for one lane. There is no such lane now, so the
+    question becomes a property of the task: `waiting`, in a repo lane, with a
+    PR link in its notes. The PR link is the load-bearing half — a task
+    `waiting` for a plan to be signed off is also `waiting`, and reconciling
+    it would be nonsense.
+
+    Deliberately not keyed on `status.href`: a task that reached `waiting`
+    through some path that set no href, or whose chip was cleared by hand,
+    still has the URL in its notes, and `pr_ref` has always been the thing
+    that knows how to find it.
+    """
+    return [t for t in board.active_tasks
+            if t.status and t.status.kind == selection.STATUS_WAITING
+            and t.lane(board.lanes)]
+
+
 def reconcile(board: BoardSnapshot, client, board_handle: str, *,
               lookup: Lookup) -> list[str]:
-    """Bring every `landed` task on one board back in line with its PR.
+    """Bring every task awaiting a pull request back in line with it.
 
     Returns one short line per task actioned, for the sweep log. Never raises:
     a board that cannot be reconciled must not stop the board being swept, and
     this runs BEFORE selection precisely so a correction can free work that
-    selection would otherwise never see (a rejected task moving to `replan` is
-    claimable on the very next tick).
+    selection would otherwise never see (a rejected task becomes claimable on
+    the very next tick).
     """
     acted: list[str] = []
 
-    for task in board.tasks_in(selection.LANE_LANDED):
+    for task in _awaiting_pr(board):
         ref = pr_ref(task.notes or "")
         if ref is None:
             continue
@@ -266,13 +292,19 @@ def reconcile(board: BoardSnapshot, client, board_handle: str, *,
         try:
             client.release(
                 board_handle, task.id, token,
-                lane=verdict.lane, notes=verdict.notes,
+                lane=task.lane(board.lanes), notes=verdict.notes,
                 outcome=verdict.outcome, complete=verdict.complete,
-                # A human who retagged this between our read and now owns it.
-                # A mismatch writes nothing rather than dragging it back.
-                if_current_lane=selection.LANE_LANDED,
+                status=verdict.status,
+                # A human who moved this to another repo between our read and
+                # now owns it. A mismatch writes nothing rather than dragging
+                # it back.
+                if_current_lane=task.lane(board.lanes),
+                # And one who edited the plan owns it too. Reconcile rewrites
+                # the notes wholesale, so without this a merge notice would
+                # land on top of whatever they were typing.
+                if_notes_hash=notes_hash(task.notes),
             )
-        except (LaneChanged, LeaseLost) as e:
+        except (LaneChanged, NotesChanged, LeaseLost) as e:
             logger.info("reconcile: %s moved out from under us (%s)",
                         task.id, type(e).__name__)
             continue
@@ -283,7 +315,7 @@ def reconcile(board: BoardSnapshot, client, board_handle: str, *,
 
         acted.append(f"{task.id[:8]}: {verdict.outcome}")
         logger.info("reconcile: %s → %s (%s)",
-                    task.id, verdict.lane, verdict.outcome)
+                    task.id, verdict.status.kind, verdict.outcome)
 
     return acted
 
