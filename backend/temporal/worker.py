@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from typing import Mapping, Protocol
@@ -42,6 +43,23 @@ logger = logging.getLogger("crimson-kitty.worker")
 
 
 async def run_worker() -> None:
+    # Handlers FIRST, before anything that can block. `Client.connect` takes
+    # ~1.4s against a healthy local cluster, and until 2026-09-26 the handlers
+    # went on after it — so a stop signal arriving in that window hit no
+    # handler of ours and no clean KeyboardInterrupt path either, and WEDGED
+    # the process: 2 of 10 runs on the old code and 3 of 10 on the exit-code
+    # fix sat for 45s with nothing logged until the harness killed them.
+    #
+    # pm2 hits this window whenever it restarts a worker that has only just
+    # started — a deploy landing on the heels of a crash-restart, or two
+    # deploys in quick succession — and after `kill_timeout` it escalates to
+    # SIGKILL, which is not in GRACEFUL_SIGNALS and therefore pages.
+    #
+    # Nothing here needs the config or the client, so there is no reason for it
+    # to have been later.
+    shutdown = asyncio.Event()
+    _install_shutdown_handlers(shutdown)
+
     cfg = load_config()
     logger.info(
         "connecting to temporal: host=%s namespace=%s main=%s copilot=%s(cap=%d)",
@@ -49,7 +67,30 @@ async def run_worker() -> None:
         cfg.copilot_task_queue, cfg.copilot_concurrency,
     )
 
-    client = await Client.connect(cfg.host, namespace=cfg.namespace)
+    # Race the connect against the shutdown, rather than connecting and then
+    # asking whether we should have. Checking afterwards is not enough: the
+    # Event is set the moment the signal lands, but nothing is awaiting it while
+    # we sit inside `connect`, so we would still wait the connect out — ~1.4s
+    # against a healthy local cluster, and unbounded against a sick one, while
+    # pm2 escalates to SIGKILL after `kill_timeout`. A test with a deliberately
+    # slow connect wedged on exactly that.
+    connecting = asyncio.create_task(Client.connect(cfg.host,
+                                                    namespace=cfg.namespace),
+                                     name="connect")
+    stopping = asyncio.create_task(shutdown.wait(), name="shutdown_requested")
+    await asyncio.wait([connecting, stopping],
+                       return_when=asyncio.FIRST_COMPLETED)
+    if shutdown.is_set():
+        # Cancelling a half-built client would matter if we carried on; we do
+        # not. `_exit_without_finalizing` is about to take the process down, so
+        # the only thing that matters is not blocking on the way there.
+        connecting.cancel()
+        await asyncio.gather(connecting, return_exceptions=True)
+        logger.info("shutdown requested during startup — stopping before the "
+                    "workers were registered")
+        return
+    await _cancel(stopping)
+    client = connecting.result()
 
     main_worker = Worker(
         client,
@@ -71,8 +112,11 @@ async def run_worker() -> None:
         cfg.copilot_task_queue, len(COPILOT_ACTIVITIES), cfg.copilot_concurrency,
     )
 
-    shutdown = asyncio.Event()
-    _install_shutdown_handlers(shutdown)
+    if shutdown.is_set():
+        logger.info("shutdown requested during startup — stopping before the "
+                    "workers were started")
+        return
+
     await supervise(
         {"main_worker": main_worker, "copilot_worker": copilot_worker},
         shutdown,
@@ -121,9 +165,49 @@ def _install_shutdown_handlers(shutdown: asyncio.Event) -> None:
 
 
 def _request_shutdown(sig: signal.Signals, shutdown: asyncio.Event) -> None:
-    if not shutdown.is_set():
-        logger.info("%s received — shutdown requested", signal.Signals(sig).name)
+    """Record the request, then make every later stop signal a no-op.
+
+    **A second stop signal is normal here, not an escalation.** pm2 signals the
+    process group and the wrapper's `forwardSignals` relays to the child, so
+    the ordinary restart delivers two. Left alone the second one can still kill
+    us: once `supervise` returns, `asyncio.run` closes the loop, which resets
+    these signals to their DEFAULT disposition, and the process then spends a
+    few more milliseconds tearing down the interpreter. A signal landing in
+    that window terminates it — measured as exit -2 on 100% of runs with the
+    two signals 5ms apart locally, and 0% at 0ms or 50ms. The window is real
+    and its width tracks machine speed, which is why it showed up on a CI
+    runner at the 50ms the local box was fine with.
+
+    `-2` does not page — hadoku_site's `GRACEFUL_SIGNALS` counts death by
+    SIGINT as a clean stop — so this is about the contract rather than the
+    alert: a stop signal must never produce a non-zero exit, and "it depends
+    how fast your machine is" is not a contract.
+
+    So: block first (one atomic syscall, so nothing is delivered while the
+    disposition is being changed), then drop asyncio's handler and install
+    SIG_IGN, which survives loop.close() precisely because asyncio no longer
+    knows about these signals. Blocking alone would not do — it is per-thread,
+    and temporalio's runtime threads were created before this point, so a
+    signal could still be accepted there. SIG_IGN is process-wide and is the
+    part that actually protects us.
+
+    **SIGKILL remains the escape hatch**, unblockable by design, and it is what
+    pm2 sends after `kill_timeout`. What this gives up is a second Ctrl-C
+    force-quitting a hand-run worker; that is worth one process-wide guarantee
+    about exit codes.
+    """
+    if shutdown.is_set():
+        return
+    logger.info("%s received — shutdown requested", signal.Signals(sig).name)
     shutdown.set()
+    signal.pthread_sigmask(signal.SIG_BLOCK, set(SHUTDOWN_SIGNALS))
+    loop = asyncio.get_running_loop()
+    for other in SHUTDOWN_SIGNALS:
+        try:
+            loop.remove_signal_handler(other)
+        except (ValueError, RuntimeError):  # never registered, or loop closing
+            pass
+        signal.signal(other, signal.SIG_IGN)
 
 
 async def supervise(workers: Mapping[str, _Runnable],
@@ -235,7 +319,53 @@ def main() -> int:
     except Exception as e:
         logger.exception("worker crashed: %s", e)
         return 1
-    return 0
+    _exit_without_finalizing()
+    return 0  # pragma: no cover — _exit_without_finalizing does not return
+
+
+def _exit_without_finalizing() -> None:
+    """Leave a CLEAN shutdown without running interpreter finalization.
+
+    A blunt instrument, and the alternative is worse. After `supervise` returns,
+    the two Temporal workers are stopped but the **Client's native runtime
+    threads are still alive** — the Rust core and its gRPC stack — and
+    temporalio exposes nothing to stop them: `Client`, `Runtime` and
+    `ServiceClient` have no `close`, `shutdown` or `stop` of any kind in 1.27.2
+    (checked, not assumed). They live until the process does.
+
+    So finalization races them, and sometimes loses. Twice in production after
+    the exit-code fix landed, both times AFTER "workers shut down cleanly":
+
+        2026-09-22T17:49:15Z   SIGABRT
+        2026-09-25T08:00:36Z   SIGABRT   (the nightly 08:00 key rotation)
+
+        Fatal Python error: PyGILState_Release: thread state ... must be
+        current when releasing
+        Python runtime state: finalizing
+        Extension modules: google._upb._message
+
+    A native thread reached for the GIL while the interpreter was tearing down,
+    and Python aborted. `SIGABRT` is not in hadoku_site's `GRACEFUL_SIGNALS`,
+    so the page survived the fix that was supposed to stop it — the exit code
+    was right and the process still died wrong.
+
+    `os._exit` skips finalization entirely, which is exactly the part that is
+    not safe here. It also skips `atexit` and buffered-output flushing, so both
+    are done by hand first — the "workers shut down cleanly" line is the
+    evidence the wrapper and the operator read, and losing it would trade a
+    spurious page for a silent restart, which is worse.
+
+    Deliberately ONLY on the clean path. A crash still returns through `main`
+    with its traceback, its exit code and normal finalization, because there
+    the diagnosis matters more than the manner of leaving.
+    """
+    logging.shutdown()  # flush and close every handler, atexit's job
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:  # pragma: no cover — a closed stream must not abort us
+            pass
+    os._exit(0)
 
 
 if __name__ == "__main__":

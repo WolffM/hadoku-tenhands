@@ -234,12 +234,26 @@ def _spawn():
     raise AssertionError("child never became ready")
 
 
+#: Gaps between a first and second stop signal, in seconds.
+#:
+#: The list is the point. The original test probed 0.05 only, passed locally,
+#: and went red on a CI runner — because the window where a second signal could
+#: still kill the process sat between asyncio closing the loop (which restores
+#: the DEFAULT disposition) and the interpreter finishing teardown, so its
+#: position tracks machine speed. Locally 0.005 failed on 12 of 12 runs while
+#: 0 and 0.05 passed on 12 of 12; the runner's 0.05 was our 0.005.
+#:
+#: So a single delay cannot pin this on every machine, and picking a "safe" one
+#: would be encoding the bug. These span before, during and after that window
+#: on any plausible box.
+_SECOND_SIGNAL_GAPS = (0.0, 0.001, 0.005, 0.02, 0.05, 0.2)
+
+
 @pytest.mark.parametrize("sigs", [
     [signal.SIGINT],                   # pm2's default kill signal
-    [signal.SIGINT, signal.SIGINT],    # pm2 signals the group AND the wrapper forwards
     [signal.SIGTERM],                  # had no handler at all: died with -15
     [signal.SIGQUIT],                  # forwarded by the wrapper too
-], ids=["SIGINT", "double-SIGINT", "SIGTERM", "SIGQUIT"])
+], ids=["SIGINT", "SIGTERM", "SIGQUIT"])
 def test_a_stop_signal_exits_zero(sigs):
     """The wrapper pages on any non-zero exit code. Death BY a graceful signal
     is also accepted there, but exiting 0 on purpose is the shape that does not
@@ -259,6 +273,53 @@ def test_a_stop_signal_exits_zero(sigs):
     assert "Task was destroyed" not in out
 
 
+@pytest.mark.parametrize("gap", _SECOND_SIGNAL_GAPS)
+def test_a_second_stop_signal_cannot_kill_us(gap):
+    """pm2 signals the process group AND the wrapper relays, so an ordinary
+    restart delivers two. The second must be a no-op whenever it lands."""
+    p = _spawn()
+    os.kill(p.pid, signal.SIGINT)
+    time.sleep(gap)
+    os.kill(p.pid, signal.SIGINT)
+    try:
+        out, _ = p.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        raise AssertionError(f"did not exit after two SIGINTs {gap}s apart")
+    # -2 is death BY SIGINT: it does not page, but it is still not a clean exit,
+    # and "depends how fast your machine is" is not a contract.
+    assert p.returncode == 0, f"gap={gap}s gave {p.returncode}\n{out}"
+    assert "workers shut down cleanly" in out
+
+
+@pytest.mark.parametrize("second", [signal.SIGTERM, signal.SIGQUIT, signal.SIGINT],
+                         ids=lambda s: s.name)
+def test_a_different_second_signal_is_also_a_no_op(second):
+    """The handler drops ALL the shutdown signals on the first request, not just
+    the one that arrived — the wrapper relays three and pm2 may send another."""
+    p = _spawn()
+    os.kill(p.pid, signal.SIGINT)
+    time.sleep(0.005)
+    os.kill(p.pid, second)
+    try:
+        out, _ = p.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        raise AssertionError(f"did not exit after SIGINT then {second.name}")
+    assert p.returncode == 0, out
+
+
+def test_only_the_first_stop_signal_is_logged():
+    """A burst is one shutdown, and should read as one in the log."""
+    p = _spawn()
+    for _ in range(8):
+        os.kill(p.pid, signal.SIGINT)
+        time.sleep(0.002)
+    out, _ = p.communicate(timeout=10)
+    assert p.returncode == 0, out
+    assert out.count("shutdown requested") == 1, out
+
+
 def test_a_worker_dying_on_its_own_still_exits_non_zero():
     """B19 end to end: without a signal, a worker stopping is a crash and pm2
     must restart us. Exit 1 here is correct, and is the one case that should
@@ -270,6 +331,141 @@ def test_a_worker_dying_on_its_own_still_exits_non_zero():
                        capture_output=True, text=True, timeout=10)
     assert p.returncode == 1
     assert "exited without raising" in p.stdout + p.stderr
+
+
+def test_the_clean_path_never_runs_interpreter_finalization():
+    """The second production pager, and the reason it needs its own test.
+
+    `supervise` returning does NOT mean the process is safe to finalize: the
+    Temporal Client's native runtime threads are still alive, and temporalio
+    1.27.2 offers no way to stop them (no `close`/`shutdown`/`stop` on Client,
+    Runtime or ServiceClient — checked). Finalization then races them, and
+    twice in production it lost, AFTER "workers shut down cleanly":
+
+        2026-09-22T17:49:15Z   SIGABRT
+        2026-09-25T08:00:36Z   SIGABRT  (the nightly 08:00 key rotation)
+
+    `PyGILState_Release: thread state ... must be current when releasing`, with
+    `Extension modules: google._upb._message`. SIGABRT is not in
+    hadoku_site's GRACEFUL_SIGNALS, so the page outlived the exit-code fix.
+
+    This test does not need Temporal: it pins the MECHANISM, that a clean
+    shutdown leaves via `os._exit` rather than by returning through the
+    interpreter. A sentinel `atexit` handler is the probe — `os._exit` skips
+    atexit by definition, so the handler running at all means finalization ran,
+    which is the unsafe path. (The abort itself is timing-dependent, so
+    asserting on its absence would be a flaky test for a real bug; asserting on
+    the mechanism is deterministic.)
+    """
+    child = _CHILD.replace(
+        'print("READY", flush=True)',
+        'import atexit\n'
+        '    atexit.register(lambda: print("FINALIZED", flush=True))\n'
+        '    print("READY", flush=True)')
+    p = subprocess.Popen(
+        [sys.executable, "-c", child.format(backend=str(BACKEND))],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if (p.stdout.readline() or "").strip() == "READY":
+            break
+    os.kill(p.pid, signal.SIGINT)
+    out, _ = p.communicate(timeout=10)
+    assert p.returncode == 0, out
+    assert "workers shut down cleanly" in out, out
+    assert "FINALIZED" not in out, (
+        "the clean path ran interpreter finalization, which races Temporal's "
+        "native threads and aborted production twice\n" + out)
+
+
+def test_the_log_survives_the_hard_exit():
+    """`os._exit` skips the flushing that `atexit` would normally do, and the
+    shutdown line is the evidence the wrapper and the operator read. Trading a
+    spurious page for a silent restart would be the worse bug."""
+    p = _spawn()
+    os.kill(p.pid, signal.SIGINT)
+    out, _ = p.communicate(timeout=10)
+    assert "SIGINT received — shutdown requested" in out, out
+    assert "workers shut down cleanly" in out, out
+
+
+def test_a_crash_still_returns_through_main_with_its_traceback():
+    """`os._exit` is ONLY for the clean path. A crash keeps normal handling —
+    exit code, traceback, finalization — because there the diagnosis matters
+    more than the manner of leaving."""
+    child = _CHILD.replace(
+        "async def run(self): await self._stop.wait()",
+        "async def run(self): raise RuntimeError('boom-in-a-worker')")
+    r = subprocess.run([sys.executable, "-c", child.format(backend=str(BACKEND))],
+                       capture_output=True, text=True, timeout=10)
+    assert r.returncode == 1
+    assert "boom-in-a-worker" in r.stdout + r.stderr
+    assert "Traceback" in r.stdout + r.stderr
+
+
+#: A child running the REAL `run_worker`, with only the Temporal client
+#: replaced by something slow. That keeps the ordering under test — handlers
+#: before the connect — while needing no cluster.
+_SLOW_CONNECT_CHILD = textwrap.dedent("""
+    import asyncio, sys
+    sys.path.insert(0, {backend!r})
+    from temporal import worker as w
+
+    class SlowClient:
+        @staticmethod
+        async def connect(*a, **k):
+            print("CONNECTING", flush=True)
+            await asyncio.sleep(30)          # the window we used to lose in
+            print("CONNECTED", flush=True)
+            return object()
+
+    w.Client = SlowClient
+    w.load_config = lambda: type("C", (), dict(
+        host="127.0.0.1:7233", namespace="ns", task_queue="tq",
+        copilot_task_queue="ctq", copilot_concurrency=2))()
+    sys.exit(w.main())
+""")
+
+
+def test_a_signal_during_startup_is_handled_not_dropped():
+    """The third bug, and it predates both of the others.
+
+    `Client.connect` takes ~1.4s against a healthy local cluster, and the
+    handlers used to go on AFTER it. A stop signal in that window reached no
+    handler of ours and no clean KeyboardInterrupt path either, and the process
+    WEDGED — measured at 2 of 10 runs on the old code and 3 of 10 on the
+    exit-code fix, each sitting 45s with nothing logged until killed. 12 of 12
+    clean once the handlers moved to the top of `run_worker`.
+
+    pm2 reaches this window whenever it restarts a worker that only just
+    started — a deploy on the heels of a crash-restart, two deploys in quick
+    succession — and escalates to SIGKILL after `kill_timeout`, which is not in
+    GRACEFUL_SIGNALS and therefore pages.
+    """
+    p = subprocess.Popen(
+        [sys.executable, "-c", _SLOW_CONNECT_CHILD.format(backend=str(BACKEND))],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if (p.stdout.readline() or "").strip() == "CONNECTING":
+            break
+    else:  # pragma: no cover
+        p.kill()
+        raise AssertionError("child never reached the connect")
+    os.kill(p.pid, signal.SIGINT)
+    try:
+        out, _ = p.communicate(timeout=15)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        raise AssertionError("wedged on a signal during startup")
+    assert p.returncode == 0, out
+    assert "shutdown requested" in out, out
+    # And it must not have waited out the connect before noticing.
+    assert "CONNECTED" not in out, (
+        "the signal was only noticed after connecting; pm2 would have "
+        "SIGKILLed us first\n" + out)
 
 
 def test_every_signal_the_wrapper_forwards_is_handled():
