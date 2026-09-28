@@ -27,11 +27,24 @@ headings tell you which phase you're looking at. See
 and [reconcile.py](../../backend/temporal/taskauto/reconcile.py) /
 [jobs.py](../../backend/temporal/taskauto/jobs.py) for who writes each one.
 
-| Phase | Written by | `## Outcome` | `## What I think you want` | `## Plan` |
-|---|---|---|---|---|
-| **Planning** (`planning`→`plan-review`) | `jobs.plan_job` | — | the agent's restatement of your task | the numbered plan it proposes |
-| **In flight** (PR open, `landed` lane, not merged) | `jobs.implement_job` | status: "pushed as a PR, auto-merge armed…" + PR URL | preserved from planning | the **execution log** (committed / pushed / opened-PR), *not* the plan |
-| **Archived** (PR merged, `Completed`) | `reconcile._merged_notes` | `Merged via <url>.` + file count | dropped | dropped (the execution log is bookkeeping the claim log already keeps) |
+**Phase is the `status` chip, not the lane** — autoland v3 (2026-09-26) put
+*repos* on the lanes, so a task's lane tells you which repo it targets and
+nothing about how far along it is. `status.kind` is one of `working` /
+`waiting` / `blocked` / `done`; `status.label` carries the detail
+(`"implementing · 3 files"`, `"PR #42 — yours to merge"`). See
+[autoland-v3.md](../hadoku-task-automation/autoland-v3.md) §3.
+
+| Phase | `status` | Written by | `## Outcome` | `## What I think you want` | `## Plan` |
+|---|---|---|---|---|---|
+| **Planning** | `working` → `waiting` | `jobs.plan_job` | — | the agent's restatement of your task | the numbered plan it proposes |
+| **Awaiting sign-off** | `waiting` | `jobs.plan_job` | — | as above | as above, plus `- [ ] Approve this plan` under `## Questions` |
+| **In flight** (PR open, not merged) | `waiting` + `href` to the PR | `jobs.implement_job` | status: "pushed as a PR, auto-merge armed…" + PR URL | preserved from planning | the **execution log** (committed / pushed / opened-PR), *not* the plan |
+| **Stuck** | `blocked` | `jobs` / `runner` | why it stopped | preserved | preserved |
+| **Archived** (PR merged, `Completed`) | `done` | `reconcile._merged_notes` | `Merged via <url>.` + file count | dropped | dropped (the execution log is bookkeeping the claim log already keeps) |
+
+A task with **no** `status` has never been touched by the pipeline — that is
+how `selection` tells fresh capture from work in progress, so do not clear a
+chip to "reset" a task unless you mean "plan this from scratch".
 
 **The key gotcha:** by landing time the `## Plan` section holds the pipeline's
 *execution log*, because `implement_job` overwrites it with the checklist it
@@ -174,13 +187,34 @@ app — CI green proves it compiles, not that the behaviour changed.
 
 ## 4. Editing a task's notes
 
-**Active task** (a lane where a claim can be held) — the agent path, atomically:
+**Active task** — the agent path, atomically. The claim is what authorises the
+write, not the lane: every v3 lane is `editableBy: user`.
 
 ```python
-token = c.claim(board, task_id)
-c.release(board, task_id, token, lane="<same-lane>", notes=new_notes,
-          if_current_lane="<same-lane>", complete=<bool>)
+from services.task_board import notes_hash, TaskStatus
+
+before = task.notes                      # read BEFORE claiming
+token = c.claim(board, task_id, lane=task.lane(full.lanes))
+c.release(board, task_id, token,
+          lane=task.lane(full.lanes),    # the SAME lane: never move the card
+          notes=new_notes,
+          status=TaskStatus(kind="waiting", label="edited by hand"),
+          if_current_lane=task.lane(full.lanes),
+          if_notes_hash=notes_hash(before),
+          complete=<bool>)
 ```
+
+Three things that will bite you here:
+
+- **`if_notes_hash` is mandatory in spirit.** It is optional in the API, but
+  omitting it means your write silently overwrites anything changed since you
+  read. A mismatch is `409 NOTES_CHANGED` carrying `currentNotesHash`, which
+  means re-read and retry — not an error to swallow.
+- **Always pass `lane`.** An *absent* `lane` on release CLEARS the tag, which
+  under v3 drops the task out of its repo and back into the Inbox — losing the
+  routing decision and, if it was signed off, the approval with it.
+- **Setting `status` is a choice, not a formality.** Leave it out and the chip
+  keeps whatever it had, which may now be a lie about what the notes say.
 
 **Completed / archived task** — `claim` raises `TaskNotFound` (it only sees
 `active_tasks`). Use the **human PATCH path** instead, which edits regardless of
@@ -198,5 +232,6 @@ the endpoint the board UI uses when you type in a task's notes field.
 ## See also
 
 - [hadoku-task-automation/README.md](../hadoku-task-automation/README.md) — the pipeline itself; §1.2 for the planning-phase notes.
-- [board-contract.md](../hadoku-task-automation/board-contract.md) — the board API contract.
+- [autoland-v3.md](../hadoku-task-automation/autoland-v3.md) — the CURRENT lane model (lanes are repos, state is the chip). §14 lists what was verified against production.
+- [board-contract.md](../hadoku-task-automation/board-contract.md) — the board API contract. Written for v1/v2; the claim protocol half is unchanged, the lane half is not.
 - `CLAUDE.md` → *Development* — the production-checkout hazard (uncommitted work gets eaten by a deploy; work in a worktree).
