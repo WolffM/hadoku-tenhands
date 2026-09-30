@@ -165,9 +165,10 @@ jobs:
       # with the work already done — which is how hadoku-meet's
       # taskauto/msvcsm99xq3e ended as "NOT LANDED".
       HADOKU_NPM_READ_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
-      # claude and gh live in ~/.local/bin, which is not on the runner's PATH.
+      # `claude` is resolved from PATH (the fleet toolchain installs it at
+      # /usr/local/bin/claude; the env step below also adds ~/.local/bin for gh).
       # Overridable via the CLAUDE_BIN repo variable (mirrors vars.CI_RUNNER).
-      TASKAUTO_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || '/home/hadoku/.local/bin/claude' }}
+      TASKAUTO_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || 'claude' }}
 
     steps:
       - name: Report the PREVIOUS run, because a dead run cannot report itself
@@ -383,6 +384,16 @@ jobs:
           python3 -m venv .venv-ci
           .venv-ci/bin/python -m pip install --quiet --upgrade pip
           .venv-ci/bin/python -m pip install --quiet -r backend/requirements.txt
+
+      - name: Require the claude CLI on PATH
+        # Fail here with a sentence rather than as AgentUnavailable deep in a
+        # run that may exit 0 having driven nothing.
+        run: |
+          if ! found=$(command -v "$TASKAUTO_CLAUDE_BIN"); then
+            echo "::error::'$TASKAUTO_CLAUDE_BIN' is not on this runner's PATH ($PATH). Install claude on the node (toolchain declaration) or set the CLAUDE_BIN repo variable."
+            exit 1
+          fi
+          echo "claude resolved to $found"
 
       - name: Let a fresh capture settle
         # A dispatch means a human JUST wrote a task. Planning it this instant

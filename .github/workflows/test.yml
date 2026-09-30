@@ -99,6 +99,20 @@ jobs:
             -r backend/requirements.txt \
             -r backend/requirements-dev.txt
 
+      - name: Require the claude CLI on PATH
+        # The judge test is the only unmocked coverage of `score()`. A runner
+        # without `claude` must fail here with a sentence, not surface later as
+        # a buried JudgeUnreachable. `command -v` resolves the same way the
+        # test's subprocess will: from this non-login step's PATH.
+        env:
+          CLAUDE_BIN: ${{ vars.CLAUDE_BIN || 'claude' }}
+        run: |
+          if ! found=$(command -v "$CLAUDE_BIN"); then
+            echo "::error::'$CLAUDE_BIN' is not on this runner's PATH ($PATH). The LLM judge cannot run; install claude on the node (toolchain declaration) or set the CLAUDE_BIN repo variable."
+            exit 1
+          fi
+          echo "claude resolved to $found"
+
       - name: Run tests
         working-directory: backend
         env:
@@ -128,10 +142,12 @@ jobs:
           # environment-first resolution picks this up and never calls the
           # broker, so CI needs no vault access at all.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # claude lives in ~/.local/bin, which is not on the runner's PATH.
-          # Same override taskauto.yml sets, for the same reason; overridable via
-          # the CLAUDE_BIN repo variable.
-          CRIMSON_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || '/home/hadoku/.local/bin/claude' }}
+          # `claude` is resolved from the runner's PATH: the fleet toolchain
+          # puts /usr/local/bin/claude on every claw, and this job used to bake
+          # one operator's home directory into the workflow. Set the CLAUDE_BIN
+          # repo variable only to override that. The step above fails the job
+          # if it resolves to nothing.
+          CRIMSON_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || 'claude' }}
         # The suite runs with zero skips. A skip appearing here is a regression
         # to investigate, not the normal state.
         run: ../.venv-ci/bin/python -m pytest tests/ -q
