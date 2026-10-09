@@ -310,9 +310,14 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Only chromium — the `local` project is Desktop Chrome and nothing else.
+      # No --with-deps: it shells out to sudo for apt, and `hadoku-builder`
+      # also matches the hokon host runner, which has no passwordless sudo
+      # (2026-10-08: "sudo: a password is required"). The self-hosted
+      # runners carry Chromium's system libraries already; same rule as
+      # hadoku-cardtable (D14) and hadoku_site's deploy.
       - name: Install the browser
         working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       # NOT `pnpm test`: that goes through `pw-isolated`, a machine-local wrapper
       # in the operator's ~/.local/bin that forces software GL to keep Chromium
