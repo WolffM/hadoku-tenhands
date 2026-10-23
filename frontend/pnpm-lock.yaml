@@ -43,17 +43,17 @@ importers:
         specifier: ^6.0.5
         version: 6.0.5(vite@8.2.0(@types/node@26.1.2))
       '@wolffm/catalogue':
-        specifier: ^1.0.4
-        version: 1.0.4
+        specifier: ^1.0.5
+        version: 1.0.5
       '@wolffm/logger':
         specifier: ^1.4.1
         version: 1.4.1
       '@wolffm/task-ui-components':
-        specifier: ^4.13.0
-        version: 4.13.0(@wolffm/themes@5.11.2(react@19.2.8))(react@19.2.8)
+        specifier: ^4.14.0
+        version: 4.14.0(@wolffm/themes@5.12.0(react@19.2.8))(react@19.2.8)
       '@wolffm/themes':
-        specifier: ^5.11.2
-        version: 5.11.2(react@19.2.8)
+        specifier: ^5.12.0
+        version: 5.12.0(react@19.2.8)
       eslint:
         specifier: ^10.8.0
         version: 10.8.0
@@ -503,8 +503,8 @@ packages:
       babel-plugin-react-compiler:
         optional: true
 
-  '@wolffm/catalogue@1.0.4':
-    resolution: {integrity: sha512-fN/P+0DHPnf2wnI8je+DoEGEYO1+zH4k4JkyiT2pwuSU5w/yry5gUt1mYVTbSuF58/l2C4KUUzAy3OimIQ7OOQ==, tarball: https://npm.pkg.github.com/download/@wolffm/catalogue/1.0.4/827b40751bc8325e2d7049ee367333579ebb5652}
+  '@wolffm/catalogue@1.0.5':
+    resolution: {integrity: sha512-Q6sh6VywX+aXbAunlXvkEHOxkVsneU5QGq/5cvQb2coYsEeLI9FC6l1bM4KaWaTpZOVTtx3DnnvTCVsvEVthFQ==, tarball: https://npm.pkg.github.com/download/@wolffm/catalogue/1.0.5/9fca09ef5d70d0fafc70918ffd66117da91a1c77}
     engines: {node: '>=18'}
 
   '@wolffm/logger@1.4.1':
@@ -518,14 +518,14 @@ packages:
       react: ^18.0.0 || ^19.0.0
       zod: ^4.0.0
 
-  '@wolffm/task-ui-components@4.13.0':
-    resolution: {integrity: sha512-PeW+pzDsPtQnPaseht2sz0vMLUBUpil0LrtGQ5q90MMgMK+IGY8vrh3/bcNubRXns/DPiepsJXQetH/bDlxQaA==, tarball: https://npm.pkg.github.com/download/@wolffm/task-ui-components/4.13.0/b81777e2ac277a2c9392a34c861790843be9058f}
+  '@wolffm/task-ui-components@4.14.0':
+    resolution: {integrity: sha512-+2pJNYSItlGNQlVapg7/WPQfbf/qQ5SU1HnJcnLsWtE6qfrmnue/uPU2RlBF732gztaNtWiJ0D7E1JaQKoK0KQ==, tarball: https://npm.pkg.github.com/download/@wolffm/task-ui-components/4.14.0/a56d5ea35a0a9df94dd82da3a8f5b56d03063080}
     peerDependencies:
       '@wolffm/themes': '*'
       react: ^18.0.0 || ^19.0.0
 
-  '@wolffm/themes@5.11.2':
-    resolution: {integrity: sha512-IB/LO+yiVp+c7RuhhM3qPFXszUgjChQLYMmRlWyf1C31OgA1+9j2VMlcGHea93QhQU6PXQZH9y+HcCa9fs5Sjw==, tarball: https://npm.pkg.github.com/download/@wolffm/themes/5.11.2/0f35a468002fcc01c740f73e97a198d0f425162f}
+  '@wolffm/themes@5.12.0':
+    resolution: {integrity: sha512-fQkYmBeJgznMi4Wo5zOQp+rInik3Lp0cEHWDPcWDWyiCpnPhxhdlwTR9hTn8ryZ3ZWVyD2/dXpskFp2K52FtqQ==, tarball: https://npm.pkg.github.com/download/@wolffm/themes/5.12.0/d8a5f0dc1598b142993bd242b988be6206b3ac99}
     hasBin: true
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -1845,7 +1845,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.2.0(@types/node@26.1.2)
 
-  '@wolffm/catalogue@1.0.4': {}
+  '@wolffm/catalogue@1.0.5': {}
 
   '@wolffm/logger@1.4.1': {}
 
@@ -1854,12 +1854,12 @@ snapshots:
       react: 19.2.8
       zod: 4.6.7
 
-  '@wolffm/task-ui-components@4.13.0(@wolffm/themes@5.11.2(react@19.2.8))(react@19.2.8)':
+  '@wolffm/task-ui-components@4.14.0(@wolffm/themes@5.12.0(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@wolffm/themes': 5.11.2(react@19.2.8)
+      '@wolffm/themes': 5.12.0(react@19.2.8)
       react: 19.2.8
 
-  '@wolffm/themes@5.11.2(react@19.2.8)':
+  '@wolffm/themes@5.12.0(react@19.2.8)':
     dependencies:
       '@wolffm/prefs-client': 1.0.19(react@19.2.8)(zod@4.6.7)
       react: 19.2.8
