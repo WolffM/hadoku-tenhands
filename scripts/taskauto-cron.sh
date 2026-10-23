@@ -86,7 +86,7 @@
 #
 # INSTALL (on the runner host, as the runner user):
 #
-#     crontab -l | { cat; echo '17 * * * * /home/hadoku/repos/hadoku-tenhands/scripts/taskauto-cron.sh >> /home/hadoku/logs/taskauto-cron.log 2>&1'; } | crontab -
+#     crontab -l | { cat; echo '17 * * * * /home/hadoku/srv/hadoku-tenhands/scripts/taskauto-cron.sh >> /home/hadoku/logs/taskauto-cron.log 2>&1'; } | crontab -
 #
 # Minute 17 rather than 0: nothing else needs to happen exactly on the hour,
 # and the top of the hour is where every other cron on this box already piles
@@ -106,7 +106,9 @@ set -uo pipefail
 #: GitHub redirects the old name, so `WolffM/tenhands` still resolved after the
 #: rename — which is precisely why this sat wrong without failing.
 REPO="WolffM/hadoku-tenhands"
-REPO_DIR="/home/hadoku/repos/hadoku-tenhands"
+#: The deploy clone, not the ~/repos dev checkout: tenhands deploys here since
+#: 2026-10-21, so this is the code and venv the pm2 services actually run.
+REPO_DIR="/home/hadoku/srv/hadoku-tenhands"
 VAULT="/home/hadoku/repos/hadoku_site/scripts/secrets/dev-vault.mjs"
 STATE="$HOME/.taskauto/cron-state"
 #: The gate — see `has_pending_work`. Runs from the repo's own venv, the same
