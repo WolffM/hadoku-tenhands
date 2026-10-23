@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
   packages: write
+  # The job's own token dispatches deploy.yml once the publish has landed.
+  # A workflow_dispatch sent with GITHUB_TOKEN still starts a run — it is one
+  # of the two events exempt from GitHub's no-recursion rule.
+  actions: write
 
 jobs:
   publish:
@@ -298,53 +302,25 @@ jobs:
         run: pnpm publish --no-git-checks
         env:
           # The repo-local GITHUB_TOKEN (permissions: packages: write above)
-          # publishes this repo's OWN package — no PAT. HADOKU_SITE_TOKEN was
-          # rotated to minimal scopes on 2026-08-14 (repo, workflow,
-          # read:packages); the old one silently carried write:packages and
-          # publishing rode on it, which is how this step 403'd. Installs and
-          # the version walk still use the PAT: cross-repo @wolffm package
-          # READS are outside GITHUB_TOKEN's repo-local grant.
+          # publishes this repo's OWN package — no PAT. Installs and the
+          # version walk use HADOKU_NPM_READ_TOKEN from the vault: cross-repo
+          # @wolffm package READS are outside GITHUB_TOKEN's repo-local grant.
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Notify parent app to update dependencies
-      - name: Notify parent about package update
+      # hadoku_site is told through mgmt-api with this repo's own service key
+      # (hadoku-actions/repo-action), so this repo holds no token that can
+      # write to hadoku_site. A refused or unanswered notify FAILS this job:
+      # the old dispatch only warned, and a dropped dispatch means a release
+      # that never reaches the site. Failing here also holds the backend
+      # redeploy below, which is the ordering this workflow exists to keep.
+      # The scope is literal: mgmt-api accepts only @wolffm/* package names.
+      - name: Notify hadoku_site (packages_updated)
         if: steps.package_changed.outputs.changed == 'true'
-        env:
-          HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
-        run: |
-          echo "Notifying hadoku_site about package update..."
-
-          if [ -z "$HADOKU_SITE_TOKEN" ]; then
-            echo "⚠️  Warning: HADOKU_SITE_TOKEN not available, skipping notification"
-            exit 0
-          fi
-
-          payload=$(cat <<EOF
-            {
-              "event_type": "packages_updated",
-              "client_payload": {
-                "packages": ["${{ vars.NPM_SCOPE || '@wolffm' }}/tenhands"],
-                "sha": "${{ github.sha }}",
-                "ref": "${{ github.ref }}"
-              }
-            }
-          EOF
-          )
-
-          status_code=$(curl -sS \
-            -o /dev/null \
-            -w "%{http_code}" \
-            -X POST "https://api.github.com/repos/${{ vars.DEPLOY_TARGET_REPO || 'WolffM/hadoku_site' }}/dispatches" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -d "$payload")
-
-          if [ "$status_code" = "204" ]; then
-            echo "✅ Notified hadoku_site about package update"
-          else
-            echo "⚠️  Failed to notify hadoku_site (HTTP $status_code)"
-          fi
+        uses: WolffM/hadoku-actions/repo-action@v1
+        with:
+          verb: notify
+          body: '{"event_type":"packages_updated","client_payload":{"packages":["@wolffm/tenhands"],"sha":"${{ github.sha }}"}}'
+          service-key: ${{ secrets.KEY_SERVICE_TENHANDS }}
 
       - name: Redeploy the backend, now that the frontend has shipped
         # THE ORDERING THIS EXISTS TO ENFORCE. deploy.yml used to run `on: push`,
@@ -367,20 +343,18 @@ jobs:
         #
         # If this step is ever removed, put deploy.yml back on `on: push` or the
         # backend stops deploying entirely, silently.
+        #
+        # Sent with the job's own token (`actions: write` above): dispatching a
+        # workflow in THIS repo needs nothing broader.
         env:
-          HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$HADOKU_SITE_TOKEN" ]; then
-            echo "::error::HADOKU_SITE_TOKEN not available — cannot trigger the backend deploy"
-            exit 1
-          fi
-
           status_code=$(curl -sS \
             -o /dev/null \
             -w "%{http_code}" \
             -X POST "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/dispatches" \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
+            -H "Authorization: Bearer $GH_TOKEN" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -d '{"ref":"${{ github.ref_name }}"}')
 
