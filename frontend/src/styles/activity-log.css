@@ -67,18 +67,28 @@
   color: var(--color-text);
 }
 
-.log-success .log-message {
-  color: var(--color-success);
+/* The state rides on a left marker; the message stays body text, which is the
+   only colour legible on this surface in every theme. */
+.progress-log-entry.log-success,
+.progress-log-entry.log-error,
+.progress-log-entry.log-warning,
+.progress-log-entry.log-info {
+  padding-left: 0.5rem;
+  border-left: 3px solid transparent;
 }
 
-.log-error .log-message {
-  color: var(--color-danger);
+.log-success {
+  border-left-color: var(--color-success);
 }
 
-.log-warning .log-message {
-  color: var(--color-warning);
+.log-error {
+  border-left-color: var(--color-danger);
 }
 
-.log-info .log-message {
-  color: var(--color-primary);
+.log-warning {
+  border-left-color: var(--color-warning);
+}
+
+.log-info {
+  border-left-color: var(--color-primary);
 }

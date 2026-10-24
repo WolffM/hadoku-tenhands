@@ -142,7 +142,10 @@
 
 .taskauto-board__error {
   margin: 0;
-  color: var(--color-danger);
+  padding: var(--hdk-space-xs) var(--hdk-space-sm);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
+  color: var(--color-on-danger-bg);
+  border-radius: var(--hdk-radius-sm);
   font-size: var(--hdk-text-sm);
 }
 
@@ -224,7 +227,9 @@
 
 /* Two lane tags: invisible to the scheduler, so it cannot be a quiet style. */
 .taskauto-lane__task[data-stuck='true'] .taskauto-lane__task-title {
-  color: var(--color-danger);
+  text-decoration: underline wavy;
+  text-decoration-color: var(--color-danger);
+  text-underline-offset: 3px;
 }
 
 .taskauto-lane__stuck {
@@ -295,14 +300,16 @@
 }
 
 .taskauto-pr__title {
-  color: var(--color-primary);
+  color: var(--color-text);
   font-size: var(--hdk-text-sm);
   font-weight: var(--font-weight-semibold);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-underline-offset: 2px;
 }
 
 .taskauto-pr__title:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 .taskauto-pr__meta {

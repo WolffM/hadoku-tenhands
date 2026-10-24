@@ -111,8 +111,8 @@ export function PRModal({
                           <li key={file.path} className="file-list__item">
                             <span className="file-list__name">{file.path.split('/').pop()}</span>
                             <span className="file-list__stats">
-                              <span className="text-success">+{file.additions}</span>
-                              <span className="text-danger">-{file.deletions}</span>
+                              <span className="stat-additions">+{file.additions}</span>
+                              <span className="stat-deletions">-{file.deletions}</span>
                             </span>
                           </li>
                         ))}
@@ -134,8 +134,8 @@ export function PRModal({
               {/* Diff Viewer */}
               <div className="pr-modal__diff">
                 <div className="pr-stats">
-                  <span className="text-success">+{pr.additions ?? 0}</span>{' '}
-                  <span className="text-danger">-{pr.deletions ?? 0}</span> in{' '}
+                  <span className="stat-additions">+{pr.additions ?? 0}</span>{' '}
+                  <span className="stat-deletions">-{pr.deletions ?? 0}</span> in{' '}
                   {pr.changedFiles ?? pr.files?.length ?? 0} files
                 </div>
                 {pr.diff ? (
@@ -146,7 +146,7 @@ export function PRModal({
               </div>
             </div>
           ) : (
-            <p className="text-danger">Failed to load PR details</p>
+            <p className="callout-danger">Failed to load PR details</p>
           )}
         </div>
 

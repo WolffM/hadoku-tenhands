@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { labelFor } from '@wolffm/catalogue'
 
 /**
  * Build target for the static, fixture-backed public demo (`dist-demo/`).
@@ -13,6 +14,11 @@ import react from '@vitejs/plugin-react'
  * `vite.config.ts` (the library build) is untouched by this file.
  */
 export default defineConfig({
+  // App.tsx reads this global; without it the demo throws a ReferenceError on
+  // mount and renders nothing. Same lookup as vite.config.ts.
+  define: {
+    __HADOKU_APP_NAME__: JSON.stringify(labelFor('tenhands') ?? 'tenhands')
+  },
   plugins: [react()],
   base: process.env.DEMO_BASE ?? '/hadoku-tenhands/',
   build: {

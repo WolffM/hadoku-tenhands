@@ -76,8 +76,10 @@
 }
 
 .markdown-content a {
-  color: var(--color-primary);
-  text-decoration: none;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-underline-offset: 2px;
 }
 
 .markdown-content a:hover {
@@ -134,13 +136,24 @@
   color: var(--color-text-secondary);
 }
 
+/* The -bg tints are translucent, and the on-<f>-bg pair is only validated over
+   the page and card surfaces. Laying the tint on an opaque card keeps the pair
+   the validated one whatever the parent is (the diff file header is
+   neutral-bg). The same base is used for every tint badge in this app. */
 .stat-additions {
-  color: var(--color-success);
+  padding: 0 0.25rem;
+  border-radius: var(--hdk-radius-sm);
+  background:
+    linear-gradient(var(--color-success-bg), var(--color-success-bg)), var(--color-bg-card);
+  color: var(--color-on-success-bg);
   font-weight: var(--font-weight-semibold);
 }
 
 .stat-deletions {
-  color: var(--color-danger);
+  padding: 0 0.25rem;
+  border-radius: var(--hdk-radius-sm);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
+  color: var(--color-on-danger-bg);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -189,12 +202,19 @@
 }
 
 .diff-additions {
-  color: var(--color-success);
+  padding: 0 0.25rem;
+  border-radius: var(--hdk-radius-sm);
+  background:
+    linear-gradient(var(--color-success-bg), var(--color-success-bg)), var(--color-bg-card);
+  color: var(--color-on-success-bg);
   font-weight: var(--font-weight-semibold);
 }
 
 .diff-deletions {
-  color: var(--color-danger);
+  padding: 0 0.25rem;
+  border-radius: var(--hdk-radius-sm);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
+  color: var(--color-on-danger-bg);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -226,11 +246,12 @@
 }
 
 .diff-line-addition {
-  background-color: var(--color-success-bg);
+  background:
+    linear-gradient(var(--color-success-bg), var(--color-success-bg)), var(--color-bg-card);
 }
 
 .diff-line-deletion {
-  background-color: var(--color-danger-bg);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
 }
 
 .diff-line-context {
@@ -279,12 +300,13 @@
   color: var(--color-text-muted);
 }
 
+/* These rows sit on the family tint, so the prefix takes the tint's own text. */
 .diff-line-addition .diff-prefix {
-  color: var(--color-success);
+  color: var(--color-on-success-bg);
 }
 
 .diff-line-deletion .diff-prefix {
-  color: var(--color-danger);
+  color: var(--color-on-danger-bg);
 }
 
 .diff-empty {

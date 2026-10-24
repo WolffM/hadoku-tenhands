@@ -127,7 +127,7 @@ export function TaskAutoReviewModal({
               <p className="loading-state__text">Loading PR details…</p>
             </div>
           ) : loadError ? (
-            <p className="text-danger">{loadError}</p>
+            <p className="callout-danger">{loadError}</p>
           ) : (
             <div className="pr-modal__content">
               <div className="pr-modal__sidebar">
@@ -180,8 +180,8 @@ export function TaskAutoReviewModal({
 
               <div className="pr-modal__diff">
                 <div className="pr-stats">
-                  <span className="text-success">+{details?.additions ?? 0}</span>{' '}
-                  <span className="text-danger">-{details?.deletions ?? 0}</span> in{' '}
+                  <span className="stat-additions">+{details?.additions ?? 0}</span>{' '}
+                  <span className="stat-deletions">-{details?.deletions ?? 0}</span> in{' '}
                   {details?.changedFiles ?? 0} files
                 </div>
                 {details?.diff ? (
@@ -196,7 +196,7 @@ export function TaskAutoReviewModal({
 
         <div className="modal__footer">
           <div>
-            {actionError && <span className="text-danger">{actionError}</span>}
+            {actionError && <span className="callout-danger">{actionError}</span>}
             {reasonOpen && (
               <textarea
                 className="taskauto-review__reason"

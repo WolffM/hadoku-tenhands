@@ -193,7 +193,7 @@
 .temporal-inbox__actions
   button:not(.btn--success):not(.btn--danger):not(.btn--warning):hover:not(:disabled) {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  background-color: var(--color-primary-hover);
 }
 
 .temporal-inbox__actions button:disabled {
@@ -348,7 +348,11 @@
 }
 
 .temporal-issue-detail__deferred-note {
-  color: var(--color-warning);
+  padding: 0 var(--hdk-space-sm);
+  border-radius: var(--hdk-radius-sm);
+  background:
+    linear-gradient(var(--color-warning-bg), var(--color-warning-bg)), var(--color-bg-card);
+  color: var(--color-on-warning-bg);
   font-size: var(--hdk-text-xs);
 }
 
@@ -443,7 +447,10 @@
 }
 
 .temporal-issue-detail--error {
-  color: var(--color-danger);
+  padding: var(--hdk-space-md) var(--hdk-space-lg);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
+  color: var(--color-on-danger-bg);
+  border-radius: var(--hdk-radius-sm);
 }
 
 .temporal-event__json {

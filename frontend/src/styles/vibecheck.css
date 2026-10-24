@@ -257,29 +257,33 @@
 
 /* Repo Link */
 .repo-link {
-  color: var(--color-primary);
+  color: var(--color-text);
   font-weight: var(--font-weight-semibold);
 }
 
 /* Issue Link */
 .issue-link {
-  color: var(--color-primary);
-  text-decoration: none;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-underline-offset: 2px;
 }
 
 .issue-link:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 /* PR Link */
 .pr-link {
-  color: var(--color-primary);
-  text-decoration: none;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-underline-offset: 2px;
   white-space: nowrap;
 }
 
 .pr-link:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 /* Title cell - prevent wrapping and keep badges inline */
@@ -433,22 +437,38 @@ td .pr-link {
 }
 
 /* Severity Classes */
+/* Tint badges: the family's -bg surface with its own on- text. */
+.severity-critical,
+.severity-high,
+.severity-medium,
+.severity-low {
+  padding: 0 0.375rem;
+  border-radius: var(--hdk-radius-sm);
+}
+
 .severity-critical {
-  color: var(--color-danger);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
+  color: var(--color-on-danger-bg);
   font-weight: var(--font-weight-semibold);
 }
 
 .severity-high {
-  color: var(--color-warning);
+  background:
+    linear-gradient(var(--color-warning-bg), var(--color-warning-bg)), var(--color-bg-card);
+  color: var(--color-on-warning-bg);
   font-weight: var(--font-weight-semibold);
 }
 
 .severity-medium {
-  color: var(--color-primary);
+  background:
+    linear-gradient(var(--color-primary-bg), var(--color-primary-bg)), var(--color-bg-card);
+  color: var(--color-on-primary-bg);
 }
 
 .severity-low {
-  color: var(--color-success);
+  background:
+    linear-gradient(var(--color-success-bg), var(--color-success-bg)), var(--color-bg-card);
+  color: var(--color-on-success-bg);
 }
 
 .severity-unknown {
@@ -464,12 +484,12 @@ td .pr-link {
   color: var(--color-text);
 }
 
-.text-success {
-  color: var(--color-success);
-}
-
-.text-danger {
-  color: var(--color-danger);
+/* A state message that has to read as one: tint callout, not accent text. */
+.callout-danger {
+  padding: var(--hdk-space-xs) var(--hdk-space-sm);
+  border-radius: var(--hdk-radius-sm);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
+  color: var(--color-on-danger-bg);
 }
 
 .text-center {

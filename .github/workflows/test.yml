@@ -241,6 +241,14 @@ jobs:
         working-directory: frontend
         run: pnpm run lint
 
+      # stylelint (unknown custom properties) then the @wolffm/themes
+      # check-usage gate (accent-as-text, var() fallbacks, unknown tokens). It
+      # ran only in the pre-commit hook, which the automation lander and
+      # --no-verify never reach.
+      - name: CSS + theme-token gate
+        working-directory: frontend
+        run: pnpm run lint:css
+
       # The gate is a worklist, not proof. Two of this migration's defects were
       # invisible to both eslint and the checker and only showed up in a build:
       # an icon name written as a \uXXXX escape is ASCII in source and a

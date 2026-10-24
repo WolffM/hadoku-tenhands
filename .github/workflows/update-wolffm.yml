@@ -59,6 +59,11 @@ jobs:
           npm-token: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
           working-directory: frontend
           recursive: 'false'
+          # The theme-token gate against the packages just bumped, before anything
+          # is pushed. Nothing else checks a bump before main moves, and a new
+          # @wolffm/themes can tighten check-usage: themes 5.12.6 landed 40
+          # violations on hadoku_site main with every check green.
+          verify: pnpm run lint:css
 
       - name: Report the outcome so a silent failure can't hide
         # Why a job reports at all, and why this is referenced rather than

@@ -92,7 +92,9 @@
 
 .dossier-panel__error {
   padding: var(--hdk-space-3xl);
-  color: var(--color-danger);
+  background: linear-gradient(var(--color-danger-bg), var(--color-danger-bg)), var(--color-bg-card);
+  color: var(--color-on-danger-bg);
+  border-radius: var(--hdk-radius-sm);
   text-align: center;
 }
 
@@ -281,11 +283,16 @@
 }
 
 .repo-health-card__section-toggle:hover {
-  color: var(--color-primary);
+  background-color: var(--color-primary-hover);
 }
 
+/* Open is marked by weight and an accent underline, never by accent text. */
 .repo-health-card__section-toggle--open {
-  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
 .repo-health-card__section-content {

@@ -55,16 +55,25 @@
   color: var(--color-text);
 }
 
+/* The number stays body text; the state is a thick underline marker. */
+.stat-card__value--success,
+.stat-card__value--danger,
+.stat-card__value--warning {
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 6px;
+}
+
 .stat-card__value--success {
-  color: var(--color-success);
+  text-decoration-color: var(--color-success);
 }
 
 .stat-card__value--danger {
-  color: var(--color-danger);
+  text-decoration-color: var(--color-danger);
 }
 
 .stat-card__value--warning {
-  color: var(--color-warning);
+  text-decoration-color: var(--color-warning);
 }
 
 /* Filter Card */

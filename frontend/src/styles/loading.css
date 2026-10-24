@@ -57,33 +57,3 @@
   color: var(--color-text-secondary);
   max-width: 24rem;
 }
-
-.error-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 3rem;
-  text-align: center;
-  background-color: var(--color-danger-bg);
-  border-radius: var(--hdk-radius);
-}
-
-.error-state__icon {
-  font-size: calc(var(--hdk-text-base) * 2.5);
-  color: var(--color-danger);
-  margin-bottom: 1rem;
-}
-
-.error-state__title {
-  margin: 0 0 0.5rem 0;
-  font-size: var(--hdk-text-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-danger);
-}
-
-.error-state__message {
-  margin: 0;
-  font-size: var(--hdk-text-sm);
-  color: var(--color-text);
-}
