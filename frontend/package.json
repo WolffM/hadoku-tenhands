@@ -66,7 +66,7 @@
     "@typescript-eslint/parser": "^8.66.0",
     "@vitejs/plugin-react": "^6.0.5",
     "@wolffm/catalogue": "^1.0.9",
-    "@wolffm/logger": "^1.4.1",
+    "@wolffm/logger": "^1.4.2",
     "@wolffm/task-ui-components": "^4.20.1",
     "@wolffm/themes": "^5.12.13",
     "eslint": "^10.8.0",
