@@ -84,3 +84,29 @@ There are no `.env` files. Secrets are fetched from a vault broker under a per-r
 the repo tracks only the *names* of the env vars it needs, in `.devvault.json`. If your code reads
 a new `process.env.X`, add its name to `.devvault.json` (values-free, commit-safe) and ask the
 operator to grant it. Operator-specific setup lives in `CLAUDE.local.md` (untracked).
+
+## Telemetry: where your app's data lives
+
+What a visitor did is in monitoring-api's D1, readable with this repo's own
+service key. Query it. Don't use Cloudflare Workers Logs (a normal
+`wrangler login` can't read them), and don't ask the operator what a visitor
+saw. If the log can't answer, add telemetry.
+
+```sh
+K=$(node -p "require('./.devvault.local.json').key")
+curl -s -A "Mozilla/5.0 hadoku-agent" -H "X-User-Key: $K" \
+  "https://hadoku.me/health/api/logs/query?path=/tenhands&since=2026-10-27T00:00:00Z&limit=200"
+```
+
+- Events your code posts go to `service_events`: `POST /health/api/telemetry`
+  with `context.service: "tenhands"`, read back with
+  `GET /health/api/service-events?service=tenhands`. Not `console.log`.
+  Browser events: POST to your own `/tenhands/api/*` route and relay from
+  the backend, which holds the key.
+- Only finished requests that reach the edge are logged. A UI app's page
+  is served by GitHub Pages, so only its `/tenhands/api/*` calls show up; a
+  tunnel app's whole prefix does.
+- `user_id c8c59a87-f8af-4da7-9c99-d9e536b3fca8` is the daily automated tour
+  (~09:2x UTC), not a visitor.
+
+Params, write format, caveats: `../hadoku_site/docs/child-apps/TELEMETRY.md`.
