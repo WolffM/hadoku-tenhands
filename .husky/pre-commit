@@ -8,12 +8,12 @@
 # non-zero exit. core.hooksPath now points at .husky itself, which is tracked.
 [ "${HUSKY-}" = "0" ] && exit 0
 
-# Not in CI. This hook is the developer loop: it bumps the version, runs
-# lint/format/stylelint and typechecks before a LOCAL commit. CI runs every one
-# of those as its own job, and publish.yml does not depend on the bump — it
-# walks from the registry's latest to the first unpublished version, precisely
-# because "CI bumps are published but never committed back, so the committed
-# version only falls behind". Nothing here is load-bearing in CI.
+# Not in CI. This hook is the developer loop: it runs lint/format/stylelint and
+# typechecks before a LOCAL commit. It does NOT touch the version, and nothing
+# may: the version is CI's, never a commit's. publish.yml's Version step
+# (hadoku-actions/next-version) sets it to one patch above the registry's
+# newest, in the CI workspace only. CI runs every gate here as its own job, so
+# nothing in this hook is load-bearing in CI.
 #
 # It is actively harmful there. The auto-update workflow's "Commit and push if
 # changed" step fires this hook, whose gates shell out to pnpm with no
@@ -108,9 +108,6 @@ fi
 
 # Re-stage only the originally-staged files so eslint --fix / prettier edits
 # land in the commit — never sweep unrelated worktree changes.
-# Version bumping + publishing is owned by CI (.github/workflows/publish.yml):
-# it auto-bumps to a free version and only publishes when files changed, so
-# bumping here was redundant and dirtied package.json/lockfile on every commit.
 cd ..
 if [ -n "$STAGED_FILES" ]; then
   echo "$STAGED_FILES" | xargs -r git add
