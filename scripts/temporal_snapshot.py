@@ -3,7 +3,7 @@
 Powers the /inbox and /active skills so the operator doesn't have to
 copy-paste API output. Talks to production through the edge-router:
 
-  vault broker  → hadoku.me/mgmt/api/secrets/get/TENHANDS_ADMIN_KEY
+  key           → this repo's .devvault.local.json (tenhands-service-key)
   dispatch API  → hadoku.me/tenhands/api/temporal/{inbox,batches,batch/<id>}
 
 stdlib only (urllib) so it runs under the system python with no deps.
@@ -17,11 +17,9 @@ Usage:
 import json
 import sys
 import urllib.request
-import urllib.error
 from collections import Counter
 from pathlib import Path
 
-VAULT_KEY_URL = "https://hadoku.me/mgmt/api/secrets/get/TENHANDS_ADMIN_KEY"
 DISPATCH_BASE = "https://hadoku.me/tenhands/api/temporal"
 DEVVAULT_LOCAL = Path(__file__).parent.parent / ".devvault.local.json"
 
@@ -36,26 +34,17 @@ def _get(url: str, headers: dict, timeout: int = 20):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _admin_key() -> str:
-    """Fetch the tenhands admin key from the vault broker."""
+def _service_key() -> str:
+    """This repo's own service key (`.devvault.local.json#key`,
+    tenhands-service-key), which is on the `tenhands-write` access list.
+
+    It used to fetch TENHANDS_ADMIN_KEY from the vault, an item deleted on
+    purpose (backend/routes/debug/_middleware.py), so the script could not
+    run at all."""
     try:
-        vkey = json.loads(DEVVAULT_LOCAL.read_text())["key"]
+        return json.loads(DEVVAULT_LOCAL.read_text())["key"]
     except (OSError, ValueError, KeyError) as e:
         raise SystemExit(f"cannot read .devvault.local.json: {e}")
-    try:
-        body = _get(VAULT_KEY_URL, {"X-User-Key": vkey})
-    except urllib.error.HTTPError as e:
-        raise SystemExit(
-            f"vault broker returned HTTP {e.code} — mgmt-api may be down "
-            f"(better-sqlite3 platform clobber). Fix: rebuild better-sqlite3 "
-            f"for Windows + restart mgmt-api."
-        )
-    except urllib.error.URLError as e:
-        raise SystemExit(f"vault broker unreachable: {e}")
-    val = body.get("value")
-    if not val:
-        raise SystemExit(f"vault response had no value: {body}")
-    return val
 
 
 def _pretty_issue(item: dict) -> str:
@@ -118,7 +107,7 @@ def main(argv: list[str]) -> int:
     if mode not in ("inbox", "active", "all"):
         print(f"unknown mode '{mode}' — use: inbox | active | all", file=sys.stderr)
         return 2
-    admin = _admin_key()
+    admin = _service_key()
     if mode in ("inbox", "all"):
         show_inbox(admin)
     if mode in ("active", "all"):

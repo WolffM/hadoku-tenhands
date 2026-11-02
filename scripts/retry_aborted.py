@@ -20,11 +20,9 @@ Usage:
 import json
 import sys
 import urllib.request
-import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
-VAULT_KEY_URL = "https://hadoku.me/mgmt/api/secrets/get/TENHANDS_ADMIN_KEY"
 DISPATCH_BASE = "https://hadoku.me/tenhands/api/temporal"
 DEVVAULT_LOCAL = Path(__file__).parent.parent / ".devvault.local.json"
 
@@ -38,16 +36,17 @@ def _request(url: str, headers: dict, data: bytes | None = None, timeout: int = 
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _admin_key() -> str:
-    vkey = json.loads(DEVVAULT_LOCAL.read_text())["key"]
+def _service_key() -> str:
+    """This repo's own service key (`.devvault.local.json#key`,
+    tenhands-service-key), which is on the `tenhands-write` access list.
+
+    It used to fetch TENHANDS_ADMIN_KEY from the vault, an item deleted on
+    purpose (backend/routes/debug/_middleware.py), so the script could not
+    run at all."""
     try:
-        body = _request(VAULT_KEY_URL, {"X-User-Key": vkey})
-    except urllib.error.HTTPError as e:
-        raise SystemExit(f"vault broker HTTP {e.code} — mgmt-api may be down")
-    val = body.get("value")
-    if not val:
-        raise SystemExit(f"vault response had no value: {body}")
-    return val
+        return json.loads(DEVVAULT_LOCAL.read_text())["key"]
+    except (OSError, ValueError, KeyError) as e:
+        raise SystemExit(f"cannot read .devvault.local.json: {e}")
 
 
 def _issue_id_to_slug(issue_id: str) -> tuple[str, int]:
@@ -67,7 +66,7 @@ def main(argv: list[str]) -> int:
         print("usage: retry_aborted.py <batch_id> [--apply]", file=sys.stderr)
         return 2
     batch_id = args[0]
-    admin = _admin_key()
+    admin = _service_key()
 
     detail = _request(f"{DISPATCH_BASE}/batch/{batch_id}", {"X-User-Key": admin})
     issues = detail.get("issues", [])
