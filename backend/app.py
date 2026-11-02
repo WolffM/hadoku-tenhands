@@ -148,13 +148,16 @@ def api_root():
 # Two-tier access, by HTTP method:
 #   - reading the dashboard (safe methods) needs friend+; there is nothing here
 #     a friend shouldn't see, but the anonymous public still gets nothing;
-#   - operating the pipeline (any mutating method) needs service+, so a friend
-#     can look but not dispatch/merge/approve/signal.
+#   - operating the pipeline (any mutating method) needs service+ AND a place
+#     on the `tenhands-write` access list, so a friend can look but not
+#     dispatch/merge/approve/signal. Service tier is every service key in the
+#     fleet, and people hold them too; the list names who operates tenhands.
+#     Admin is not exempt: the operator is on the list.
 # The debug routes keep their own stricter admin gate on top of this.
 try:
-    from .middleware.whoami import resolve_tier_from_key, tier_rank
+    from .middleware.whoami import WRITE_LIST, resolve_caller, tier_rank
 except ImportError:
-    from middleware.whoami import resolve_tier_from_key, tier_rank
+    from middleware.whoami import WRITE_LIST, resolve_caller, tier_rank
 
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
 _READ_MIN_TIER = "friend"
@@ -185,10 +188,13 @@ def _enforce_tier():
     if request.path in _PUBLIC_PATHS:
         return None
     key = (request.headers.get("X-User-Key") or "").strip() or None
-    tier = resolve_tier_from_key(key)
-    required = _READ_MIN_TIER if request.method in _SAFE_METHODS else _WRITE_MIN_TIER
+    tier, member = resolve_caller(key)
+    writing = request.method not in _SAFE_METHODS
+    required = _WRITE_MIN_TIER if writing else _READ_MIN_TIER
     if tier_rank(tier) >= tier_rank(required):
-        return None
+        if not writing or member:
+            return None
+        return jsonify({"error": "forbidden", "required_list": WRITE_LIST}), 403
     # No key → 401 (you're signed out). A recognised key that simply doesn't
     # reach the required tier (public reading, or friend writing) → 403. Mirrors
     # edge-router's authGate status shaping.

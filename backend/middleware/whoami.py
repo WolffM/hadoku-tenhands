@@ -17,9 +17,16 @@ malformed JSON) resolves to ``public`` and is **not** cached — so a flapping
 whoami recovers on the next call instead of pinning the caller at public for a
 minute.
 
+Every lookup also asks whether the key is on ``tenhands-write``, the access
+list this server checks itself (hadoku_site
+``workers/edge-router/src/access-lists.ts``, ``checkedBy``): service tier is
+every service key in the fleet, and the list names who may operate the
+pipeline. Membership rides the same cached call.
+
 For hermetic tests, setting the ``WHOAMI_TEST_OVERRIDES`` env var to a JSON
-``{key: tier}`` map short-circuits the network entirely. Production never sets
-this. Ported from ``hadoku_scrape/api/middleware/whoami.py``.
+map short-circuits the network entirely. A value is a tier (a caller on the
+list) or ``{"tier": t, "member": false}`` (one that is not). Production never
+sets this. Ported from ``hadoku_scrape/api/middleware/whoami.py``.
 """
 
 from __future__ import annotations
@@ -37,6 +44,10 @@ WHOAMI_URL = os.environ.get("TENHANDS_WHOAMI_URL", "https://hadoku.me/session/wh
 # ourselves honestly so we both get through the filter and stay greppable in
 # the access logs.
 USER_AGENT = "hadoku-tenhands/1.0 (+https://hadoku.me/tenhands)"
+# The app-checked access list whoami answers membership of. Managed by name
+# from hadoku_site: `python3 scripts/administration.py access-list add
+# tenhands-write <name>`.
+WRITE_LIST = "tenhands-write"
 CACHE_TTL_S = 60.0
 CACHE_PRUNE_THRESHOLD = 256
 REQUEST_TIMEOUT_S = 5.0
@@ -50,7 +61,8 @@ REQUEST_TIMEOUT_S = 5.0
 # above service and was exactly that case. Keep it complete.
 _VALID_TIERS = ("admin", "wife", "service", "friend", "public")
 
-_cache: dict[str, tuple[str, float]] = {}
+# key → ((tier, on WRITE_LIST), expiry)
+_cache: dict[str, tuple[tuple[str, bool], float]] = {}
 _cache_lock = Lock()
 
 
@@ -67,7 +79,7 @@ def tier_rank(tier: str) -> int:
         return 0
 
 
-def _get_test_overrides() -> dict[str, str] | None:
+def _get_test_overrides() -> dict[str, tuple[str, bool]] | None:
     raw = os.environ.get("WHOAMI_TEST_OVERRIDES")
     if not raw:
         return None
@@ -77,19 +89,24 @@ def _get_test_overrides() -> dict[str, str] | None:
         return None
     if not isinstance(parsed, dict):
         return None
-    return {
-        k: v
-        for k, v in parsed.items()
-        if isinstance(k, str) and isinstance(v, str) and v in _VALID_TIERS
-    }
+    out: dict[str, tuple[str, bool]] = {}
+    for k, v in parsed.items():
+        if not isinstance(k, str):
+            continue
+        if isinstance(v, str) and v in _VALID_TIERS:
+            out[k] = (v, True)
+        elif isinstance(v, dict) and v.get("tier") in _VALID_TIERS:
+            out[k] = (v["tier"], v.get("member") is True)
+    return out
 
 
-def _fetch_tier_from_whoami(key: str) -> str | None:
-    """One-shot HTTP call. Returns the resolved tier, ``public`` when whoami
-    explicitly says the key is invalid, or ``None`` on any transient failure
-    (caller should treat as public-but-don't-cache so the next call retries)."""
+def _fetch_from_whoami(key: str) -> tuple[str, bool] | None:
+    """One-shot HTTP call. Returns (tier, on WRITE_LIST), ``("public", False)``
+    when whoami explicitly says the key is invalid, or ``None`` on any transient
+    failure (caller should treat as public-but-don't-cache so the next call
+    retries)."""
     req = urllib.request.Request(
-        WHOAMI_URL,
+        f"{WHOAMI_URL}?list={WRITE_LIST}",
         headers={"X-User-Key": key, "User-Agent": USER_AGENT},
     )
     try:
@@ -100,9 +117,16 @@ def _fetch_tier_from_whoami(key: str) -> str | None:
     except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError):
         return None
     if not isinstance(data, dict) or not data.get("valid"):
-        return "public"
+        return ("public", False)
     user_type = data.get("userType")
-    return user_type if user_type in _VALID_TIERS else "public"
+    tier = user_type if user_type in _VALID_TIERS else "public"
+    listed = data.get("list")
+    member = (
+        isinstance(listed, dict)
+        and listed.get("id") == WRITE_LIST
+        and listed.get("member") is True
+    )
+    return (tier, member)
 
 
 def _prune_expired(now: float) -> None:
@@ -111,26 +135,27 @@ def _prune_expired(now: float) -> None:
         _cache.pop(k, None)
 
 
-def resolve_tier_from_key(key: str | None) -> str:
-    """Classify a raw ``X-User-Key``. Empty/missing key → ``public``."""
+def resolve_caller(key: str | None) -> tuple[str, bool]:
+    """Classify a raw ``X-User-Key``: (tier, on ``tenhands-write``). Empty or
+    missing key → ``("public", False)``."""
     if not key:
-        return "public"
+        return ("public", False)
 
     overrides = _get_test_overrides()
     if overrides is not None:
-        return overrides.get(key, "public")
+        return overrides.get(key, ("public", False))
 
     now = time.monotonic()
     with _cache_lock:
         hit = _cache.get(key)
         if hit is not None:
-            tier, expires_at = hit
+            caller, expires_at = hit
             if expires_at > now:
-                return tier
+                return caller
 
-    fetched = _fetch_tier_from_whoami(key)
+    fetched = _fetch_from_whoami(key)
     if fetched is None:
-        return "public"
+        return ("public", False)
 
     with _cache_lock:
         _cache[key] = (fetched, now + CACHE_TTL_S)
@@ -144,3 +169,8 @@ def clear_cache() -> None:
     """Drop all cached tier results. For tests."""
     with _cache_lock:
         _cache.clear()
+
+
+def resolve_tier_from_key(key: str | None) -> str:
+    """Classify a raw ``X-User-Key`` by tier alone. Empty/missing key → ``public``."""
+    return resolve_caller(key)[0]

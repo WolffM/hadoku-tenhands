@@ -18,7 +18,15 @@ from middleware.whoami import clear_cache
 PREFIX = "/tenhands"
 FRIEND_KEY = "friend-key-abc"
 SERVICE_KEY = "service-key-xyz"
-_OVERRIDES = json.dumps({FRIEND_KEY: "friend", SERVICE_KEY: "service"})
+# Service tier, but not on tenhands-write: any other service key in the fleet.
+OUTSIDER_KEY = "outsider-key-qrs"
+ADMIN_OFF_LIST_KEY = "admin-key-off-list"
+_OVERRIDES = json.dumps({
+    FRIEND_KEY: "friend",
+    SERVICE_KEY: "service",
+    OUTSIDER_KEY: {"tier": "service", "member": False},
+    ADMIN_OFF_LIST_KEY: {"tier": "admin", "member": False},
+})
 
 
 @pytest.fixture(autouse=True)
@@ -107,3 +115,83 @@ def test_service_can_read(client):
     with patch("routes.health_routes.get_authenticated_user", return_value="WolffM"):
         resp = client.get(f"{PREFIX}/api/owner", headers={"X-User-Key": SERVICE_KEY})
     assert resp.status_code not in (401, 403)
+
+
+# ---- Writing also needs the tenhands-write list ----
+
+
+def test_service_key_off_the_list_cannot_write(client):
+    # Service tier is every service key in the fleet; the list names who
+    # operates tenhands.
+    resp = client.post(f"{PREFIX}/api/merge-pr", json={},
+                       headers={"X-User-Key": OUTSIDER_KEY})
+    assert resp.status_code == 403
+    assert resp.get_json().get("required_list") == "tenhands-write"
+
+
+def test_service_key_off_the_list_can_still_read(client):
+    with patch("routes.health_routes.get_authenticated_user", return_value="WolffM"):
+        resp = client.get(f"{PREFIX}/api/owner", headers={"X-User-Key": OUTSIDER_KEY})
+    assert resp.status_code not in (401, 403)
+
+
+def test_admin_off_the_list_is_not_exempt(client):
+    resp = client.post(f"{PREFIX}/api/merge-pr", json={},
+                       headers={"X-User-Key": ADMIN_OFF_LIST_KEY})
+    assert resp.status_code == 403
+
+
+
+# ---- whoami is asked about the list, and doubt is not membership ----
+
+
+class _Resp:
+    def __init__(self, body):
+        self.status = 200
+        self._b = json.dumps(body).encode()
+
+    def read(self):
+        return self._b
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+
+def _serve(monkeypatch, body):
+    import middleware.whoami as w
+
+    calls = []
+
+    def fake(req, timeout=None):
+        calls.append(req)
+        return _Resp(body)
+
+    monkeypatch.delenv("WHOAMI_TEST_OVERRIDES", raising=False)
+    monkeypatch.setattr(w.urllib.request, "urlopen", fake)
+    clear_cache()
+    return w, calls
+
+
+def test_whoami_is_asked_about_tenhands_write(monkeypatch):
+    w, calls = _serve(monkeypatch, {
+        "valid": True, "userType": "service",
+        "list": {"id": "tenhands-write", "member": True}})
+    assert w.resolve_caller("k1") == ("service", True)
+    assert calls[0].full_url.endswith("?list=tenhands-write")
+
+
+@pytest.mark.parametrize("listed", [
+    None,
+    {"id": "tenhands-write", "member": False},
+    {"id": "tenhands-write", "member": "true"},
+    {"id": "scraper-service", "member": True},
+])
+def test_not_a_member_on_any_doubt(monkeypatch, listed):
+    body = {"valid": True, "userType": "service"}
+    if listed is not None:
+        body["list"] = listed
+    w, _ = _serve(monkeypatch, body)
+    assert w.resolve_caller(f"k-{listed!r}") == ("service", False)

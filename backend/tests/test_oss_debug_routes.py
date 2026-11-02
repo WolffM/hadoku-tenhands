@@ -106,7 +106,7 @@ class TestDebugGate:
         no answer meant no gating at all.
         """
         monkeypatch.delenv("WHOAMI_TEST_OVERRIDES", raising=False)
-        monkeypatch.setattr("middleware.whoami._fetch_tier_from_whoami",
+        monkeypatch.setattr("middleware.whoami._fetch_from_whoami",
                             lambda _key: None)
         clear_cache()
         assert self._get(client, **{"X-User-Key": ADMIN_K}).status_code == 403

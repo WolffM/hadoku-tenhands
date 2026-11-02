@@ -64,7 +64,7 @@ def admit_authed_by_default(monkeypatch):
     """
     import app as _app
 
-    monkeypatch.setattr(_app, "resolve_tier_from_key", lambda _key: "admin")
+    monkeypatch.setattr(_app, "resolve_caller", lambda _key: ("admin", True))
 
 
 @pytest.fixture(autouse=True)
