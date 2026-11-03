@@ -325,6 +325,11 @@ def test_score_integration_real_cli(monkeypatch):
     resolved that is a **failure** with the broker's reason attached, because
     every cause — no key, sealed vault, missing ACL grant — is something to go
     fix rather than something to shrug past.
+
+    In CI it runs in its own `judge integration` job, not the required
+    `backend pytest` check (#107): every run spends the Claude account's
+    weekly quota, and an exhausted quota held the auto-merge gate red for days
+    on a failure no change could fix. Locally a plain `pytest` still runs it.
     """
     binary = _claude_binary()
     assert binary, (
