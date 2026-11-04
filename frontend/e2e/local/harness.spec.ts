@@ -63,7 +63,7 @@ test.describe('mock router', () => {
     }, API)
 
     expect(owner).toBe('someone-else')
-    expect(health).toBe('healthy') // still the default
+    expect(health).toBe('ok') // still the default
     expect(api.unmocked).toEqual([])
   })
 

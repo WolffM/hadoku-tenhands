@@ -62,7 +62,13 @@ export const ok = (extra: Record<string, unknown> = {}): ResponseBody => ({
 export const defaultRoutes: Table = {
   // ---- identity + health -------------------------------------------------
   'GET /api/owner': ok({ owner: d.mockOwner }),
-  'GET /api/healthcheck': ok({ status: 'healthy', owner: d.mockOwner, api_version: '2.0.0' }),
+  'GET /api/healthcheck': ok({
+    status: 'ok',
+    service: 'tenhands',
+    commit: null,
+    owner: d.mockOwner,
+    apiVersion: '2.0.0'
+  }),
   'GET /api/global-workflow-runs': ok({ runs: d.mockWorkflowRuns, owner: d.mockOwner }),
 
   // ---- vibecheck stages --------------------------------------------------

@@ -227,7 +227,7 @@ export function HealthCheckView() {
       {health && (
         <div className="health-status-card">
           <div className={`health-indicator health-indicator--${health.status}`}>
-            {health.status === 'healthy' ? <Icon name="check" /> : <Icon name="warning" />}{' '}
+            {health.status === 'ok' ? <Icon name="check" /> : <Icon name="warning" />}{' '}
             {health.status}
           </div>
           <div className="health-details">

@@ -48,7 +48,10 @@ export interface ActionResponse {
 
 export interface HealthCheckResponse {
   success: boolean
-  status: 'healthy' | 'degraded' | 'unhealthy'
+  status: 'ok' | 'degraded'
+  service: string
+  commit: string | null
+  commit_error?: string
   owner: string
   apiVersion: string
 }

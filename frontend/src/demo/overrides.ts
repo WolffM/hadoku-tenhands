@@ -156,7 +156,13 @@ const dossier: ResponseBody = {
 export const overrides: Table = {
   // ---- identity + health: rebrand owner to WolffM ------------------------
   'GET /api/owner': ok({ owner: OWNER }),
-  'GET /api/healthcheck': ok({ status: 'healthy', owner: OWNER, api_version: '2.0.0' }),
+  'GET /api/healthcheck': ok({
+    status: 'ok',
+    service: 'tenhands',
+    commit: null,
+    owner: OWNER,
+    apiVersion: '2.0.0'
+  }),
   'GET /api/global-workflow-runs': ok({ runs: workflowRuns, owner: OWNER }),
 
   // ---- vibecheck stages: rebrand owner -----------------------------------

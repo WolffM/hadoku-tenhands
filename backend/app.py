@@ -100,8 +100,10 @@ def _kill_port(port: int) -> None:
 # Import the blueprint with all routes registered
 try:
     from .routes import bp
+    from .routes.health_routes import health_response
 except ImportError:
     from routes import bp
+    from routes.health_routes import health_response
 
 # URL prefix for deployment behind edge-router (e.g. /tenhands/*)
 # Set URL_PREFIX="" for local development without prefix
@@ -138,6 +140,12 @@ def api_root():
     return jsonify({"message": "TenHands API", "docs": "/api/"})
 
 
+@app.route('/health')
+def health():
+    """hadoku health contract v1 — same body as {URL_PREFIX}/api/healthcheck."""
+    return health_response()
+
+
 # ============ Tier gate (whoami-delegation) ============
 # The tunnel origin (dispatch.hadoku.me) is publicly routable, so perimeter
 # gating at edge-router is not enough — every non-public route must gate
@@ -165,7 +173,8 @@ _WRITE_MIN_TIER = "service"
 
 # Unauthenticated by design:
 #   - the API-info root and the health endpoint are hit directly by the
-#     monitoring probe (dispatch.hadoku.me/ and /tenhands/api/healthcheck) and
+#     monitoring probe (dispatch.hadoku.me/, /health and its older alias
+#     /tenhands/api/healthcheck) and
 #     must stay reachable with no key, or the watchdog flaps;
 #   - /automation/presets publishes our lane vocabulary to hadoku-task, which
 #     fetches it server-side with no credential, and /automation/openapi.json
@@ -174,6 +183,7 @@ _WRITE_MIN_TIER = "service"
 #     routes/automation_routes.py.
 _PUBLIC_PATHS = frozenset({
     "/",
+    "/health",
     f"{URL_PREFIX}/api/healthcheck",
     f"{URL_PREFIX}/automation/presets",
     f"{URL_PREFIX}/automation/openapi.json",
