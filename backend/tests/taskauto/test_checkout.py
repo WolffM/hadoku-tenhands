@@ -458,6 +458,7 @@ def test_the_lock_excludes_a_separate_PROCESS(tmp_path):
         child.stdin.write("go\n")
         child.stdin.close()
         child.wait(timeout=10)
+        child.stdout.close()
 
     # And the kernel drops it when that process exits, so nothing is stale.
     with m.lock("WolffM/tenhands") as after:
@@ -487,6 +488,7 @@ def test_a_dead_holder_leaves_no_stale_lock(tmp_path):
     assert child.stdout.readline().strip() == "held"
     child.kill()                      # SIGKILL: no chance to clean up
     child.wait(timeout=10)
+    child.stdout.close()
 
     assert lock_path.exists(), "the file survives; only the lock should not"
     with m.lock("WolffM/tenhands") as got:
