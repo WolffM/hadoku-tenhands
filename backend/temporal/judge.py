@@ -19,6 +19,8 @@ All exceptions inherit from `JudgeError` so callers can catch the whole
 class. The two specific failures the gates need to distinguish:
   - `JudgeUnreachable`: subprocess failed, timed out, or canary failed.
     Gate maps this to `defer` with reason `system:judge_unreachable`.
+    Its subclass `JudgeQuotaExhausted` names the case where the CLI answered
+    with a usage/rate-limit message, and carries the reset time.
   - `JudgeParseError`: subprocess returned but output didn't contain valid
     JSON in the expected envelope. Gate maps this to `defer` with reason
     `system:judge_parse_error`.
@@ -61,6 +63,24 @@ class JudgeError(Exception):
 
 class JudgeUnreachable(JudgeError):
     """The CLI subprocess could not be invoked / canary failed / timed out."""
+
+
+class JudgeQuotaExhausted(JudgeUnreachable):
+    """The CLI answered, and the answer was "this account is out of quota".
+
+    A subclass of `JudgeUnreachable`, so every gate that defers on an
+    unreachable judge keeps doing exactly that. It exists for the callers that
+    must tell "the judge is broken" apart from "the judge is fine and the
+    account's usage limit ran out" — chiefly the real-CLI integration test,
+    which skips on this (with the reset time) and fails on everything else.
+
+    `resets` is the CLI's own wording of when the limit lifts, e.g.
+    "Nov 6, 3pm (America/Los_Angeles)", or None if the message didn't say.
+    """
+
+    def __init__(self, message: str, resets: str | None):
+        super().__init__(message)
+        self.resets = resets
 
 
 class JudgeParseError(JudgeError):
@@ -124,6 +144,30 @@ def _failure_detail(result: subprocess.CompletedProcess) -> str:
     return detail[:200]
 
 
+# The CLI's own wording when the account, not the code, is the problem:
+#   "You've hit your weekly limit · resets Nov 6, 3pm (America/Los_Angeles)"
+#   "5-hour limit reached ∙ resets 3pm"
+#   "Claude AI usage limit reached|1762470000"
+#   "API Error: 429 {... "type":"rate_limit_error" ...}"
+# Deliberately narrow: "Credit balance is too low", an expired token, or an
+# empty answer are things to go fix, and must stay plain `JudgeUnreachable`.
+_QUOTA_RE = re.compile(
+    r"hit your (?:\w+[- ])*limit|limit reached|usage limit|rate[ _]limit",
+    re.IGNORECASE,
+)
+_RESETS_RE = re.compile(r"\bresets\s+(?:at\s+)?([^\n]+)", re.IGNORECASE)
+
+
+def _unreachable(what: str, result: subprocess.CompletedProcess) -> JudgeUnreachable:
+    """The exception for a non-zero `claude` exit: quota, or genuinely broken."""
+    detail = _failure_detail(result)
+    message = f"{what} exit {result.returncode}: {detail}"
+    if _QUOTA_RE.search(detail):
+        resets = _RESETS_RE.search(detail)
+        return JudgeQuotaExhausted(message, resets.group(1).strip() if resets else None)
+    return JudgeUnreachable(message)
+
+
 # ── Canary ────────────────────────────────────────────────────────────────
 
 
@@ -145,9 +189,7 @@ def _canary_or_raise() -> None:
         raise JudgeUnreachable(f"claude binary not found: {CLAUDE_BIN}") from e
 
     if result.returncode != 0:
-        raise JudgeUnreachable(
-            f"canary exit {result.returncode}: {_failure_detail(result)}"
-        )
+        raise _unreachable("canary", result)
     if "OK" not in result.stdout:
         raise JudgeUnreachable(
             f"canary returned unexpected output: {result.stdout.strip()[:200]}"
@@ -272,9 +314,7 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
             raise JudgeUnreachable(f"judge call timed out after {JUDGE_TIMEOUT_S}s") from e
 
         if result.returncode != 0:
-            raise JudgeUnreachable(
-                f"judge exit {result.returncode}: {_failure_detail(result)}"
-            )
+            raise _unreachable("judge", result)
 
         parsed = _extract_json(result.stdout)
         return _coerce_result(parsed)
@@ -349,9 +389,7 @@ def generate_title(issue_title: str, fix_summary: str, files_touched: list[str])
             raise JudgeUnreachable(f"title judge timed out after {JUDGE_TIMEOUT_S}s") from e
 
     if result.returncode != 0:
-        raise JudgeUnreachable(
-            f"title judge exit {result.returncode}: {_failure_detail(result)}"
-        )
+        raise _unreachable("title judge", result)
 
     parsed = _extract_json(result.stdout)
     title = parsed.get("title") if isinstance(parsed, dict) else None

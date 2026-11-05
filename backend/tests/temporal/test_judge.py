@@ -4,10 +4,11 @@ Per the test plan in phase-1-plan.md step 1A.7:
   - 6 unit tests (canary + parse + coerce + exception classes)
   - 1 integration test against the locally-installed `claude` CLI
 
-The integration test does not skip. It fetches its own OAuth token from the
-vault via this repo's service-tier key, so a plain `pytest tests/` exercises
-the real CLI with no wrapper and no skip. See its docstring for why the old
-`skipif` was worse than no test at all.
+The integration test fetches its own OAuth token from the vault via this
+repo's service-tier key, so a plain `pytest tests/` exercises the real CLI with
+no wrapper. It skips in exactly one case — the CLI says the account is out of
+quota — and the skip reason carries the reset time. See its docstring for why
+the old credential `skipif` was worse than no test at all.
 """
 
 from __future__ import annotations
@@ -288,6 +289,108 @@ def test_exception_hierarchy():
     """All judge errors derive from JudgeError so callers can catch broadly."""
     assert issubclass(J.JudgeUnreachable, J.JudgeError)
     assert issubclass(J.JudgeParseError, J.JudgeError)
+    # Gates catch JudgeUnreachable and defer; quota must keep landing there.
+    assert issubclass(J.JudgeQuotaExhausted, J.JudgeUnreachable)
+
+
+# ── quota exhaustion is a named outcome, not a failure (#108) ────────────
+
+# Verbatim from run 41932921976, the run that held main red.
+WEEKLY_LIMIT = "You've hit your weekly limit · resets Nov 6, 3pm (America/Los_Angeles)"
+
+
+@pytest.mark.parametrize("stdout, resets", [
+    (WEEKLY_LIMIT, "Nov 6, 3pm (America/Los_Angeles)"),
+    ("5-hour limit reached ∙ resets 3pm", "3pm"),
+    ("Claude AI usage limit reached|1762470000", None),
+    ('API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}', None),
+])
+def test_canary_names_quota_exhaustion(monkeypatch, stdout, resets):
+    fake = MagicMock(returncode=1, stdout=stdout, stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
+
+    with pytest.raises(J.JudgeQuotaExhausted) as exc:
+        J._canary_or_raise()
+    assert exc.value.resets == resets
+
+
+@pytest.mark.parametrize("stdout", [
+    "auth failed",
+    "Credit balance is too low",
+    "Invalid API key · Please run /login",
+    "",
+])
+def test_canary_does_not_call_other_failures_quota(monkeypatch, stdout):
+    """Broken credentials, billing, or silence are things to fix: still a failure."""
+    fake = MagicMock(returncode=1, stdout=stdout, stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
+
+    with pytest.raises(J.JudgeUnreachable) as exc:
+        J._canary_or_raise()
+    assert not isinstance(exc.value, J.JudgeQuotaExhausted)
+
+
+def test_real_judge_call_names_quota_exhaustion(monkeypatch):
+    """The canary can pass and the real call still hit the limit."""
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
+
+    def fake_run(args, timeout, *, stdin_text=None):
+        if stdin_text is None:
+            return MagicMock(returncode=0, stdout="OK", stderr="")
+        return MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
+
+    monkeypatch.setattr(J, "_run_claude", fake_run)
+    with pytest.raises(J.JudgeQuotaExhausted, match="judge exit 1"):
+        J.score("rubric", "payload")
+
+
+def test_integration_outcome_on_weekly_limit_is_skipped_not_failed(monkeypatch):
+    """The exact message that held main red becomes a skip that says when it lifts.
+
+    Drives `_score_or_skip_on_quota`, the same call the real-CLI test makes,
+    with only the subprocess faked.
+    """
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
+    fake = MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+    with pytest.raises(pytest.skip.Exception) as exc:
+        _score_or_skip_on_quota("rubric", "payload")
+    assert "quota exhausted" in str(exc.value)
+    assert "resets Nov 6, 3pm (America/Los_Angeles)" in str(exc.value)
+
+
+@pytest.mark.parametrize("failure", [
+    FileNotFoundError("claude"),
+    MagicMock(returncode=1, stdout="Invalid API key · Please run /login", stderr=""),
+])
+def test_integration_outcome_on_broken_judge_still_fails(monkeypatch, failure):
+    """A missing binary or a broken judge is not a quota skip."""
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
+
+    def fake_run(args, timeout, **kwargs):
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    monkeypatch.setattr(J, "_run_claude", fake_run)
+    with pytest.raises(J.JudgeUnreachable) as exc:
+        _score_or_skip_on_quota("rubric", "payload")
+    assert not isinstance(exc.value, J.JudgeQuotaExhausted)
+
+
+def test_quota_skip_is_written_to_the_step_summary(monkeypatch, tmp_path):
+    """In Actions the reason must be visible on the run page, not only in the log."""
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
+    fake = MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
+    monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
+
+    with pytest.raises(pytest.skip.Exception):
+        _score_or_skip_on_quota("rubric", "payload")
+    assert "Nov 6, 3pm (America/Los_Angeles)" in summary.read_text()
 
 
 # ── integration test against the real claude CLI ─────────────────────────
@@ -300,6 +403,27 @@ def _claude_binary() -> str:
         return found
     home_bin = os.path.expanduser("~/.npm-global/bin/claude")
     return home_bin if os.path.exists(home_bin) else ""
+
+
+def _score_or_skip_on_quota(rubric: str, payload: str) -> J.JudgeResult:
+    """`J.score`, except an exhausted account quota skips instead of failing.
+
+    Quota is the one outcome no change in this repo can fix, and failing on it
+    held main red from 2026-11-04 until the reset (#108). Everything else —
+    missing binary, bad token, timeout, unparseable answer — still raises.
+    The skip reason, and the Actions step summary, carry the reset time.
+    """
+    try:
+        return J.score(rubric, payload)
+    except J.JudgeQuotaExhausted as e:
+        when = f"resets {e.resets}" if e.resets else "reset time not given"
+        reason = f"Claude account quota exhausted ({when}); judge not exercised: {e}"
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as f:
+                f.write(f"### Judge integration skipped: quota exhausted\n\n{when}.\n\n"
+                        f"```\n{e}\n```\n")
+        pytest.skip(reason)
 
 
 def test_score_integration_real_cli(monkeypatch):
@@ -330,6 +454,9 @@ def test_score_integration_real_cli(monkeypatch):
     `backend pytest` check (#107): every run spends the Claude account's
     weekly quota, and an exhausted quota held the auto-merge gate red for days
     on a failure no change could fix. Locally a plain `pytest` still runs it.
+
+    And when the quota *is* exhausted it skips, by name, with the reset time
+    (#108) — see `_score_or_skip_on_quota`. That is the only skip it has.
     """
     binary = _claude_binary()
     assert binary, (
@@ -359,7 +486,7 @@ Score the input on a single criterion: does it contain the word "hello"?
 
 Output a fenced ```json block with keys: verdict, score, reasoning."""
 
-    result = J.score(rubric, "the payload says hello world")
+    result = _score_or_skip_on_quota(rubric, "the payload says hello world")
     assert isinstance(result, J.JudgeResult)
     assert result.verdict in ("pass", "fail", "defer")
     assert 0.0 <= result.score <= 1.0

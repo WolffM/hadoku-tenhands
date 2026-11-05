@@ -122,6 +122,11 @@ jobs:
     # fails loudly; it is just not in the required contexts. Keep it that way:
     # do not add this job's name to the branch-protection required checks.
     #
+    # A spent quota itself is a named SKIP, not a failure (#108): the judge
+    # raises JudgeQuotaExhausted on the CLI's usage/rate-limit answer, and the
+    # test skips with the reset time — in the log (`-rs`) and the step summary.
+    # A missing binary, bad token or broken judge still turns this job red.
+    #
     # Same author_association gate and same host as `backend`, for the same
     # reasons, plus one more: this job holds a live credential.
     if: >-
@@ -172,7 +177,7 @@ jobs:
           # only to override. The step above fails the job if it resolves to
           # nothing.
           CRIMSON_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || 'claude' }}
-        run: ../.venv-ci/bin/python -m pytest tests/temporal/test_judge.py::test_score_integration_real_cli -q
+        run: ../.venv-ci/bin/python -m pytest tests/temporal/test_judge.py::test_score_integration_real_cli -q -rs
 
   frontend:
     name: frontend lint + typecheck
