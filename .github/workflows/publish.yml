@@ -53,6 +53,23 @@ jobs:
           corepack prepare pnpm@11.5.0 --activate
           pnpm --version
 
+      # EVERY pnpm call in this job uses this one store, which is why it is set in the
+      # env and not passed as a flag to install.
+      #
+      # The store is the runner instance's own tool_cache, so concurrent instances on
+      # one claw stop racing a shared store (c13118d). pnpm 11 ignores `store-dir` in
+      # .npmrc, the path differs per instance so it cannot live in pnpm-workspace.yaml,
+      # and `npm_config_store_dir` is not read. `pnpm_config_store_dir` is.
+      #
+      # When install was the only call that got the store, `pnpm run build` broke
+      # (#109). Version rewrites package.json, so pnpm 11's verifyDepsBeforeRun
+      # reinstalls before the script runs. With the default store, that reinstall
+      # recreated node_modules from scratch. It also used setup-node's placeholder
+      # NODE_AUTH_TOKEN, so it 401'd on any @wolffm/* version the default store had
+      # not seen. When both calls share one store, that reinstall is a no-op.
+      - name: Pin pnpm's store for every pnpm call
+        run: echo "pnpm_config_store_dir=${{ runner.tool_cache }}/pnpm-store" >> "$GITHUB_ENV"
+
       - name: Registry token from the vault
         uses: WolffM/hadoku-actions/vault-fetch@v1
         with:
@@ -63,7 +80,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: pnpm --config.store-dir=${{ runner.tool_cache }}/pnpm-store install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ env.HADOKU_NPM_READ_TOKEN }}
 
