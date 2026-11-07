@@ -58,8 +58,9 @@ REQUEST_TIMEOUT_S = 5.0
 # A tier missing here is NOT rejected loudly — `_classify` below rewrites it to
 # "public", so the caller authenticates at the edge and then silently receives
 # the anonymous view: no 401, no 403, no log line. `wife` (2026-08-04) ranks
-# above service and was exactly that case. Keep it complete.
-_VALID_TIERS = ("admin", "wife", "service", "friend", "public")
+# above service and was exactly that case, and `member` (2026-10-28) was
+# another. Keep it complete.
+_VALID_TIERS = ("admin", "wife", "service", "friend", "member", "public")
 
 # key → ((tier, on WRITE_LIST), expiry)
 _cache: dict[str, tuple[tuple[str, bool], float]] = {}
@@ -69,14 +70,30 @@ _cache_lock = Lock()
 def tier_rank(tier: str) -> int:
     """Privilege rank for a tier: higher = more privileged.
 
-    admin=4, wife=3, service=2, friend=1, public=0. An unknown tier ranks as
-    public (0) — the same fail-closed default `_classify` applies, so a tier the
-    ladder doesn't know can never out-rank a real one.
+    admin=5, wife=4, service=3, friend=2, member=1, public=0. An unknown tier
+    ranks as public (0) — the same fail-closed default `_classify` applies, so
+    a tier the ladder doesn't know can never out-rank a real one.
     """
     try:
         return len(_VALID_TIERS) - 1 - _VALID_TIERS.index(tier)
     except ValueError:
         return 0
+
+
+def assert_floor(tier: str) -> str:
+    """A tier floor used as a gate's requirement must be a real, non-public
+    tier this build knows about.
+
+    `tier_rank` ranks an unknown name — or a typo — the same as ``public``
+    (0), so a floor value that isn't a recognised, above-public tier would
+    silently fail open rather than raise. Call this at import time for any
+    hardcoded floor constant, so a future edit to the ladder or the constant
+    is caught at boot rather than discovered later.
+    """
+    if tier == "public" or tier not in _VALID_TIERS:
+        known = ", ".join(t for t in _VALID_TIERS if t != "public")
+        raise ValueError(f"{tier!r} is not a tier floor this build knows (one of {known})")
+    return tier
 
 
 def _get_test_overrides() -> dict[str, tuple[str, bool]] | None:

@@ -163,13 +163,15 @@ def health():
 #     Admin is not exempt: the operator is on the list.
 # The debug routes keep their own stricter admin gate on top of this.
 try:
-    from .middleware.whoami import WRITE_LIST, resolve_caller, tier_rank
+    from .middleware.whoami import WRITE_LIST, assert_floor, resolve_caller, tier_rank
 except ImportError:
-    from middleware.whoami import WRITE_LIST, resolve_caller, tier_rank
+    from middleware.whoami import WRITE_LIST, assert_floor, resolve_caller, tier_rank
 
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
-_READ_MIN_TIER = "friend"
-_WRITE_MIN_TIER = "service"
+# assert_floor fails at import if either constant is ever edited to a tier
+# the ladder doesn't know (or to "public") — see whoami.py.
+_READ_MIN_TIER = assert_floor("friend")
+_WRITE_MIN_TIER = assert_floor("service")
 
 # Unauthenticated by design:
 #   - the API-info root and the health endpoint are hit directly by the
