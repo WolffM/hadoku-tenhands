@@ -219,17 +219,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      # setup-pnpm pins pnpm_config_store_dir for the whole job, so pnpm 11's
+      # pre-run reinstall never fetches under setup-node's placeholder
+      # NODE_AUTH_TOKEN (ERR_PNPM_FETCH_401, hadoku-actions#5).
+      - uses: WolffM/hadoku-actions/setup-pnpm@v1
+        id: pnpm
         with:
-          node-version: '22'
-          registry-url: https://npm.pkg.github.com
-          scope: '@wolffm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.5.0 --activate
+          npm-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
         working-directory: frontend
@@ -241,7 +237,7 @@ jobs:
           # logger) is PUBLIC. No PAT to mint, rotate, or leak on a hosted
           # runner. If a private package ever enters the tree this breaks loudly
           # at install; the fix is a read:packages PAT, never HADOKU_SITE_TOKEN.
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
 
       # Prettier drift is not cosmetic in a repo whose pre-commit hook runs
       # `format --write`: seven files had drifted, so the next person to commit
@@ -312,21 +308,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      # setup-pnpm pins pnpm_config_store_dir for the whole job, so pnpm 11's
+      # pre-run reinstall never fetches under setup-node's placeholder
+      # NODE_AUTH_TOKEN (ERR_PNPM_FETCH_401, hadoku-actions#5).
+      - uses: WolffM/hadoku-actions/setup-pnpm@v1
+        id: pnpm
         with:
-          node-version: '22'
-          registry-url: https://npm.pkg.github.com
-          scope: '@wolffm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          npm-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.5.0 --activate
 
       # playwright.config.ts starts the real Flask backend as a webServer and
       # resolves its interpreter at <repo>/.venv/bin/python, falling back to a
@@ -342,7 +334,7 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
 
       # Only chromium — the `local` project is Desktop Chrome and nothing else.
       # No --with-deps: it shells out to sudo for apt, and `hadoku-builder`
