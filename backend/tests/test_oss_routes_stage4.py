@@ -31,6 +31,18 @@ PREFIX = "/tenhands"
 # ============ Stage 4: Review on Fork ============
 
 
+@pytest.fixture(autouse=True)
+def no_pr_comments():
+    """No PR comments, rather than real ones from GitHub.
+
+    Merging a fork PR first archives the PR's comments (`_capture_fork_pr_comments`),
+    which fetches them through its own `run_gh_command` binding in
+    `pipeline_retrospective` — the route-level patch doesn't cover it.
+    """
+    with patch("routes.oss_routes_stage4.fetch_pr_comments", return_value=[]) as mock_fetch:
+        yield mock_fetch
+
+
 class TestStage4ForkPRs:
     """Tests for GET /api/oss/stage4-fork-prs."""
 

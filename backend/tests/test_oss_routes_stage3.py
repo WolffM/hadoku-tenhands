@@ -46,6 +46,21 @@ def _fork_assign_gh_mock(
     return side_effect
 
 
+@pytest.fixture(autouse=True)
+def stub_gh_preflight():
+    """Never let a fork-and-assign test reach the real `gh` (#110).
+
+    The route's preflight reads `gh api rate_limit` before it gets anywhere
+    near the dedup or fork logic, so a test that didn't patch
+    `run_gh_command` went red whenever the fleet's shared quota hit 0. Tests
+    that need specific gh responses still `@patch` it themselves; their
+    decorator applies after this fixture and wins.
+    """
+    with patch("routes.oss_routes_stage3.run_gh_command",
+               side_effect=_fork_assign_gh_mock()) as mock_gh:
+        yield mock_gh
+
+
 PREFIX = "/tenhands"
 
 

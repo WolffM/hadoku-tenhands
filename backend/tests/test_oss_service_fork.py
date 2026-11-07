@@ -60,6 +60,19 @@ class TestForkManagement:
 class TestForkSettings:
     """Tests for configure_fork_settings and approve_pending_workflow_runs."""
 
+    @pytest.fixture(autouse=True)
+    def stub_runner_and_firewall(self):
+        """Keep configure_fork_settings' last two steps off the real GitHub.
+
+        Both use their own module's `run_gh_command`, which the
+        `services.oss_fork` patch doesn't reach, and the firewall toggle falls
+        back to launching `disable-copilot-firewall.py` (a real browser against
+        github.com) from a daemon thread that outlives the test.
+        """
+        with patch.object(OSSService, "_ensure_self_hosted_runner"), \
+                patch.object(OSSService, "_disable_copilot_firewall"):
+            yield
+
     @patch("services.oss_fork.run_gh_command")
     def test_configure_fork_settings_enables_issues(self, mock_gh):
         mock_gh.return_value = {"success": True, "output": "{}"}

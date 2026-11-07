@@ -31,6 +31,19 @@ PREFIX = "/tenhands"
 # ============ Poll Submitted PRs ============
 
 
+@pytest.fixture(autouse=True)
+def no_pr_comments():
+    """No PR comments, rather than real ones from GitHub.
+
+    Polling a submitted PR fetches its comments through `pipeline_retrospective`'s
+    own `run_gh_command` binding, which the route-level patch doesn't cover. Unstubbed,
+    it read live comments off real repos (vercel/next.js#200), so notification
+    behaviour depended on what strangers had posted there.
+    """
+    with patch("routes.oss_routes_stage5.fetch_pr_comments", return_value=[]) as mock_fetch:
+        yield mock_fetch
+
+
 class TestPollSubmittedPRs:
     """Tests for POST /api/oss/poll-submitted-prs — state detection and notifications."""
 

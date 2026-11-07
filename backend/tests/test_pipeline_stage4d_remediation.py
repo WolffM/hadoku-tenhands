@@ -7,6 +7,8 @@ import pytest
 from services.pipeline_orchestrator import PipelineOrchestrator
 from tests.conftest import make_assignment, MockDispatcher
 
+pytestmark = pytest.mark.usefixtures("offline_orchestrator")
+
 
 class TestOrchestratorRemediation:
     """Tests for remediation (4d) dispatch and skip logic."""

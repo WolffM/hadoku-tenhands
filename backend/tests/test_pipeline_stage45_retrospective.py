@@ -7,6 +7,8 @@ import pytest
 from services.pipeline_orchestrator import PipelineOrchestrator
 from tests.conftest import make_assignment, MockDispatcher
 
+pytestmark = pytest.mark.usefixtures("offline_orchestrator")
+
 
 class TestOrchestratorRetrospective:
     """Tests for retrospective logging (4.5)."""

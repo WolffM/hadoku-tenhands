@@ -104,6 +104,11 @@ def _fake_gh(args, stdin_data=None):
     return {"success": True, "output": "{}"}
 
 
+def _fake_issue_signals_gh(args, stdin_data=None):
+    """A quiet upstream issue: no comments, timeline events or sub-issues."""
+    return {"success": True, "output": "[]"}
+
+
 def _fake_judge_score(rubric: str, payload: str) -> JudgeResult:
     return JudgeResult(
         verdict="pass", score=0.92,
@@ -294,9 +299,16 @@ async def real_replicate(inp: ReplicateInput) -> dict:
 
 @activity.defn(name="run_gates")
 async def real_run_gates(inp: GateInput) -> list[dict]:
-    """Run the real gate registry with judge calls patched out."""
+    """Run the real gate registry with judge and GitHub calls patched out.
+
+    The actionability gate takes its gh and judge seams as defaults rather
+    than module names, so it is patched at `_default_*`. Unpatched, it read
+    microsoft/markitdown#183's live comments/timeline/sub-issues.
+    """
     with patch("temporal.gates.fix.judge_score", _fake_judge_score), \
-         patch("temporal.gates.submission.judge_score", _fake_judge_score):
+         patch("temporal.gates.submission.judge_score", _fake_judge_score), \
+         patch("temporal.gates.actionability._default_judge_score", _fake_judge_score), \
+         patch("temporal.gates.actionability._default_run_gh", _fake_issue_signals_gh):
         from temporal.gates import IssueRef as GateIssueRef
         from temporal.gates import run_gates as run_gates_fn
         from temporal.gates import (  # noqa: F401  — populates the registry

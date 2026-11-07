@@ -426,6 +426,7 @@ def _score_or_skip_on_quota(rubric: str, payload: str) -> J.JudgeResult:
         pytest.skip(reason)
 
 
+@pytest.mark.real_egress
 def test_score_integration_real_cli(monkeypatch):
     """Hit the real claude CLI with a tiny rubric + payload.
 

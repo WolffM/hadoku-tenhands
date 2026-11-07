@@ -5,6 +5,8 @@ import pytest
 from services.pipeline_orchestrator import PipelineOrchestrator
 from tests.conftest import make_assignment, MockDispatcher
 
+pytestmark = pytest.mark.usefixtures("offline_orchestrator")
+
 
 class TestOrchestratorSWECompletion:
     """Tests for SWE agent (4a) completion detection."""

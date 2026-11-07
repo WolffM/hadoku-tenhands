@@ -7,6 +7,8 @@ import pytest
 from services.pipeline_orchestrator import PipelineOrchestrator, PIPELINE_STATES
 from tests.conftest import make_assignment, MockDispatcher
 
+pytestmark = pytest.mark.usefixtures("offline_orchestrator")
+
 
 class TestPipelineStates:
     """Test that pipeline states are defined correctly."""
