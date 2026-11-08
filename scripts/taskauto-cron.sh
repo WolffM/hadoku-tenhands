@@ -219,7 +219,13 @@ fi
 # has stored for this user. Fail loudly rather than silently not sweeping —
 # a backstop that stopped working without saying so is the failure mode this
 # whole file exists to prevent.
-if [ -z "${GH_TOKEN:-}" ] && ! gh auth status >/dev/null 2>&1; then
+#
+# `gh auth token`, NOT `gh auth status`: status validates the token against
+# GitHub over the network, so an API blip, a drained rate budget or a moment
+# of mgmt-api being down was recorded as "not authenticated" (#111). `token`
+# only reads the stored credential. Whether GitHub is reachable is the
+# dispatch's question, and it reports that failure with gh's own error below.
+if [ -z "${GH_TOKEN:-}" ] && ! gh auth token >/dev/null 2>&1; then
   fail "gh is not authenticated and GH_TOKEN is unset — backstop sweep did NOT run"
 fi
 
@@ -297,9 +303,11 @@ fi
 
 # `live=true mode=pr` matches what the workflow does on its own triggers:
 # open a pull request, never merge. A human still presses the button.
-if gh workflow run taskauto.yml --repo "$REPO" -f live=true -f mode=pr; then
+# gh's stderr goes into the failure reason, so a network error is recorded as
+# a network error rather than as a bare "could not dispatch".
+if dispatch_err=$(gh workflow run taskauto.yml --repo "$REPO" -f live=true -f mode=pr 2>&1 >/dev/null); then
   log "backstop sweep dispatched"
   recovered_if_needed
 else
-  fail "could not dispatch the backstop sweep"
+  fail "could not dispatch the backstop sweep: $(printf '%s' "$dispatch_err" | tr '\n' ' ' | cut -c1-300)"
 fi
