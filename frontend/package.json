@@ -68,7 +68,7 @@
     "@wolffm/catalogue": "^1.0.13",
     "@wolffm/logger": "^1.4.4",
     "@wolffm/task-ui-components": "^4.23.31",
-    "@wolffm/themes": "^5.13.46",
+    "@wolffm/themes": "^5.14.0",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
