@@ -40,7 +40,7 @@ def test_validate_judge_credentials_passes_when_token_set(monkeypatch):
 
 def test_validate_judge_credentials_raises_when_token_missing(monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
-    with pytest.raises(cfg.MissingConfigError, match="CLAUDE_CODE_OAUTH_TOKEN"):
+    with pytest.raises(cfg.MissingConfigError, match="CLAUDE_OAUTH_TOKEN_<ACCOUNT>"):
         cfg.validate_judge_credentials()
 
 
@@ -48,3 +48,9 @@ def test_validate_judge_credentials_treats_whitespace_as_missing(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "   ")
     with pytest.raises(cfg.MissingConfigError):
         cfg.validate_judge_credentials()
+
+
+def test_validate_judge_credentials_accepts_a_pooled_token_alone(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_MATTH", "sk-ant-oat01-fake")
+    cfg.validate_judge_credentials()  # no raise

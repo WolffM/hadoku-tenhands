@@ -165,6 +165,26 @@ def admit_authed_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_claude_token_pool(monkeypatch, tmp_path):
+    """Each test gets its own token bench file and no pooled tokens.
+
+    The pool (`temporal/claude_tokens.py`) remembers benched tokens in
+    `~/.taskauto/claude-tokens.json`, shared with the live services; a test
+    faking a quota failure would otherwise bench a real token on the host.
+    Run under dev-vault, the environment also holds the real
+    `CLAUDE_OAUTH_TOKEN_<ACCOUNT>` items, which would make "no token set"
+    tests pass or fail by who ran them. Tests that want pooled tokens set them.
+    """
+    from temporal import claude_tokens
+
+    monkeypatch.setenv("TASKAUTO_TOKEN_STATE", str(tmp_path / "claude-tokens.json"))
+    for name in list(os.environ):
+        if name.startswith(claude_tokens.PREFIX):
+            monkeypatch.delenv(name)
+    monkeypatch.setattr(claude_tokens, "_default_notify", lambda title, description: None)
+
+
+@pytest.fixture(autouse=True)
 def no_real_judge_title(monkeypatch):
     """Force `generate_title` to the JudgeUnreachable fallback in every test.
 

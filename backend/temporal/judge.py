@@ -1,8 +1,8 @@
 """LLM judge wrapper — spawns the local `claude` CLI subprocess.
 
-Uses the existing Claude Max subscription via the `CLAUDE_CODE_OAUTH_TOKEN`
-env var (no Anthropic API key, no per-call billing). The CLI is installed
-once per host; the token is set once per process (loaded from `.env`).
+Uses the Claude subscriptions' OAuth tokens (no Anthropic API key, no
+per-call billing), drawn from the pool in `claude_tokens.py`: a token that is
+out of quota or rejected is benched and the call moves to the next one.
 
 Concurrency: a module-level semaphore caps simultaneous subprocesses at
 `MAX_CONCURRENT_JUDGES` (default 3). Each call:
@@ -37,7 +37,9 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 
+from . import claude_tokens
 from .config import validate_judge_credentials
 
 
@@ -107,11 +109,12 @@ def _run_claude(
     timeout: int,
     *,
     stdin_text: str | None = None,
+    token: claude_tokens.Token | None = None,
 ) -> subprocess.CompletedProcess:
     """Run the `claude` CLI. Isolated so tests can monkeypatch it.
 
-    The OAuth token is inherited from the parent process env (`.env`-loaded
-    via dotenv before the worker starts).
+    `token` is the pool's choice, passed as CLAUDE_CODE_OAUTH_TOKEN. None
+    inherits the parent's environment unchanged.
 
     Pass large prompts via `stdin_text` rather than `-p <prompt>` — on
     Windows, CreateProcess rejects command lines over ~32KB with "The
@@ -119,9 +122,15 @@ def _run_claude(
     rubric + payload happens to exceed that ceiling (typical for real
     fix diffs).
     """
+    env = None
+    if token is not None:
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(claude_tokens.PREFIX)}
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token.value
     return subprocess.run(
         [CLAUDE_BIN, *args],
         input=stdin_text,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",  # B18: Windows defaults to cp1252 which chokes on `≥` etc
@@ -144,26 +153,15 @@ def _failure_detail(result: subprocess.CompletedProcess) -> str:
     return detail[:200]
 
 
-# The CLI's own wording when the account, not the code, is the problem:
-#   "You've hit your weekly limit · resets Nov 6, 3pm (America/Los_Angeles)"
-#   "5-hour limit reached ∙ resets 3pm"
-#   "Claude AI usage limit reached|1762470000"
-#   "API Error: 429 {... "type":"rate_limit_error" ...}"
-# Deliberately narrow: "Credit balance is too low", an expired token, or an
-# empty answer are things to go fix, and must stay plain `JudgeUnreachable`.
-_QUOTA_RE = re.compile(
-    r"hit your (?:\w+[- ])*limit|limit reached|usage limit|rate[ _]limit",
-    re.IGNORECASE,
-)
-_RESETS_RE = re.compile(r"\bresets\s+(?:at\s+)?([^\n]+)", re.IGNORECASE)
-
-
 def _unreachable(what: str, result: subprocess.CompletedProcess) -> JudgeUnreachable:
     """The exception for a non-zero `claude` exit: quota, or genuinely broken."""
     detail = _failure_detail(result)
     message = f"{what} exit {result.returncode}: {detail}"
-    if _QUOTA_RE.search(detail):
-        resets = _RESETS_RE.search(detail)
+    # The quota wording lives with the pool, which benches on it. An expired
+    # token, "Credit balance is too low" or an empty answer stay plain
+    # `JudgeUnreachable`.
+    if claude_tokens.QUOTA_RE.search(detail):
+        resets = claude_tokens.RESETS_RE.search(detail)
         return JudgeQuotaExhausted(message, resets.group(1).strip() if resets else None)
     return JudgeUnreachable(message)
 
@@ -171,7 +169,7 @@ def _unreachable(what: str, result: subprocess.CompletedProcess) -> JudgeUnreach
 # ── Canary ────────────────────────────────────────────────────────────────
 
 
-def _canary_or_raise() -> None:
+def _canary_or_raise(token: claude_tokens.Token | None = None) -> None:
     """Tiny health check before every real judge call.
 
     Catches quota exhaustion, expired token, missing binary, and host
@@ -182,6 +180,7 @@ def _canary_or_raise() -> None:
         result = _run_claude(
             ["-p", CANARY_PROMPT, "--model", CANARY_MODEL],
             timeout=CANARY_TIMEOUT_S,
+            token=token,
         )
     except subprocess.TimeoutExpired as e:
         raise JudgeUnreachable(f"canary timed out after {CANARY_TIMEOUT_S}s") from e
@@ -277,6 +276,60 @@ def _coerce_result(parsed: dict) -> JudgeResult:
     return JudgeResult(verdict=verdict, score=score_f, reasoning=reasoning, raw=parsed)
 
 
+# ── Token pool ────────────────────────────────────────────────────────────
+
+
+def _on_pool(call):
+    """Run `call(token)` on the first usable token, moving on when one is spent.
+
+    A `JudgeUnreachable` that is the token's fault (out of quota, rejected)
+    benches it and tries the next; any other failure is raised as it is. When
+    every token was already benched before the call, the error says so:
+    `JudgeQuotaExhausted` (carrying the earliest reset) if all of them are only
+    out of quota.
+    """
+    pool = claude_tokens.default_pool()
+
+    def exhausted(e: claude_tokens.PoolExhausted) -> JudgeUnreachable:
+        if e.quota_only:
+            when = (datetime.fromtimestamp(e.earliest).astimezone().isoformat(timespec="minutes")
+                    if e.earliest else None)
+            return JudgeQuotaExhausted(str(e), when)
+        return JudgeUnreachable(str(e))
+
+    try:
+        attempts = pool.available() or [None]
+    except claude_tokens.PoolExhausted as e:
+        raise exhausted(e) from e
+
+    last: JudgeUnreachable | None = None
+    for token in attempts:
+        try:
+            return call(token)
+        except JudgeUnreachable as e:
+            if pool.bench_if_token_problem(token, str(e)) is None:
+                raise
+            last = e
+    # Every token this call tried was spent. The last one's own error is the
+    # most useful thing to raise: it carries the CLI's wording of when the
+    # limit lifts, which the pool's summary would only paraphrase.
+    assert last is not None
+    raise last
+
+
+def canary_all() -> list[dict]:
+    """Canary every configured token. Diagnostic; costs one haiku call each."""
+    rows = []
+    for token in claude_tokens.load_tokens():
+        try:
+            _canary_or_raise(token)
+            rows.append({"label": token.label, "reachable": True})
+        except JudgeError as e:
+            rows.append({"label": token.label, "reachable": False,
+                         "error_class": type(e).__name__, "error_message": str(e)[:300]})
+    return rows
+
+
 # ── Public API ────────────────────────────────────────────────────────────
 
 
@@ -295,9 +348,8 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
 
     prompt = _compose_prompt(rubric_md, input_payload)
 
-    with _semaphore:
-        _canary_or_raise()
-
+    def attempt(token):
+        _canary_or_raise(token)
         try:
             # Pass prompt via stdin — real fix diffs blow the ~32KB
             # Windows CreateProcess argv ceiling when sent as `-p <prompt>`.
@@ -309,15 +361,20 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
                 ],
                 timeout=JUDGE_TIMEOUT_S,
                 stdin_text=prompt,
+                token=token,
             )
         except subprocess.TimeoutExpired as e:
             raise JudgeUnreachable(f"judge call timed out after {JUDGE_TIMEOUT_S}s") from e
 
         if result.returncode != 0:
             raise _unreachable("judge", result)
+        return result
 
-        parsed = _extract_json(result.stdout)
-        return _coerce_result(parsed)
+    with _semaphore:
+        result = _on_pool(attempt)
+
+    parsed = _extract_json(result.stdout)
+    return _coerce_result(parsed)
 
 
 def _compose_prompt(rubric_md: str, input_payload: str) -> str:
@@ -377,19 +434,23 @@ def generate_title(issue_title: str, fix_summary: str, files_touched: list[str])
 
     prompt = f"{_TITLE_PROMPT}\n\n---\n\n## Input\n\n{payload}"
 
-    with _semaphore:
-        _canary_or_raise()
+    def attempt(token):
+        _canary_or_raise(token)
         try:
             result = _run_claude(
                 ["-p", "--model", JUDGE_MODEL, "--output-format", "json"],
                 timeout=JUDGE_TIMEOUT_S,
                 stdin_text=prompt,
+                token=token,
             )
         except subprocess.TimeoutExpired as e:
             raise JudgeUnreachable(f"title judge timed out after {JUDGE_TIMEOUT_S}s") from e
+        if result.returncode != 0:
+            raise _unreachable("title judge", result)
+        return result
 
-    if result.returncode != 0:
-        raise _unreachable("title judge", result)
+    with _semaphore:
+        result = _on_pool(attempt)
 
     parsed = _extract_json(result.stdout)
     title = parsed.get("title") if isinstance(parsed, dict) else None

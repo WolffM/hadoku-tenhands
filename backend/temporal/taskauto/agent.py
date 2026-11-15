@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from .. import claude_tokens
 from . import proc
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,20 @@ class AgentUnavailable(AgentError):
     run, which turns the health check red — the honest signal, because the
     pipeline really is down until someone replaces the credential.
     """
+
+
+class AgentQuotaExhausted(AgentUnavailable):
+    """Every Claude token is out of quota. Nothing is broken; it is waiting.
+
+    A subclass of `AgentUnavailable` because the response is the same — stop
+    the sweep, every remaining task would hit the same wall — but a caller
+    that wants to say "waiting for a reset" rather than "fix the credential"
+    can tell them apart. `earliest` is when the first token comes back (epoch).
+    """
+
+    def __init__(self, message: str, earliest: Optional[float]):
+        super().__init__(message)
+        self.earliest = earliest
 
 
 @dataclass
@@ -173,6 +188,51 @@ class ClaudeCodeAgent:
     timeout_s: int = DEFAULT_TIMEOUT_S
     run: Callable[..., AgentRun] = _default_run
     git: Optional[Callable[..., object]] = None
+    #: Built per call from the environment when not given, so a token the
+    #: wrapper adds is used without rebuilding the agent.
+    tokens: Optional[claude_tokens.TokenPool] = None
+
+    @staticmethod
+    def _attempts(pool: claude_tokens.TokenPool) -> list[Optional[claude_tokens.Token]]:
+        """The tokens to try, in order; [None] when none is configured.
+
+        None runs once with the scrubbed env as it stands, so a missing token
+        surfaces as the CLI's own authentication error, exactly as before the
+        pool existed.
+        """
+        try:
+            return pool.available() or [None]
+        except claude_tokens.PoolExhausted as e:
+            if e.quota_only:
+                raise AgentQuotaExhausted(str(e), e.earliest) from e
+            raise AgentUnavailable(str(e)) from e
+
+    @staticmethod
+    def _env_for(token: Optional[claude_tokens.Token]) -> dict:
+        return scrubbed_env({"CLAUDE_CODE_OAUTH_TOKEN": token.value} if token else None)
+
+    def _run_on_pool(self, args: Sequence[str], checkout: Path, timeout: int,
+                     prompt: str, *, retry_if: Callable[[AgentRun], bool]) -> AgentRun:
+        """Run on the first usable token; move to the next when this one is spent.
+
+        A run that failed because of its token (out of quota, rejected) benches
+        that token and, when `retry_if(run)` agrees, goes again on the next.
+        `retry_if` is how `work` refuses to retry over a half-edited tree.
+        """
+        pool = self.tokens or claude_tokens.default_pool()
+        res: Optional[AgentRun] = None
+        for token in self._attempts(pool):
+            res = self.run(args, checkout, timeout, self._env_for(token),
+                           stdin_text=prompt)
+            if res.ok or res.timed_out or res.out_of_memory:
+                return res
+            text = (res.stdout or "") + "\n" + (res.stderr or "")
+            if pool.bench_if_token_problem(token, text) is None or not retry_if(res):
+                return res
+        # Every token tried was spent by this call; say so in the pool's words.
+        self._attempts(pool)
+        assert res is not None
+        return res
 
     def _git(self, args: Sequence[str], cwd: Path) -> tuple[bool, str]:
         if self.git is not None:
@@ -181,6 +241,11 @@ class ClaudeCodeAgent:
         p = subprocess.run(["git", "-C", str(cwd), *args],
                            capture_output=True, text=True, check=False)
         return p.returncode == 0, p.stdout
+
+    def _tree_is_clean(self, checkout: Path) -> bool:
+        """Safe to hand the task to another token: the failed run left nothing."""
+        ok, status = self._git(["status", "--porcelain"], checkout)
+        return ok and not status.strip()
 
     def ask(self, checkout: Path, prompt: str, *,
             timeout_s: Optional[int] = None) -> str:
@@ -193,8 +258,8 @@ class ClaudeCodeAgent:
         """
         args = [CLAUDE_BIN, "-p", "--model", self.model,
                 "--allowed-tools", "Read,Grep,Glob,Bash(git log:*),Bash(git show:*)"]
-        res = self.run(args, checkout, timeout_s or self.timeout_s,
-                       scrubbed_env(), stdin_text=prompt)
+        res = self._run_on_pool(args, checkout, timeout_s or self.timeout_s,
+                                prompt, retry_if=lambda _res: True)
         if res.timed_out:
             raise AgentError(f"planning timed out after {timeout_s or self.timeout_s}s")
         out = (res.stdout or "").strip()
@@ -233,8 +298,8 @@ class ClaudeCodeAgent:
             # checkout above, plus every gate that inspects the diff after.
             "--dangerously-skip-permissions",
         ]
-        res = self.run(args, checkout, self.timeout_s, scrubbed_env(),
-                       stdin_text=prompt)
+        res = self._run_on_pool(args, checkout, self.timeout_s, prompt,
+                                retry_if=lambda _res: self._tree_is_clean(checkout))
 
         ok, status = self._git(["status", "--porcelain"], checkout)
         changed = []

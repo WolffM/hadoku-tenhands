@@ -236,7 +236,7 @@ def test_score_sends_prompt_via_stdin_not_argv(monkeypatch):
     huge_payload = "x" * 40_000  # beyond the Windows argv ceiling
     stdin_captured = {}
 
-    def fake_run(args, timeout, *, stdin_text=None):
+    def fake_run(args, timeout, *, stdin_text=None, token=None):
         if stdin_text is None:  # canary call
             return MagicMock(returncode=0, stdout="OK\n", stderr="")
         stdin_captured["argv"] = list(args)
@@ -334,7 +334,7 @@ def test_real_judge_call_names_quota_exhaustion(monkeypatch):
     """The canary can pass and the real call still hit the limit."""
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
 
-    def fake_run(args, timeout, *, stdin_text=None):
+    def fake_run(args, timeout, *, stdin_text=None, token=None):
         if stdin_text is None:
             return MagicMock(returncode=0, stdout="OK", stderr="")
         return MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
@@ -492,3 +492,93 @@ Output a fenced ```json block with keys: verdict, score, reasoning."""
     assert result.verdict in ("pass", "fail", "defer")
     assert 0.0 <= result.score <= 1.0
     assert isinstance(result.reasoning, str) and len(result.reasoning) > 0
+
+
+# ── the token pool ────────────────────────────────────────────────────────
+
+
+def _by_token(outcomes, calls):
+    def fake_run(args, timeout, *, stdin_text=None, token=None):
+        label = token.label if token else None
+        calls.append((label, "canary" if stdin_text is None else "judge"))
+        return outcomes(label, stdin_text is not None)
+    return fake_run
+
+
+GOOD = json.dumps({"result": '```json\n{"verdict": "pass", "score": 0.9, "reasoning": "ok"}\n```'})
+
+
+def test_score_moves_to_the_next_token_when_the_canary_hits_a_limit(monkeypatch):
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+    calls = []
+
+    def outcomes(label, is_judge):
+        if label == "a":
+            return MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
+        return MagicMock(returncode=0, stdout=GOOD if is_judge else "OK", stderr="")
+
+    monkeypatch.setattr(J, "_run_claude", _by_token(outcomes, calls))
+    assert J.score("rubric", "payload").verdict == "pass"
+    assert calls == [("a", "canary"), ("b", "canary"), ("b", "judge")]
+
+
+def test_a_limit_hit_on_the_real_call_moves_on_too(monkeypatch):
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+    calls = []
+
+    def outcomes(label, is_judge):
+        if label == "a" and is_judge:
+            return MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
+        return MagicMock(returncode=0, stdout=GOOD if is_judge else "OK", stderr="")
+
+    monkeypatch.setattr(J, "_run_claude", _by_token(outcomes, calls))
+    assert J.score("rubric", "payload").verdict == "pass"
+    assert calls[-1] == ("b", "judge")
+
+
+def test_a_judge_failure_that_is_not_the_tokens_does_not_try_the_others(monkeypatch):
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+    calls = []
+
+    def outcomes(label, is_judge):
+        return MagicMock(returncode=1, stdout="Credit balance is too low", stderr="")
+
+    monkeypatch.setattr(J, "_run_claude", _by_token(outcomes, calls))
+    with pytest.raises(J.JudgeUnreachable):
+        J.score("rubric", "payload")
+    assert calls == [("a", "canary")]
+
+
+def test_every_token_spent_keeps_the_clis_reset_wording(monkeypatch):
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+    calls = []
+    monkeypatch.setattr(J, "_run_claude", _by_token(
+        lambda label, is_judge: MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr=""), calls))
+    with pytest.raises(J.JudgeQuotaExhausted) as e:
+        J.score("rubric", "payload")
+    assert e.value.resets == "Nov 6, 3pm (America/Los_Angeles)"
+
+    # Next call: the pool already knows, so nothing is spawned at all.
+    calls.clear()
+    with pytest.raises(J.JudgeQuotaExhausted):
+        J.score("rubric", "payload")
+    assert calls == []
+
+
+def test_the_chosen_token_reaches_the_subprocess_and_the_rest_do_not(monkeypatch):
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
+    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+    seen = {}
+
+    def fake_subprocess_run(cmd, **kwargs):
+        seen.update(kwargs["env"])
+        return MagicMock(returncode=0, stdout="OK", stderr="")
+
+    monkeypatch.setattr(J.subprocess, "run", fake_subprocess_run)
+    J._run_claude(["-p", "hi"], timeout=5, token=J.claude_tokens.Token("a", "tok-a"))
+    assert seen["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-a"
+    assert not any(k.startswith("CLAUDE_OAUTH_TOKEN_") for k in seen)

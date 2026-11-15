@@ -253,3 +253,122 @@ def test_a_timeout_that_changed_nothing_is_still_only_a_timeout():
     a = agent(status="", run=lambda *x, **k: AgentRun(
         False, "", "timed out", timed_out=True))
     assert a.work(Path("/tmp"), "p").timed_out is True
+
+
+# ── the token pool: a spent account hands the task to the next ────────────
+
+from temporal import claude_tokens  # noqa: E402
+from temporal.taskauto.agent import AgentQuotaExhausted  # noqa: E402
+
+WEEKLY = "You've hit your weekly limit · resets Nov 18, 3pm (America/Los_Angeles)"
+
+
+def pooled(monkeypatch, **tokens):
+    for label, value in tokens.items():
+        monkeypatch.setenv(f"CLAUDE_OAUTH_TOKEN_{label.upper()}", value)
+
+
+def by_token(outcomes):
+    """A fake run whose result depends on which token it was handed."""
+    seen = []
+
+    def run(args, cwd, timeout, env, stdin_text=None):
+        tok = env.get("CLAUDE_CODE_OAUTH_TOKEN")
+        seen.append(tok)
+        return outcomes[tok]
+    return run, seen
+
+
+def test_planning_moves_to_the_next_token_when_one_is_out_of_quota(monkeypatch):
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    run, seen = by_token({"tok-a": AgentRun(False, WEEKLY),
+                          "tok-b": AgentRun(True, "## Plan\n")})
+    assert "## Plan" in agent(run=run).ask(Path("/tmp"), "p")
+    assert seen == ["tok-a", "tok-b"]
+
+
+def test_the_spent_token_is_not_tried_again_next_time(monkeypatch):
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    run, seen = by_token({"tok-a": AgentRun(False, WEEKLY),
+                          "tok-b": AgentRun(True, "## Plan\n")})
+    agent(run=run).ask(Path("/tmp"), "p")
+    agent(run=run).ask(Path("/tmp"), "p")
+    assert seen == ["tok-a", "tok-b", "tok-b"]
+
+
+def test_a_revoked_token_is_skipped_and_the_work_still_runs(monkeypatch):
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    run, seen = by_token({"tok-a": AgentRun(False, AUTH_401),
+                          "tok-b": AgentRun(True, "done")})
+    git = FakeGit()
+
+    def edits_when_it_works(*args, **kwargs):
+        res = run(*args, **kwargs)
+        if res.ok:
+            git.status = " M f.py"
+        return res
+    out = ClaudeCodeAgent(run=edits_when_it_works, git=git).work(Path("/tmp"), "p")
+    assert out.changed_files == ["f.py"]
+    assert seen == ["tok-a", "tok-b"]
+
+
+def test_no_token_ever_sees_another_tokens_value(monkeypatch):
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    envs = []
+
+    def run(args, cwd, timeout, env, stdin_text=None):
+        envs.append(env)
+        return AgentRun(True, "ok")
+    agent(run=run).ask(Path("/tmp"), "p")
+    assert envs[0]["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-a"
+    assert "tok-b" not in envs[0].values()
+    assert not any(k.startswith("CLAUDE_OAUTH_TOKEN_") for k in envs[0])
+
+
+def test_a_half_edited_tree_is_not_handed_to_another_token(monkeypatch):
+    """The run stopped mid-task; a second agent on top of its edits would
+    produce a diff neither of them meant."""
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    run, seen = by_token({"tok-a": AgentRun(False, WEEKLY),
+                          "tok-b": AgentRun(True, "done")})
+    out = agent(status=" M half.py", run=run).work(Path("/tmp"), "p")
+    assert seen == ["tok-a"]
+    assert out.changed_files == ["half.py"]
+
+
+def test_a_task_failure_is_not_blamed_on_the_token(monkeypatch):
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    run, seen = by_token({"tok-a": AgentRun(False, "error: something odd"),
+                          "tok-b": AgentRun(True, "## Plan\n")})
+    with pytest.raises(AgentUnavailable):
+        agent(run=run).ask(Path("/tmp"), "p")
+    assert seen == ["tok-a"]
+
+
+def test_every_token_out_of_quota_is_waiting_not_broken(monkeypatch):
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    run, seen = by_token({"tok-a": AgentRun(False, WEEKLY),
+                          "tok-b": AgentRun(False, WEEKLY)})
+    with pytest.raises(AgentQuotaExhausted) as e:
+        agent(run=run).ask(Path("/tmp"), "p")
+    assert e.value.earliest is not None
+    with pytest.raises(AgentQuotaExhausted):
+        agent(run=run).ask(Path("/tmp"), "p")
+    assert seen == ["tok-a", "tok-b"], "a fully benched pool runs nothing"
+
+
+def test_every_token_rejected_is_an_outage(monkeypatch):
+    pooled(monkeypatch, a="tok-a", b="tok-b")
+    run, _ = by_token({"tok-a": AgentRun(False, AUTH_401),
+                       "tok-b": AgentRun(False, AUTH_401)})
+    with pytest.raises(AgentUnavailable) as e:
+        agent(run=run).ask(Path("/tmp"), "p")
+    assert not isinstance(e.value, AgentQuotaExhausted)
+
+
+def test_with_no_pooled_token_the_legacy_one_still_runs(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "legacy")
+    run, seen = by_token({"legacy": AgentRun(True, "## Plan\n")})
+    agent(run=run).ask(Path("/tmp"), "p")
+    assert seen == ["legacy"]
+    assert claude_tokens.load_tokens()[0].label == "default"

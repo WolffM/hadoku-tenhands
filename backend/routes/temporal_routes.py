@@ -745,31 +745,35 @@ def temporal_judge_canary():
     when the canary succeeds, or success=true with reachable=false + the
     exception class + message when it doesn't.
     """
+    from temporal import claude_tokens
     from temporal import judge as J
 
     claude_bin = os.environ.get("CRIMSON_CLAUDE_BIN", "claude")
-    token_set = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+    pool = claude_tokens.default_pool()
+    base = {
+        "claude_bin": claude_bin,
+        "oauth_token_set": bool(pool.tokens),
+        # Per token: label, fingerprint, and whether the pool has it benched.
+        "oauth_tokens": pool.status(),
+    }
 
     try:
-        J._canary_or_raise()
-        return _envelope({
-            "reachable": True,
-            "claude_bin": claude_bin,
-            "oauth_token_set": token_set,
-        })
-    except J.JudgeError as e:
-        return _envelope({
-            "reachable": False,
-            "claude_bin": claude_bin,
-            "oauth_token_set": token_set,
-            "error_class": type(e).__name__,
-            "error_message": str(e)[:500],
-        })
+        if not pool.tokens:
+            J._canary_or_raise()
+            return _envelope({**base, "reachable": True, "canaries": []})
+        # Every token, so a dead one shows up even while another is serving.
+        rows = J.canary_all()
+        failed = [r for r in rows if not r["reachable"]]
+        out = {**base, "reachable": not failed, "canaries": rows}
+        if failed:
+            out["error_class"] = failed[0]["error_class"]
+            out["error_message"] = "; ".join(
+                f"{r['label']}: {r['error_message']}" for r in failed)[:500]
+        return _envelope(out)
     except Exception as e:
         return _envelope({
+            **base,
             "reachable": False,
-            "claude_bin": claude_bin,
-            "oauth_token_set": token_set,
             "error_class": type(e).__name__,
             "error_message": str(e)[:500],
         })

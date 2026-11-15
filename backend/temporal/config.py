@@ -22,8 +22,8 @@ Env vars:
 
 Auth: the pipeline reuses the existing `gh` user token plus the SAML-org
 token routing in `services/github_api.py` for the GitHub side. The judge (`judge.py`)
-reads `CLAUDE_CODE_OAUTH_TOKEN` from the environment at subprocess-spawn
-time. See `validate_judge_credentials()` below for the precondition check.
+draws a Claude OAuth token from the pool in `claude_tokens.py` at
+subprocess-spawn time. See `validate_judge_credentials()` below for the precondition check.
 
 See docs/crimson-kitty/cross-ref-isolation.md for the full token model.
 """
@@ -71,14 +71,17 @@ def load_config() -> TemporalConfig:
 
 
 def validate_judge_credentials() -> None:
-    """Precondition check: the judge needs CLAUDE_CODE_OAUTH_TOKEN set.
+    """Precondition check: the judge needs at least one Claude OAuth token.
 
-    Called by `judge.py` at module import or first-call time. Raises
-    `MissingConfigError` with a remediation hint if the token is unset.
+    Any `CLAUDE_OAUTH_TOKEN_<ACCOUNT>` or the legacy `CLAUDE_CODE_OAUTH_TOKEN`
+    counts (see `claude_tokens.py`). Raises `MissingConfigError` with a
+    remediation hint when there is none.
     """
-    if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip():
+    from .claude_tokens import load_tokens
+
+    if not load_tokens():
         raise MissingConfigError(
-            "CLAUDE_CODE_OAUTH_TOKEN is not set. Generate one with "
-            "`claude setup-token` (1-year OAuth token) and add it to .env. "
-            "See docs/crimson-kitty/phase-1-plan.md step 0.10."
+            "No Claude OAuth token is set (CLAUDE_OAUTH_TOKEN_<ACCOUNT> or "
+            "CLAUDE_CODE_OAUTH_TOKEN). Mint one per subscription with "
+            "`claude setup-token` and store it with `rotate-secret` in hadoku_site."
         )
