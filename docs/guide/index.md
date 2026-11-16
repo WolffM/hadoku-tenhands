@@ -1,13 +1,9 @@
 ---
 title: TenHands
 summary: >-
-  An orchestration layer for dispatching coding agents at real work, and for
-  earning the right to ship what they produce. Two pipelines share one
-  engine: crimson-kitty finds and fixes real bugs in other people's open-source
-  repos and submits them upstream only once a human signs off; taskauto runs
-  the same engine against a task board and ships unattended commits straight
-  to this repo's own `main`. North star: every PR it submits, a maintainer
-  should be willing to defend in public.
+  An orchestration layer that dispatches coding agents at real work and
+  earns the right to ship what they produce, open to any signed-in friend
+  to read and reserved for service tier to operate.
 features:
   - name: Pipeline dashboards
     summary: Read-only views of every pipeline's state, open to any signed-in friend.
@@ -46,12 +42,14 @@ trivia:
 
 TenHands dispatches coding agents at real work, and is built around the
 discipline of earning the right to ship what they produce. The project
-funded that discipline the hard way: its **jade-hare** batch (March 2026)
+funded that discipline the hard way. Its **jade-hare** batch (March 2026)
 dispatched 55 issues to real open-source repos and merged exactly one
-upstream, with empty diffs, maintainer "AI slop" callouts and a handful of
+upstream — with empty diffs, maintainer "AI slop" callouts, and a handful of
 cross-reference notifications that reached upstream maintainers before any
 human had reviewed the work (`d185227`). Everything since has been built to
 make that ratio structurally impossible to repeat.
+
+![TenHands' pipeline picker: VibeCheck, OSS Contribution, Crimson-Kitty and Task Automation, each with its own stages](images/dashboard.webp)
 
 **Two pipelines share one engine.** **crimson-kitty** is the OSS-contribution
 pipeline: eligibility, fork, reproduce, fix, verify, review, operator

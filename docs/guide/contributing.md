@@ -30,13 +30,13 @@ changes sitting in the live checkout.
 
 ## How it fits together
 
-```
-task board ──┐
-              ├─► tenhands (this repo): orchestration + UI
-hadoku-aggregator ──(scored issues, dossiers)──┘      │
-                                                       ├─ Temporal: the shared workflow engine
-                                                       ├─ crimson-kitty: fork → fix → submit upstream
-                                                       └─ taskauto: board task → merge to this repo's own main
+```mermaid
+flowchart LR
+    board[Task board] --> tenhands[TenHands: orchestration + UI]
+    aggregator["hadoku-aggregator<br/>(scored issues, dossiers)"] --> tenhands
+    tenhands --> temporal[Temporal: the shared workflow engine]
+    temporal --> crimson[crimson-kitty: fork, fix, submit upstream]
+    temporal --> taskauto[taskauto: board task, merge to this repo's own main]
 ```
 
 TenHands calls a separate scoring service (`hadoku-aggregator`, a public
@@ -46,21 +46,12 @@ unreachable — deliberately minimal, and not meant to be extended. A third,
 separate service indexes repo metadata on a daily cron and feeds the
 scoring service; TenHands never talks to it directly.
 
-- **`backend/routes/`** — Flask blueprints. `oss_routes_stage1` through
-  `stage5` are the original five-stage pipeline; `temporal_routes` is
-  crimson-kitty; `taskauto_routes` is the board pipeline; `debug/` is
-  read-only, admin-gated diagnostics.
-- **`backend/temporal/`** — the shared engine. `workflows/` (the Temporal
-  workflow definitions), `activities/` (fork, eligibility, agent dispatch,
-  review, submission, watchers), `gates/` (the gate registry), `agents/`
-  (the Copilot adapter and a no-op for testing), `taskauto/` (the board
-  scheduler, runner and reconciler), `judge.py` (the LLM judge),
-  `sanitizer.py` (upstream-reference scrubbing).
-- **`frontend/src/`** — React 19 + TypeScript, Zustand for state. One view
-  per pipeline (`views/`), a typed API client (`api/`), per-pipeline panels
-  (`components/`).
-- **`scripts/`** — the operator CLI: `dispatch_batch`, `retro_report`,
-  `snapshot_outcomes`, `taskauto_run`.
+| Path                 | What it is                                                                                                                                                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/routes/`     | Flask blueprints. `oss_routes_stage1` through `stage5` are the original five-stage pipeline; `temporal_routes` is crimson-kitty; `taskauto_routes` is the board pipeline; `debug/` is read-only, admin-gated diagnostics. |
+| `backend/temporal/`   | The shared engine: `workflows/` (the Temporal workflow definitions), `activities/` (fork, eligibility, agent dispatch, review, submission, watchers), `gates/` (the gate registry), `agents/` (the Copilot adapter and a no-op for testing), `taskauto/` (the board scheduler, runner and reconciler), `judge.py` (the LLM judge), `sanitizer.py` (upstream-reference scrubbing). |
+| `frontend/src/`       | React 19 + TypeScript, Zustand for state. One view per pipeline (`views/`), a typed API client (`api/`), per-pipeline panels (`components/`).                                                                        |
+| `scripts/`            | The operator CLI: `dispatch_batch`, `retro_report`, `snapshot_outcomes`, `taskauto_run`.                                                                                                                              |
 
 ## Access control
 

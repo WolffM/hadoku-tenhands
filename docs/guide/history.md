@@ -29,11 +29,12 @@ on fork, submit upstream — went after real open-source issues, scored by a
 separate service's own contribution-viability model. Its first batch,
 **dusty-lizard**, ran before per-batch tracking existed, so its record is
 thin by design gap rather than by choice. Its second, **jade-hare** (March
-13 to 17), is the batch that paid for everything that followed: 55 issues
-dispatched and exactly one merged upstream, with 21% of the returned PRs
-holding empty diffs and a handful of cross-reference notifications that
-reached upstream maintainers before any human reviewed the work (`d185227`,
-which rewrote this project's own public account of that batch).
+13 to 17), is the batch that paid for everything that followed. It
+dispatched 55 issues and merged exactly one upstream: 21% of the returned
+PRs held empty diffs, and a handful of cross-reference notifications
+reached upstream maintainers before any human reviewed the work
+(`d185227`, which rewrote this project's own public account of that
+batch).
 
 *Lesson it bought: volume with no evidence gates converts agent capacity
 into maintainer annoyance at better than fifty to one.*
@@ -43,12 +44,14 @@ into maintainer annoyance at better than fifty to one.*
 Before building a third pipeline, the project built the machinery to read
 the first two honestly: batch identities, per-issue session artifacts, and
 a report that treats a maintainer's own review comments as the single most
-important signal, fed in part by a full metadata sweep over the earlier
-batches (`2a76c96`). What followed was the redesign jade-hare paid for:
-**crimson-kitty**, a 20-state Temporal workflow where every transition needs
-an evidence artifact, scaffolded and designed first (`f53cce8`), then built
+important signal. A full metadata sweep over the earlier batches fed that
+report (`2a76c96`).
+
+What followed was the redesign jade-hare paid for: **crimson-kitty**, a
+20-state Temporal workflow where every transition needs an evidence
+artifact. It was scaffolded and designed first (`f53cce8`), then built
 phase by phase — foundational utilities (`8bde2ff`), then an operator UI
-(`ec7271e`) — with cross-reference leaks fixed by stripping upstream
+(`ec7271e`). Cross-reference leaks were fixed by stripping upstream
 references from fork-facing content rather than trusting an agent not to
 mention them (`2c24481`).
 
@@ -59,14 +62,16 @@ inevitable.*
 ## taskauto (July 2026)
 
 The proof the engine generalizes: the same Temporal machinery, aimed at a
-task board instead of a scored upstream issue, landing by merging to this
+task board instead of a scored upstream issue, lands by merging to this
 repo's own `main` instead of opening an upstream PR (`f30e007`, which
-added the CLI entry point and job planning; `a74b3fd`, discovering boards
-automatically rather than needing one configured by hand). Its first day in
-production shipped seven unattended commits straight to `main`, each gated
-on the full test suite passing against the merge result, the last one found
-entirely by the scheduler with nobody prompting it: `dee574a`, `a2956dc`,
-`0966641`, `b8afd1e`, `96f5366`, `41cbeb9`, `2c985b8`.
+added the CLI entry point and job planning). It discovers boards
+automatically rather than needing one configured by hand (`a74b3fd`).
+
+Its first day in production shipped seven unattended commits straight to
+`main`, each gated on the full test suite passing against the merge
+result. The scheduler found the last one entirely on its own, with nobody
+prompting it: `dee574a`, `a2956dc`, `0966641`, `b8afd1e`, `96f5366`,
+`41cbeb9`, `2c985b8`.
 
 *Lesson it bought: once the middle of the pipeline is proven, the ends are
 configuration — the same evidence discipline that protects a stranger's
@@ -77,7 +82,7 @@ repo protects this one's own `main`.*
 The day-one run report this repo keeps
 ([docs/hadoku-task-automation/run-report-2026-07-25.md](../hadoku-task-automation/run-report-2026-07-25.md))
 cites a different, shorter SHA for each of those seven commits than the
-ones that actually exist in this repository's history today — every one
-listed above was found independently by matching each commit's own message
-and verified directly. The rest of the best facts, each with its source,
-are in [trivia.md](trivia.md).
+ones that actually exist in this repository's history today. Every one
+listed above was found independently, by matching each commit's own
+message, and verified directly. The rest of the best facts, each with its
+source, are in [trivia.md](trivia.md).

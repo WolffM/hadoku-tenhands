@@ -26,10 +26,10 @@ The best facts about TenHands, each with its source.
 ## taskauto's first day
 
 - Its very first day in production, 2026-07-25, shipped seven unattended
-  commits straight to this repo's own `main`, every one of them a dead-code
-  cleanup, every one gated on the full test suite passing against the merge
-  result rather than the branch alone: `dee574a`, `a2956dc`, `0966641`,
-  `b8afd1e`, `96f5366`, `41cbeb9`, `2c985b8`.
+  commits straight to this repo's own `main` — every one of them a
+  dead-code cleanup. Each was gated on the full test suite passing against
+  the merge result rather than the branch alone: `dee574a`, `a2956dc`,
+  `0966641`, `b8afd1e`, `96f5366`, `41cbeb9`, `2c985b8`.
 - The last of those seven was found by the scheduler with nobody prompting
   it at all (`2c985b8`).
 - The project's own day-one run report
@@ -44,8 +44,8 @@ The best facts about TenHands, each with its source.
 - Batches get a `{adjective}-{animal}` identity (`jade-hare`,
   `dusty-lizard`, `crimson-kitty`) specifically so they can be discussed and
   compared by name rather than by date or number (`e682a45`).
-- crimson-kitty, the redesign, takes its own name from that same convention
-  — the doc that defines the `{adjective}-{animal}` pattern names
+- crimson-kitty, the redesign, takes its own name from that same
+  convention. The doc that defines the `{adjective}-{animal}` pattern names
   `crimson-kitty` as its own example, three weeks before any design work on
   the pipeline itself began (`e682a45`; the pipeline's own design doc is
   `f53cce8`).

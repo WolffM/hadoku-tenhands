@@ -25,9 +25,9 @@ the operator access list, below.
 ## crimson-kitty
 
 **What it does.** Finds a real bug in a real open-source repo, reproduces
-it, fixes it, verifies the fix with a sandboxed test run, and — only once a
-human operator explicitly signs off — opens a pull request upstream and
-keeps watching what happens to it. It is one Temporal workflow with 20
+it, fixes it, and verifies the fix with a sandboxed test run. Only once a
+human operator explicitly signs off does it open a pull request upstream,
+and it keeps watching what happens to it. It is one Temporal workflow with 20
 states, and every transition that matters is backed by an evidence
 artifact rather than a model's own say-so: a reproduction log, a diff, a
 test run's real output.
@@ -74,6 +74,8 @@ submission with no real fix), judges every transition. An LLM judge — a
 issue's relevance and a candidate submission's quality before anything
 proceeds, calibrated against a set of hand-scored fixtures.
 
+![The pipeline inbox: three gated issues awaiting Approve, Abort or Retry, and a sign-off card with the judge's reasoning](images/evidence-gates.webp)
+
 **How to use it.** Each gate's registry entry and the jade-hare bug class it
 kills is catalogued in
 [docs/crimson-kitty/gates.md](../crimson-kitty/gates.md). The judge itself is
@@ -113,6 +115,8 @@ all, a maintainer's own review comments, the single most important signal
 the system tracks — before the next batch is designed. Batches get a
 memorable `{adjective}-{animal}` identity so they can be discussed and
 compared by name.
+
+![The retrospective view, with crimson-kitty's three tracked issues and each one's transition and gate counts](images/retrospective.webp)
 
 **How to use it.** The retrospective view in the frontend, or
 `scripts/retro_report.py` directly. The retrospective is deliberately
