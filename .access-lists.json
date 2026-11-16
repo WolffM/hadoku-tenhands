@@ -1,0 +1,4 @@
+{
+  "//": "Edge access lists this repo's service identity asks to be on: list id -> the one reason. The operator grants each on hadoku_site's command-station -> Service grants; nothing grants it automatically (hadoku_site docs/operations/SECRETS.md, 'How a repo asks for an edge access list').",
+  "tenhands-write": "The repo's own operator scripts write to the backend with its service key (scripts/retry_aborted.py, scripts/temporal_snapshot.py)"
+}
