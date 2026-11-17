@@ -78,6 +78,23 @@ This has regressed before — treat a cross-reference reaching upstream as a rea
 - **This checkout is production.** The pm2 services run *from this working directory*, and a deploy runs `git reset --hard origin/main` against it — which **eats any uncommitted work in the tree** (recoverable only from the lint-staged stash). Do not leave edits uncommitted here, and do not assume the branch you left checked out is still there: concurrent agents and deploys move it. For any real change, work in a git worktree (`git worktree add .claude/worktrees/<task> -b <branch>`), which deploys don't touch, and commit + push promptly.
 - **Debugging a taskauto task** (odd notes, gating, deploy, editing a task): [`docs/runbooks/taskauto-debugging.md`](docs/runbooks/taskauto-debugging.md). The board API is reachable from here with the `.devvault.local.json` `key` exported as `HADOKU_SERVICE_KEY` (service tier, shares on every board) — no vault unlock needed for reads.
 
+## Deploys hand over the socket, one generation at a time
+
+hadoku_site's handover supervisor (`services/pm2/lib/handover.py`, deploy
+continuity's socket mover) holds 127.0.0.1:5024 open across deploys, so a
+caller arriving while `backend/app.py` restarts waits in the kernel backlog
+instead of getting a 502. `backend/handover.py` is the child's half: serve
+`HADOKU_LISTEN_FD`, write one byte to `HADOKU_READY_FD` once accepting, and on
+SIGTERM stop accepting, finish what is in flight (30 s), stop the pipeline loop
+and exit. Without those variables `app.py` runs Flask's server as it always did.
+
+**There is no overlap.** The pipeline loop advances assignments from a thread
+with no lock between processes, so the supervisor retires the serving
+generation, waits for it to exit, and only then starts the next. Only the
+`tenhands` process is covered; `tenhands-temporal` (the worker) is not an HTTP
+server. `backend/tests/test_handover.py` plays the supervisor with real
+processes.
+
 ## Secrets
 
 There are no `.env` files. Secrets are fetched from a vault broker under a per-repo, per-key ACL;

@@ -233,5 +233,16 @@ if __name__ == "__main__":
     # Set FLASK_ENV=development to enable debug mode in local development
     debug_mode = os.environ.get("FLASK_ENV") == "development"
     port = int(os.environ.get("PORT", 5024))
+    try:
+        from .handover import serve_handed_over, take_handover
+        from .services.pipeline_loop import stop_pipeline_loop
+    except ImportError:
+        from handover import serve_handed_over, take_handover
+        from services.pipeline_loop import stop_pipeline_loop
+    handover = take_handover()
+    if handover is not None:
+        # The deploy supervisor holds the port (handover.py); never kill or bind it.
+        serve_handed_over(app, *handover, on_retire=stop_pipeline_loop)
+        sys.exit(0)
     _kill_port(port)
     app.run(debug=debug_mode, port=port, threaded=True)
