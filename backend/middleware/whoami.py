@@ -59,8 +59,9 @@ REQUEST_TIMEOUT_S = 5.0
 # "public", so the caller authenticates at the edge and then silently receives
 # the anonymous view: no 401, no 403, no log line. `wife` (2026-08-04) ranks
 # above service and was exactly that case, and `member` (2026-10-28) was
-# another. Keep it complete.
-_VALID_TIERS = ("admin", "wife", "service", "friend", "member", "public")
+# another. `guest` (2026-11-18) is a self-made account, below member. Keep it
+# complete.
+_VALID_TIERS = ("admin", "wife", "service", "friend", "member", "guest", "public")
 
 # key → ((tier, on WRITE_LIST), expiry)
 _cache: dict[str, tuple[tuple[str, bool], float]] = {}
@@ -70,7 +71,7 @@ _cache_lock = Lock()
 def tier_rank(tier: str) -> int:
     """Privilege rank for a tier: higher = more privileged.
 
-    admin=5, wife=4, service=3, friend=2, member=1, public=0. An unknown tier
+    admin=6, wife=5, service=4, friend=3, member=2, guest=1, public=0. An unknown tier
     ranks as public (0) — the same fail-closed default `_classify` applies, so
     a tier the ladder doesn't know can never out-rank a real one.
     """

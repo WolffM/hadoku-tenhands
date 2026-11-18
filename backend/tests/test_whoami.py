@@ -22,19 +22,24 @@ _BACKEND_DIR = Path(__file__).resolve().parents[1]
 def test_valid_tiers_is_the_complete_ladder():
     # LOW to HIGH would be the opposite of how this tuple is declared — it's
     # declared HIGH to LOW, and tier_rank's arithmetic depends on that order.
-    assert _VALID_TIERS == ("admin", "wife", "service", "friend", "member", "public")
+    assert _VALID_TIERS == ("admin", "wife", "service", "friend", "member", "guest", "public")
 
 
 @pytest.mark.parametrize("tier,expected_rank", [
-    ("admin", 5),
-    ("wife", 4),
-    ("service", 3),
-    ("friend", 2),
-    ("member", 1),
+    ("admin", 6),
+    ("wife", 5),
+    ("service", 4),
+    ("friend", 3),
+    ("member", 2),
+    ("guest", 1),
     ("public", 0),
 ])
 def test_tier_rank_of_every_known_tier(tier, expected_rank):
     assert tier_rank(tier) == expected_rank
+
+
+def test_guest_ranks_between_public_and_member():
+    assert tier_rank("public") < tier_rank("guest") < tier_rank("member")
 
 
 @pytest.mark.parametrize("bad", ["", "bogus", "Member", "members", "superuser"])
@@ -45,7 +50,7 @@ def test_tier_rank_of_an_unknown_name_is_public(bad):
 # ---- assert_floor: the boot guard for a hardcoded floor constant ----
 
 
-@pytest.mark.parametrize("tier", ["admin", "wife", "service", "friend", "member"])
+@pytest.mark.parametrize("tier", ["admin", "wife", "service", "friend", "member", "guest"])
 def test_assert_floor_accepts_every_tier_above_public(tier):
     assert assert_floor(tier) == tier
 

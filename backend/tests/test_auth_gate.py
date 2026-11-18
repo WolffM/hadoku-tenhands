@@ -21,11 +21,15 @@ SERVICE_KEY = "service-key-xyz"
 # Service tier, but not on tenhands-write: any other service key in the fleet.
 OUTSIDER_KEY = "outsider-key-qrs"
 ADMIN_OFF_LIST_KEY = "admin-key-off-list"
+MEMBER_KEY = "member-key-mno"
+GUEST_KEY = "guest-key-ghi"
 _OVERRIDES = json.dumps({
     FRIEND_KEY: "friend",
     SERVICE_KEY: "service",
     OUTSIDER_KEY: {"tier": "service", "member": False},
     ADMIN_OFF_LIST_KEY: {"tier": "admin", "member": False},
+    MEMBER_KEY: "member",
+    GUEST_KEY: "guest",
 })
 
 
@@ -75,6 +79,14 @@ def test_no_key_is_401(client):
 def test_unrecognized_key_is_403(client):
     resp = client.get(f"{PREFIX}/api/owner", headers={"X-User-Key": "bogus"})
     assert resp.status_code == 403
+
+
+@pytest.mark.parametrize("key", [MEMBER_KEY, GUEST_KEY])
+def test_below_friend_is_403_with_the_required_tier(client, key):
+    # tenhands reads at friend+: a guest is refused exactly as a member is.
+    resp = client.get(f"{PREFIX}/api/owner", headers={"X-User-Key": key})
+    assert resp.status_code == 403
+    assert resp.get_json()["required_tier"] == "friend"
 
 
 def test_mutating_route_blocked_without_key(client):
