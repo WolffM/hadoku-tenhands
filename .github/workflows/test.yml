@@ -173,6 +173,13 @@ jobs:
           # self-hosted runner; taskauto.yml already hands this exact token to
           # a job on this host, so the marginal exposure is close to nil.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The token pool (backend/temporal/claude_tokens.py), tried before the
+          # legacy name: a revoked legacy token held this job red for days
+          # while a live pool token went unused (#112). An unset secret is an
+          # empty string, which the pool ignores.
+          CLAUDE_OAUTH_TOKEN_JAMES: ${{ secrets.CLAUDE_OAUTH_TOKEN_JAMES }}
+          CLAUDE_OAUTH_TOKEN_MATTH: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH }}
+          CLAUDE_OAUTH_TOKEN_MATTH2: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH2 }}
           # Resolved from the runner's PATH; set the CLAUDE_BIN repo variable
           # only to override. The step above fails the job if it resolves to
           # nothing.

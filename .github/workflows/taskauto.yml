@@ -145,6 +145,12 @@ jobs:
       # with no vault item behind it can never be refreshed by anything.
       HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # The token pool (backend/temporal/claude_tokens.py) is tried before the
+      # legacy name above, so one revoked or spent account does not stop the
+      # board. An unset secret is an empty string, which the pool ignores.
+      CLAUDE_OAUTH_TOKEN_JAMES: ${{ secrets.CLAUDE_OAUTH_TOKEN_JAMES }}
+      CLAUDE_OAUTH_TOKEN_MATTH: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH }}
+      CLAUDE_OAUTH_TOKEN_MATTH2: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH2 }}
       # A PAT, deliberately NOT the automatic GITHUB_TOKEN: pull requests
       # opened with GITHUB_TOKEN do not trigger `pull_request` workflows, so
       # every PR this job opened would sit with no checks at all — the exact
@@ -369,7 +375,8 @@ jobs:
         run: |
           missing=
           [ -n "$HADOKU_SERVICE_KEY" ] || missing="$missing HADOKU_SERVICE_KEY"
-          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || missing="$missing CLAUDE_CODE_OAUTH_TOKEN"
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN$CLAUDE_OAUTH_TOKEN_JAMES$CLAUDE_OAUTH_TOKEN_MATTH$CLAUDE_OAUTH_TOKEN_MATTH2" ] \
+            || missing="$missing CLAUDE_OAUTH_TOKEN_<ACCOUNT>-or-CLAUDE_CODE_OAUTH_TOKEN"
           [ -n "$GH_TOKEN" ] || missing="$missing HADOKU_SITE_TOKEN"
           if [ -n "$missing" ]; then
             echo "::error::missing repository secret(s):$missing"

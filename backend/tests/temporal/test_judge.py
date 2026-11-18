@@ -444,7 +444,8 @@ def test_score_integration_real_cli(monkeypatch):
     that depends on the operator remembering something is a test that does not
     run.
 
-    So it fetches its own credential now, by the intended path: the per-repo
+    So it fetches its own credentials now — the whole token pool, every
+    `CLAUDE_OAUTH_TOKEN_<ACCOUNT>` plus the legacy name — by the intended path: the per-repo
     service-tier key in `.devvault.local.json` (or `HADOKU_VAULT_KEY`) against
     the vault broker. No wrapper, no skip. If the credential cannot be
     resolved that is a **failure** with the broker's reason attached, because
@@ -465,10 +466,16 @@ def test_score_integration_real_cli(monkeypatch):
         "against anything real. Install it rather than skipping: this is the "
         "only unmocked coverage `score()` has.")
 
-    # Fetched, not read from the environment — see the docstring. A failure
-    # here carries the broker's own diagnosis (sealed / no grant / no key).
-    token = vault.fetch("CLAUDE_CODE_OAUTH_TOKEN")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", token)
+    # The whole pool, as production gets it, not one token: the judge picks
+    # from `claude_tokens`, so a revoked legacy token must not fail this test
+    # while a live pool token sits unused (#112). Fetched, not read from the
+    # environment — see the docstring. Every token that could not be resolved
+    # carries the broker's own diagnosis (sealed / no grant / no key).
+    tokens, missing = vault.claude_token_pool()
+    unresolved = "\n  ".join(missing) or "(none)"
+    assert tokens, f"no Claude OAuth token could be resolved:\n  {unresolved}"
+    for name, value in tokens.items():
+        monkeypatch.setenv(name, value)
 
     # `score()` shells out, so the child needs the install path too. monkeypatch
     # rather than mutating os.environ directly — the old version leaked a PATH
@@ -487,7 +494,11 @@ Score the input on a single criterion: does it contain the word "hello"?
 
 Output a fenced ```json block with keys: verdict, score, reasoning."""
 
-    result = _score_or_skip_on_quota(rubric, "the payload says hello world")
+    try:
+        result = _score_or_skip_on_quota(rubric, "the payload says hello world")
+    except J.JudgeUnreachable as e:
+        e.add_note(f"tokens tried: {', '.join(tokens)}; not resolved:\n  {unresolved}")
+        raise
     assert isinstance(result, J.JudgeResult)
     assert result.verdict in ("pass", "fail", "defer")
     assert 0.0 <= result.score <= 1.0
@@ -582,3 +593,28 @@ def test_the_chosen_token_reaches_the_subprocess_and_the_rest_do_not(monkeypatch
     J._run_claude(["-p", "hi"], timeout=5, token=J.claude_tokens.Token("a", "tok-a"))
     assert seen["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-a"
     assert not any(k.startswith("CLAUDE_OAUTH_TOKEN_") for k in seen)
+
+
+def test_claude_token_pool_takes_ambient_tokens_and_names_the_unreachable(monkeypatch):
+    """The real-CLI test hands the judge the whole pool (#112).
+
+    A token the job's environment already carries is used as-is, even though
+    the autouse fixture has stripped it from `os.environ`; a declared one the
+    broker refuses is reported by name with its reason, never by value.
+    """
+    monkeypatch.setattr(vault, "_AMBIENT_POOL", {"CLAUDE_OAUTH_TOKEN_A": "tok-a"})
+    monkeypatch.setattr(vault, "mapping", lambda: {
+        "CLAUDE_OAUTH_TOKEN_A": "CLAUDE_OAUTH_TOKEN_A",
+        "CLAUDE_OAUTH_TOKEN_B": "CLAUDE_OAUTH_TOKEN_B",
+        "OTHER": "OTHER",
+    })
+
+    def fake_fetch(name):
+        if name == "CLAUDE_CODE_OAUTH_TOKEN":
+            return "tok-legacy"
+        raise vault.VaultUnavailable(f"broker returned HTTP 403 for {name}")
+
+    monkeypatch.setattr(vault, "fetch", fake_fetch)
+    found, missing = vault.claude_token_pool()
+    assert found == {"CLAUDE_OAUTH_TOKEN_A": "tok-a", "CLAUDE_CODE_OAUTH_TOKEN": "tok-legacy"}
+    assert missing == ["CLAUDE_OAUTH_TOKEN_B: broker returned HTTP 403 for CLAUDE_OAUTH_TOKEN_B"]

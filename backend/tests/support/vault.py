@@ -196,6 +196,42 @@ def fetch(env_name: str) -> str:
     return value
 
 
+#: Where the Claude token pool's names start (`temporal/claude_tokens.py`).
+POOL_PREFIX = "CLAUDE_OAUTH_TOKEN_"
+POOL_LEGACY = "CLAUDE_CODE_OAUTH_TOKEN"
+
+#: The pool tokens the process was started with, read at import. The autouse
+#: `isolated_claude_token_pool` fixture strips them from every test's
+#: environment so no test draws a real token by accident; the one test that
+#: wants the real pool reads them back from here.
+_AMBIENT_POOL = {k: v.strip() for k, v in os.environ.items()
+                 if k.startswith(POOL_PREFIX) and len(k) > len(POOL_PREFIX) and v.strip()}
+
+
+def claude_token_pool() -> tuple[dict, list]:
+    """Every Claude OAuth token this repo can reach, and why each other one can't.
+
+    The names are every `CLAUDE_OAUTH_TOKEN_<ACCOUNT>` in the environment or
+    declared in `.devvault.json`, plus the legacy `CLAUDE_CODE_OAUTH_TOKEN`.
+    Each is taken from the environment (a CI job with the secret wired in) or
+    fetched from the broker. Returns `({name: value}, ["NAME: reason", ...])`.
+    The reasons name the token, never its value.
+    """
+    declared = {k for k in mapping() if k.startswith(POOL_PREFIX)}
+    names = sorted(declared | set(_AMBIENT_POOL)) + [POOL_LEGACY]
+    found, missing = {}, []
+    for name in names:
+        value = _AMBIENT_POOL.get(name)
+        if not value:
+            try:
+                value = fetch(name)
+            except VaultUnavailable as e:
+                missing.append(f"{name}: {e}")
+                continue
+        found[name] = value
+    return found, missing
+
+
 def fetch_or_none(env_name: str) -> Optional[str]:
     """`fetch`, but None instead of raising. For callers that have a fallback."""
     try:
