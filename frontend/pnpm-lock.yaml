@@ -43,8 +43,8 @@ importers:
         specifier: ^6.0.5
         version: 6.0.5(vite@8.2.0(@types/node@26.1.2))
       '@wolffm/catalogue':
-        specifier: ^1.0.16
-        version: 1.0.16
+        specifier: ^1.0.18
+        version: 1.0.18
       '@wolffm/logger':
         specifier: 1.4.4
         version: 1.4.4
@@ -503,8 +503,8 @@ packages:
       babel-plugin-react-compiler:
         optional: true
 
-  '@wolffm/catalogue@1.0.16':
-    resolution: {integrity: sha512-JDPty0ReBAlhzr/d5YQ+w33fxIQpjwTjmQwIVBK8tTytouBdxkFIECpcE3wkIhOxGpFLe+rd601N+93PleEm/A==, tarball: https://npm.pkg.github.com/download/@wolffm/catalogue/1.0.16/90d74489d97c0227dde8a0202fd5601a1f9ab38d}
+  '@wolffm/catalogue@1.0.18':
+    resolution: {integrity: sha512-ZnW1nQ9AkF7SiFWXM0Up+BnR7IuYnMZiTvJmiw8eZZ67h3UcUx2Ks4Zf8QxRpiAp6IMP85wTTLLK0HnGK0cMwQ==, tarball: https://npm.pkg.github.com/download/@wolffm/catalogue/1.0.18/a5d75f88b8a3a2e01c2be28c4788fe17d738113d}
     engines: {node: '>=18'}
 
   '@wolffm/logger@1.4.4':
@@ -1846,7 +1846,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.2.0(@types/node@26.1.2)
 
-  '@wolffm/catalogue@1.0.16': {}
+  '@wolffm/catalogue@1.0.18': {}
 
   '@wolffm/logger@1.4.4': {}
 
