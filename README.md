@@ -1,5 +1,7 @@
 # TenHands
 
+**Guide:** [overview](docs/guide/index.md) · [features](docs/guide/features.md) · [contributing](docs/guide/contributing.md) · [history](docs/guide/history.md) · [trivia](docs/guide/trivia.md)
+
 An orchestration layer for dispatching coding agents at real work — and for
 earning the right to ship what they produce. The numbers that shaped it: the
 **jade-hare** batch (March 2026) dispatched **55 issues and merged 1** upstream,
