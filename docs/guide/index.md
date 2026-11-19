@@ -20,6 +20,9 @@ from a task board instead of a scored upstream issue, and it lands by
 merging straight to this repo's own `main` instead of opening an upstream
 PR, unattended.
 
+> **North star:** every PR the pipeline submits has to be one a human
+> operator would be willing to defend in a public thread.
+
 **Who may do what.** The dashboard (reading pipeline state) is open to any
 signed-in friend. Operating a pipeline — dispatching, approving, claiming,
 merging — needs service tier and a seat on a named access list; an admin

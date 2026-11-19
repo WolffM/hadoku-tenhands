@@ -36,6 +36,16 @@ reached upstream maintainers before any human reviewed the work
 (`d185227`, which rewrote this project's own public account of that
 batch).
 
+The pipeline itself ran as five dashboard stages. Target repos gave a
+health overview. Scored issues were tiered GO/LIKELY/MAYBE/RISKY/SKIP by
+the aggregator's own model. Fork and assign built agent context from the
+aggregator's dossier, stripping upstream references before an agent ever
+saw it. Review on fork ran a draft PR through static analysis and
+remediation. Submit upstream opened a PR only after explicit operator
+approval — the one point where a cross-reference such as `Fixes #N` was
+allowed back in. Those five stages still run read-only in the dashboard
+today, alongside the newer pipelines.
+
 *Lesson it bought: volume with no evidence gates converts agent capacity
 into maintainer annoyance at better than fifty to one.*
 
@@ -54,6 +64,15 @@ phase by phase — foundational utilities (`8bde2ff`), then an operator UI
 (`ec7271e`). Cross-reference leaks were fixed by stripping upstream
 references from fork-facing content rather than trusting an agent not to
 mention them (`2c24481`).
+
+crimson-kitty's own first full smoke batch, five issues dispatched on
+2026-04-16, submitted zero of them — every one aborted at the empty-diff
+gate, correctly, because all five findings were already fixed upstream
+([observation report](../crimson-kitty/smoke-phase3-observation-report.md),
+2026-04-16). Two external dispatch attempts a few days later both ended
+10/10 aborted for different reasons, but surfaced eight distinct pipeline
+bugs before any maintainer ever saw a PR
+([bug catalog](../crimson-kitty/phase4-retrospective.md), 2026-04-18).
 
 *Lesson it bought: an abort with a clear reason is a success. The
 pipeline's job is to make failure legible, not to make submission
