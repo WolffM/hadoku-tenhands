@@ -46,7 +46,8 @@ with itself. Hand-score each fixture before running the script.
 ## Running
 
 ```sh
-# After adding fixtures, run the script. Requires CLAUDE_CODE_OAUTH_TOKEN.
+# After adding fixtures, run the script. Requires HADOKU_SERVICE_KEY
+# (the judge leases its Claude token from crossposter).
 python3 scripts/temporal_judge_calibration.py
 
 # Or dry-run to verify the fixtures load cleanly:

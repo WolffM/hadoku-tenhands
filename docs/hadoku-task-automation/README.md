@@ -630,8 +630,9 @@ TASKAUTO_LIVE=1 …                                     # actually push
 TASKAUTO_MODE=push …                                  # merge to main instead
 ```
 
-The workflow needs three repo secrets: `HADOKU_TASK_KEY`,
-`CLAUDE_CODE_OAUTH_TOKEN` and `HADOKU_SITE_TOKEN`. The last is a PAT and must
+The workflow needs two repo secrets: `KEY_SERVICE_TENHANDS` (the board key,
+which also leases the agent's Claude token from crossposter) and
+`HADOKU_SITE_TOKEN`. The last is a PAT and must
 **not** be replaced by the automatic `GITHUB_TOKEN` — pull requests opened with
 `GITHUB_TOKEN` do not trigger `pull_request` workflows, so every PR would carry
 no checks at all, which is precisely the "green because nothing ran" state the

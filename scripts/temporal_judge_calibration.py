@@ -27,7 +27,7 @@ Usage:
 
 Requires:
     - claude CLI installed on PATH
-    - CLAUDE_CODE_OAUTH_TOKEN set in env or .env
+    - HADOKU_SERVICE_KEY set (the judge leases its Claude token from crossposter)
 
 This is intentionally NOT a pytest test — it costs ~20 real claude calls
 per run and the operator decides when to trigger it. Run after every

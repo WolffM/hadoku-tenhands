@@ -48,12 +48,12 @@ DEFAULT_TIMEOUT_S = int(os.environ.get("TASKAUTO_AGENT_TIMEOUT", "1800"))
 AGENT_MEMORY_MAX = os.environ.get("TASKAUTO_AGENT_MEMORY_MAX", "12G")
 
 #: Environment the agent is allowed to see. Everything else is dropped.
-#: CLAUDE_CODE_OAUTH_TOKEN is its own credential; the rest is what a process
-#: needs to run at all. Notably absent: HADOKU_SERVICE_KEY, the vault key,
-#: TENHANDS_*, GH_TOKEN, GITHUB_TOKEN, and any SAML-org token.
+#: What a process needs to run at all; its credential, CLAUDE_CODE_OAUTH_TOKEN,
+#: is the leased one, added per run and never taken from this environment.
+#: Notably absent: HADOKU_SERVICE_KEY, the vault key, TENHANDS_*, GH_TOKEN,
+#: GITHUB_TOKEN, and any SAML-org token.
 ENV_ALLOWLIST = (
     "PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TMPDIR",
-    "CLAUDE_CODE_OAUTH_TOKEN",
 )
 
 

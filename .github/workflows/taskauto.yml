@@ -147,12 +147,6 @@ jobs:
       # It is also what leases the Claude token for every agent run from
       # crossposter (backend/temporal/claude_tokens.py, #115).
       HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
-      # No longer read (agent runs lease). Removed with the GitHub secrets
-      # once a real lease has worked in production and in CI (#115 phase 3).
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      CLAUDE_OAUTH_TOKEN_JAMES: ${{ secrets.CLAUDE_OAUTH_TOKEN_JAMES }}
-      CLAUDE_OAUTH_TOKEN_MATTH: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH }}
-      CLAUDE_OAUTH_TOKEN_MATTH2: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH2 }}
       # A PAT, deliberately NOT the automatic GITHUB_TOKEN: pull requests
       # opened with GITHUB_TOKEN do not trigger `pull_request` workflows, so
       # every PR this job opened would sit with no checks at all — the exact

@@ -172,12 +172,6 @@ jobs:
           # Fork PRs get no secrets and need approval before touching a
           # self-hosted runner.
           HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
-          # No longer read (the judge leases). Removed with the GitHub secrets
-          # once a real lease has worked in production and here (#115 phase 3).
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          CLAUDE_OAUTH_TOKEN_JAMES: ${{ secrets.CLAUDE_OAUTH_TOKEN_JAMES }}
-          CLAUDE_OAUTH_TOKEN_MATTH: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH }}
-          CLAUDE_OAUTH_TOKEN_MATTH2: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH2 }}
           # Resolved from the runner's PATH; set the CLAUDE_BIN repo variable
           # only to override. The step above fails the job if it resolves to
           # nothing.
@@ -378,8 +372,8 @@ jobs:
     # both skip. GitHub-hosted, zero secrets, so
     # untrusted code never touches the production host or a live credential.
     # One test is deselected: test_score_integration_real_cli is the only
-    # unmocked coverage of the LLM judge and needs CLAUDE_CODE_OAUTH_TOKEN,
-    # which a fork PR has no way to obtain — the rest of the suite is fully
+    # unmocked coverage of the LLM judge and leases a Claude token with
+    # tenhands' service key, which a fork PR has no way to obtain — the rest of the suite is fully
     # mocked and runs green here. A maintainer who wants the full gate re-pushes
     # the branch inside this repo, where the `backend` job runs it.
     if: >-

@@ -71,9 +71,10 @@ def test_secrets_never_reach_the_agent(monkeypatch, name):
     assert name not in scrubbed_env()
 
 
-def test_the_agent_keeps_its_own_credential(monkeypatch):
+def test_a_claude_token_in_the_environment_never_reaches_the_agent(monkeypatch):
+    """Its credential is the leased one, passed in per run (#115)."""
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
-    assert scrubbed_env()["CLAUDE_CODE_OAUTH_TOKEN"] == "tok"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in scrubbed_env()
 
 
 def test_the_agent_gets_enough_to_run(monkeypatch):
