@@ -1,4 +1,5 @@
 {
   "//": "Edge access lists this repo's service identity asks to be on: list id -> the one reason. The operator grants each on hadoku_site's command-station -> Service grants; nothing grants it automatically (hadoku_site docs/operations/SECRETS.md, 'How a repo asks for an edge access list').",
-  "tenhands-write": "The repo's own operator scripts write to the backend with its service key (scripts/retry_aborted.py, scripts/temporal_snapshot.py)"
+  "tenhands-write": "The repo's own operator scripts write to the backend with its service key (scripts/retry_aborted.py, scripts/temporal_snapshot.py)",
+  "crossposter-claude-code-lease": "Every claude run tenhands spawns (taskauto's agent, the crimson-kitty judge, the CI judge test) leases the active Claude Code account's token from crossposter instead of holding the pool's tokens itself (#115, crossposter account-authority plan step 1d)"
 }
