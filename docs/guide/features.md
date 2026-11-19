@@ -80,7 +80,10 @@ proceeds, calibrated against a set of hand-scored fixtures.
 kills is catalogued in
 [docs/crimson-kitty/gates.md](../crimson-kitty/gates.md). The judge itself is
 `backend/temporal/judge.py`; `backend/temporal/calibration.py` is its
-calibration harness.
+calibration harness. It runs on whichever Claude Code account crossposter
+leases at that moment (`backend/temporal/claude_tokens.py`): tenhands holds no
+Claude token of its own, and reports each call's outcome back so a spent or
+revoked account is benched where every consumer sees it.
 
 **What it does not do.** A gate that cannot get real evidence (a sandbox that
 will not start, a judge call that fails) reports that it could not look; it

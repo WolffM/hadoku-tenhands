@@ -164,19 +164,17 @@ jobs:
       - name: Run the real-CLI judge test
         working-directory: backend
         env:
-          # The narrowest credential that does the job: the token, NOT the
-          # vault service key, which would also unlock HADOKU_SITE_TOKEN (an
-          # admin PAT). The test's environment-first resolution picks this up
-          # and never calls the broker, so CI needs no vault access.
+          # tenhands holds no Claude token: the judge leases the active
+          # account's from crossposter with tenhands' service key, the path
+          # production takes (backend/temporal/claude_tokens.py, #115).
+          # taskauto.yml already hands this key to a job on this host.
           #
           # Fork PRs get no secrets and need approval before touching a
-          # self-hosted runner; taskauto.yml already hands this exact token to
-          # a job on this host, so the marginal exposure is close to nil.
+          # self-hosted runner.
+          HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
+          # No longer read (the judge leases). Removed with the GitHub secrets
+          # once a real lease has worked in production and here (#115 phase 3).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # The token pool (backend/temporal/claude_tokens.py), tried before the
-          # legacy name: a revoked legacy token held this job red for days
-          # while a live pool token went unused (#112). An unset secret is an
-          # empty string, which the pool ignores.
           CLAUDE_OAUTH_TOKEN_JAMES: ${{ secrets.CLAUDE_OAUTH_TOKEN_JAMES }}
           CLAUDE_OAUTH_TOKEN_MATTH: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH }}
           CLAUDE_OAUTH_TOKEN_MATTH2: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH2 }}

@@ -71,7 +71,7 @@ called "temporal" internally.
 | `/tenhands/api/temporal/health` | `routes/temporal_routes.py` | Temporal cluster + worker health |
 | `/tenhands/api/temporal/evidence/:batch_id/:issue_id` | `routes/temporal_routes.py` | List evidence stages and files for an issue |
 | `/tenhands/api/temporal/evidence/:batch_id/:issue_id/:filepath` | `routes/temporal_routes.py` | Raw file content from the evidence store |
-| `/tenhands/api/temporal/judge/canary` | `routes/temporal_routes.py` | POST — invoke the judge canary and return `{reachable, claude_bin, oauth_token_set, oauth_tokens, canaries}` — every pooled Claude token is canaried, so a dead one shows even while another serves. Diagnostic for verifying the claude CLI is wired up without running a full workflow |
+| `/tenhands/api/temporal/judge/canary` | `routes/temporal_routes.py` | POST — lease the active Claude account from crossposter, canary it, and return `{reachable, claude_bin, account}` (or `error_class`/`error_message`). Diagnostic for verifying the claude CLI is wired up without running a full workflow |
 
 The existing `/tenhands/api/oss/*` routes stay untouched.
 

@@ -1,8 +1,9 @@
 """LLM judge wrapper — spawns the local `claude` CLI subprocess.
 
-Uses the Claude subscriptions' OAuth tokens (no Anthropic API key, no
-per-call billing), drawn from the pool in `claude_tokens.py`: a token that is
-out of quota or rejected is benched and the call moves to the next one.
+Uses a Claude subscription's OAuth token (no Anthropic API key, no per-call
+billing), leased from crossposter per call (`claude_tokens.py`): a call that
+finds its account out of quota or rejected reports it, crossposter benches that
+account, and the call goes again on the account crossposter makes active.
 
 Concurrency: a module-level semaphore caps simultaneous subprocesses at
 `MAX_CONCURRENT_JUDGES` (default 3). Each call:
@@ -36,6 +37,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -109,11 +111,11 @@ def _run_claude(
     timeout: int,
     *,
     stdin_text: str | None = None,
-    token: claude_tokens.Token | None = None,
+    lease: claude_tokens.Lease | None = None,
 ) -> subprocess.CompletedProcess:
     """Run the `claude` CLI. Isolated so tests can monkeypatch it.
 
-    `token` is the pool's choice, passed as CLAUDE_CODE_OAUTH_TOKEN. None
+    `lease` is crossposter's, its token passed as CLAUDE_CODE_OAUTH_TOKEN. None
     inherits the parent's environment unchanged.
 
     Pass large prompts via `stdin_text` rather than `-p <prompt>` — on
@@ -123,10 +125,10 @@ def _run_claude(
     fix diffs).
     """
     env = None
-    if token is not None:
+    if lease is not None:
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(claude_tokens.PREFIX)}
-        env["CLAUDE_CODE_OAUTH_TOKEN"] = token.value
+               if not k.startswith("CLAUDE_OAUTH_TOKEN_")}
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = lease.token
     return subprocess.run(
         [CLAUDE_BIN, *args],
         input=stdin_text,
@@ -157,7 +159,7 @@ def _unreachable(what: str, result: subprocess.CompletedProcess) -> JudgeUnreach
     """The exception for a non-zero `claude` exit: quota, or genuinely broken."""
     detail = _failure_detail(result)
     message = f"{what} exit {result.returncode}: {detail}"
-    # The quota wording lives with the pool, which benches on it. An expired
+    # The quota wording lives with the lease client, which reports it. An expired
     # token, "Credit balance is too low" or an empty answer stay plain
     # `JudgeUnreachable`.
     if claude_tokens.QUOTA_RE.search(detail):
@@ -169,7 +171,7 @@ def _unreachable(what: str, result: subprocess.CompletedProcess) -> JudgeUnreach
 # ── Canary ────────────────────────────────────────────────────────────────
 
 
-def _canary_or_raise(token: claude_tokens.Token | None = None) -> None:
+def _canary_or_raise(lease: claude_tokens.Lease | None = None) -> None:
     """Tiny health check before every real judge call.
 
     Catches quota exhaustion, expired token, missing binary, and host
@@ -180,7 +182,7 @@ def _canary_or_raise(token: claude_tokens.Token | None = None) -> None:
         result = _run_claude(
             ["-p", CANARY_PROMPT, "--model", CANARY_MODEL],
             timeout=CANARY_TIMEOUT_S,
-            token=token,
+            lease=lease,
         )
     except subprocess.TimeoutExpired as e:
         raise JudgeUnreachable(f"canary timed out after {CANARY_TIMEOUT_S}s") from e
@@ -279,55 +281,73 @@ def _coerce_result(parsed: dict) -> JudgeResult:
 # ── Token pool ────────────────────────────────────────────────────────────
 
 
-def _on_pool(call):
-    """Run `call(token)` on the first usable token, moving on when one is spent.
+def _on_lease(call):
+    """Run `call(lease)` on a lease from crossposter, and report how it went.
 
-    A `JudgeUnreachable` that is the token's fault (out of quota, rejected)
-    benches it and tries the next; any other failure is raised as it is. When
-    every token was already benched before the call, the error says so:
-    `JudgeQuotaExhausted` (carrying the earliest reset) if all of them are only
-    out of quota.
+    A `JudgeUnreachable` that is the account's fault (out of quota, rejected)
+    is reported; crossposter benches that account and names the one now
+    active, and the call goes again on it if this call has not tried it. Any
+    other failure is reported as `error` and raised as it is. No lease at all
+    is `JudgeUnreachable` (`JudgeQuotaExhausted` when every account is only
+    out of quota), with crossposter's reason.
     """
-    pool = claude_tokens.default_pool()
-
-    def exhausted(e: claude_tokens.PoolExhausted) -> JudgeUnreachable:
-        if e.quota_only:
-            when = (datetime.fromtimestamp(e.earliest).astimezone().isoformat(timespec="minutes")
-                    if e.earliest else None)
-            return JudgeQuotaExhausted(str(e), when)
-        return JudgeUnreachable(str(e))
-
     try:
-        attempts = pool.available() or [None]
-    except claude_tokens.PoolExhausted as e:
-        raise exhausted(e) from e
-
+        client = claude_tokens.LeaseClient.from_env()
+    except claude_tokens.LeaseUnavailable as e:
+        raise JudgeUnreachable(str(e)) from e
+    tried: set[str] = set()
     last: JudgeUnreachable | None = None
-    for token in attempts:
+    while True:
         try:
-            return call(token)
+            lease = client.lease()
+        except claude_tokens.LeaseUnavailable as e:
+            if last is not None:
+                raise last from e
+            if e.quota_only:
+                raise JudgeQuotaExhausted(str(e), None) from e
+            raise JudgeUnreachable(str(e)) from e
+        if lease.account in tried:
+            # crossposter handed back an account this call already spent. Its
+            # own error carries the CLI's wording of when the limit lifts.
+            assert last is not None
+            raise last
+        tried.add(lease.account)
+        try:
+            result = call(lease)
         except JudgeUnreachable as e:
-            if pool.bench_if_token_problem(token, str(e)) is None:
+            failure = claude_tokens.classify(str(e), time.time())
+            if failure is None:
+                client.report(lease, claude_tokens.ERROR)
+                raise
+            answer = client.report(lease, failure.outcome)
+            if claude_tokens.next_account(answer, tried) is None:
                 raise
             last = e
-    # Every token this call tried was spent. The last one's own error is the
-    # most useful thing to raise: it carries the CLI's wording of when the
-    # limit lifts, which the pool's summary would only paraphrase.
-    assert last is not None
-    raise last
+            continue
+        except JudgeError:
+            # The CLI answered; what it said did not parse. The account is fine.
+            client.report(lease, claude_tokens.OK)
+            raise
+        except Exception:
+            client.report(lease, claude_tokens.ERROR)
+            raise
+        client.report(lease, claude_tokens.OK)
+        return result
 
 
-def canary_all() -> list[dict]:
-    """Canary every configured token. Diagnostic; costs one haiku call each."""
-    rows = []
-    for token in claude_tokens.load_tokens():
-        try:
-            _canary_or_raise(token)
-            rows.append({"label": token.label, "reachable": True})
-        except JudgeError as e:
-            rows.append({"label": token.label, "reachable": False,
-                         "error_class": type(e).__name__, "error_message": str(e)[:300]})
-    return rows
+def canary() -> dict:
+    """Canary the account crossposter leases now. Diagnostic; one haiku call."""
+    client = claude_tokens.LeaseClient.from_env()
+    lease = client.lease()
+    try:
+        _canary_or_raise(lease)
+    except JudgeUnreachable as e:
+        failure = claude_tokens.classify(str(e), time.time())
+        client.report(lease, failure.outcome if failure else claude_tokens.ERROR)
+        return {"account": lease.account, "reachable": False,
+                "error_class": type(e).__name__, "error_message": str(e)[:300]}
+    client.report(lease, claude_tokens.OK)
+    return {"account": lease.account, "reachable": True}
 
 
 # ── Public API ────────────────────────────────────────────────────────────
@@ -348,8 +368,8 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
 
     prompt = _compose_prompt(rubric_md, input_payload)
 
-    def attempt(token):
-        _canary_or_raise(token)
+    def attempt(lease):
+        _canary_or_raise(lease)
         try:
             # Pass prompt via stdin — real fix diffs blow the ~32KB
             # Windows CreateProcess argv ceiling when sent as `-p <prompt>`.
@@ -361,7 +381,7 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
                 ],
                 timeout=JUDGE_TIMEOUT_S,
                 stdin_text=prompt,
-                token=token,
+                lease=lease,
             )
         except subprocess.TimeoutExpired as e:
             raise JudgeUnreachable(f"judge call timed out after {JUDGE_TIMEOUT_S}s") from e
@@ -371,7 +391,7 @@ def score(rubric_md: str, input_payload: str) -> JudgeResult:
         return result
 
     with _semaphore:
-        result = _on_pool(attempt)
+        result = _on_lease(attempt)
 
     parsed = _extract_json(result.stdout)
     return _coerce_result(parsed)
@@ -434,14 +454,14 @@ def generate_title(issue_title: str, fix_summary: str, files_touched: list[str])
 
     prompt = f"{_TITLE_PROMPT}\n\n---\n\n## Input\n\n{payload}"
 
-    def attempt(token):
-        _canary_or_raise(token)
+    def attempt(lease):
+        _canary_or_raise(lease)
         try:
             result = _run_claude(
                 ["-p", "--model", JUDGE_MODEL, "--output-format", "json"],
                 timeout=JUDGE_TIMEOUT_S,
                 stdin_text=prompt,
-                token=token,
+                lease=lease,
             )
         except subprocess.TimeoutExpired as e:
             raise JudgeUnreachable(f"title judge timed out after {JUDGE_TIMEOUT_S}s") from e
@@ -450,7 +470,7 @@ def generate_title(issue_title: str, fix_summary: str, files_touched: list[str])
         return result
 
     with _semaphore:
-        result = _on_pool(attempt)
+        result = _on_lease(attempt)
 
     parsed = _extract_json(result.stdout)
     title = parsed.get("title") if isinstance(parsed, dict) else None

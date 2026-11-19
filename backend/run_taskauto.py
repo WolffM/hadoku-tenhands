@@ -136,9 +136,10 @@ def _agent_down(exc: Exception, *, acted: int = 0) -> int:
     """
     logger.error(
         "the coding agent could not be run — stopping this sweep after %d "
-        "task(s). Every remaining task would fail the same way. Check "
-        "CLAUDE_CODE_OAUTH_TOKEN (a revoked one exits 1 in ~3s and prints "
-        "the 401 to stdout): %s", acted, exc)
+        "task(s). Every remaining task would fail the same way. The reason "
+        "below says whether crossposter gave no lease or the leased account "
+        "failed (a revoked token exits 1 in ~3s and prints the 401 to "
+        "stdout): %s", acted, exc)
     return EXIT_AGENT_DOWN
 
 

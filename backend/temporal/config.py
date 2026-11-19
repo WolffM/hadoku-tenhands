@@ -22,7 +22,7 @@ Env vars:
 
 Auth: the pipeline reuses the existing `gh` user token plus the SAML-org
 token routing in `services/github_api.py` for the GitHub side. The judge (`judge.py`)
-draws a Claude OAuth token from the pool in `claude_tokens.py` at
+leases a Claude OAuth token from crossposter (`claude_tokens.py`) at
 subprocess-spawn time. See `validate_judge_credentials()` below for the precondition check.
 
 See docs/crimson-kitty/cross-ref-isolation.md for the full token model.
@@ -71,17 +71,14 @@ def load_config() -> TemporalConfig:
 
 
 def validate_judge_credentials() -> None:
-    """Precondition check: the judge needs at least one Claude OAuth token.
+    """Precondition check: the judge needs a way to lease a Claude token.
 
-    Any `CLAUDE_OAUTH_TOKEN_<ACCOUNT>` or the legacy `CLAUDE_CODE_OAUTH_TOKEN`
-    counts (see `claude_tokens.py`). Raises `MissingConfigError` with a
-    remediation hint when there is none.
+    tenhands holds no Claude token; it leases one from crossposter with its
+    service key (see `claude_tokens.py`). Raises `MissingConfigError` with a
+    remediation hint when the key is not set.
     """
-    from .claude_tokens import load_tokens
-
-    if not load_tokens():
+    if not (os.environ.get("HADOKU_SERVICE_KEY") or "").strip():
         raise MissingConfigError(
-            "No Claude OAuth token is set (CLAUDE_OAUTH_TOKEN_<ACCOUNT> or "
-            "CLAUDE_CODE_OAUTH_TOKEN). Mint one per subscription with "
-            "`claude setup-token` and store it with `rotate-secret` in hadoku_site."
+            "HADOKU_SERVICE_KEY is not set, so no Claude token can be leased from "
+            "crossposter. It is tenhands' service key, vault item KEY_SERVICE_TENHANDS."
         )

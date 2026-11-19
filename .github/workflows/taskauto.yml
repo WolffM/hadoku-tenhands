@@ -143,11 +143,13 @@ jobs:
       # The secret NAME must match the vault item name: hadoku_site provisions
       # GitHub secrets by pulling the vault item of the same name, so a name
       # with no vault item behind it can never be refreshed by anything.
+      #
+      # It is also what leases the Claude token for every agent run from
+      # crossposter (backend/temporal/claude_tokens.py, #115).
       HADOKU_SERVICE_KEY: ${{ secrets.KEY_SERVICE_TENHANDS }}
+      # No longer read (agent runs lease). Removed with the GitHub secrets
+      # once a real lease has worked in production and in CI (#115 phase 3).
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      # The token pool (backend/temporal/claude_tokens.py) is tried before the
-      # legacy name above, so one revoked or spent account does not stop the
-      # board. An unset secret is an empty string, which the pool ignores.
       CLAUDE_OAUTH_TOKEN_JAMES: ${{ secrets.CLAUDE_OAUTH_TOKEN_JAMES }}
       CLAUDE_OAUTH_TOKEN_MATTH: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH }}
       CLAUDE_OAUTH_TOKEN_MATTH2: ${{ secrets.CLAUDE_OAUTH_TOKEN_MATTH2 }}
@@ -375,8 +377,6 @@ jobs:
         run: |
           missing=
           [ -n "$HADOKU_SERVICE_KEY" ] || missing="$missing HADOKU_SERVICE_KEY"
-          [ -n "$CLAUDE_CODE_OAUTH_TOKEN$CLAUDE_OAUTH_TOKEN_JAMES$CLAUDE_OAUTH_TOKEN_MATTH$CLAUDE_OAUTH_TOKEN_MATTH2" ] \
-            || missing="$missing CLAUDE_OAUTH_TOKEN_<ACCOUNT>-or-CLAUDE_CODE_OAUTH_TOKEN"
           [ -n "$GH_TOKEN" ] || missing="$missing HADOKU_SITE_TOKEN"
           if [ -n "$missing" ]; then
             echo "::error::missing repository secret(s):$missing"

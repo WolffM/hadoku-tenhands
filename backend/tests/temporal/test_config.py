@@ -33,24 +33,26 @@ def test_load_config_returns_frozen_dataclass():
         c.host = "mutated"  # type: ignore[misc]
 
 
-def test_validate_judge_credentials_passes_when_token_set(monkeypatch):
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
+def test_validate_judge_credentials_passes_when_the_service_key_is_set(monkeypatch):
+    monkeypatch.setenv("HADOKU_SERVICE_KEY", "key")
     cfg.validate_judge_credentials()  # no raise
 
 
-def test_validate_judge_credentials_raises_when_token_missing(monkeypatch):
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
-    with pytest.raises(cfg.MissingConfigError, match="CLAUDE_OAUTH_TOKEN_<ACCOUNT>"):
+def test_validate_judge_credentials_raises_when_the_service_key_is_missing(monkeypatch):
+    monkeypatch.delenv("HADOKU_SERVICE_KEY", raising=False)
+    with pytest.raises(cfg.MissingConfigError, match="KEY_SERVICE_TENHANDS"):
         cfg.validate_judge_credentials()
 
 
 def test_validate_judge_credentials_treats_whitespace_as_missing(monkeypatch):
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "   ")
+    monkeypatch.setenv("HADOKU_SERVICE_KEY", "   ")
     with pytest.raises(cfg.MissingConfigError):
         cfg.validate_judge_credentials()
 
 
-def test_validate_judge_credentials_accepts_a_pooled_token_alone(monkeypatch):
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+def test_a_claude_token_in_the_environment_is_not_a_credential_any_more(monkeypatch):
+    """tenhands leases; a token lying in the environment satisfies nothing."""
+    monkeypatch.delenv("HADOKU_SERVICE_KEY", raising=False)
     monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_MATTH", "sk-ant-oat01-fake")
-    cfg.validate_judge_credentials()  # no raise
+    with pytest.raises(cfg.MissingConfigError):
+        cfg.validate_judge_credentials()

@@ -165,23 +165,27 @@ def admit_authed_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def isolated_claude_token_pool(monkeypatch, tmp_path):
-    """Each test gets its own token bench file and no pooled tokens.
+def no_real_claude_lease(monkeypatch):
+    """No test leases a real Claude token by accident.
 
-    The pool (`temporal/claude_tokens.py`) remembers benched tokens in
-    `~/.taskauto/claude-tokens.json`, shared with the live services; a test
-    faking a quota failure would otherwise bench a real token on the host.
-    Run under dev-vault, the environment also holds the real
-    `CLAUDE_OAUTH_TOKEN_<ACCOUNT>` items, which would make "no token set"
-    tests pass or fail by who ran them. Tests that want pooled tokens set them.
+    `temporal/claude_tokens.py` leases from crossposter with HADOKU_SERVICE_KEY,
+    which a run under dev-vault (or CI's taskauto job) has for real. Point
+    every test at a port nothing listens on; a test that wants leases uses the
+    `crossposter` fixture, and the real-CLI judge test resets this itself.
     """
-    from temporal import claude_tokens
+    monkeypatch.setenv("TENHANDS_CROSSPOSTER_URL", "http://127.0.0.1:9")
 
-    monkeypatch.setenv("TASKAUTO_TOKEN_STATE", str(tmp_path / "claude-tokens.json"))
-    for name in list(os.environ):
-        if name.startswith(claude_tokens.PREFIX):
-            monkeypatch.delenv(name)
-    monkeypatch.setattr(claude_tokens, "_default_notify", lambda title, description: None)
+
+@pytest.fixture
+def crossposter(monkeypatch):
+    """A stand-in crossposter with three accounts, on a real local socket."""
+    from tests.support.crossposter import FakeCrossposter
+
+    fake = FakeCrossposter({"matth2": "tok-matth2", "matth": "tok-matth", "james": "tok-james"}).start()
+    monkeypatch.setenv("TENHANDS_CROSSPOSTER_URL", fake.url)
+    monkeypatch.setenv("HADOKU_SERVICE_KEY", fake.key)
+    yield fake
+    fake.stop()
 
 
 @pytest.fixture(autouse=True)

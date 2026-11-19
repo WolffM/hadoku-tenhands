@@ -200,12 +200,12 @@ def main() -> int:
         try:
             result = turn()
         except AgentUnavailable as e:
-            # A traceback would be honest but unhelpful: the cause is almost
-            # always a dead CLAUDE_CODE_OAUTH_TOKEN, and the fix is one line.
+            # A traceback would be honest but unhelpful: the reason names
+            # the cause (no lease from crossposter, or the leased account
+            # failed), and the fix is outside this process.
             print(f"\nthe coding agent could not be run: {e}\n"
-                  f"the claim was handed back, so nothing is pinned. Check "
-                  f"CLAUDE_CODE_OAUTH_TOKEN — a revoked one exits 1 in ~3s "
-                  f"and prints its 401 to stdout.")
+                  f"the claim was handed back, so nothing is pinned. Claude "
+                  f"tokens are leased from crossposter (temporal/claude_tokens.py).")
             return 3
         print(f"turn {i + 1}/{args.turns} ({time.time() - started:.0f}s): {result}")
         if not result.acted:

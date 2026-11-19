@@ -26,6 +26,16 @@ from temporal.config import MissingConfigError
 from tests.support import vault
 
 
+@pytest.fixture(autouse=True)
+def _leases(request):
+    """Every judge call here leases from a stand-in crossposter (tests/support),
+    except the real-CLI test, which leases from the real one."""
+    if request.node.get_closest_marker("real_egress"):
+        yield None
+    else:
+        yield request.getfixturevalue("crossposter")
+
+
 # ── canary unit tests ─────────────────────────────────────────────────────
 
 
@@ -171,15 +181,14 @@ def test_coerce_result_rejects_invalid(payload, fragment):
 # ── score() integration with mocked subprocess ────────────────────────────
 
 
-def test_score_raises_missing_config_when_token_unset(monkeypatch):
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+def test_score_raises_missing_config_when_the_service_key_is_unset(monkeypatch):
+    monkeypatch.delenv("HADOKU_SERVICE_KEY", raising=False)
     with pytest.raises(MissingConfigError):
         J.score("rubric text", "payload")
 
 
 def test_score_full_path_with_mocked_subprocess(monkeypatch):
     """End-to-end through score() with the subprocess seam mocked."""
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
 
     rubric_json = '{"verdict": "pass", "score": 0.75, "reasoning": "fine"}'
     judge_envelope = json.dumps({"result": f"Done.\n```json\n{rubric_json}\n```\n"})
@@ -231,12 +240,11 @@ def test_score_sends_prompt_via_stdin_not_argv(monkeypatch):
 
     Regression for B14 (2026-04-20 phase-4 v5 retro).
     """
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
 
     huge_payload = "x" * 40_000  # beyond the Windows argv ceiling
     stdin_captured = {}
 
-    def fake_run(args, timeout, *, stdin_text=None, token=None):
+    def fake_run(args, timeout, *, stdin_text=None, lease=None):
         if stdin_text is None:  # canary call
             return MagicMock(returncode=0, stdout="OK\n", stderr="")
         stdin_captured["argv"] = list(args)
@@ -260,7 +268,6 @@ def test_score_sends_prompt_via_stdin_not_argv(monkeypatch):
 
 
 def test_score_unreachable_when_judge_subprocess_times_out(monkeypatch):
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
 
     def fake_run(args, timeout, **kwargs):
         if "respond with exactly: OK" in args:
@@ -273,7 +280,6 @@ def test_score_unreachable_when_judge_subprocess_times_out(monkeypatch):
 
 
 def test_score_parse_error_when_judge_returns_garbage(monkeypatch):
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
 
     def fake_run(args, timeout, **kwargs):
         if "respond with exactly: OK" in args:
@@ -332,9 +338,8 @@ def test_canary_does_not_call_other_failures_quota(monkeypatch, stdout):
 
 def test_real_judge_call_names_quota_exhaustion(monkeypatch):
     """The canary can pass and the real call still hit the limit."""
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
 
-    def fake_run(args, timeout, *, stdin_text=None, token=None):
+    def fake_run(args, timeout, *, stdin_text=None, lease=None):
         if stdin_text is None:
             return MagicMock(returncode=0, stdout="OK", stderr="")
         return MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
@@ -350,7 +355,6 @@ def test_integration_outcome_on_weekly_limit_is_skipped_not_failed(monkeypatch):
     Drives `_score_or_skip_on_quota`, the same call the real-CLI test makes,
     with only the subprocess faked.
     """
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
     fake = MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
     monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
@@ -367,7 +371,6 @@ def test_integration_outcome_on_weekly_limit_is_skipped_not_failed(monkeypatch):
 ])
 def test_integration_outcome_on_broken_judge_still_fails(monkeypatch, failure):
     """A missing binary or a broken judge is not a quota skip."""
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
 
     def fake_run(args, timeout, **kwargs):
         if isinstance(failure, Exception):
@@ -384,7 +387,6 @@ def test_quota_skip_is_written_to_the_step_summary(monkeypatch, tmp_path):
     """In Actions the reason must be visible on the run page, not only in the log."""
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fake")
     fake = MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
     monkeypatch.setattr(J, "_run_claude", lambda args, timeout, **kwargs: fake)
 
@@ -444,13 +446,14 @@ def test_score_integration_real_cli(monkeypatch):
     that depends on the operator remembering something is a test that does not
     run.
 
-    So it fetches its own credentials now — the whole token pool, every
-    `CLAUDE_OAUTH_TOKEN_<ACCOUNT>` plus the legacy name — by the intended path: the per-repo
-    service-tier key in `.devvault.local.json` (or `HADOKU_VAULT_KEY`) against
-    the vault broker. No wrapper, no skip. If the credential cannot be
-    resolved that is a **failure** with the broker's reason attached, because
-    every cause — no key, sealed vault, missing ACL grant — is something to go
-    fix rather than something to shrug past.
+    So it fetches its own credentials now, by the path production uses: it
+    leases the active account's token from crossposter with tenhands' service
+    key (`HADOKU_SERVICE_KEY` in CI, else fetched from the vault broker with the
+    per-repo key in `.devvault.local.json`). No wrapper, no skip. If no lease
+    can be had that is a **failure** with crossposter's or the broker's reason
+    attached, because every cause (no key, sealed vault, not on the
+    `crossposter-claude-code-lease` allow list, no usable account) is
+    something to go fix rather than something to shrug past.
 
     In CI it runs in its own `judge integration` job, not the required
     `backend pytest` check (#107): every run spends the Claude account's
@@ -466,16 +469,10 @@ def test_score_integration_real_cli(monkeypatch):
         "against anything real. Install it rather than skipping: this is the "
         "only unmocked coverage `score()` has.")
 
-    # The whole pool, as production gets it, not one token: the judge picks
-    # from `claude_tokens`, so a revoked legacy token must not fail this test
-    # while a live pool token sits unused (#112). Fetched, not read from the
-    # environment — see the docstring. Every token that could not be resolved
-    # carries the broker's own diagnosis (sealed / no grant / no key).
-    tokens, missing = vault.claude_token_pool()
-    unresolved = "\n  ".join(missing) or "(none)"
-    assert tokens, f"no Claude OAuth token could be resolved:\n  {unresolved}"
-    for name, value in tokens.items():
-        monkeypatch.setenv(name, value)
+    # The real crossposter, not the conftest's dead end.
+    monkeypatch.delenv("TENHANDS_CROSSPOSTER_URL", raising=False)
+    if not os.environ.get("HADOKU_SERVICE_KEY", "").strip():
+        monkeypatch.setenv("HADOKU_SERVICE_KEY", vault.fetch("HADOKU_SERVICE_KEY"))
 
     # `score()` shells out, so the child needs the install path too. monkeypatch
     # rather than mutating os.environ directly — the old version leaked a PATH
@@ -494,23 +491,19 @@ Score the input on a single criterion: does it contain the word "hello"?
 
 Output a fenced ```json block with keys: verdict, score, reasoning."""
 
-    try:
-        result = _score_or_skip_on_quota(rubric, "the payload says hello world")
-    except J.JudgeUnreachable as e:
-        e.add_note(f"tokens tried: {', '.join(tokens)}; not resolved:\n  {unresolved}")
-        raise
+    result = _score_or_skip_on_quota(rubric, "the payload says hello world")
     assert isinstance(result, J.JudgeResult)
     assert result.verdict in ("pass", "fail", "defer")
     assert 0.0 <= result.score <= 1.0
     assert isinstance(result.reasoning, str) and len(result.reasoning) > 0
 
 
-# ── the token pool ────────────────────────────────────────────────────────
+# ── the lease ─────────────────────────────────────────────────────────────
 
 
 def _by_token(outcomes, calls):
-    def fake_run(args, timeout, *, stdin_text=None, token=None):
-        label = token.label if token else None
+    def fake_run(args, timeout, *, stdin_text=None, lease=None):
+        label = lease.account if lease else None
         calls.append((label, "canary" if stdin_text is None else "judge"))
         return outcomes(label, stdin_text is not None)
     return fake_run
@@ -519,39 +512,45 @@ def _by_token(outcomes, calls):
 GOOD = json.dumps({"result": '```json\n{"verdict": "pass", "score": 0.9, "reasoning": "ok"}\n```'})
 
 
-def test_score_moves_to_the_next_token_when_the_canary_hits_a_limit(monkeypatch):
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+def test_a_good_call_reports_ok(monkeypatch, crossposter):
+    calls = []
+    monkeypatch.setattr(J, "_run_claude", _by_token(lambda label, is_judge: MagicMock(
+        returncode=0, stdout=GOOD if is_judge else "OK", stderr=""), calls))
+    assert J.score("rubric", "payload").verdict == "pass"
+    assert calls == [("matth2", "canary"), ("matth2", "judge")]
+    assert crossposter.outcomes == [{"account": "matth2", "outcome": "ok"}]
+
+
+def test_score_moves_to_the_account_crossposter_names_when_the_canary_hits_a_limit(
+        monkeypatch, crossposter):
     calls = []
 
     def outcomes(label, is_judge):
-        if label == "a":
+        if label == "matth2":
             return MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
         return MagicMock(returncode=0, stdout=GOOD if is_judge else "OK", stderr="")
 
     monkeypatch.setattr(J, "_run_claude", _by_token(outcomes, calls))
     assert J.score("rubric", "payload").verdict == "pass"
-    assert calls == [("a", "canary"), ("b", "canary"), ("b", "judge")]
+    assert calls == [("matth2", "canary"), ("matth", "canary"), ("matth", "judge")]
+    assert crossposter.outcomes == [{"account": "matth2", "outcome": "rate_limited"},
+                                    {"account": "matth", "outcome": "ok"}]
 
 
 def test_a_limit_hit_on_the_real_call_moves_on_too(monkeypatch):
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
     calls = []
 
     def outcomes(label, is_judge):
-        if label == "a" and is_judge:
+        if label == "matth2" and is_judge:
             return MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr="")
         return MagicMock(returncode=0, stdout=GOOD if is_judge else "OK", stderr="")
 
     monkeypatch.setattr(J, "_run_claude", _by_token(outcomes, calls))
     assert J.score("rubric", "payload").verdict == "pass"
-    assert calls[-1] == ("b", "judge")
+    assert calls[-1] == ("matth", "judge")
 
 
-def test_a_judge_failure_that_is_not_the_tokens_does_not_try_the_others(monkeypatch):
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+def test_a_judge_failure_that_is_not_the_accounts_does_not_move_on(monkeypatch, crossposter):
     calls = []
 
     def outcomes(label, is_judge):
@@ -560,29 +559,46 @@ def test_a_judge_failure_that_is_not_the_tokens_does_not_try_the_others(monkeypa
     monkeypatch.setattr(J, "_run_claude", _by_token(outcomes, calls))
     with pytest.raises(J.JudgeUnreachable):
         J.score("rubric", "payload")
-    assert calls == [("a", "canary")]
+    assert calls == [("matth2", "canary")]
+    assert crossposter.outcomes == [{"account": "matth2", "outcome": "error"}]
 
 
-def test_every_token_spent_keeps_the_clis_reset_wording(monkeypatch):
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
+def test_an_unparseable_answer_is_not_the_accounts_fault(monkeypatch, crossposter):
+    monkeypatch.setattr(J, "_run_claude", _by_token(lambda label, is_judge: MagicMock(
+        returncode=0, stdout="prose" if is_judge else "OK", stderr=""), []))
+    with pytest.raises(J.JudgeParseError):
+        J.score("rubric", "payload")
+    assert crossposter.outcomes == [{"account": "matth2", "outcome": "ok"}]
+
+
+def test_every_account_spent_keeps_the_clis_reset_wording(monkeypatch):
     calls = []
     monkeypatch.setattr(J, "_run_claude", _by_token(
         lambda label, is_judge: MagicMock(returncode=1, stdout=WEEKLY_LIMIT, stderr=""), calls))
     with pytest.raises(J.JudgeQuotaExhausted) as e:
         J.score("rubric", "payload")
     assert e.value.resets == "Nov 6, 3pm (America/Los_Angeles)"
+    assert [c[0] for c in calls] == ["matth2", "matth", "james"]
 
-    # Next call: the pool already knows, so nothing is spawned at all.
+    # Next call: crossposter has every account benched, so nothing is spawned.
     calls.clear()
-    with pytest.raises(J.JudgeQuotaExhausted):
+    with pytest.raises(J.JudgeQuotaExhausted, match="HTTP 503"):
         J.score("rubric", "payload")
     assert calls == []
 
 
-def test_the_chosen_token_reaches_the_subprocess_and_the_rest_do_not(monkeypatch):
+def test_without_the_grant_the_judge_is_unreachable_and_says_why(monkeypatch, crossposter):
+    crossposter.refuse = 403
+    calls = []
+    monkeypatch.setattr(J, "_run_claude", _by_token(lambda *a: None, calls))
+    with pytest.raises(J.JudgeUnreachable, match="crossposter-claude-code-lease") as e:
+        J.score("rubric", "payload")
+    assert not isinstance(e.value, J.JudgeQuotaExhausted)
+    assert calls == []
+
+
+def test_the_leased_token_reaches_the_subprocess_and_pool_names_do_not(monkeypatch):
     monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_A", "tok-a")
-    monkeypatch.setenv("CLAUDE_OAUTH_TOKEN_B", "tok-b")
     seen = {}
 
     def fake_subprocess_run(cmd, **kwargs):
@@ -590,31 +606,14 @@ def test_the_chosen_token_reaches_the_subprocess_and_the_rest_do_not(monkeypatch
         return MagicMock(returncode=0, stdout="OK", stderr="")
 
     monkeypatch.setattr(J.subprocess, "run", fake_subprocess_run)
-    J._run_claude(["-p", "hi"], timeout=5, token=J.claude_tokens.Token("a", "tok-a"))
-    assert seen["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-a"
+    lease = J.claude_tokens.Lease("id", "matth", "tok-leased", "2026-11-18T13:00:00+00:00")
+    J._run_claude(["-p", "hi"], timeout=5, lease=lease)
+    assert seen["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-leased"
     assert not any(k.startswith("CLAUDE_OAUTH_TOKEN_") for k in seen)
 
 
-def test_claude_token_pool_takes_ambient_tokens_and_names_the_unreachable(monkeypatch):
-    """The real-CLI test hands the judge the whole pool (#112).
-
-    A token the job's environment already carries is used as-is, even though
-    the autouse fixture has stripped it from `os.environ`; a declared one the
-    broker refuses is reported by name with its reason, never by value.
-    """
-    monkeypatch.setattr(vault, "_AMBIENT_POOL", {"CLAUDE_OAUTH_TOKEN_A": "tok-a"})
-    monkeypatch.setattr(vault, "mapping", lambda: {
-        "CLAUDE_OAUTH_TOKEN_A": "CLAUDE_OAUTH_TOKEN_A",
-        "CLAUDE_OAUTH_TOKEN_B": "CLAUDE_OAUTH_TOKEN_B",
-        "OTHER": "OTHER",
-    })
-
-    def fake_fetch(name):
-        if name == "CLAUDE_CODE_OAUTH_TOKEN":
-            return "tok-legacy"
-        raise vault.VaultUnavailable(f"broker returned HTTP 403 for {name}")
-
-    monkeypatch.setattr(vault, "fetch", fake_fetch)
-    found, missing = vault.claude_token_pool()
-    assert found == {"CLAUDE_OAUTH_TOKEN_A": "tok-a", "CLAUDE_CODE_OAUTH_TOKEN": "tok-legacy"}
-    assert missing == ["CLAUDE_OAUTH_TOKEN_B: broker returned HTTP 403 for CLAUDE_OAUTH_TOKEN_B"]
+def test_the_canary_route_reports_the_leased_account(monkeypatch, crossposter):
+    monkeypatch.setattr(J, "_run_claude", _by_token(lambda label, is_judge: MagicMock(
+        returncode=0, stdout="OK", stderr=""), []))
+    assert J.canary() == {"account": "matth2", "reachable": True}
+    assert crossposter.outcomes == [{"account": "matth2", "outcome": "ok"}]
