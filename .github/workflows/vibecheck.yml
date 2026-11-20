@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run vibeCheck
-        uses: WolffM/vibecheck@cdfe59779dc6df23a6d546120d51fdd331c45efa  # main
+        uses: WolffM/vibecheck@a4902672de195a7d6a35dbdd0e655348d10c0cc2  # main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cadence: weekly
