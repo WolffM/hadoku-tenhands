@@ -49,11 +49,11 @@ importers:
         specifier: 1.4.4
         version: 1.4.4
       '@wolffm/task-ui-components':
-        specifier: 4.23.45
-        version: 4.23.45(@wolffm/themes@5.14.14(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 4.23.46
+        version: 4.23.46(@wolffm/themes@5.14.15(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@wolffm/themes':
-        specifier: 5.14.14
-        version: 5.14.14(react@19.2.8)
+        specifier: 5.14.15
+        version: 5.14.15(react@19.2.8)
       eslint:
         specifier: ^10.8.0
         version: 10.8.0
@@ -511,22 +511,22 @@ packages:
     resolution: {integrity: sha512-mHtb1uTXY9U/xTvO3wh6ofy0MnZOxLVkWld0EP4hWZqxbl/crQQ/Bj5Z2PzI/Yjo9Dc+/u3x+J4YH6uJrQyrDQ==, tarball: https://npm.pkg.github.com/download/@wolffm/logger/1.4.4/6fe2bd34648eec3e0b9a817fc56cd907687363a8}
     engines: {node: '>=18'}
 
-  '@wolffm/prefs-client@1.1.31':
-    resolution: {integrity: sha512-NRQM8Ehmq9L8PLQiIXSbH/Wt2oiCUoXavQvPZPwfq/0LZib6fSdWfAi8873MOH6sd0YKIRtEFeqLa0MiU9hSZQ==, tarball: https://npm.pkg.github.com/download/@wolffm/prefs-client/1.1.31/e81223e7209d60f2f25335b350a5cea87cbb31c4}
+  '@wolffm/prefs-client@1.1.32':
+    resolution: {integrity: sha512-zsZhggoBwIX2brW/iiM/4EHMQPWPFmzGrdJoilvYaKB3RglOMT09YD/vF1zdgL0KIsszMh8IYgZXaS2U4YETgQ==, tarball: https://npm.pkg.github.com/download/@wolffm/prefs-client/1.1.32/95e5c7c5fe5e99301a8308e848cdfa5f5ad84c6f}
     engines: {node: '>=18'}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       zod: ^4.0.0
 
-  '@wolffm/task-ui-components@4.23.45':
-    resolution: {integrity: sha512-m+emesq04R73AW2yo12aLnJqJEBxfiAK2TfNJ74RX1eQzeW/lNfshJiehzjWtc4Fo9+zhpHtIF+wkKF6PJu1Gw==, tarball: https://npm.pkg.github.com/download/@wolffm/task-ui-components/4.23.45/b4a23dfb4c2662694d3cfe764211318dd3a1c7aa}
+  '@wolffm/task-ui-components@4.23.46':
+    resolution: {integrity: sha512-FQ85QklNiIZP9Q7CHX5JvsOvQf8875uquKbW2MPOO2eG3dVyKTYTC5kNfocqJZU0YgRW9tUf0hmUw20FqYO+OA==, tarball: https://npm.pkg.github.com/download/@wolffm/task-ui-components/4.23.46/b363bda1c66c15d5559bdec739265fc9d926402c}
     peerDependencies:
       '@wolffm/themes': '*'
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
 
-  '@wolffm/themes@5.14.14':
-    resolution: {integrity: sha512-0A+SqcHIrm9YpXVg1It3d4twZ9XRnUPv1kNbYWCoTpBgHVQR5E0J6lhPCt8r4jMayr6gfKnnu++FFIYWIT9sxg==, tarball: https://npm.pkg.github.com/download/@wolffm/themes/5.14.14/d819040821afb9e75bdcb00b23edc7af21aa8837}
+  '@wolffm/themes@5.14.15':
+    resolution: {integrity: sha512-evnse6GRozn98ccCanXNtxDXQQwisoff6NqpdDqP1EkpbyDpZmCH14rfRx7oQqHBgwN6ZhaG9otm3x3F02KGnw==, tarball: https://npm.pkg.github.com/download/@wolffm/themes/5.14.15/d6e50ee1a1582b47bfcd515ca991dd148e1348ab}
     hasBin: true
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
@@ -1850,20 +1850,20 @@ snapshots:
 
   '@wolffm/logger@1.4.4': {}
 
-  '@wolffm/prefs-client@1.1.31(react@19.2.8)(zod@4.6.7)':
+  '@wolffm/prefs-client@1.1.32(react@19.2.8)(zod@4.6.7)':
     dependencies:
       react: 19.2.8
       zod: 4.6.7
 
-  '@wolffm/task-ui-components@4.23.45(@wolffm/themes@5.14.14(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@wolffm/task-ui-components@4.23.46(@wolffm/themes@5.14.15(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@wolffm/themes': 5.14.14(react@19.2.8)
+      '@wolffm/themes': 5.14.15(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@wolffm/themes@5.14.14(react@19.2.8)':
+  '@wolffm/themes@5.14.15(react@19.2.8)':
     dependencies:
-      '@wolffm/prefs-client': 1.1.31(react@19.2.8)(zod@4.6.7)
+      '@wolffm/prefs-client': 1.1.32(react@19.2.8)(zod@4.6.7)
       react: 19.2.8
       zod: 4.6.7
 
