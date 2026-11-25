@@ -10,6 +10,7 @@ dist/
 dist-demo/
 test-results/
 playwright-report/
+reports/
 coverage/
 
 # Generated from backend/helpers/report_generator.py's HTML_TEMPLATE — edit the
