@@ -20,5 +20,7 @@ export default defineConfig({
   testDir: './tests/unit',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  reporter: process.env.CI ? [['list']] : [['list']]
+  // The JSON report is what CI's report-tests step posts to the fleet test
+  // store (hadoku_site docs/planning/unified-test-reporting-2026-11-23.md).
+  reporter: [['list'], ['json', { outputFile: 'reports/playwright-unit.json' }]]
 })

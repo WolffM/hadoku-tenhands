@@ -110,7 +110,19 @@ jobs:
         #
         # The suite runs with zero skips. A skip appearing here is a regression
         # to investigate, not the normal state.
-        run: ../.venv-ci/bin/python -m pytest tests/ -q --deselect tests/temporal/test_judge.py::test_score_integration_real_cli
+        run: ../.venv-ci/bin/python -m pytest tests/ -q --deselect tests/temporal/test_judge.py::test_score_integration_real_cli --junitxml="$RUNNER_TEMP/pytest-backend.xml"
+
+      # Every test, red runs too, into the fleet test store (hadoku_site
+      # docs/planning/unified-test-reporting-2026-11-23.md). Advisory: it never
+      # fails the job.
+      - name: Report the backend tests
+        if: always()
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: backend
+          kind: unit
+          reports: pytest ${{ runner.temp }}/pytest-backend.xml
+          key: ${{ secrets.KEY_SERVICE_TENHANDS }}
 
   judge-integration:
     name: judge integration (real claude CLI)
@@ -162,6 +174,7 @@ jobs:
           echo "claude resolved to $found"
 
       - name: Run the real-CLI judge test
+        id: judge
         working-directory: backend
         env:
           # tenhands holds no Claude token: the judge leases the active
@@ -176,7 +189,19 @@ jobs:
           # only to override. The step above fails the job if it resolves to
           # nothing.
           CRIMSON_CLAUDE_BIN: ${{ vars.CLAUDE_BIN || 'claude' }}
-        run: ../.venv-ci/bin/python -m pytest tests/temporal/test_judge.py::test_score_integration_real_cli -q -rs
+        run: ../.venv-ci/bin/python -m pytest tests/temporal/test_judge.py::test_score_integration_real_cli -q -rs --junitxml="$RUNNER_TEMP/pytest-judge.xml"
+
+      # Every test, red runs too, into the fleet test store (hadoku_site
+      # docs/planning/unified-test-reporting-2026-11-23.md). Advisory: it never
+      # fails the job.
+      - name: Report the judge integration test
+        if: always() && steps.judge.outcome != 'skipped'
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: judge-integration
+          kind: unit
+          reports: pytest ${{ runner.temp }}/pytest-judge.xml
+          key: ${{ secrets.KEY_SERVICE_TENHANDS }}
 
   frontend:
     name: frontend lint + typecheck
@@ -255,8 +280,21 @@ jobs:
       # arrived unverified. These need no browser and no server, so they run
       # here in the cheap job rather than alongside the e2e suite.
       - name: Unit tests
+        id: unit
         working-directory: frontend
         run: pnpm run test:unit
+
+      # Every test, red runs too, into the fleet test store (hadoku_site
+      # docs/planning/unified-test-reporting-2026-11-23.md). Advisory: it never
+      # fails the job.
+      - name: Report the frontend unit tests
+        if: always() && steps.unit.outcome != 'skipped'
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: frontend-unit
+          kind: unit
+          reports: playwright frontend/reports/playwright-unit.json
+          key: ${{ secrets.KEY_SERVICE_TENHANDS }}
 
       # `lint` is eslint followed by lint:icons (the @wolffm/themes icon gate).
       - name: Lint
@@ -353,8 +391,21 @@ jobs:
       # off reuseExistingServer so this starts its own backend and vite rather
       # than adopting a stray one, and pins workers to 1.
       - name: Run the local e2e project
+        id: e2e
         working-directory: frontend
         run: pnpm exec playwright test --project=local
+
+      # Every test, red runs too, into the fleet test store (hadoku_site
+      # docs/planning/unified-test-reporting-2026-11-23.md). Advisory: it never
+      # fails the job.
+      - name: Report the e2e tests
+        if: always() && steps.e2e.outcome != 'skipped'
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: e2e
+          kind: e2e
+          reports: playwright frontend/reports/playwright-e2e.json
+          key: ${{ secrets.KEY_SERVICE_TENHANDS }}
 
       - name: Upload the report when it fails
         if: failure()
@@ -395,4 +446,17 @@ jobs:
             -r backend/requirements-dev.txt
       - name: Run tests (mocked subset)
         working-directory: backend
-        run: python -m pytest tests/ -q --deselect tests/temporal/test_judge.py::test_score_integration_real_cli
+        run: python -m pytest tests/ -q --deselect tests/temporal/test_judge.py::test_score_integration_real_cli --junitxml="$RUNNER_TEMP/pytest-backend-fork.xml"
+
+      # Every test, red runs too, into the fleet test store (hadoku_site
+      # docs/planning/unified-test-reporting-2026-11-23.md). Advisory: it never
+      # fails the job. A fork PR has no secrets: the key is empty and the
+      # document is printed but not posted.
+      - name: Report the backend tests (fork)
+        if: always()
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: backend-fork
+          kind: unit
+          reports: pytest ${{ runner.temp }}/pytest-backend-fork.xml
+          key: ${{ secrets.KEY_SERVICE_TENHANDS }}

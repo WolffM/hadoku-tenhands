@@ -108,9 +108,16 @@ output. The one sanctioned exception is the LLM judge's real-CLI test, which
 skips only when the account's own usage quota is exhausted, with the reset
 time printed in the reason.
 
-CI (`.github/workflows/test.yml`) runs the backend suite on every PR. A
-separate static-analysis workflow (VibeCheck) and the `taskauto.yml`
-runner round out the gates.
+CI (`.github/workflows/test.yml`) runs on every PR and every push to
+`main`: the backend suite, the real-CLI judge test, the frontend's lint,
+typecheck and unit tests, and the local e2e project. Each of those test jobs
+ends with a `report-tests` step that posts every test, red runs included, to
+the fleet's test store. Each job is its own suite: `backend`,
+`judge-integration`, `frontend-unit`, `e2e`, and `backend-fork` for an outside
+author's PR. pytest
+writes JUnit XML for it and both Playwright configs write a JSON report to
+`frontend/reports/`. A separate static-analysis workflow (VibeCheck) and the
+`taskauto.yml` runner round out the gates.
 
 ## How it ships
 

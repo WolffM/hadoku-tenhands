@@ -38,7 +38,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: [['html', { open: 'never' }]],
+  // The JSON report is what CI's report-tests step posts to the fleet test
+  // store (hadoku_site docs/planning/unified-test-reporting-2026-11-23.md).
+  reporter: [
+    ['html', { open: 'never' }],
+    ['json', { outputFile: 'reports/playwright-e2e.json' }]
+  ],
 
   use: {
     baseURL: FRONTEND_URL,
