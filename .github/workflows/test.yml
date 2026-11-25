@@ -100,6 +100,7 @@ jobs:
             -r backend/requirements-dev.txt
 
       - name: Run tests
+        id: tests
         working-directory: backend
         # Everything except the real-CLI judge test, which runs in
         # `judge-integration` below. That test spends the Claude account's
@@ -116,7 +117,7 @@ jobs:
       # docs/planning/unified-test-reporting-2026-11-23.md). Advisory: it never
       # fails the job.
       - name: Report the backend tests
-        if: always()
+        if: always() && steps.tests.outcome != 'skipped'
         uses: WolffM/hadoku-actions/report-tests@v1
         with:
           suite: backend
@@ -445,6 +446,7 @@ jobs:
             -r backend/requirements.txt \
             -r backend/requirements-dev.txt
       - name: Run tests (mocked subset)
+        id: tests
         working-directory: backend
         run: python -m pytest tests/ -q --deselect tests/temporal/test_judge.py::test_score_integration_real_cli --junitxml="$RUNNER_TEMP/pytest-backend-fork.xml"
 
@@ -453,7 +455,7 @@ jobs:
       # fails the job. A fork PR has no secrets: the key is empty and the
       # document is printed but not posted.
       - name: Report the backend tests (fork)
-        if: always()
+        if: always() && steps.tests.outcome != 'skipped'
         uses: WolffM/hadoku-actions/report-tests@v1
         with:
           suite: backend-fork
